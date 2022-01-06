@@ -1,5 +1,5 @@
-<img src="https://github.com/MouseLand/cellpose/blob/master/cellpose/omnipose/logo3.png?raw=true" width="200" title="bacteria" alt="bacteria" align="right" vspace = "0">
-<img src="https://github.com/MouseLand/cellpose/blob/master/cellpose/omnipose/logo.png?raw=true" width="200" title="omnipose" alt="omnipose" align="center" vspace = "0">
+<img src="https://github.com/kevinjohncutler/omnipose/blob/main/logo3.png?raw=true" width="200" title="bacteria" alt="bacteria" align="right" vspace = "0">
+<img src="https://github.com/kevinjohncutler/omnipose/blob/main/logo.png?raw=true" width="200" title="omnipose" alt="omnipose" align="center" vspace = "0">
 
 ### Why use Omnipose
 Omnipose solves the over-segmentation problems of Cellpose on large, ansiotropic cells. This is particularly relevant for bacterial cells, but Omnipose is suitable for aribtrary cell shapes.
