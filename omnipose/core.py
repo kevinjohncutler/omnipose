@@ -2,7 +2,7 @@ import numpy as np
 from numba import njit
 import cv2
 import edt
-from scipy.ndimage import binary_dilation, binary_opening, label
+from scipy.ndimage import binary_dilation, binary_opening, label #again I need to test against skimage labelling
 
 from . import utils
 
