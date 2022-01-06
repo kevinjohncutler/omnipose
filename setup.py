@@ -14,7 +14,7 @@ setup(
     description="cell segmentation algorithm improving on the Cellpose framework",
     long_description=long_description,
     long_description_content_type="text/markdown",
-    url="https://github.com/kevinjohncutler/ncolor",
+    url="https://github.com/kevinjohncutler/omnipose",
     setup_requires=[
       'pytest-runner',
       'setuptools_scm',

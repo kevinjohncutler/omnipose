@@ -1,11 +1,8 @@
 import numpy as np
 # from cellpose.dynamics import SKIMAGE_ENABLED #circular import error 
 from scipy.ndimage.morphology import binary_dilation, binary_erosion
-from scipy.ndimage import generate_binary_structure, label
-import edt 
-import random
+from scipy.ndimage import label # used as alternative to skimage.measure.label, need to test speed and output...
 import fastremap
-import ncolor.label as ncolorlabel
 
 try:
     from skimage import measure
