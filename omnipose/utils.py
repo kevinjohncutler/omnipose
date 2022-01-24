@@ -4,6 +4,8 @@ from scipy.ndimage.morphology import binary_dilation, binary_erosion
 from scipy.ndimage import label # used as alternative to skimage.measure.label, need to test speed and output...
 import fastremap
 
+
+
 try:
     from skimage import measure
     SKIMAGE_ENABLED = True 
@@ -62,7 +64,7 @@ def clean_boundary(labels,boundary_thickness=3,area_thresh=30):
 # Should work for 3D too. Could put into usigned integer form at the end... 
 # Also could use some parallelization 
 
-def format_labels(labels, clean=False, min_area=9):
+def format_labels(labels, clean=False, min_area=9, verbose=True):
     """
     Puts labels into 'standard form', i.e. background=0 and cells 1,2,3,...,N-1,N.
     Optional clean flag: disconnect and disjoint masks and discard small masks beflow min_area. 
@@ -87,21 +89,25 @@ def format_labels(labels, clean=False, min_area=9):
                 regions = measure.regionprops(lbl)
                 regions.sort(key=lambda x: x.area, reverse=True)
                 if len(regions) > 1:
-                    print('Warning - found mask with disjoint label.')
+                    if verbose:
+                        print('Warning - found mask with disjoint label.')
                     for rg in regions[1:]:
                         if rg.area <= min_area:
                             labels[rg.coords[:,0], rg.coords[:,1]] = 0
-                            print('secondary disjoint part smaller than min_area. Removing it.')
+                            if verbose:
+                                print('secondary disjoint part smaller than min_area. Removing it.')
                         else:
-                            print('secondary disjoint part bigger than min_area, relabeling. Area:',rg.area, 
-                                    'Label value:',np.unique(labels[rg.coords[:,0], rg.coords[:,1]]))
-                            labels[rg.coords[:,0], rg.coords[:,1]] = np.max(labels)+1
+                            if verbose:
+                                print('secondary disjoint part bigger than min_area, relabeling. Area:',rg.area, 
+                                        'Label value:',np.unique(labels[tuple(rg.coords.T)]))
+                            labels[tuple(rg.coords.T)] = np.max(labels)+1
                             
                 rg0 = regions[0]
                 if rg0.area <= min_area:
-                    labels[rg0.coords[:,0], rg0.coords[:,1]] = 0
-                    print('Warning - found mask area less than', min_area)
-                    print('Removing it.')
+                    labels[tuple(rg0.coords.T)] = 0
+                    if verbose:
+                        print('Warning - found mask area less than', min_area)
+                        print('Removing it.')
             else:
                 connectivity_shape = np.array([3 for i in range(mask.ndim)])
                 lbl = label(mask, connectivity=np.ones(connectivity_shape))[0]
@@ -111,5 +117,11 @@ def format_labels(labels, clean=False, min_area=9):
     labels = fastremap.refit(labels) # put into smaller data type if possible 
     return labels
 
+# get the number of m-dimensional hypercubes connected to the n-cube
+def cubestats(n):
+    faces = []
+    for m in range(n+1):
+          faces.append((2**(n-m))*math.comb(n,m))
+    return faces
 
 
