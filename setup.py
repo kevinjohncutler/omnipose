@@ -2,7 +2,7 @@ import setuptools
 from setuptools import setup
 
 install_deps = ['numpy>=1.20.0', 'scipy', 'numba', 
-                'edt','scikit-image','cellpose']
+                'edt','scikit-image','cellpose','ncolor']
 
 with open("README.md", "r") as fh:
     long_description = fh.read()
