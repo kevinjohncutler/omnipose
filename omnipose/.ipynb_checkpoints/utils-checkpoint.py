@@ -1,9 +1,10 @@
 import numpy as np
 # from cellpose.dynamics import SKIMAGE_ENABLED #circular import error 
 from scipy.ndimage.morphology import binary_dilation, binary_erosion
+from skimage.morphology import remove_small_holes
 from scipy.ndimage import label # used as alternative to skimage.measure.label, need to test speed and output...
 import fastremap
-
+import mahotas as mh
 
 
 try:
@@ -13,23 +14,114 @@ except:
     SKIMAGE_ENABLED = False
 
 def normalize_field(mu):
+    """ normalize all nonzero field vectors to magnitude 1
+    
+    Parameters
+    ----------
+    mu: ndarray, float
+        Component array of lenth N by L1 by L2 by ... by LN. 
+    
+    Returns
+    --------------
+    normalized component array of identical size. 
+    """
     mag = np.sqrt(np.nansum(mu**2,axis=0))
-    m = mag>0
-    mu = np.divide(mu, mag, out=np.zeros_like(mu), where=np.logical_and(mag!=0,~np.isnan(mag)))        
-    return mu
+    # m = mag>0
+    # mu = np.divide(mu, mag, out=np.zeros_like(mu), where=np.logical_and(mag!=0,~np.isnan(mag)))        
+    # return mu
+    return safe_divide(mu,mag)
 
+
+def safe_divide(num,den):
+    """ Division ignoring zeros and NaNs in the denominator.""" 
+    return np.divide(num, den, out=np.zeros_like(num), 
+                     where=np.logical_and(den!=0,~np.isnan(den)))        
+    
 def normalize99(Y,lower=0.01,upper=99.99):
-    """ normalize image so 0.0 is 0.01st percentile and 1.0 is 99.99th percentile """
+    """ normalize image so 0.0 is 0.01st percentile and 1.0 is 99.99th percentile 
+    Upper and lower percentile ranges configurable. 
+    
+    Parameters
+    ----------
+    Y: ndarray, float
+        Component array of lenth N by L1 by L2 by ... by LN. 
+    upper: float
+        upper percentile above which pixels are sent to 1.0
+    
+    lower: float
+        lower percentile below which pixels are sent to 0.0
+    
+    Returns
+    --------------
+    normalized array with a minimum of 0 and maximum of 1
+    
+    """
     X = Y.copy()
     return np.interp(X, (np.percentile(X, lower), np.percentile(X, upper)), (0, 1))
 
 def normalize_image(im,mask,bg=0.5):
-    """ Normalize image by rescaling fro 0 to 1 and then adjusting gamma to bring average background to bg."""
+    """ Normalize image by rescaling from 0 to 1 and then adjusting gamma to bring 
+    average background to specified value (0.5 by default).
+    
+    Parameters
+    ----------
+    im: ndarray, float
+        input image or volume
+        
+    mask: ndarray, int or bool
+        input labels or foreground mask
+    
+    Returns
+    --------------
+    gamma-normalized array with a minimum of 0 and maximum of 1
+    
+    """
     im = rescale(im)
     return im**(np.log(bg)/np.log(np.mean(im[binary_erosion(mask==0)])))
 
-# Generate a color dictionary for use in visualizing N-colored labels.  
+def bbox_to_slice(bbox,shape,pad=0):
+    """
+    return the tuple of slices for cropping an image based on the skimage.measure bounding box
+    optional padding allows for the bounding box to be expanded, but not outside the original image dinensions 
+    
+    Parameters
+    ----------
+    bbox: ndarray, float
+        input bounding box, e.g. [y0,x0,y1,x1]
+        
+    shape: array, tuple, or list, int
+        shape of corresponding array to be sliced
+    
+    pad: array, tuple, or list, int
+        padding to be applied to each edge of the bounding box
+        can be a common padding or a list of each axis padding 
+    
+    Returns
+    --------------
+    tuple of slices 
+    
+    """
+    if type(pad) is int:
+        pad = [pad]*len(shape)
+    return tuple([slice(max(0,bbox[n]-pad[n]),min(bbox[n+2]+pad[n],shape[n])) for n in range(len(bbox)//2)])
+
 def sinebow(N,bg_color=[0,0,0,0]):
+    """ Generate a color dictionary for use in visualizing N-colored labels. Background color 
+    defaults to transparent black. 
+    
+    Parameters
+    ----------
+    N: int
+        number of distinct colors to generate (excluding background)
+        
+    bg_color: ndarray, list, or tuple of length 4
+        RGBA values specifying the background color at the front of the  dictionary.
+    
+    Returns
+    --------------
+    Dictionary with entries {int:RGBA array} to map integer labels to RGBA colors. 
+    
+    """
     colordict = {0:bg_color}
     for j in range(N): 
         angle = j*2*np.pi / (N)
@@ -46,8 +138,20 @@ def rescale(T):
 
 # Kevin's version of remove_edge_masks, need to merge (this one is more flexible)
 def clean_boundary(labels,boundary_thickness=3,area_thresh=30):
-    """Delete boundary masks below a given size threshold. Default boundary thickness is 3px,
-    meaning masks that are 3 or fewer pixels from the boudnary will be candidates for removal. 
+    """Delete boundary masks below a given size threshold within a certain distance from the boundary. 
+    
+    Parameters
+    ----------
+    boundary_thickness: int
+        labels within a stripe of this thickness along the boundary will be candidates for removal. 
+        
+    area_thresh: int
+        labels with area below this value will be removed. 
+    
+    Returns
+    --------------
+    label matrix with small edge labels removed. 
+    
     """
     border_mask = np.zeros(labels.shape, dtype=bool)
     border_mask = binary_dilation(border_mask, border_value=1, iterations=boundary_thickness)
@@ -64,7 +168,7 @@ def clean_boundary(labels,boundary_thickness=3,area_thresh=30):
 # Should work for 3D too. Could put into usigned integer form at the end... 
 # Also could use some parallelization 
 
-def format_labels(labels, clean=False, min_area=9, verbose=True):
+def format_labels(labels, clean=False, min_area=9, despur=False, verbose=False):
     """
     Puts labels into 'standard form', i.e. background=0 and cells 1,2,3,...,N-1,N.
     Optional clean flag: disconnect and disjoint masks and discard small masks beflow min_area. 
@@ -84,6 +188,9 @@ def format_labels(labels, clean=False, min_area=9, verbose=True):
         inds = np.unique(labels)
         for j in inds[inds>0]:
             mask = labels==j
+            if despur:
+                mask = delete_spurs(mask) #needs updating for ND 
+            
             if SKIMAGE_ENABLED:
                 lbl = measure.label(mask)                       
                 regions = measure.regionprops(lbl)
@@ -93,7 +200,7 @@ def format_labels(labels, clean=False, min_area=9, verbose=True):
                         print('Warning - found mask with disjoint label.')
                     for rg in regions[1:]:
                         if rg.area <= min_area:
-                            labels[rg.coords[:,0], rg.coords[:,1]] = 0
+                            labels[tuple(rg.coords.T)] = 0
                             if verbose:
                                 print('secondary disjoint part smaller than min_area. Removing it.')
                         else:
@@ -124,90 +231,69 @@ def cubestats(n):
           faces.append((2**(n-m))*math.comb(n,m))
     return faces
 
+def delete_spurs(mask):
+    pad = 1
+    #must fill single holes in image to avoid cusps causing issues. Will limit to holes of size ___
+    skel = remove_small_holes(np.pad(mask,pad,mode='constant'),5)
 
-# duplicated from cellpose temporarily 
-def fill_holes_and_remove_small_masks(masks, min_size=15, hole_size=3, scale_factor=1):
-    """ fill holes in masks (2D/3D) and discard masks smaller than min_size (2D)
+    nbad = 1
+    niter = 0
+    while (nbad > 0):
+        bad_points = endpoints(skel) 
+        skel = np.logical_and(skel,np.logical_not(bad_points))
+        nbad = np.sum(bad_points)
+        niter+=1
     
-    fill holes in each mask using scipy.ndimage.morphology.binary_fill_holes
+    unpad =  tuple([slice(pad,-pad)]*skel.ndim)
+    skel = skel[unpad] #unpad
+
+    return skel
+
+# this still  only works for 2D
+def endpoints(skel):
+    pad = 1 # appears to require padding to work properly....
+    skel = np.pad(skel,pad)
+    endpoint1=np.array([[0, 0, 0],
+                        [0, 1, 0],
+                        [2, 1, 2]])
     
-    Parameters
-    ----------------
-
-    masks: int, 2D or 3D array
-        labelled masks, 0=NO masks; 1,2,...=mask labels,
-        size [Ly x Lx] or [Lz x Ly x Lx]
-
-    min_size: int (optional, default 15)
-        minimum number of pixels per mask, can turn off with -1
-
-    Returns
-    ---------------
-
-    masks: int, 2D or 3D array
-        masks with holes filled and masks smaller than min_size removed, 
-        0=NO masks; 1,2,...=mask labels,
-        size [Ly x Lx] or [Lz x Ly x Lx]
+    endpoint2=np.array([[0, 0, 0],
+                        [0, 1, 2],
+                        [0, 2, 1]])
     
-    """
-
-    if masks.ndim==2:
-        # formatting to integer is critical
-        # need to test how it does with 3D
-        masks = ncolor.format_labels(masks, min_area=min_size)
-        
-    hole_size *= scale_factor
-        
-    if masks.ndim > 3 or masks.ndim < 2:
-        raise ValueError('masks_to_outlines takes 2D or 3D array, not %dD array'%masks.ndim)
+    endpoint3=np.array([[0, 0, 2],
+                        [0, 1, 1],
+                        [0, 0, 2]])
     
-    slices = find_objects(masks)
-    j = 0
-    for i,slc in enumerate(slices):
-        if slc is not None:
-            msk = masks[slc] == (i+1)
-            npix = msk.sum()
-            if min_size > 0 and npix < min_size:
-                masks[slc][msk] = 0
-            else:   
-                hsz = np.count_nonzero(msk)*hole_size/100 #turn hole size into percentage
-                #eventually the boundary output should be used to properly exclude real holes vs label gaps 
-                if msk.ndim==3:
-                    for k in range(msk.shape[0]):
-                        # Omnipose version (breaks 3D tests)
-                        # padmsk = remove_small_holes(np.pad(msk[k],1,mode='constant'),hsz)
-                        # msk[k] = padmsk[1:-1,1:-1]
-                        
-                        #Cellpose version
-                        msk[k] = binary_fill_holes(msk[k])
-
-                else:          
-                    if SKIMAGE_ENABLED: # Omnipose version (passes 2D tests)
-                        padmsk = remove_small_holes(np.pad(msk,1,mode='constant'),hsz)
-                        msk = padmsk[1:-1,1:-1]
-                    else: #Cellpose version
-                        msk = binary_fill_holes(msk)
-                masks[slc][msk] = (j+1)
-                j+=1
-    return masks
-
-
-    # if masks.ndim > 3 or masks.ndim < 2:
-    #     raise ValueError('fill_holes_and_remove_small_masks takes 2D or 3D array, not %dD array'%masks.ndim)
-    # slices = find_objects(masks)
-    # j = 0
-    # for i,slc in enumerate(slices):
-    #     if slc is not None:
-    #         msk = masks[slc] == (i+1)
-    #         npix = msk.sum()
-    #         if min_size > 0 and npix < min_size:
-    #             masks[slc][msk] = 0
-    #         else:    
-    #             if msk.ndim==3:
-    #                 for k in range(msk.shape[0]):
-    #                     msk[k] = binary_fill_holes(msk[k])
-    #             else:
-    #                 msk = binary_fill_holes(msk)
-    #             masks[slc][msk] = (j+1)
-    #             j+=1
-    # return masks
+    endpoint4=np.array([[0, 2, 1],
+                        [0, 1, 2],
+                        [0, 0, 0]])
+    
+    endpoint5=np.array([[2, 1, 2],
+                        [0, 1, 0],
+                        [0, 0, 0]])
+    
+    endpoint6=np.array([[1, 2, 0],
+                        [2, 1, 0],
+                        [0, 0, 0]])
+    
+    endpoint7=np.array([[2, 0, 0],
+                        [1, 1, 0],
+                        [2, 0, 0]])
+    
+    endpoint8=np.array([[0, 0, 0],
+                        [2, 1, 0],
+                        [1, 2, 0]])
+    
+    ep1=mh.morph.hitmiss(skel,endpoint1)
+    ep2=mh.morph.hitmiss(skel,endpoint2)
+    ep3=mh.morph.hitmiss(skel,endpoint3)
+    ep4=mh.morph.hitmiss(skel,endpoint4)
+    ep5=mh.morph.hitmiss(skel,endpoint5)
+    ep6=mh.morph.hitmiss(skel,endpoint6)
+    ep7=mh.morph.hitmiss(skel,endpoint7)
+    ep8=mh.morph.hitmiss(skel,endpoint8)
+    ep = ep1+ep2+ep3+ep4+ep5+ep6+ep7+ep8
+    unpad =  tuple([slice(pad,-pad)]*ep.ndim)
+    ep = ep[unpad]
+    return ep

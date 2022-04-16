@@ -2,7 +2,7 @@
 <img src="https://github.com/kevinjohncutler/omnipose/blob/main/logo.png?raw=true" width="200" title="omnipose" alt="omnipose" align="center" vspace = "0">
 
 ### Why use Omnipose
-Omnipose solves the over-segmentation problems of Cellpose on large, ansiotropic cells. This is particularly relevant for bacterial cells, but Omnipose is suitable for aribtrary cell shapes.
+Omnipose solves the over-segmentation problems of Cellpose on large, ansiotropic objects. This is particularly relevant for bacterial cell segmentation, but Omnipose is suitable for aribtrary object shapes. 
 
 ### How to use Omnipose
 To use Omnipose on bacterial cells, use `model_type=bact_omni`. For other cell types, try `model_type=cyto2_omni`. You can also use your own Cellpose models with `omni=True` to use the Omnipose mask reconstruction algorithm to alleviate over-segmentation. 
