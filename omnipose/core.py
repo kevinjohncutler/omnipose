@@ -436,10 +436,11 @@ def update_torch(a,f):
 
 ### Section II: mask recontruction
 
-def compute_masks(dP, dist, bd=None, p=None, inds=None, niter=200, mask_threshold=0.0, diam_threshold=12.,
-                   flow_threshold=0.4, interp=True, cluster=False, do_3D=False, 
-                   min_size=15, resize=None, omni=True, calc_trace=False, verbose=False,
-                   use_gpu=False, device=None, nclasses=3, dim=2):
+# I should try to simplify resize and rescale if possible, sort of redundant 
+def compute_masks(dP, dist, bd=None, p=None, inds=None, niter=200, rescale=1.0, resize=None, 
+                  mask_threshold=0.0, diam_threshold=12.,flow_threshold=0.4, 
+                  interp=True, cluster=False, do_3D=False, min_size=15,  omni=True, 
+                  calc_trace=False, verbose=False, use_gpu=False, device=None, nclasses=3, dim=2):
     """ compute masks using dynamics from dP, dist, and boundary """
     if verbose:
          omnipose_logger.info('mask_threshold is %f',mask_threshold)
@@ -452,15 +453,16 @@ def compute_masks(dP, dist, bd=None, p=None, inds=None, niter=200, mask_threshol
         mask = dist > mask_threshold # analog to original iscell=(cellprob>cellprob_threshold)
     # print('dist',np.nanmax(dist),np.nanmin(dist),dist.shape)
     if np.any(mask): #mask at this point is a cell cluster binary map, not labels 
-        
+        niter = get_niter(dist)
+        print('newniter',niter)
         #preprocess flows
         if omni and OMNI_INSTALLED:
             # the interpolated version of div_rescale is detrimental in 3D
             # the problem is thin sections where the 
-            dP_ = div_rescale(dP,mask) ##### omnipose.core.div_rescale
+            dP_ = div_rescale(dP,mask) / rescale ##### omnipose.core.div_rescale
             # dP_ = dP.copy()
             if dim>2:
-                print('warning, div not times 3 for 3d')
+                print('warning, div not times 3 for 3d, still experimenting')
             # n = 3
             # dP_ = dP*(1-np.clip(dist,0,n)/n) # This may nit work very well for real flows 
             # dP_ = dP.copy() # need to generalize the divergence code
@@ -485,7 +487,7 @@ def compute_masks(dP, dist, bd=None, p=None, inds=None, niter=200, mask_threshol
             mask = get_masks_cp(p, iscell=mask, flows=dP, use_gpu=use_gpu) ### just get_masks
             
         # flow thresholding factored out of get_masks
-        if not do_3D:
+        if not do_3D: 
             shape0 = p.shape[1:]
             flows = dP
             if mask.max()>0 and flow_threshold is not None and flow_threshold > 0 and flows is not None:
@@ -1125,14 +1127,13 @@ def random_crop_warp(img, Y, nt, tyx, nchan, scale, rescale, scale_range, gamma_
     
     dim = len(tyx)
     # np.random.seed(depth)
-    print('fffff')
     if depth>100:
         error_message = 'Sparse or over-dense image detected. Problematic index is: '+str(ind)+' Image shape is: '+str(img.shape)+' tyx is: '+str(tyx)+' rescale is '+str(rescale)
         omnipose_logger.critical(error_message)
         # skimage.io.imsave('/home/kcutler/DataDrive/debug/img'+str(depth)+'.png',img[0]) 
         raise ValueError(error_message)
     
-    if depth>500:
+    if depth>200:
         error_message = 'Recusion depth exceeded. Check that your images contain cells and background within a typical crop. Failed index is: '+str(ind)
         omnipose_logger.critical(error_message)
         raise ValueError(error_message)
@@ -1169,31 +1170,25 @@ def random_crop_warp(img, Y, nt, tyx, nchan, scale, rescale, scale_range, gamma_
     v1 = [0]*(dim-1)+[1]
     v2 = [0]*(dim-2)+[1,0]
     # M = mgen.rotation_from_angle_and_plane(theta,v1,v2) #not generalizing correctly to 3D? had -theta before  
-    M = mgen.rotation_from_angle_and_plane(-theta,v2,v1).dot(np.diag(1/scale)) #equivalent
-    
+    M = mgen.rotation_from_angle_and_plane(-theta,v2,v1).dot(np.diag(scale)) #equivalent
     # could define v3 and do another rotation here and compose them 
 
     axes = range(dim)
     s = img.shape[-dim:]
-    dxy = np.maximum(0, np.array([s[a]*scale[a]-tyx[a] for a in axes])) # difference between image dim and desired image dim along each axis
-
-    dxy = (np.random.rand(dim,) - .5) * dxy
-    print(scale,dxy)
-    cc = np.array([s[a]/2 for a in axes]) 
-    cc1 = cc-(np.array(tyx)/2).dot(M) + dxy #<<< the dot is crucial
-    # cc1 = (np.array(tyx)/2).dot(M) + dxy #<<< the dot is crucial
+    rt = (np.random.rand(dim,) - .5) #random translation -.5 to .5
+    dxy = [rt[a]*(np.maximum(0,s[a]-tyx[a])) for a in axes]
     
-    # print('translate',dxy,s,axes)
-    M = np.vstack((M,cc1))
+    c_in = 0.5 * np.array(s) + dxy
+    c_out = 0.5 * np.array(tyx)
+    offset = c_in - np.dot(np.linalg.inv(M), c_out)
+    
+    # M = np.vstack((M,offset))
 
-    # print('tranform',theta)
     if Y is not None:
         for k in [i for i in range(nt) if i not in range(2,5)]:
-            # print(k,'h')
             l = labels[k].copy()
             if k==0:
-                # print('before_warp',len(np.unique(l)))
-                lbl[k] = do_warp(l, M, tyx, order=0) # I think order 0 is nearest 
+                lbl[k] = do_warp(l, M, tyx, offset=offset, order=0) # I think order 0 is nearest 
                 # check to make sure the region contains at enough cell pixels; if not, retry
                 cellpx = np.sum(lbl[k]>0)
                 cutoff = (numpx/10**(dim+1)) # .1 percent of pixels must be cells
@@ -1205,7 +1200,7 @@ def random_crop_warp(img, Y, nt, tyx, nchan, scale, rescale, scale_range, gamma_
                     return random_crop_warp(img, Y, nt, tyx, nchan, scale, rescale, scale_range, 
                                             gamma_range, do_flip, ind, dist_bg, depth=depth+1)
             else:
-                lbl[k] = do_warp(l, M, tyx)
+                lbl[k] = do_warp(l, M, tyx, offset=offset)
                 # if k==1:
                 #     print('fgd', np.sum(lbl[k]))
         
@@ -1240,13 +1235,12 @@ def random_crop_warp(img, Y, nt, tyx, nchan, scale, rescale, scale_range, gamma_
             for d in range(dim-2):
                 dt = lbl[d-dim].copy()
                 lbl[d-dim] = 5.*dt*mask
-                print('dt',d-dim)
     
     # Makes more sense to spend time on image augmentations
     # after the label augmentation succeeds without triggering recursion 
     imgi  = np.zeros((nchan,)+tyx, np.float32)
     for k in range(nchan): # replace k with slice that handles when nchan=0
-        I = do_warp(img[k], M, tyx)
+        I = do_warp(img[k], M, tyx, offset=offset)
         
         # gamma agumentation 
         gamma = np.random.uniform(low=1-dg,high=1+dg) 
@@ -1273,7 +1267,6 @@ def random_crop_warp(img, Y, nt, tyx, nchan, scale, rescale, scale_range, gamma_
         im = (imgi[k]*(2**16-1)).astype(np.uint16)
         imgi[k] = utils.normalize99(im>>bit_shift)
     
-    # print('fdgfdgffffffff', [np.any(lbl[l]) for l in range(8)])
     
     # Moved to the end because it conflicted with the recursion. 
     # Also, flipping the crop is ultimately equivalent and slightly faster.         
@@ -1282,7 +1275,6 @@ def random_crop_warp(img, Y, nt, tyx, nchan, scale, rescale, scale_range, gamma_
         for d in range(1,dim+1):
             flip = np.random.choice([0,1])
             if flip:
-                # print('flip',d-1)
                 imgi = np.flip(imgi,axis=-d) 
                 if Y is not None:
                     lbl = np.flip(lbl,axis=-d)
@@ -1291,7 +1283,7 @@ def random_crop_warp(img, Y, nt, tyx, nchan, scale, rescale, scale_range, gamma_
         
     return imgi, lbl, scale
 
-def do_warp(A,M,tyx,order=1):#,mode,method):
+def do_warp(A,M,tyx,offset=0,order=1):#,mode,method):
     """ Wrapper function for affine transformations during augmentation. 
     Uses scipy.ndimage.affine_transform()
         
@@ -1313,7 +1305,7 @@ def do_warp(A,M,tyx,order=1):#,mode,method):
     #     return np.stack([cv2.warpAffine(A[k], M, rshape, borderMode=mode, flags=method) for k in range(A.shape[0])])
     # print('debug',A.shape,M.shape,tyx)
     
-    return scipy.ndimage.affine_transform(A,M.T,output_shape=tyx, order=order)
+    return scipy.ndimage.affine_transform(A, np.linalg.inv(M), offset=offset, output_shape=tyx, order=order)
     
 
 
@@ -1583,12 +1575,11 @@ def fill_holes_and_remove_small_masks(masks, min_size=15, hole_size=3, scale_fac
         size [Ly x Lx] or [Lz x Ly x Lx]
     
     """
-    print('fgfdgfg',masks.dtype)
-    if masks.ndim==2 or dim>2:
-        print('here')
+    # if masks.ndim==2 or dim>2:
+    #     print('here')
         # formatting to integer is critical
         # need to test how it does with 3D
-    masks = ncolor.format_labels(masks, min_area=min_size)
+    masks = utils.format_labels(masks, min_area=min_size)
         
     hole_size *= scale_factor
         
