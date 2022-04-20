@@ -76,8 +76,9 @@ def dist_to_diam(dt_pos,n):
     return 2*(n+1)*np.mean(dt_pos)
 #     return np.exp(3/2)*gmean(dt_pos[dt_pos>=gmean(dt_pos)])
 
-def diameters(masks,dist_threshold=0):
-    dt = edt.edt(np.int32(masks))
+def diameters(masks,dt=None,dist_threshold=0):
+    if dt is None:
+        dt = edt.edt(np.int32(masks))
     dt_pos = np.abs(dt[dt>dist_threshold])
     return dist_to_diam(np.abs(dt_pos),masks.ndim)
 
@@ -190,7 +191,7 @@ def masks_to_flows(masks, dists=None, use_gpu=False, device=None, omni=True, dim
 
     if dists is None:
         masks = ncolor.format_labels(masks)
-        dists = edt.edt(masks)
+        dists = edt.edt(masks,parallel=8)
         
     if device is None:
         if use_gpu:
@@ -223,11 +224,14 @@ def masks_to_flows(masks, dists=None, use_gpu=False, device=None, omni=True, dim
         if omni and OMNI_INSTALLED: 
             # padding helps avoid edge artifacts from cut-off cells 
             # amount of padding should depend on how wide the cells are 
-            pad = int(diameters(masks))
-            masks_pad = np.pad(masks,pad,mode='reflect')
-            dists_pad = np.pad(dists,pad,mode='reflect')
-            mu, T = masks_to_flows_device(masks_pad, dists_pad, device=device, omni=omni)
-            unpad =  tuple([slice(pad,-pad)]*masks.ndim)
+            pad = int(diameters(masks,dists)/2)
+            unpad = tuple([slice(pad,-pad)]*masks.ndim)
+            # reflect over those masks with high distance at the boundary, relevant when cropping 
+            # stop one: remove any masks we do not want to reflect, then perform reflection padding
+            masks_pad = np.pad(utils.get_edge_masks(masks,dists=dists),pad,mode='reflect') 
+            masks_pad[unpad] = masks # restore the masks in the original area
+            mu, T = masks_to_flows_device(masks_pad, dists, device=device, omni=omni)
+            
             return masks, dists, T[unpad], mu[(Ellipsis,)+unpad]
             # return masks, dists, T[pad:-pad,pad:-pad], mu[:,pad:-pad,pad:-pad]
 
@@ -454,7 +458,7 @@ def compute_masks(dP, dist, bd=None, p=None, inds=None, niter=200, rescale=1.0, 
     # print('dist',np.nanmax(dist),np.nanmin(dist),dist.shape)
     if np.any(mask): #mask at this point is a cell cluster binary map, not labels 
         niter = get_niter(dist)
-        print('newniter',niter)
+        # print('newniter',niter)
         #preprocess flows
         if omni and OMNI_INSTALLED:
             # the interpolated version of div_rescale is detrimental in 3D
@@ -562,7 +566,7 @@ def get_masks(p,bd,dist,mask,inds,nclasses=4,cluster=False,diam_threshold=12.,ve
         # eps = 1/np.sqrt(3)
 
     else: #backwards compatibility, doesn't help for *clusters* of thin/small cells
-        d = diameters(mask)
+        d = diameters(mask,dist)
         eps = np.sqrt(2)
     
     # The mean diameter can inform whether or not the cells are too small to form contiguous blobs.
@@ -1183,12 +1187,12 @@ def random_crop_warp(img, Y, nt, tyx, nchan, scale, rescale, scale_range, gamma_
     offset = c_in - np.dot(np.linalg.inv(M), c_out)
     
     # M = np.vstack((M,offset))
-
+    mode = 'reflect'
     if Y is not None:
-        for k in [i for i in range(nt) if i not in range(2,5)]:
+        for k in [0,1]:#[i for i in range(nt) if i not in range(2,5)]: used to do firsrt two and flows, now just first two
             l = labels[k].copy()
             if k==0:
-                lbl[k] = do_warp(l, M, tyx, offset=offset, order=0) # I think order 0 is nearest 
+                lbl[k] = do_warp(l, M, tyx, offset=offset, order=0, mode=mode) # order 0 is 'nearest neighbor'
                 # check to make sure the region contains at enough cell pixels; if not, retry
                 cellpx = np.sum(lbl[k]>0)
                 cutoff = (numpx/10**(dim+1)) # .1 percent of pixels must be cells
@@ -1200,7 +1204,7 @@ def random_crop_warp(img, Y, nt, tyx, nchan, scale, rescale, scale_range, gamma_
                     return random_crop_warp(img, Y, nt, tyx, nchan, scale, rescale, scale_range, 
                                             gamma_range, do_flip, ind, dist_bg, depth=depth+1)
             else:
-                lbl[k] = do_warp(l, M, tyx, offset=offset)
+                lbl[k] = do_warp(l, M, tyx, offset=offset, mode=mode)
                 # if k==1:
                 #     print('fgd', np.sum(lbl[k]))
         
@@ -1209,38 +1213,26 @@ def random_crop_warp(img, Y, nt, tyx, nchan, scale, rescale, scale_range, gamma_
             
             mask = lbl[1]
             l = lbl[0].astype(np.uint16)
-            dist = edt.edt(l,parallel=8) 
+            l, dist, T, mu = masks_to_flows(l,omni=True)
+            # dist = edt.edt(l,parallel=8) 
             lbl[2] = dist==1 # position 2 stores the boundary field
-            
-            smooth_dist = smooth_distance(l,dist)
+            smooth_dist = T
             smooth_dist[dist<=0] = -dist_bg
             lbl[3] = smooth_dist # position 3 stores the smooth distance field 
+            lbl[-dim:] = mu*5.0 #oops, forgot this needs to be x5.0 for training
+
             # print('dists',np.max(dist),np.max(smooth_dist))
             # the black border may not be good in 3D, as it highlights a larger fraction? 
             bg_edt = edt.edt(mask<0.5,black_border=True) #last arg gives weight to the border, which seems to always lose
-            cutoff = 9
+            cutoff = diameters(mask,dist)/2
             lbl[4] = (gaussian(1-np.clip(bg_edt,0,cutoff)/cutoff, 1)+0.5)
-            
-            v1 = lbl[-1].copy() # x component in last slice 
-            v2 = lbl[-2].copy() # y component in penultimate slice 
-            dy = (-v1 * np.sin(-theta) + v2*np.cos(-theta))
-            dx = (v1 * np.cos(-theta) + v2*np.sin(-theta))
-            
-            # factor of 5 is applied here to rescale flow components to [-5,5] range 
-            # also zero out where there is no mask for 'perfect' agreement with other fields 
-            lbl[-1] = 5.*dx*mask 
-            lbl[-2] = 5.*dy*mask
 
-            # no rotation to other flow components, but need to rescale 
-            for d in range(dim-2):
-                dt = lbl[d-dim].copy()
-                lbl[d-dim] = 5.*dt*mask
-    
+
     # Makes more sense to spend time on image augmentations
     # after the label augmentation succeeds without triggering recursion 
     imgi  = np.zeros((nchan,)+tyx, np.float32)
     for k in range(nchan): # replace k with slice that handles when nchan=0
-        I = do_warp(img[k], M, tyx, offset=offset)
+        I = do_warp(img[k], M, tyx, offset=offset, mode=mode)
         
         # gamma agumentation 
         gamma = np.random.uniform(low=1-dg,high=1+dg) 
@@ -1283,7 +1275,7 @@ def random_crop_warp(img, Y, nt, tyx, nchan, scale, rescale, scale_range, gamma_
         
     return imgi, lbl, scale
 
-def do_warp(A,M,tyx,offset=0,order=1):#,mode,method):
+def do_warp(A,M,tyx,offset=0,order=1,mode='constant'):#,mode,method):
     """ Wrapper function for affine transformations during augmentation. 
     Uses scipy.ndimage.affine_transform()
         
@@ -1305,7 +1297,8 @@ def do_warp(A,M,tyx,offset=0,order=1):#,mode,method):
     #     return np.stack([cv2.warpAffine(A[k], M, rshape, borderMode=mode, flags=method) for k in range(A.shape[0])])
     # print('debug',A.shape,M.shape,tyx)
     
-    return scipy.ndimage.affine_transform(A, np.linalg.inv(M), offset=offset, output_shape=tyx, order=order)
+    return scipy.ndimage.affine_transform(A, np.linalg.inv(M), offset=offset, 
+                                          output_shape=tyx, order=order, mode=mode)
     
 
 

@@ -137,7 +137,7 @@ def rescale(T):
     return T
 
 # Kevin's version of remove_edge_masks, need to merge (this one is more flexible)
-def clean_boundary(labels,boundary_thickness=3,area_thresh=30):
+def clean_boundary(labels, boundary_thickness=3, area_thresh=30, dists=None):
     """Delete boundary masks below a given size threshold within a certain distance from the boundary. 
     
     Parameters
@@ -156,14 +156,36 @@ def clean_boundary(labels,boundary_thickness=3,area_thresh=30):
     border_mask = np.zeros(labels.shape, dtype=bool)
     border_mask = binary_dilation(border_mask, border_value=1, iterations=boundary_thickness)
     clean_labels = np.copy(labels)
-    for cell_ID in np.unique(labels):
+    # bddist = dists[border_mask]
+    # dist_thresh = np.mean(bddist[bddist>0])
+    # print(dist_thresh)
+    for cell_ID in fastremap.unique(labels[border_mask])[1:]:
         mask = labels==cell_ID 
         area = np.count_nonzero(mask)
         overlap = np.count_nonzero(np.logical_and(mask, border_mask))
-        if overlap > 0 and area<area_thresh and overlap/area >= 0.5: #only premove cells that are 50% or more edge px
+        if overlap > 0 and area<area_thresh and overlap/area >= 0.5: #only remove cells that are 50% or more edge px
             clean_labels[mask] = 0
+
     return clean_labels
 
+
+def get_edge_masks(labels,dists):
+    border_mask = np.zeros(labels.shape, dtype=bool)
+    border_mask = binary_dilation(border_mask, border_value=1, iterations=1)
+    clean_labels = np.zeros_like(labels)
+    
+    for cell_ID in fastremap.unique(labels[border_mask])[1:]:
+        mask = labels==cell_ID 
+        max_dist = np.max(dists[np.logical_and(mask, border_mask)])
+        # mean_dist = np.mean(dists[mask])
+        dist_thresh = np.percentile(dists[mask],75) 
+        # sort of a way to say the skeleton isn't touching the boundary
+        # top 25%
+
+        if max_dist>=dist_thresh: # we only want to keep cells whose distance at the boundary is not too small
+            clean_labels[mask] = cell_ID
+            
+    return clean_labels
 
 # Should work for 3D too. Could put into usigned integer form at the end... 
 # Also could use some parallelization 
