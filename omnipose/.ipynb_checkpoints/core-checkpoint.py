@@ -457,8 +457,14 @@ def compute_masks(dP, dist, bd=None, p=None, inds=None, niter=200, rescale=1.0, 
         mask = dist > mask_threshold # analog to original iscell=(cellprob>cellprob_threshold)
     # print('dist',np.nanmax(dist),np.nanmin(dist),dist.shape)
     if np.any(mask): #mask at this point is a cell cluster binary map, not labels 
-        niter = get_niter(dist)
-        # print('newniter',niter)
+        
+        # the clustering algorithm requires far fewer iterations because it 
+        # can handle subpixel separation to define blobs, wheras the thresholding method
+        # is requires blobs to be separated by more than 1 pixel 
+        if cluster:
+            niter = get_niter(dist)
+            # print('newniter',niter)
+        
         #preprocess flows
         if omni and OMNI_INSTALLED:
             # the interpolated version of div_rescale is detrimental in 3D
@@ -475,9 +481,9 @@ def compute_masks(dP, dist, bd=None, p=None, inds=None, niter=200, rescale=1.0, 
         
         # follow flows
         if p is None:
-            p, inds, tr = follow_flows(dP_, mask=mask, inds=inds, niter=niter, interp=interp, 
-                                        use_gpu=use_gpu, device=device, omni=omni, calc_trace=calc_trace)
-        else: 
+            p, inds, tr = follow_flows(dP_, mask=mask, inds=inds, niter=niter, interp=interp,
+                                       use_gpu=use_gpu, device=device, omni=omni, calc_trace=calc_trace)
+        else:
             tr = []
             inds = np.stack(np.nonzero(mask)).T
             if verbose:
@@ -558,7 +564,7 @@ def get_masks(p,bd,dist,mask,inds,nclasses=4,cluster=False,diam_threshold=12.,ve
     """
     if nclasses >= 4:
         dt = np.abs(dist[mask]) #abs needed if the threshold is negative
-        d = dist_to_diam(dt,mask.ndim)
+        d = dist_to_diam(dt,mask.ndim) 
         eps = 1+1/3
         # eps = 
         # eps = 2
@@ -1134,7 +1140,7 @@ def random_crop_warp(img, Y, nt, tyx, nchan, scale, rescale, scale_range, gamma_
     if depth>100:
         error_message = 'Sparse or over-dense image detected. Problematic index is: '+str(ind)+' Image shape is: '+str(img.shape)+' tyx is: '+str(tyx)+' rescale is '+str(rescale)
         omnipose_logger.critical(error_message)
-        # skimage.io.imsave('/home/kcutler/DataDrive/debug/img'+str(depth)+'.png',img[0]) 
+        skimage.io.imsave('/home/kcutler/DataDrive/debug/img'+str(depth)+'.png',img[0]) 
         raise ValueError(error_message)
     
     if depth>200:
@@ -1197,7 +1203,8 @@ def random_crop_warp(img, Y, nt, tyx, nchan, scale, rescale, scale_range, gamma_
                 cellpx = np.sum(lbl[k]>0)
                 cutoff = (numpx/10**(dim+1)) # .1 percent of pixels must be cells
                 # print('after warp',len(np.unique(lbl[k])),np.max(lbl[k]),np.min(lbl[k]),cutoff,numpx, cellpx, theta)
-                if cellpx<cutoff or cellpx==numpx:
+                if cellpx<cutoff:# or cellpx==numpx: # had to disable the overdense feature for cyto2
+                                #, may nto actually be a problem now anyway
                     # print('toosmall',nt)
                     # skimage.io.imsave('/home/kcutler/DataDrive/debug/img'+str(depth)+'.png',img[0])
                     # skimage.io.imsave('/home/kcutler/DataDrive/debug/training'+str(depth)+'.png',lbl[0])
@@ -1214,17 +1221,20 @@ def random_crop_warp(img, Y, nt, tyx, nchan, scale, rescale, scale_range, gamma_
             mask = lbl[1]
             l = lbl[0].astype(np.uint16)
             l, dist, T, mu = masks_to_flows(l,omni=True)
+            cutoff = diameters(mask,dist)/2
             # dist = edt.edt(l,parallel=8) 
             lbl[2] = dist==1 # position 2 stores the boundary field
             smooth_dist = T
-            smooth_dist[dist<=0] = -dist_bg
+            smooth_dist[dist<=0] = -cutoff#-dist_bg
             lbl[3] = smooth_dist # position 3 stores the smooth distance field 
             lbl[-dim:] = mu*5.0 #oops, forgot this needs to be x5.0 for training
-
+            # used to be that this put it in the same range as cellprob, but it still
+            # puts it in the same range as the logits for the boundary, plus the magnitude makes 
+            # for larger MSE
+            
             # print('dists',np.max(dist),np.max(smooth_dist))
             # the black border may not be good in 3D, as it highlights a larger fraction? 
             bg_edt = edt.edt(mask<0.5,black_border=True) #last arg gives weight to the border, which seems to always lose
-            cutoff = diameters(mask,dist)/2
             lbl[4] = (gaussian(1-np.clip(bg_edt,0,cutoff)/cutoff, 1)+0.5)
 
 

@@ -77,7 +77,13 @@ def normalize_image(im,mask,bg=0.5):
     
     """
     im = rescale(im)
-    return im**(np.log(bg)/np.log(np.mean(im[binary_erosion(mask==0)])))
+    if im.ndim>2:#assume first axis is channel axis
+        if mask is not list:
+            mask = [mask]
+        for k in range(len(mask)):
+            im[k] = im[k]**(np.log(bg)/np.log(np.mean(im[k][binary_erosion(mask[k]==0)])))
+        
+    return im
 
 def bbox_to_slice(bbox,shape,pad=0):
     """
