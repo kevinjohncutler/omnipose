@@ -72,7 +72,29 @@ def get_niter(dists):
     return np.ceil(np.max(dists)*1.16).astype(int)+1
 
 # minor modification to generalize to nD 
-def dist_to_diam(dt_pos,n):
+def dist_to_diam(dt_pos,n): 
+    """
+    Convert positive distance field values to a mean diameter. 
+    
+    Parameters
+    --------------
+
+    dt_pos: 1D array, float
+        array of positive distance field values
+    n: int
+        dimension of volume. dt_pos is always 1D becasue only the positive values
+        int he distance field are passed in. 
+        
+    Returns
+    --------------
+
+    mean diameter: float
+        a single number that corresponds to the diameter of the N-sphere when
+        dt_pos for a sphere is given to the function, holds constant for 
+        extending rods of uniform width, much better than the diameter of a circle 
+        of equivalent area for estimating the short-axis dimensions of objects
+    
+    """
     return 2*(n+1)*np.mean(dt_pos)
 #     return np.exp(3/2)*gmean(dt_pos[dt_pos>=gmean(dt_pos)])
 
@@ -80,7 +102,7 @@ def diameters(masks,dt=None,dist_threshold=0):
     if dt is None:
         dt = edt.edt(np.int32(masks))
     dt_pos = np.abs(dt[dt>dist_threshold])
-    return dist_to_diam(np.abs(dt_pos),masks.ndim)
+    return dist_to_diam(np.abs(dt_pos),n=masks.ndim)
 
 ### Section II: ground-truth flow computation  
 
@@ -440,7 +462,8 @@ def update_torch(a,f):
 
 ### Section II: mask recontruction
 
-# I should try to simplify resize and rescale if possible, sort of redundant 
+# Resize and rescale may appear redundant, but they are not. The resample option runs the Euler integation as usual but 
+# the 
 def compute_masks(dP, dist, bd=None, p=None, inds=None, niter=200, rescale=1.0, resize=None, 
                   mask_threshold=0.0, diam_threshold=12.,flow_threshold=0.4, 
                   interp=True, cluster=False, do_3D=False, min_size=15,  omni=True, 
@@ -462,17 +485,27 @@ def compute_masks(dP, dist, bd=None, p=None, inds=None, niter=200, rescale=1.0, 
         # can handle subpixel separation to define blobs, wheras the thresholding method
         # is requires blobs to be separated by more than 1 pixel 
         if cluster:
-            niter = get_niter(dist)
-            # print('newniter',niter)
+            # niter = get_niter(dist)
+            niter = int(dist_to_diam(dist[dist>0],n=mask.ndim))
         
         #preprocess flows
         if omni and OMNI_INSTALLED:
+            if bd is None:
+                bd = np.ones_like(mask).astype(np.float)
+            
             # the interpolated version of div_rescale is detrimental in 3D
-            # the problem is thin sections where the 
+            # the problem is thin sections where the
+
             dP_ = div_rescale(dP,mask) / rescale ##### omnipose.core.div_rescale
+            # print('rescaling with boundary output')
+            # dP_ = bd_rescale(dP,mask, 4*bd) / rescale ##### omnipose.core.div_rescale
+
             # dP_ = dP.copy()
             if dim>2:
-                print('warning, div not times 3 for 3d, still experimenting')
+                dP *= 3.0
+                # print('warning, div not times 3 for 3d, still experimenting')
+                print('div times  3 for 3d, still experimenting')
+                
             # n = 3
             # dP_ = dP*(1-np.clip(dist,0,n)/n) # This may nit work very well for real flows 
             # dP_ = dP.copy() # need to generalize the divergence code
@@ -504,6 +537,7 @@ def compute_masks(dP, dist, bd=None, p=None, inds=None, niter=200, rescale=1.0, 
                 mask = remove_bad_flow_masks(mask, flows, threshold=flow_threshold, use_gpu=use_gpu, device=device, omni=omni)
                 _,mask = np.unique(mask, return_inverse=True)
                 mask = np.reshape(mask, shape0).astype(np.int32)
+        
         
         if resize is not None:
             if verbose:
@@ -546,6 +580,17 @@ def div_rescale(dP,mask):
     dP *= div
     return dP
 
+def sigmoid(x):
+    return 1 / (1 + np.exp(-x))
+
+def bd_rescale(dP,mask,bd):
+    dP = dP.copy()
+    dP *= mask 
+    dP = utils.normalize_field(dP)
+    w = np.stack([bd]*mask.ndim)
+    dP *= sigmoid(bd)
+    return dP
+
 def divergence(f,sp=None):
     """ Computes divergence of vector field 
     f: array -> vector field components [Fx,Fy,Fz,...]
@@ -560,12 +605,21 @@ def likewise(mu):
 
 def get_masks(p,bd,dist,mask,inds,nclasses=4,cluster=False,diam_threshold=12.,verbose=False):
     """Omnipose mask recontruction algorithm.
-    p: list of 
+    p: list of pixel coordinates 
+    bd: boundayr field
+    dist: distance field
+    mask: binary cell mask
+    inds: starting picel locations
+    nclasses: (optional, default 4) number of prediciton classes
+    cluster: (optional, defualt False) use DBSCAN clustering instead of coordinate thresholding
+    diam_threshold: (optional, default 12) mean diameter under which clustering will be turned on automatically
+    verbose: (optional, default False) option to print more info to log file
     """
     if nclasses >= 4:
         dt = np.abs(dist[mask]) #abs needed if the threshold is negative
         d = dist_to_diam(dt,mask.ndim) 
-        eps = 1+1/3
+        # eps = 1+1/3
+        eps = np.sqrt(2)
         # eps = 
         # eps = 2
         # eps = 2**(1/mask.ndim)
@@ -599,22 +653,23 @@ def get_masks(p,bd,dist,mask,inds,nclasses=4,cluster=False,diam_threshold=12.,ve
     # if 0:
         if verbose:
             omnipose_logger.info('Doing DBSCAN clustering with eps=%f'%eps)
-        db = DBSCAN(eps=eps, min_samples=3, n_jobs=-1).fit(newinds) #need to snap outliers to nearest cluster 
+        db = DBSCAN(eps=eps, min_samples=5, n_jobs=-1).fit(newinds) #need to snap outliers to nearest cluster 
         
-        #### snapping outliers
+        #### snapping outliers to nearest cluster 
         nearest_neighbors = NearestNeighbors(n_neighbors=50)
         neighbors = nearest_neighbors.fit(newinds)
         o_inds= np.where(db.labels_==-1)[0]
         if len(o_inds)>1:
             outliers = [newinds[i] for i in o_inds]
             distances, indices = neighbors.kneighbors(outliers)
-            indices,o_inds
+            # indices,o_inds
 
             ns = db.labels_[indices]
-            # l = [n[np.where(n!=-1)[0][0] if np.any(n!=-1) else 0] for n in ns]
-            l = [n[(np.where(n!=-1)+(0,))[0][0] ] for n in ns]
+            # if len(ns)>0:
+            l = [n[np.where(n!=-1)[0][0] if np.any(n!=-1) else 0] for n in ns]
+            # l = [n[(np.where(n!=-1)+(0,))[0][0] ] for n in ns]
             db.labels_[o_inds] = l
-        
+
         ###
         labels = db.labels_
         mask[cell_px] = labels+1 # outliers have label -1
@@ -686,10 +741,9 @@ def map_coordinates(I, yc, xc, Y):
 # Generalizing to ND. Again, torch required but should be plenty fast on CPU too compared to jitted but non-explicitly-parallelized CPU code.
 # also should just rescale to desired resolution HERE instead of rescaling the masks later... <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<
 # grid_sample will only work for up to 5D tensors (3D segmentation). Will have to address this shortcoming if we ever do 4D. 
-# want to add MOMENTUM to make sure that ponts don't get stuck. 
 def steps_interp(p, dP, niter, use_gpu=True, device=None, omni=True, calc_trace=False):
-    d = dP.shape[0]
-    shape = dP.shape[1:]
+    d = dP.shape[0] # number of components = number of dimensions 
+    shape = dP.shape[1:] # shape of component array is the shape of the ambient volume 
     inds = list(range(d))[::-1] # grid_sample requires a particular ordering 
     if use_gpu and TORCH_ENABLED:
         if device is None:
@@ -704,12 +758,12 @@ def steps_interp(p, dP, niter, use_gpu=True, device=None, omni=True, calc_trace=
         im = torch.from_numpy(dP[inds]).double().to(device).unsqueeze(0) #covert flow numpy array to tensor on GPU, add dimension 
         # print('shapes',p.shape,dP.shape,im.shape,pt.shape)
         
-        # normalize pt between  0 and  1, normalize the flow
+        # normalize pt between 0 and  1, normalize the flow too 
         for k in range(d): 
-            im[:,k] *= 2./shape[k]
             pt[...,k] /= shape[k]
-            
-        # normalize to between -1 and 1
+            im[:,k] *= 2./shape[k]
+
+        # normalize pt to between -1 and 1
         pt = pt*2-1 
         
         # make an array to track the trajectories 
@@ -722,8 +776,6 @@ def steps_interp(p, dP, niter, use_gpu=True, device=None, omni=True, calc_trace=
             # r = torch.zeros_like(p)
             
         #here is where the stepping happens 
-        # print('niter is',niter,p.shape,p,dPt0.shape)
-        # niter = 500
         for t in range(niter):
             if calc_trace:
                 trace = torch.cat((trace,pt))
@@ -738,15 +790,14 @@ def steps_interp(p, dP, niter, use_gpu=True, device=None, omni=True, calc_trace=
             
             
             if omni and OMNI_INSTALLED:
-                dPt = (dPt+dPt0) / 2. 
-                dPt0 = dPt.clone() # update momentum term 
-                dPt /= step_factor(t)
+                dPt = (dPt+dPt0) / 2. # average with previous flow 
+                dPt0 = dPt.clone() # update old flow 
+                dPt /= step_factor(t) # suppression factor 
             
             for k in range(d): #clamp the final pixel locations
                 pt[...,k] = torch.clamp(pt[...,k] + dPt[:,k], -1., 1.)
             
         #undo the normalization from before, reverse order of operations 
-        # <<<< should scale to the correct resolution right here
         pt = (pt+1)*0.5
         for k in range(d): 
             pt[...,k] *= shape[k]
@@ -890,6 +941,9 @@ def follow_flows(dP, mask=None, inds=None, niter=200, interp=True, use_gpu=True,
     
     mask: (optional, default None)
         pixel mask to seed masks. Useful when flows have low magnitudes.
+        
+    inds: int, ND array (optional, default None)
+        initial indices of pixels for the Euler integration 
 
     niter: int (optional, default 200)
         number of iterations of dynamics to run
@@ -900,18 +954,30 @@ def follow_flows(dP, mask=None, inds=None, niter=200, interp=True, use_gpu=True,
 
     use_gpu: bool (optional, default False)
         use GPU to run interpolated dynamics (faster than CPU)
+        
+    omni: bool (optional, default True)
+        flag to enable Omnipose suppressed Euler integration etc. 
+    
+    calc_trace: bool (optional, default False)
+        flag to store and retrun all pixel coordinates during Euler integration (slow)
 
 
     Returns
     ---------------
 
-    p: float32, 3D array
+    p: float32, ND array
         final locations of each pixel after dynamics
+    
+    inds: int, ND array
+        initial indices of pixels for the Euler integration 
+    
+    tr: float32, ND array
+        list of pixel coordinates for each step of the Euler integration
 
     """
-    d = dP.shape[0]
-    shape = np.array(dP.shape[1:]).astype(np.int32)
-    niter = np.uint32(niter)
+    d = dP.shape[0] # dimension is the number of flow components 
+    shape = np.array(dP.shape[1:]).astype(np.int32) # shape of masks is the shape of the component field
+    niter = np.uint32(niter) 
     grid = [np.arange(shape[i]) for i in range(d)]
     p = np.meshgrid(*grid, indexing='ij')
     # not sure why, but I had changed this to float64 at some point... tests showed that map_coordinates expects float32
@@ -922,11 +988,11 @@ def follow_flows(dP, mask=None, inds=None, niter=200, interp=True, use_gpu=True,
     if inds is None:
         if omni and (mask is not None):
             # mag = np.sqrt(np.nansum(dP**2,axis=0))
-            # inds = np.array(np.nonzero(np.logical_or(mask,mag>1e-3))).astype(np.int32).T #<< more reliable, but cutoff too small anyway
+            # inds = np.array(np.nonzero(np.logical_or(mask,mag>1e-3))).astype(np.int32).T #<< more reliable, but cutoff too small anyway to work 
             inds = np.array(np.nonzero(mask)).astype(np.int32).T
             
         else:
-            inds = np.array(np.nonzero(np.abs(dP[0])>1e-3)).astype(np.int32).T #that dP[0] is a big bug... only first component
+            inds = np.array(np.nonzero(np.abs(dP[0])>1e-3)).astype(np.int32).T ### that dP[0] is a big bug... only first component!!!
     
     cell_px = (Ellipsis,)+tuple(inds.T)
 
@@ -1220,12 +1286,12 @@ def random_crop_warp(img, Y, nt, tyx, nchan, scale, rescale, scale_range, gamma_
             
             mask = lbl[1]
             l = lbl[0].astype(np.uint16)
-            l, dist, T, mu = masks_to_flows(l,omni=True)
+            l, dist, T, mu = masks_to_flows(l,omni=True,dim=dim)
             cutoff = diameters(mask,dist)/2
             # dist = edt.edt(l,parallel=8) 
             lbl[2] = dist==1 # position 2 stores the boundary field
             smooth_dist = T
-            smooth_dist[dist<=0] = -cutoff#-dist_bg
+            smooth_dist[dist<=0] = - cutoff#-dist_bg
             lbl[3] = smooth_dist # position 3 stores the smooth distance field 
             lbl[-dim:] = mu*5.0 #oops, forgot this needs to be x5.0 for training
             # used to be that this put it in the same range as cellprob, but it still

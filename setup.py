@@ -2,8 +2,9 @@ import setuptools
 from setuptools import setup
 
 install_deps = ['numpy>=1.20.0', 'scipy', 'numba', 
-                'edt','scikit-image','cellpose','ncolor',
-                'mgen','scikit-learn','mahotas']
+                'edt','scikit-image','ncolor',
+                'mgen','scikit-learn','mahotas',
+                'cellpose@git+https://github.com/kevinjohncutler/cellpose#egg=cellpose',]
 
 with open("README.md", "r") as fh:
     long_description = fh.read()
@@ -17,8 +18,8 @@ setup(
     long_description_content_type="text/markdown",
     url="https://github.com/kevinjohncutler/omnipose",
     setup_requires=[
-      'pytest-runner',
-      'setuptools_scm',
+        'pytest-runner',
+        'setuptools_scm',
     ],
     packages=setuptools.find_packages(),
     use_scm_version=True,
