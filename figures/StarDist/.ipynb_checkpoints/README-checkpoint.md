@@ -1,1 +1,0 @@
-These scripts were adapted from the StarDist repo with the same prefixes in /Examples/2D. 

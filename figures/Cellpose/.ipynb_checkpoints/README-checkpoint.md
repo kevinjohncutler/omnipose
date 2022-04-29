@@ -1,1 +1,0 @@
-The main evaluation script for direct omnipose-cellpose comparisons is in `Figure_2A_4AB.ipynb`. 
