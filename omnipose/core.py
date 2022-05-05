@@ -99,10 +99,14 @@ def dist_to_diam(dt_pos,n):
 #     return np.exp(3/2)*gmean(dt_pos[dt_pos>=gmean(dt_pos)])
 
 def diameters(masks,dt=None,dist_threshold=0):
-    if dt is None:
+    if dt is None and np.any(masks):
         dt = edt.edt(np.int32(masks))
     dt_pos = np.abs(dt[dt>dist_threshold])
-    return dist_to_diam(np.abs(dt_pos),n=masks.ndim)
+    if np.any(dt_pos):
+        diam = dist_to_diam(np.abs(dt_pos),n=masks.ndim)
+    else:
+        diam = 0
+    return diam
 
 ### Section II: ground-truth flow computation  
 
@@ -151,14 +155,14 @@ def labels_to_flows(labels, files=None, use_gpu=False, device=None, omni=True, r
     
     
     nimg = len(labels)
-    no_flow = labels[0].ndim != dim+1 # (6,Lt,Ly,Lx) for 3D, masks + dist + boundary + flow components, then image dimensions 
+    no_flow = labels[0].ndim != 3+dim # (6,Lt,Ly,Lx) for 3D, masks + dist + boundary + flow components, then image dimensions 
     
-
-    if  no_flow or redo_flows: # MUST FIX for spacetime, do latr 
+    print('dfgfgfd',labels[0].ndim, dim+1)
+    if no_flow or redo_flows:
         
         omnipose_logger.info('NOTE: computing flows for labels (could be done before to save time)')
         
-        # compute flows; labels are fixed in masks_to_flows, so they need to be passed back labels[n][0]?????
+        # compute flows; labels are fixed in masks_to_flows, so they need to be passed back
         labels, dist, heat, veci = map(list,zip(*[masks_to_flows(labels[n],use_gpu=use_gpu, device=device, omni=omni, dim=dim) 
                                                   for n in trange(nimg)])) 
         
@@ -182,6 +186,7 @@ def labels_to_flows(labels, files=None, use_gpu=False, device=None, omni=True, r
     else:
         omnipose_logger.info('flows precomputed (in omnipose.core now)') 
         flows = [labels[n].astype(np.float32) for n in range(nimg)]
+
     return flows
 
 def masks_to_flows(masks, dists=None, use_gpu=False, device=None, omni=True, dim=2):
@@ -212,7 +217,7 @@ def masks_to_flows(masks, dists=None, use_gpu=False, device=None, omni=True, dim
     """
 
     if dists is None:
-        masks = ncolor.format_labels(masks)
+        masks = utils.format_labels(masks)
         dists = edt.edt(masks,parallel=8)
         
     if device is None:
@@ -241,21 +246,20 @@ def masks_to_flows(masks, dists=None, use_gpu=False, device=None, omni=True, dim
         return masks, dists, None, mu #consistency with below
     
     else:
-        # this branch needs to
         
         if omni and OMNI_INSTALLED: 
             # padding helps avoid edge artifacts from cut-off cells 
             # amount of padding should depend on how wide the cells are 
             pad = int(diameters(masks,dists)/2)
-            unpad = tuple([slice(pad,-pad)]*masks.ndim)
+            unpad = tuple([slice(pad,-pad) if pad else slice(None,None)]*masks.ndim) # works in case pad is zero
+            
             # reflect over those masks with high distance at the boundary, relevant when cropping 
-            # stop one: remove any masks we do not want to reflect, then perform reflection padding
+            # step 1: remove any masks we do not want to reflect, then perform reflection padding
             masks_pad = np.pad(utils.get_edge_masks(masks,dists=dists),pad,mode='reflect') 
-            masks_pad[unpad] = masks # restore the masks in the original area
+            masks_pad[unpad] = masks # step 2: restore the masks in the original area
             mu, T = masks_to_flows_device(masks_pad, dists, device=device, omni=omni)
             
             return masks, dists, T[unpad], mu[(Ellipsis,)+unpad]
-            # return masks, dists, T[pad:-pad,pad:-pad], mu[:,pad:-pad,pad:-pad]
 
         else: # reflection not a good idea for centroid model 
             mu, T = masks_to_flows_device(masks, dists=dists, device=device, omni=omni)
@@ -298,7 +302,6 @@ def masks_to_flows_torch(masks, dists, device=None, omni=True):
 
         centers = np.array([])
         if not omni: #do original centroid projection algrorithm
-            # WANT TO GENERALIZE TO 3D
             # get mask centers
             centers = np.array(scipy.ndimage.center_of_mass(masks_padded, labels=masks_padded, 
                                                             index=np.arange(1, masks_padded.max()+1))).astype(int).T
@@ -486,7 +489,9 @@ def compute_masks(dP, dist, bd=None, p=None, inds=None, niter=200, rescale=1.0, 
         # is requires blobs to be separated by more than 1 pixel 
         if cluster:
             # niter = get_niter(dist)
-            niter = int(dist_to_diam(dist[dist>0],n=mask.ndim))
+            # niter = int(dist_to_diam(dist[dist>0],n=mask.ndim))
+            niter = int(diameters(mask,dist))
+            
         
         #preprocess flows
         if omni and OMNI_INSTALLED:
@@ -817,8 +822,6 @@ def steps_interp(p, dP, niter, use_gpu=True, device=None, omni=True, calc_trace=
         return p, tr
     
     
-    
-    
     else:
         dPt = np.zeros(p.shape, np.float32)
         if calc_trace:
@@ -1147,7 +1150,7 @@ def random_rotate_and_resize(X, Y=None, scale_range=1., gamma_range=0.5, tyx = (
             amount each image was resized by
 
     """
-    dist_bg = 5 # background distance field is set to -dist_bg
+    dist_bg = 5 # background distance field is set to -dist_bg; desting makign this variable now 
     dim = len(tyx) # 2D will just have yx dimensions, 3D will be tyx
     
     nimg = len(X)
@@ -1155,28 +1158,15 @@ def random_rotate_and_resize(X, Y=None, scale_range=1., gamma_range=0.5, tyx = (
         
     if Y is not None:
         for n in range(nimg):
-            masks = Y[n][0] # standard label mask is always first 
-            dist = Y[n][1] # the standard dist from edt library is useful for defining boundaries
-            flows = Y[n][2:-1] # flow field components are up to the last element
-            # the last element of Y is the smooth distance, which is recomputed for augmentations 
+            masks = Y[n] # now assume straight labels 
             iscell = masks>0
             if np.sum(iscell)==0:
                 error_message = 'No cell pixels. Index is'+str(n)
                 omnipose_logger.critical(error_message)
                 raise ValueError(error_message)
-                
-            bd = np.zeros_like(masks)
-            weight = np.zeros_like(masks)
-            # print(masks.shape,flows.shape,Y[n].shape)
-            Y[n] = np.concatenate((np.stack([masks,iscell,bd,dist,weight]),flows))
-            
-        if Y[0].ndim>2:
-            nt = Y[0].shape[0] 
-        else:
-            nt = 1
-    else:
-        nt = 1
-    # lbl = np.zeros((nimg, nt, xy[0], xy[1]), np.float32)
+            Y[n] = np.stack([masks,iscell])
+
+    nt = 5+dim #masks, iscell, boundary, distance, weight, flow components preallocated 
     lbl = np.zeros((nimg, nt)+tyx, np.float32)
         
     scale = np.zeros((nimg,dim), np.float32)
@@ -1235,11 +1225,6 @@ def random_crop_warp(img, Y, nt, tyx, nchan, scale, rescale, scale_range, gamma_
 
     # generate random augmentation parameters
     dg = gamma_range/2 
-    # flip = np.random.choice([0,1])
-    # if dim>2:
-    #     t_flip = np.random.choice([0,1]) #flip the temporal axis, not sure if this will be desired 
-    # else:
-    #     t_flip = False
     theta = np.random.rand() * np.pi * 2
 
     # first two basis vectors in any dimension 
@@ -1283,12 +1268,10 @@ def random_crop_warp(img, Y, nt, tyx, nchan, scale, rescale, scale_range, gamma_
         
         # LABELS ARE NOW (masks,mask,bd,dist,weight,flows)
         if nt > 1:
-            
-            mask = lbl[1]
+   
             l = lbl[0].astype(np.uint16)
             l, dist, T, mu = masks_to_flows(l,omni=True,dim=dim)
-            cutoff = diameters(mask,dist)/2
-            # dist = edt.edt(l,parallel=8) 
+            cutoff = diameters(l,dist)/2
             lbl[2] = dist==1 # position 2 stores the boundary field
             smooth_dist = T
             smooth_dist[dist<=0] = - cutoff#-dist_bg
@@ -1300,6 +1283,7 @@ def random_crop_warp(img, Y, nt, tyx, nchan, scale, rescale, scale_range, gamma_
             
             # print('dists',np.max(dist),np.max(smooth_dist))
             # the black border may not be good in 3D, as it highlights a larger fraction? 
+            mask = lbl[1] #binary mask 
             bg_edt = edt.edt(mask<0.5,black_border=True) #last arg gives weight to the border, which seems to always lose
             lbl[4] = (gaussian(1-np.clip(bg_edt,0,cutoff)/cutoff, 1)+0.5)
 
