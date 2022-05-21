@@ -6,6 +6,7 @@ from scipy.ndimage import binary_dilation, binary_opening, binary_closing, label
 from sklearn.utils.extmath import cartesian
 import fastremap
 import os, tifffile
+import time
 
 import mgen #ND rotation matrix
 
@@ -22,15 +23,22 @@ except:
 try:
     from sklearn.cluster import DBSCAN
     from sklearn.neighbors import NearestNeighbors
-
+    from hdbscan import HDBSCAN
     SKLEARN_ENABLED = True 
 except:
     SKLEARN_ENABLED = False
     
-import logging
+import logging, sys
+logging.basicConfig(
+                    level=logging.INFO,
+                    format="%(asctime)s [%(levelname)s] %(message)s",
+                    handlers=[
+                        logging.StreamHandler(sys.stdout)
+                    ]
+                )
 omnipose_logger = logging.getLogger(__name__)
-omnipose_logger.setLevel(logging.DEBUG)
-logging.getLogger().addHandler(logging.StreamHandler())
+# omnipose_logger.setLevel(logging.DEBUG)
+# logging.getLogger().addHandler(logging.StreamHandler())
 
 
 # We moved a bunch of dupicated code over here from Cellpose to revert back to the original bahavior. This flag is used
@@ -41,7 +49,7 @@ OMNI_INSTALLED = True
 from tqdm import trange 
 import ncolor, scipy
 from scipy.ndimage.filters import maximum_filter1d
-from scipy.ndimage import find_objects, gaussian_filter, generate_binary_structure, label, maximum_filter1d, binary_fill_holes
+from scipy.ndimage import find_objects, gaussian_filter, generate_binary_structure, label, maximum_filter1d, binary_fill_holes, zoom
 try:
     from skimage.morphology import remove_small_holes
     SKIMAGE_ENABLED = True
@@ -469,29 +477,42 @@ def update_torch(a,f):
 # the 
 def compute_masks(dP, dist, bd=None, p=None, inds=None, niter=200, rescale=1.0, resize=None, 
                   mask_threshold=0.0, diam_threshold=12.,flow_threshold=0.4, 
-                  interp=True, cluster=False, do_3D=False, min_size=15,  omni=True, 
-                  calc_trace=False, verbose=False, use_gpu=False, device=None, nclasses=3, dim=2):
+                  interp=True, cluster=False, do_3D=False, min_size=None, omni=True, 
+                  calc_trace=False, verbose=False, use_gpu=False, device=None, nclasses=3, 
+                  dim=2, eps=None, hdbscan=False, flow_factor = 6, debug=False):
     """ compute masks using dynamics from dP, dist, and boundary """
+    if min_size is None:
+        min_size = 3**dim
+    
+    labels = None
+    
     if verbose:
          omnipose_logger.info('mask_threshold is %f',mask_threshold)
     
-    if (omni or (inds is not None)) and SKIMAGE_ENABLED:
-        if verbose:
-            omnipose_logger.info('Using hysteresis threshold.')
-        mask = filters.apply_hysteresis_threshold(dist, mask_threshold-1, mask_threshold) # good for thin features
+    # inds very useful for debugging and figures; allows us to easily specify specific indices foe Euler integration
+    if inds is not None:
+        mask = np.zeros_like(dist,dtype=np.int32)
+        print (mask.shape, inds.shape)
+        mask[tuple(inds)] = 1
     else:
-        mask = dist > mask_threshold # analog to original iscell=(cellprob>cellprob_threshold)
+        if omni and SKIMAGE_ENABLED:
+            if verbose:
+                omnipose_logger.info('Using hysteresis threshold.')
+            mask = filters.apply_hysteresis_threshold(dist, mask_threshold-1, mask_threshold) # good for thin features
+            inds = np.array(np.nonzero(mask)).astype(np.int32)
+        else:
+            mask = dist > mask_threshold # analog to original iscell=(cellprob>cellprob_threshold)
+            inds = np.array(np.nonzero(np.abs(dP[0])>1e-3)).astype(np.int32) ### that dP[0] is a big bug... only first component!!!
+       
     # print('dist',np.nanmax(dist),np.nanmin(dist),dist.shape)
     if np.any(mask): #mask at this point is a cell cluster binary map, not labels 
-        
         # the clustering algorithm requires far fewer iterations because it 
         # can handle subpixel separation to define blobs, wheras the thresholding method
-        # is requires blobs to be separated by more than 1 pixel 
+        # requires blobs to be separated by more than 1 pixel 
         if cluster:
             # niter = get_niter(dist)
             # niter = int(dist_to_diam(dist[dist>0],n=mask.ndim))
             niter = int(diameters(mask,dist))
-            
         
         #preprocess flows
         if omni and OMNI_INSTALLED:
@@ -500,27 +521,28 @@ def compute_masks(dP, dist, bd=None, p=None, inds=None, niter=200, rescale=1.0, 
             
             # the interpolated version of div_rescale is detrimental in 3D
             # the problem is thin sections where the
-
-            dP_ = div_rescale(dP,mask) / rescale ##### omnipose.core.div_rescale
+            if 1:#dim==2:
+                dP_ = div_rescale(dP,mask) / rescale ##### omnipose.core.div_rescale
+            else:
+                dP_ = utils.normalize_field(dP)
             # print('rescaling with boundary output')
             # dP_ = bd_rescale(dP,mask, 4*bd) / rescale ##### omnipose.core.div_rescale
 
             # dP_ = dP.copy()
             if dim>2:
-                dP *= 3.0
+                dP_ *= flow_factor
                 # print('warning, div not times 3 for 3d, still experimenting')
-                print('div times  3 for 3d, still experimenting')
-                
-            # n = 3
-            # dP_ = dP*(1-np.clip(dist,0,n)/n) # This may nit work very well for real flows 
-            # dP_ = dP.copy() # need to generalize the divergence code
+                print('dP_ times {} for >2d, still experimenting'.format(flow_factor))
+
         else:
             dP_ = dP * mask / 5.
         
+        
         # follow flows
         if p is None:
-            p, inds, tr = follow_flows(dP_, mask=mask, inds=inds, niter=niter, interp=interp,
-                                       use_gpu=use_gpu, device=device, omni=omni, calc_trace=calc_trace)
+            p, inds, tr = follow_flows(dP_, inds, niter=niter, interp=interp,
+                                       use_gpu=use_gpu, device=device, omni=omni,
+                                       calc_trace=calc_trace)
         else:
             tr = []
             inds = np.stack(np.nonzero(mask)).T
@@ -529,8 +551,9 @@ def compute_masks(dP, dist, bd=None, p=None, inds=None, niter=200, rescale=1.0, 
                 
         #calculate masks
         if omni and OMNI_INSTALLED:
-            mask = get_masks(p,bd,dist,mask,inds,nclasses,cluster=cluster,
-                             diam_threshold=diam_threshold,verbose=verbose) ##### omnipose.core.get_masks
+            mask, labels = get_masks(p,bd,dist,mask,inds,nclasses,cluster=cluster,
+                             diam_threshold=diam_threshold,verbose=verbose, 
+                             eps=eps, hdbscan=hdbscan) ##### omnipose.core.get_masks
         else:
             mask = get_masks_cp(p, iscell=mask, flows=dP, use_gpu=use_gpu) ### just get_masks
             
@@ -543,14 +566,14 @@ def compute_masks(dP, dist, bd=None, p=None, inds=None, niter=200, rescale=1.0, 
                 _,mask = np.unique(mask, return_inverse=True)
                 mask = np.reshape(mask, shape0).astype(np.int32)
         
-        
         if resize is not None:
             if verbose:
                 omnipose_logger.info(f'resizing output with resize = {resize}')
             # mask = resize_image(mask, resize[0], resize[1], interpolation=cv2.INTER_NEAREST).astype(np.int32) 
-            mask = scipy.ndimage.zoom(mask, resize/np.array(mask.shape), order=0).astype(np.int32) 
+            mask = zoom(mask, resize/np.array(mask.shape), order=0).astype(np.int32) 
         
         mask = fill_holes_and_remove_small_masks(mask, min_size=min_size, dim=dim) ##### utils.fill_holes_and_remove_small_masks
+        # print('warning, temp disable remove small masks')
         fastremap.renumber(mask,in_place=True) #convenient to guarantee non-skipped labels
     
     else: # nothing to compute, just make it compatible
@@ -563,8 +586,10 @@ def compute_masks(dP, dist, bd=None, p=None, inds=None, niter=200, rescale=1.0, 
     # moving the cleanup to the end helps avoid some bugs arising from scaling...
     # maybe better would be to rescale the min_size and hole_size parameters to do the
     # cleanup at the prediction scale, or switch depending on which one is bigger... 
-
-    return mask, p, tr
+    if debug:
+        return mask, p, tr, labels
+    else:
+        return mask, p, tr
 
 
 # Omnipose requires (a) a special suppressed Euler step and (b) a special mask reconstruction algorithm. 
@@ -608,7 +633,8 @@ def likewise(mu):
     # return np.std(mu,axis=0)
     return np.sum(np.abs(mu),axis=0)
 
-def get_masks(p,bd,dist,mask,inds,nclasses=4,cluster=False,diam_threshold=12.,verbose=False):
+def get_masks(p,bd,dist,mask,inds,nclasses=4,cluster=False,
+              diam_threshold=12., eps=None, hdbscan=False, verbose=False):
     """Omnipose mask recontruction algorithm.
     p: list of pixel coordinates 
     bd: boundayr field
@@ -617,23 +643,19 @@ def get_masks(p,bd,dist,mask,inds,nclasses=4,cluster=False,diam_threshold=12.,ve
     inds: starting picel locations
     nclasses: (optional, default 4) number of prediciton classes
     cluster: (optional, defualt False) use DBSCAN clustering instead of coordinate thresholding
+    hdbscan: use better, but much SLOWER, hdbscan clustering algorithm
     diam_threshold: (optional, default 12) mean diameter under which clustering will be turned on automatically
     verbose: (optional, default False) option to print more info to log file
     """
     if nclasses >= 4:
         dt = np.abs(dist[mask]) #abs needed if the threshold is negative
         d = dist_to_diam(dt,mask.ndim) 
-        # eps = 1+1/3
-        eps = np.sqrt(2)
-        # eps = 
-        # eps = 2
-        # eps = 2**(1/mask.ndim)
-        # eps = 1/np.sqrt(3)
 
     else: #backwards compatibility, doesn't help for *clusters* of thin/small cells
         d = diameters(mask,dist)
-        eps = np.sqrt(2)
     
+    if eps is None:
+        eps = 2**0.5
     # The mean diameter can inform whether or not the cells are too small to form contiguous blobs.
     # My first solution was to upscale everything before Euler integration to give pixels 'room' to
     # stay together. My new solution is much better: use a clustering algorithm on the sub-pixel coordinates
@@ -648,39 +670,56 @@ def get_masks(p,bd,dist,mask,inds,nclasses=4,cluster=False,diam_threshold=12.,ve
         if verbose:
             omnipose_logger.info('Turning on subpixel clustering for label continuity.')
     
-    cell_px = tuple(inds.T)
+    cell_px = tuple(inds)
     coords = np.nonzero(mask)
     newinds = p[(Ellipsis,)+cell_px].T
     mask = np.zeros(p.shape[1:],np.uint32)
     
     # the eps parameter needs to be opened as a parameter to the user
     if cluster and SKLEARN_ENABLED:
-    # if 0:
+        startTime = time.time()
         if verbose:
-            omnipose_logger.info('Doing DBSCAN clustering with eps=%f'%eps)
-        db = DBSCAN(eps=eps, min_samples=5, n_jobs=-1).fit(newinds) #need to snap outliers to nearest cluster 
+            alg = ['','H']
+            omnipose_logger.info('Doing {}DBSCAN clustering with eps={}'.format(alg[hdbscan],eps))
         
-        #### snapping outliers to nearest cluster 
-        nearest_neighbors = NearestNeighbors(n_neighbors=50)
-        neighbors = nearest_neighbors.fit(newinds)
-        o_inds= np.where(db.labels_==-1)[0]
-        if len(o_inds)>1:
-            outliers = [newinds[i] for i in o_inds]
-            distances, indices = neighbors.kneighbors(outliers)
-            # indices,o_inds
+        if hdbscan:
+            clusterer = HDBSCAN(cluster_selection_epsilon=eps,
+                                # allow_single_cluster=True,
+                                min_samples=3)
+        else:
+            clusterer = DBSCAN(eps=eps, min_samples=5, n_jobs=-1)
+        
+        clusterer.fit(newinds)
+        labels = clusterer.labels_
+        executionTime = (time.time() - startTime)
+        
+        if verbose:
+            print('Execution time in seconds: ' + str(executionTime))
+            print('{} unique labels found'.format(len(np.unique(labels))-1),newinds.shape)
 
-            ns = db.labels_[indices]
-            # if len(ns)>0:
-            l = [n[np.where(n!=-1)[0][0] if np.any(n!=-1) else 0] for n in ns]
-            # l = [n[(np.where(n!=-1)+(0,))[0][0] ] for n in ns]
-            db.labels_[o_inds] = l
+        #### snapping outliers to nearest cluster 
+        snap = 1
+        if snap:
+            nearest_neighbors = NearestNeighbors(n_neighbors=50)
+            neighbors = nearest_neighbors.fit(newinds)
+            o_inds= np.where(labels==-1)[0]
+            if len(o_inds)>1:
+                outliers = [newinds[i] for i in o_inds]
+                distances, indices = neighbors.kneighbors(outliers)
+                # indices,o_inds
+
+                ns = labels[indices]
+                # if len(ns)>0:
+                l = [n[np.where(n!=-1)[0][0] if np.any(n!=-1) else 0] for n in ns]
+                # l = [n[(np.where(n!=-1)+(0,))[0][0] ] for n in ns]
+                labels[o_inds] = l
 
         ###
-        labels = db.labels_
         mask[cell_px] = labels+1 # outliers have label -1
     else: #this branch has serious issues near edges 
-        newinds = np.rint(newinds).astype(int)
-        new_px = tuple(newinds.T)
+        newinds = np.rint(newinds.T).astype(int)
+        new_px = tuple(newinds)
+        print(newinds.shape,'sss')
         skelmask = np.zeros_like(dist, dtype=bool)
         skelmask[new_px] = 1
 
@@ -690,7 +729,7 @@ def get_masks(p,bd,dist,mask,inds,nclasses=4,cluster=False,diam_threshold=12.,ve
         border_mask = binary_dilation(border_mask, border_value=1, iterations=5)
 
         border_px[border_mask] = skelmask[border_mask]
-        if nclasses == 4: #can use boundary to erase joined edge skelmasks 
+        if nclasses == mask.ndim+2: #can use boundary to erase joined edge skelmasks 
             border_px[bd>-1] = 0
             if verbose:
                 omnipose_logger.info('Using boundary output to split edge defects')
@@ -701,12 +740,14 @@ def get_masks(p,bd,dist,mask,inds,nclasses=4,cluster=False,diam_threshold=12.,ve
 
         if SKIMAGE_ENABLED:
             cnct = skelmask.ndim #-1
-            LL = measure.label(skelmask,connectivity=cnct) #<<<< connectivity may need to be generalized to higher dimensions
+            labels = measure.label(skelmask,connectivity=cnct) #<<<< connectivity may need to be generalized to higher dimensions
         else:
-            LL = label(skelmask)[0]
-        mask[cell_px] = LL[new_px]
-    
-    return mask
+            labels = label(skelmask)[0]
+        mask[cell_px] = labels[new_px]
+        
+    if verbose:
+        omnipose_logger.info('Done finding masks.')
+    return mask, labels
 
 
 @njit(['(int16[:,:,:], float32[:], float32[:], float32[:,:])', 
@@ -746,98 +787,91 @@ def map_coordinates(I, yc, xc, Y):
 # Generalizing to ND. Again, torch required but should be plenty fast on CPU too compared to jitted but non-explicitly-parallelized CPU code.
 # also should just rescale to desired resolution HERE instead of rescaling the masks later... <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<
 # grid_sample will only work for up to 5D tensors (3D segmentation). Will have to address this shortcoming if we ever do 4D. 
+# I got rid of the map_coordinates branch, I tested execution times and pytorch implemtation seems as fast or faster
 def steps_interp(p, dP, niter, use_gpu=True, device=None, omni=True, calc_trace=False):
     d = dP.shape[0] # number of components = number of dimensions 
     shape = dP.shape[1:] # shape of component array is the shape of the ambient volume 
     inds = list(range(d))[::-1] # grid_sample requires a particular ordering 
-    if use_gpu and TORCH_ENABLED:
-        if device is None:
-            device = torch_GPU
-        shape = np.array(shape)[inds]-1.  # dP is d.Ly.Lx, inds flips this to flipped X-1, Y-1, ...
-        
-        # for grid_sample to work, we need im,pt to be (N,C,H,W),(N,H,W,2) or (N,C,D,H,W),(N,D,H,W,3). The 'image' getting interpolated
-        # is the flow, which has d=2 channels in 2D and 3 in 3D (d vector components). Output has shape (N,C,H,W) or (N,C,D,H,W)
-        pt = torch.from_numpy(p[inds].T).double().to(device)
-        for k in range(d):
-            pt = pt.unsqueeze(0) # get it in the right shape
-        im = torch.from_numpy(dP[inds]).double().to(device).unsqueeze(0) #covert flow numpy array to tensor on GPU, add dimension 
-        # print('shapes',p.shape,dP.shape,im.shape,pt.shape)
-        
-        # normalize pt between 0 and  1, normalize the flow too 
-        for k in range(d): 
-            pt[...,k] /= shape[k]
-            im[:,k] *= 2./shape[k]
+    # import time
+    # startTime = time.time()
+    
 
-        # normalize pt to between -1 and 1
-        pt = pt*2-1 
-        
-        # make an array to track the trajectories 
+    if device is None:
+        if use_gpu:
+            device = torch_GPU
+        else:
+            device = torch_CPU
+    shape = np.array(shape)[inds]-1.  # dP is d.Ly.Lx, inds flips this to flipped X-1, Y-1, ...
+
+    # for grid_sample to work, we need im,pt to be (N,C,H,W),(N,H,W,2) or (N,C,D,H,W),(N,D,H,W,3). The 'image' getting interpolated
+    # is the flow, which has d=2 channels in 2D and 3 in 3D (d vector components). Output has shape (N,C,H,W) or (N,C,D,H,W)
+    pt = torch.from_numpy(p[inds].T).double().to(device)
+    for k in range(d):
+        pt = pt.unsqueeze(0) # get it in the right shape
+    im = torch.from_numpy(dP[inds]).double().to(device).unsqueeze(0) #covert flow numpy array to tensor on GPU, add dimension 
+    # print('shapes',p.shape,dP.shape,im.shape,pt.shape)
+
+    # normalize pt between 0 and  1, normalize the flow too 
+    for k in range(d): 
+        pt[...,k] /= shape[k]
+        im[:,k] *= 2./shape[k]
+
+    # normalize pt to between -1 and 1
+    pt = pt*2-1 
+
+    # make an array to track the trajectories 
+    if calc_trace:
+        trace = torch.clone(pt).detach()
+
+    # init
+    if omni and OMNI_INSTALLED:
+        dPt0 = torch.nn.functional.grid_sample(im, pt, align_corners=False)
+        # r = torch.zeros_like(p)
+
+    #here is where the stepping happens 
+    for t in range(niter):
         if calc_trace:
-            trace = torch.clone(pt).detach()
-        
-        # init
+            trace = torch.cat((trace,pt))
+        # align_corners default is False, just added to suppress warning
+        dPt = torch.nn.functional.grid_sample(im, pt, align_corners=False)#see how nearest changes things 
+        ### here is where I could add something for a potential, random step, etc. 
+
+        # for k in range(d): 
+        #     r[...,k] = pt[...,k].T - pt[...,k]
+        # might be way too much or 100s of thousands of points. Instead, maybe could just smooth out an image of density
+        # and then take the gradient to 
+
+
         if omni and OMNI_INSTALLED:
-            dPt0 = torch.nn.functional.grid_sample(im, pt, align_corners=False)
-            # r = torch.zeros_like(p)
-            
-        #here is where the stepping happens 
-        for t in range(niter):
-            if calc_trace:
-                trace = torch.cat((trace,pt))
-            # align_corners default is False, just added to suppress warning
-            dPt = torch.nn.functional.grid_sample(im, pt, align_corners=False)#see how nearest changes things 
-            ### here is where I could add something for a potential, random step, etc. 
-            
-            # for k in range(d): 
-            #     r[...,k] = pt[...,k].T - pt[...,k]
-            # might be way too much or 100s of thousands of points. Instead, maybe could just smooth out an image of density
-            # and then take the gradient to 
-            
-            
-            if omni and OMNI_INSTALLED:
-                dPt = (dPt+dPt0) / 2. # average with previous flow 
-                dPt0 = dPt.clone() # update old flow 
-                dPt /= step_factor(t) # suppression factor 
-            
-            for k in range(d): #clamp the final pixel locations
-                pt[...,k] = torch.clamp(pt[...,k] + dPt[:,k], -1., 1.)
-            
-        #undo the normalization from before, reverse order of operations 
-        pt = (pt+1)*0.5
+            dPt = (dPt+dPt0) / 2. # average with previous flow 
+            dPt0 = dPt.clone() # update old flow 
+            dPt /= step_factor(t) # suppression factor 
+
+        for k in range(d): #clamp the final pixel locations
+            pt[...,k] = torch.clamp(pt[...,k] + dPt[:,k], -1., 1.)
+
+    #undo the normalization from before, reverse order of operations 
+    pt = (pt+1)*0.5
+    for k in range(d): 
+        pt[...,k] *= shape[k]
+
+    if calc_trace:
+        trace = (trace+1)*0.5
         for k in range(d): 
-            pt[...,k] *= shape[k]
-            
-        if calc_trace:
-            trace = (trace+1)*0.5
-            for k in range(d): 
-                trace[...,k] *= shape[k]
-                
-        #pass back to cpu
-        if calc_trace:
-            tr =  trace[...,inds].cpu().numpy().squeeze().T
-        else:
-            tr = None
-        
-        p =  pt[...,inds].cpu().numpy().squeeze().T
-        return p, tr
-    
-    
+            trace[...,k] *= shape[k]
+
+    #pass back to cpu
+    if calc_trace:
+        tr =  trace[...,inds].cpu().numpy().squeeze().T
     else:
-        dPt = np.zeros(p.shape, np.float32)
-        if calc_trace:
-            tr = np.zeros((p.shape[0],p.shape[1],niter))
-        else:
-            tr = None
-            
-        for t in range(niter):
-            if calc_trace:
-                tr[...,t] = p.copy()
-            map_coordinates(dP.astype(np.float32), p[0], p[1], dPt)
-            if omni and OMNI_INSTALLED:
-                dPt /= step_factor(t)
-            for k in range(len(p)):
-                p[k] = np.minimum(shape[k]-1, np.maximum(0, p[k] + dPt[k]))
-        return p, tr
+        tr = None
+
+    p =  pt[...,inds].cpu().numpy().squeeze().T
+
+
+    # executionTime = (time.time() - startTime)
+    # print('Execution time in seconds: ' + str(executionTime))
+    return p, tr
 
 
 @njit('(float32[:,:,:,:],float32[:,:,:,:], int32[:,:], int32)', nogil=True)
@@ -930,7 +964,7 @@ def steps2D(p, dP, inds, niter, omni=True, calc_trace=False):
     return p, tr
 
 # now generalized and simplified. Will work for ND if dependencies are updated. 
-def follow_flows(dP, mask=None, inds=None, niter=200, interp=True, use_gpu=True, device=None, omni=True, calc_trace=False):
+def follow_flows(dP, inds, niter=200, interp=True, use_gpu=True, device=None, omni=True, calc_trace=False):
     """ define pixels and run dynamics to recover masks in 2D
     
     Pixels are meshgrid. Only pixels with non-zero cell-probability
@@ -986,22 +1020,15 @@ def follow_flows(dP, mask=None, inds=None, niter=200, interp=True, use_gpu=True,
     # not sure why, but I had changed this to float64 at some point... tests showed that map_coordinates expects float32
     # possible issues elsewhere? 
     p = np.array(p).astype(np.float32)
-
     # added inds for debugging while preserving backwards compatibility 
-    if inds is None:
-        if omni and (mask is not None):
-            # mag = np.sqrt(np.nansum(dP**2,axis=0))
-            # inds = np.array(np.nonzero(np.logical_or(mask,mag>1e-3))).astype(np.int32).T #<< more reliable, but cutoff too small anyway to work 
-            inds = np.array(np.nonzero(mask)).astype(np.int32).T
-            
-        else:
-            inds = np.array(np.nonzero(np.abs(dP[0])>1e-3)).astype(np.int32).T ### that dP[0] is a big bug... only first component!!!
     
-    cell_px = (Ellipsis,)+tuple(inds.T)
-
-    if inds.ndim < 2 or inds.shape[0] < 5:
+    if inds.ndim < 2 or inds.shape[0] < d:
+        print(inds.shape,d)
         omnipose_logger.warning('WARNING: no mask pixels found')
         return p, inds, None
+
+    cell_px = (Ellipsis,)+tuple(inds)
+
 
     if not interp:
         omnipose_logger.warning('WARNING: not interp')
@@ -1632,12 +1659,9 @@ def fill_holes_and_remove_small_masks(masks, min_size=15, hole_size=3, scale_fac
     #     print('here')
         # formatting to integer is critical
         # need to test how it does with 3D
-    masks = utils.format_labels(masks, min_area=min_size)
+    masks = utils.format_labels(masks, min_area=min_size)#, clean=True)
         
     hole_size *= scale_factor
-        
-    if masks.ndim > 3 or masks.ndim < 2:
-        raise ValueError('masks_to_outlines takes 2D or 3D array, not %dD array'%masks.ndim)
     
     slices = find_objects(masks)
     j = 0
@@ -1649,22 +1673,14 @@ def fill_holes_and_remove_small_masks(masks, min_size=15, hole_size=3, scale_fac
                 masks[slc][msk] = 0
             else:   
                 hsz = np.count_nonzero(msk)*hole_size/100 #turn hole size into percentage
-                #eventually the boundary output should be used to properly exclude real holes vs label gaps 
-                if msk.ndim==3:
-                    for k in range(msk.shape[0]):
-                        # Omnipose version (breaks 3D tests)
-                        # padmsk = remove_small_holes(np.pad(msk[k],1,mode='constant'),hsz)
-                        # msk[k] = padmsk[1:-1,1:-1]
-                        
-                        #Cellpose version
-                        msk[k] = binary_fill_holes(msk[k])
-
-                else:          
-                    if SKIMAGE_ENABLED: # Omnipose version (passes 2D tests)
-                        padmsk = remove_small_holes(np.pad(msk,1,mode='constant'),hsz)
-                        msk = padmsk[1:-1,1:-1]
-                    else: #Cellpose version
-                        msk = binary_fill_holes(msk)
+                #eventually the boundary output should be used to properly exclude real holes vs label gaps      
+                if SKIMAGE_ENABLED: # Omnipose version (passes 2D tests)
+                    pad = 1
+                    unpad = tuple([slice(pad,-pad)]*msk.ndim) 
+                    padmsk = remove_small_holes(np.pad(msk,pad,mode='constant'),hsz)
+                    msk = padmsk[unpad]
+                else: #Cellpose version
+                    msk = binary_fill_holes(msk)
                 masks[slc][msk] = (j+1)
                 j+=1
     return masks
