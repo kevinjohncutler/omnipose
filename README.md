@@ -18,21 +18,21 @@ Omnipose is a general image segmentation tool that builds on [Cellpose][cp] in a
 1. Install an [Anaconda](https://www.anaconda.com/download/) distribution of Python. Note you might need to use an anaconda prompt if you did not add anaconda to the path.
 2. Open an anaconda prompt / command prompt with `conda` for **python 3** in the path.
 3. To create a new environment, run
-```
-conda create --name omnipose python=3.8.5
-```
+    ```
+    conda create --name omnipose python=3.8.5
+    ```
 4. To activate this new environment, run 
-```
-conda activate omnipose
-```
-5. To install Omnipose, run 
-```
-pip install omnipose
-``` 
-or 
-```
-pip install git+https://github.com/kevinjohncutler/omnipose.git
-```
+    ```
+    conda activate omnipose
+    ```
+5. To install Omnipose, run
+    ``` 
+    pip install omnipose
+    ``` 
+    or 
+    ```
+    pip install git+https://github.com/kevinjohncutler/omnipose.git
+    ```
 
 ### GPU support 
 Omnipose runs on CPU on MacOS, Windows, and Linux. PyTorch only supports NVIDIA GPUs, so you can only take advantage of GPU speeds on Linux or Windows. Your PyTorch version (>=1.6) needs to be compatible with your CUDA toolkit version and your NVIDIA driver. See [here](https://docs.nvidia.com/cuda/cuda-toolkit-release-notes/index.html) for compatibility chart of CUDA and diver versions. Also see the official documentation on installing both the [most recent](https://pytorch.org/get-started/locally/) and [previous](https://pytorch.org/get-started/previous-versions/) combinations of CUDA and PyTorch to suit your needs. Accordingly, you can get started with CUDA 11.3 by making the following environment:
