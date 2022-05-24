@@ -12,6 +12,12 @@ Omnipose is a general image segmentation tool that builds on [Cellpose][cp] in a
 * ***C. elegans***: trained on a couple OpenWorm videos and the [BBBC010](https://bbbc.broadinstitute.org/BBBC010) alive/dead assay. We are working on expanding this significantly with the help of other labs contributing ground-truth data. 
 * **cyto2**: trained on user data submitted through the Cellpose GUI. Very diverse data, but not necessarily the best quality. This model can be a good starting point for users making their own ground-truth datasets. 
 
+## Try out Omnipose online
+
+[colab]: https://colab.research.google.com/github/HenriquesLab/ZeroCostDL4Mic/blob/master/Colab_notebooks/Beta%20notebooks/Cellpose_2D_ZeroCostDL4Mic.ipynb
+[ZeroCostDL4Mic]: https://github.com/HenriquesLab/ZeroCostDL4Mic/wiki
+
+New users can check out the [ZeroCostDL4Mic][ZeroCostDL4Mic] Cellpose notebook on [Google Colab][colab] to try out our original release of Omnipose. We are working on updating this to the most recent version of Omnipose with advanced 3D features and more built-in models. 
 
 ## How to install Omnipose
 
