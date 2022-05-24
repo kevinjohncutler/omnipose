@@ -7,10 +7,17 @@ from sklearn.utils.extmath import cartesian
 import fastremap
 import os, tifffile
 import time
-
 import mgen #ND rotation matrix
-
 from . import utils
+
+# define the list of unqiue omnipose models 
+OMNI_MODELS = ['bact_phase_cp',
+               'bact_fluor_cp',
+               'plant_cp',
+               'cyto2_omni',
+               'bact_phase_omni',
+               'bact_fluor_omni']
+
 
 try:
     import torch
@@ -716,10 +723,9 @@ def get_masks(p,bd,dist,mask,inds,nclasses=4,cluster=False,
 
         ###
         mask[cell_px] = labels+1 # outliers have label -1
-    else: #this branch has serious issues near edges 
+    else: #this branch can have issues near edges 
         newinds = np.rint(newinds.T).astype(int)
         new_px = tuple(newinds)
-        print(newinds.shape,'sss')
         skelmask = np.zeros_like(dist, dtype=bool)
         skelmask[new_px] = 1
 
