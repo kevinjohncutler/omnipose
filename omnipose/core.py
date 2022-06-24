@@ -13,11 +13,15 @@ from . import utils
 # define the list of unqiue omnipose models 
 OMNI_MODELS = ['bact_phase_cp',
                'bact_fluor_cp',
-               'plant_cp',
+               'plant_cp', # 2D model
+               'worm_cp',
                'cyto2_omni',
                'bact_phase_omni',
-               'bact_fluor_omni']
-
+               'bact_fluor_omni',
+               'plant_omni', #3D model 
+               'worm_omni',
+               'worm_bact_omni',
+               'worm_high_res_omni']
 
 try:
     import torch
@@ -232,7 +236,7 @@ def masks_to_flows(masks, dists=None, use_gpu=False, device=None, omni=True, dim
     """
 
     if dists is None:
-        masks = utils.format_labels(masks)
+        masks = ncolor.format_labels(masks)
         dists = edt.edt(masks,parallel=8)
         
     if device is None:
@@ -395,7 +399,7 @@ def _extend_centers_torch(masks, centers, n_iter=200, device=torch.device('cuda'
     idx = (3**d)//2 # center pixel index
 
     neigh = [[-1,0,1] for i in range(d)]
-    steps = cartesian(neigh)
+    steps = cartesian(neigh) # all the possible step sequences in ND
     neighbors = np.array([np.add.outer(coords[i],steps[:,i]) for i in range(d)]).swapaxes(-1,-2)
     
     # get indices of the hupercubes sharing m-faces on the central n-cube
@@ -462,9 +466,9 @@ def eikonal_update_torch(T,pt,isneigh,d=None,index_list=None,factors=None):
     return phi_total**(1/d) #geometric mean of update along each connectivity set 
 
 def update_torch(a,f):
-    # Turns out we can just avoid a ton of infividual if/else by evaluating the update function
+    # Turns out we can just avoid a ton of individual if/else by evaluating the update function
     # for every upper limit on the sorted pairs. I do this by piecies using cumsum. The radicand
-    # neing nonegative sets the opper limit on the sorted pairs, so we simply select the largest 
+    # being nonegative sets the upper limit on the sorted pairs, so we simply select the largest 
     # upper limit that works. 
     sum_a = torch.cumsum(a,dim=0)
     sum_a2 = torch.cumsum(a**2,dim=0)
@@ -486,7 +490,7 @@ def compute_masks(dP, dist, bd=None, p=None, inds=None, niter=200, rescale=1.0, 
                   mask_threshold=0.0, diam_threshold=12.,flow_threshold=0.4, 
                   interp=True, cluster=False, do_3D=False, min_size=None, omni=True, 
                   calc_trace=False, verbose=False, use_gpu=False, device=None, nclasses=3, 
-                  dim=2, eps=None, hdbscan=False, flow_factor = 6, debug=False):
+                  dim=2, eps=None, hdbscan=False, flow_factor=6, debug=False):
     """ compute masks using dynamics from dP, dist, and boundary """
     if min_size is None:
         min_size = 3**dim
@@ -496,10 +500,10 @@ def compute_masks(dP, dist, bd=None, p=None, inds=None, niter=200, rescale=1.0, 
     if verbose:
          omnipose_logger.info('mask_threshold is %f',mask_threshold)
     
-    # inds very useful for debugging and figures; allows us to easily specify specific indices foe Euler integration
+    # inds very useful for debugging and figures; allows us to easily specify specific indices for Euler integration
     if inds is not None:
         mask = np.zeros_like(dist,dtype=np.int32)
-        print (mask.shape, inds.shape)
+        print('info', mask.shape, inds.shape)
         mask[tuple(inds)] = 1
     else:
         if omni and SKIMAGE_ENABLED:
@@ -510,8 +514,6 @@ def compute_masks(dP, dist, bd=None, p=None, inds=None, niter=200, rescale=1.0, 
         else:
             mask = dist > mask_threshold # analog to original iscell=(cellprob>cellprob_threshold)
             inds = np.array(np.nonzero(np.abs(dP[0])>1e-3)).astype(np.int32) ### that dP[0] is a big bug... only first component!!!
-       
-    # print('dist',np.nanmax(dist),np.nanmin(dist),dist.shape)
     if np.any(mask): #mask at this point is a cell cluster binary map, not labels 
         # the clustering algorithm requires far fewer iterations because it 
         # can handle subpixel separation to define blobs, wheras the thresholding method
@@ -520,7 +522,6 @@ def compute_masks(dP, dist, bd=None, p=None, inds=None, niter=200, rescale=1.0, 
             # niter = get_niter(dist)
             # niter = int(dist_to_diam(dist[dist>0],n=mask.ndim))
             niter = int(diameters(mask,dist))
-        
         #preprocess flows
         if omni and OMNI_INSTALLED:
             if bd is None:
@@ -538,7 +539,6 @@ def compute_masks(dP, dist, bd=None, p=None, inds=None, niter=200, rescale=1.0, 
             # dP_ = dP.copy()
             if dim>2:
                 dP_ *= flow_factor
-                # print('warning, div not times 3 for 3d, still experimenting')
                 print('dP_ times {} for >2d, still experimenting'.format(flow_factor))
 
         else:
@@ -552,7 +552,7 @@ def compute_masks(dP, dist, bd=None, p=None, inds=None, niter=200, rescale=1.0, 
                                        calc_trace=calc_trace)
         else:
             tr = []
-            inds = np.stack(np.nonzero(mask)).T
+            inds = np.stack(np.nonzero(mask))
             if verbose:
                 omnipose_logger.info('p given')
                 
@@ -563,7 +563,6 @@ def compute_masks(dP, dist, bd=None, p=None, inds=None, niter=200, rescale=1.0, 
                              eps=eps, hdbscan=hdbscan) ##### omnipose.core.get_masks
         else:
             mask = get_masks_cp(p, iscell=mask, flows=dP, use_gpu=use_gpu) ### just get_masks
-            
         # flow thresholding factored out of get_masks
         if not do_3D: 
             shape0 = p.shape[1:]
@@ -578,11 +577,9 @@ def compute_masks(dP, dist, bd=None, p=None, inds=None, niter=200, rescale=1.0, 
                 omnipose_logger.info(f'resizing output with resize = {resize}')
             # mask = resize_image(mask, resize[0], resize[1], interpolation=cv2.INTER_NEAREST).astype(np.int32) 
             mask = zoom(mask, resize/np.array(mask.shape), order=0).astype(np.int32) 
-        
         mask = fill_holes_and_remove_small_masks(mask, min_size=min_size, dim=dim) ##### utils.fill_holes_and_remove_small_masks
         # print('warning, temp disable remove small masks')
         fastremap.renumber(mask,in_place=True) #convenient to guarantee non-skipped labels
-    
     else: # nothing to compute, just make it compatible
         omnipose_logger.info('No cell pixels found.')
         p = np.zeros([2,1,1])
@@ -739,14 +736,15 @@ def get_masks(p,bd,dist,mask,inds,nclasses=4,cluster=False,
             border_px[bd>-1] = 0
             if verbose:
                 omnipose_logger.info('Using boundary output to split edge defects')
-        else: #otherwise do morphological opening to attempt splitting 
-            border_px = binary_opening(border_px,border_value=0,iterations=3)
+        # else: #otherwise do morphological opening to attempt splitting 
+        #     # border_px = binary_opening(border_px,border_value=0,iterations=3)
+        #     print('BBBBB')
 
         skelmask[border_mask] = border_px[border_mask]
 
         if SKIMAGE_ENABLED:
             cnct = skelmask.ndim #-1
-            labels = measure.label(skelmask,connectivity=cnct) #<<<< connectivity may need to be generalized to higher dimensions
+            labels = measure.label(skelmask,connectivity=cnct) #is this properly generalized to ND? seems like it works
         else:
             labels = label(skelmask)[0]
         mask[cell_px] = labels[new_px]
@@ -794,14 +792,14 @@ def map_coordinates(I, yc, xc, Y):
 # also should just rescale to desired resolution HERE instead of rescaling the masks later... <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<
 # grid_sample will only work for up to 5D tensors (3D segmentation). Will have to address this shortcoming if we ever do 4D. 
 # I got rid of the map_coordinates branch, I tested execution times and pytorch implemtation seems as fast or faster
-def steps_interp(p, dP, niter, use_gpu=True, device=None, omni=True, calc_trace=False):
+def steps_interp(p, dP, niter, use_gpu=True, device=None, omni=True, calc_trace=False, calc_bd=False):
+    align_corners = True
+    mode = 'bilinear'
     d = dP.shape[0] # number of components = number of dimensions 
     shape = dP.shape[1:] # shape of component array is the shape of the ambient volume 
     inds = list(range(d))[::-1] # grid_sample requires a particular ordering 
     # import time
     # startTime = time.time()
-    
-
     if device is None:
         if use_gpu:
             device = torch_GPU
@@ -812,34 +810,40 @@ def steps_interp(p, dP, niter, use_gpu=True, device=None, omni=True, calc_trace=
     # for grid_sample to work, we need im,pt to be (N,C,H,W),(N,H,W,2) or (N,C,D,H,W),(N,D,H,W,3). The 'image' getting interpolated
     # is the flow, which has d=2 channels in 2D and 3 in 3D (d vector components). Output has shape (N,C,H,W) or (N,C,D,H,W)
     pt = torch.from_numpy(p[inds].T).double().to(device)
+    # print('pt shape',pt.shape)
+    pt0 = pt.clone() # save first
     for k in range(d):
         pt = pt.unsqueeze(0) # get it in the right shape
-    im = torch.from_numpy(dP[inds]).double().to(device).unsqueeze(0) #covert flow numpy array to tensor on GPU, add dimension 
-    # print('shapes',p.shape,dP.shape,im.shape,pt.shape)
+    flow = torch.from_numpy(dP[inds]).double().to(device).unsqueeze(0) #covert flow numpy array to tensor on GPU, add dimension 
+    # print('shapes',p.shape,dP.shape,pt.shape)
 
-    # normalize pt between 0 and  1, normalize the flow too 
+    # we want to normalize the coordinates between 0 and 1. To do this, 
+    # we divide the coordinates by the shape along that dimension. To symmetrize,
+    # we then multiply by 2 and subtract 1. I
+    # We also need to rescale the flow by the same factor, but no shift of -1. 
+    
     for k in range(d): 
-        pt[...,k] /= shape[k]
-        im[:,k] *= 2./shape[k]
-
-    # normalize pt to between -1 and 1
-    pt = pt*2-1 
-
+        pt[...,k] = 2*pt[...,k]/shape[k] - 1
+        flow[:,k] = 2*flow[:,k]/shape[k]
+    
     # make an array to track the trajectories 
     if calc_trace:
         trace = torch.clone(pt).detach()
+        # trace = torch.zeros((niter,)+pt.shape) # slower to preallocate...
+        # print('trace shape',trace.shape)
 
-    # init
+    # init 
     if omni and OMNI_INSTALLED:
-        dPt0 = torch.nn.functional.grid_sample(im, pt, align_corners=False)
+        dPt0 = torch.nn.functional.grid_sample(flow, pt, mode=mode, align_corners=align_corners)
         # r = torch.zeros_like(p)
 
     #here is where the stepping happens 
     for t in range(niter):
         if calc_trace:
             trace = torch.cat((trace,pt))
+            # trace[t] = pt.detach()
         # align_corners default is False, just added to suppress warning
-        dPt = torch.nn.functional.grid_sample(im, pt, align_corners=False)#see how nearest changes things 
+        dPt = torch.nn.functional.grid_sample(flow, pt, mode=mode, align_corners=align_corners)#see how nearest changes things 
         ### here is where I could add something for a potential, random step, etc. 
 
         # for k in range(d): 
@@ -855,7 +859,16 @@ def steps_interp(p, dP, niter, use_gpu=True, device=None, omni=True, calc_trace=
 
         for k in range(d): #clamp the final pixel locations
             pt[...,k] = torch.clamp(pt[...,k] + dPt[:,k], -1., 1.)
-
+        
+        # # differene gets rid pf 
+        # r = (torch.sum((pt-pt0)**2,axis=-1))**0.5
+        # r *= 0.5
+        # for k in range(d): 
+        #     r[...,k] *= shape[k]
+        # # print(pt[:10,:10].cpu().numpy())
+        # print('r', r.squeeze().cpu().numpy()[:10])
+        
+        # snapping to coordinate locations is no good... distance of points to all orifginal 
     #undo the normalization from before, reverse order of operations 
     pt = (pt+1)*0.5
     for k in range(d): 
@@ -865,6 +878,7 @@ def steps_interp(p, dP, niter, use_gpu=True, device=None, omni=True, calc_trace=
         trace = (trace+1)*0.5
         for k in range(d): 
             trace[...,k] *= shape[k]
+        # print('trace shape',trace.shape)
 
     #pass back to cpu
     if calc_trace:
@@ -878,7 +892,6 @@ def steps_interp(p, dP, niter, use_gpu=True, device=None, omni=True, calc_trace=
     # executionTime = (time.time() - startTime)
     # print('Execution time in seconds: ' + str(executionTime))
     return p, tr
-
 
 @njit('(float32[:,:,:,:],float32[:,:,:,:], int32[:,:], int32)', nogil=True)
 def steps3D(p, dP, inds, niter):
@@ -1119,17 +1132,17 @@ def flow_error(maski, dP_net, use_gpu=False, device=None, omni=True):
         return
 
     # ensure unique masks
-    maski = np.reshape(np.unique(maski.astype(np.float32), return_inverse=True)[1], maski.shape)
+    # maski = np.reshape(np.unique(maski.astype(np.float32), return_inverse=True)[1], maski.shape)
+    fastremap.renumber(maski,in_place=True)
 
     # flows predicted from estimated masks
     idx = -1 # flows are the last thing returned now
     dP_masks = masks_to_flows(maski, use_gpu=use_gpu, device=device, omni=omni)[idx] ##### dynamics.masks_to_flows
     # difference between predicted flows vs mask flows
-    flow_errors=np.zeros(maski.max())
+    flow_errors = np.zeros(maski.max())
     for i in range(dP_masks.shape[0]):
-        flow_errors += mean((dP_masks[i] - dP_net[i]/5.)**2, maski,
+        flow_errors += mean((dP_masks[i] - dP_net[i]/5.)**2, maski, #the /5 is to compensate for the *5 we do for training
                             index=np.arange(1, maski.max()+1))
-
     return flow_errors, dP_masks
 
 
@@ -1665,7 +1678,7 @@ def fill_holes_and_remove_small_masks(masks, min_size=15, hole_size=3, scale_fac
     #     print('here')
         # formatting to integer is critical
         # need to test how it does with 3D
-    masks = utils.format_labels(masks, min_area=min_size)#, clean=True)
+    masks = ncolor.format_labels(masks, min_area=min_size)#, clean=True)
         
     hole_size *= scale_factor
     

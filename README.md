@@ -19,6 +19,10 @@ Omnipose is a general image segmentation tool that builds on [Cellpose][cp] in a
 
 New users can check out the [ZeroCostDL4Mic][ZeroCostDL4Mic] Cellpose notebook on [Google Colab][colab] to try out our original release of Omnipose. We are working on updating this to the most recent version of Omnipose with advanced 3D features and more built-in models. 
 
+## Use the GUI
+
+Launch our Omnipose-optimized version of the Cellpose GUI as usual from terminal: `python -m omnipose`. Our version of the GUI gives easy access to the parameters you need to run Omnipose in large batches via CLI or Jupyter notebooks. The [ncolor](https://github.com/kevinjohncutler/ncolor) label representation is now default and can be toggled off for saving masks in standard format. 
+
 ## How to install Omnipose
 
 1. Install an [Anaconda](https://www.anaconda.com/download/) distribution of Python. Note you might need to use an anaconda prompt if you did not add anaconda to the path.
@@ -69,7 +73,7 @@ On our bacterial phase contrast data, we found that while Cellpose does not bene
 
 ## 3D Omnipose
 
-To train a 3D model on image volumes, used the dimension argument: `--dim 3`. You may have to choose a smaller crop size for images sent to the GPU. In that case, you can specify a smaller crop size, *e.g.*, `--tyx 50,50,50`. The command we used in the paper on the *Arabidopsis thaliana* lateral root primordia dataset was:
+To train a 3D model on image volumes, specify the dimension argument: `--dim 3`. You may have run out of VRAM on your GPU. In that case, you can specify a smaller crop size, *e.g.*, `--tyx 50,50,50`. The command we used in the paper on the *Arabidopsis thaliana* lateral root primordia dataset was:
 ```
 python -m cellpose --train --use_gpu --dir ./plantseg/traintest/LateralRootPrimordia/export_small/train --mask_filter _masks --n_epochs 4000 --pretrained_model None  --learning_rate 0.1 --save_every 50 --save_each --omni --verbose --look_one_level_down --all_channels --dim 3 --RAdam --batch_size 4 --diameter 0
 ```
