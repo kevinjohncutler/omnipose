@@ -21,7 +21,12 @@ New users can check out the [ZeroCostDL4Mic][ZeroCostDL4Mic] Cellpose notebook o
 
 ## Use the GUI
 
-Launch our Omnipose-optimized version of the Cellpose GUI as usual from terminal: `python -m omnipose`. Our version of the GUI gives easy access to the parameters you need to run Omnipose in large batches via CLI or Jupyter notebooks. The [ncolor](https://github.com/kevinjohncutler/ncolor) label representation is now default and can be toggled off for saving masks in standard format. 
+Launch our Omnipose-optimized version of the Cellpose GUI as usual from terminal: `python -m omnipose`. If you have not already, first install the Cellpose GUI with `pip install cellpose[gui]` followed by the Omnipose github install command (see below). On Ubuntu 2022.04 (and possibly earlier), we found it necessary to run the following to install a missing package: 
+```
+sudo apt install libxcb-xinerama0
+```
+
+Our version of the GUI gives easy access to the parameters you need to run Omnipose in large batches via CLI or Jupyter notebooks. The [ncolor](https://github.com/kevinjohncutler/ncolor) label representation is now default and can be toggled off for saving masks in standard format. 
 
 ## How to install Omnipose
 
@@ -35,11 +40,11 @@ Launch our Omnipose-optimized version of the Cellpose GUI as usual from terminal
     ```
     conda activate omnipose
     ```
-5. To install Omnipose, run
+5. To install the latest stable release of Omnipose, run
     ``` 
     pip install omnipose
     ``` 
-    or 
+    or, for the latest version,
     ```
     pip install git+https://github.com/kevinjohncutler/omnipose.git
     ```
