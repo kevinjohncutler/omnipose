@@ -21,12 +21,13 @@ New users can check out the [ZeroCostDL4Mic][ZeroCostDL4Mic] Cellpose notebook o
 
 ## Use the GUI
 
-Launch our Omnipose-optimized version of the Cellpose GUI as usual from terminal: `python -m omnipose`. If you have not already, first install the Cellpose GUI with `pip install cellpose[gui]` followed by the Omnipose github install command (see below). On Ubuntu 2022.04 (and possibly earlier), we found it necessary to run the following to install a missing package: 
+Launch our Omnipose-optimized version of the Cellpose GUI from terminal: `python -m omnipose`. The latest version of Omnipose (see GitHub installation) automatically downloads the GUI dependencies of our Cellpose fork. On Ubuntu 2022.04 (and possibly earlier), we found it necessary to run the following to install a missing package: 
 ```
 sudo apt install libxcb-xinerama0
 ```
-
 Our version of the GUI gives easy access to the parameters you need to run Omnipose in large batches via CLI or Jupyter notebooks. The [ncolor](https://github.com/kevinjohncutler/ncolor) label representation is now default and can be toggled off for saving masks in standard format. 
+
+Standalone versions of this GUI for Windows, macOS, and Linux are coming soon. 
 
 ## How to install Omnipose
 
@@ -34,13 +35,13 @@ Our version of the GUI gives easy access to the parameters you need to run Omnip
 2. Open an anaconda prompt / command prompt with `conda` for **python 3** in the path.
 3. To create a new environment, run
     ```
-    conda create --name omnipose python=3.8.5
+    conda create --name omnipose
     ```
 4. To activate this new environment, run 
     ```
     conda activate omnipose
     ```
-5. To install the latest stable release of Omnipose, run
+5. To install the latest PyPi release of Omnipose, run
     ``` 
     pip install omnipose
     ``` 
@@ -48,6 +49,9 @@ Our version of the GUI gives easy access to the parameters you need to run Omnip
     ```
     pip install git+https://github.com/kevinjohncutler/omnipose.git
     ```
+
+We have tested Omnipose extensively on Python version 3.8.5 and have encountered issues on some lower versions. Versions up to 3.10.4 have been confirmed compatible. Check your python version by running `python -V`. If your version is too low (this happens if your default/base environment python is a lower version), make a new environment and specify the python version, e.g. `conda create --name omnipose python==3.8.5`.
+
 
 ### GPU support 
 Omnipose runs on CPU on MacOS, Windows, and Linux. PyTorch only supports NVIDIA GPUs, so you can only take advantage of GPU speeds on Linux or Windows. Your PyTorch version (>=1.6) needs to be compatible with your CUDA toolkit version and your NVIDIA driver. See [here](https://docs.nvidia.com/cuda/cuda-toolkit-release-notes/index.html) for compatibility chart of CUDA and diver versions. Also see the official documentation on installing both the [most recent](https://pytorch.org/get-started/locally/) and [previous](https://pytorch.org/get-started/previous-versions/) combinations of CUDA and PyTorch to suit your needs. Accordingly, you can get started with CUDA 11.3 by making the following environment:
