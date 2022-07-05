@@ -1,9 +1,9 @@
 import setuptools
 from setuptools import setup
 
-install_deps = ['numpy>=1.20.0', 'scipy', 'numba', 
+install_deps = ['numpy>=1.22.4', 'scipy', 'numba', 
                 'edt','scikit-image','ncolor',
-                'mgen','scikit-learn','mahotas',
+                'mgen','scikit-learn','mahotas==1.4.12',
                 'cellpose[all]@git+https://github.com/kevinjohncutler/cellpose#egg=cellpose[all]',]
 
 with open("README.md", "r") as fh:

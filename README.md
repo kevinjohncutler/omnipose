@@ -35,7 +35,7 @@ Standalone versions of this GUI for Windows, macOS, and Linux are coming soon.
 2. Open an anaconda prompt / command prompt with `conda` for **python 3** in the path.
 3. To create a new environment, run
     ```
-    conda create --name omnipose
+    conda create --name omnipose python>=3.8.5
     ```
 4. To activate this new environment, run 
     ```
@@ -45,7 +45,7 @@ Standalone versions of this GUI for Windows, macOS, and Linux are coming soon.
     ``` 
     pip install omnipose
     ``` 
-    or, for the latest version,
+    or, for the most up-to-date development version,
     ```
     pip install git+https://github.com/kevinjohncutler/omnipose.git
     ```
