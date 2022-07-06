@@ -1,0 +1,3 @@
+[submodule "cellpose"]
+	path = cellpose
+	url = https://github.com/kevinjohncutler/cellpose

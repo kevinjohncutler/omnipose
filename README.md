@@ -99,6 +99,19 @@ As Omnipose is built on [Cellpose][cp], this repo serves mostly to contain new O
 
 This means that if you encounter bugs with Omnipose, you can check the [main Cellpose repo][cp] for related issues and also post them here. Our Cellpose fork will continue to be updated with bug fixes and features from the main branch. If there are any features or pull requests that you want to see in Omnipose ASAP, please let us know. 
 
+## Building the GUI app
+
+PyInstaller can be used to compile Omnipose into a standalone app. The limitation is that the build process itself needs to run within the OS on which the app will be run. We plan to release app versions for macOS 12.3, Windows 10, and Ubuntu 20.04, which should also work on newer versions of each OS. We will periodically update these apps for the public, but we will also post notes below to guide others in compiling the code:
+
+1. Paths must be updated in the .spec files to relect your own environment. For example, the original `cli_windows.spec` was compiled on a Windows machine under Carsen's local account and therefore used
+    ``` python
+        pathex=['C:\\Users\\carse\\github\\cellpose'],
+    ```
+    but I changed this to
+    ``` python
+        pathex=['C:\\Users\\Mougous Lab\\cellpose'],
+    ```
+    
 
 ## Licensing
 See `LICENSE.txt` for details. This license does not affect anyone using Omnipose for noncommercial applications. 
