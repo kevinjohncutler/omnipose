@@ -60,8 +60,6 @@ extensions = [
     'sphinx_copybutton',
     'sphinx_automodapi.automodapi',
     'myst_nb',
-
-    
 ]
 
 autoapi_dirs = ['../omnipose']
@@ -89,7 +87,7 @@ templates_path = ['_templates']
 # List of patterns, relative to source directory, that match files and
 # directories to ignore when looking for source files.
 # This pattern also affects html_static_path and html_extra_path.
-exclude_patterns = ['build', '_build', '**.ipynb_checkpoints', 'links.rst','.special.rst']
+exclude_patterns = ['build', '_build', '**.ipynb_checkpoints', 'links.rst', 'sinebow.rst']
 rst_epilog =""
 # Read link all targets from file
 with open('links.rst') as f:
@@ -106,7 +104,7 @@ html_favicon = '_static/icon.png'
 html_theme = 'furo'
 # html_theme_path = ["_themes", ]
 # html_theme = 'theme' # use the theme in subdir 'theme'
-html_theme_path = ['.'] # make sphinx search for themes in current dir
+# html_theme_path = ['.'] # make sphinx search for themes in current dir
 
 # Add any paths that contain custom static files (such as style sheets) here,
 # relative to this directory. They are copied after the builtin static files,
@@ -287,9 +285,9 @@ autoapi_options = [
 
 html_sidebars = {
     "**": [
-        "sidebar/scroll-start.html",
         "sidebar/brand.html",
         "sidebar/search.html",
+        "sidebar/scroll-start.html",
         "sidebar/navigation.html",
         "sidebar/scroll-end.html",
     ]

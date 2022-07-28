@@ -1,3 +1,4 @@
+.. include:: sinebow.rst
 
 |
 
