@@ -103,5 +103,11 @@ div.cell_input > div, div.cell_output div.output > div.highlight {
 /* .wy-nav-content {
   max-width: none;
 } */
-.sidebar-tree .toctree-l1 > .reference {color: None}
+.sidebar-tree .toctree-l1 > .reference {color: None !important}
 .sidebar-tree .toctree-l1 > label .icon {color: var(--color-foreground-muted)}
+
+a {
+  color: none !important;
+  /* text-decoration: underline; */
+}
+

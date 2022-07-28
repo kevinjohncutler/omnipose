@@ -5,8 +5,6 @@
 
     <style> .sinebow19 {color:var(--sinebow19)} </style>
 
-        <style> .sidebar-tree .toctree-l1 > .reference, .sidebar-tree .toctree-l1 > label .icon {color: var(--sinebow19)}</style>
-
 
 .. role:: sinebow19
 

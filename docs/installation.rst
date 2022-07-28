@@ -6,9 +6,13 @@
 
    <style> .sinebow11 {color:var(--sinebow11)} </style>
 
-   <style> .sidebar-tree .toctree-l1 > .reference {color: None}</style>
+   <style> .sidebar-tree .toctree-l1 > .reference {color: None !important}</style>
 
    <style> .sidebar-tree .toctree-l1 > label .icon {color: var(--color-foreground-muted)}</style>
+   
+   <style>  a.reference.internal > span {color: var(--red)}</style>
+
+   
 
 
 .. role:: sinebow11
