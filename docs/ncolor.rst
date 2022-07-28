@@ -33,3 +33,21 @@ test section
 
 .. role:: sinebow11
 :sinebow11:`test`
+
+.. role:: sinebow19
+:sinebow19:`sb19`
+
+.. role:: test
+:test:`tttttt`
+
+
+
+
+.. raw:: html
+
+    <style> .blue01 {color:#0000ff; font-weight:bold; font-size:16px} </style>
+
+.. role:: blue01
+
+:blue01:`test - this text should be blue`
+
