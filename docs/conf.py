@@ -293,5 +293,6 @@ html_sidebars = {
         "sidebar/scroll-start.html",
         "sidebar/navigation.html",
         "sidebar/scroll-end.html",
+        "sidebar/variant-selector.html",
     ]
 }

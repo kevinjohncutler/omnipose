@@ -6,7 +6,8 @@ span.caption-text {
 /* .wy-menu > .caption > span.caption-text {
   color: red;
 }  */
-@import url("default.css");
+/* @import url("default.css"); */
+/* @import url("//media.readthedocs.org/css/sphinx_rtd_theme.css"); */
 
 /* h1{
   color: var(--h1-color)
