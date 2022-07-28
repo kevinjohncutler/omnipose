@@ -29,9 +29,9 @@ a:hover {
   color: var(--color-link--hover);
 }
 
-/* .toc-list {
-  color: #fff;
-} */
+.toc-list {
+  color: transparent;
+}
 
 .header-2 { 
 	/* color: var(--h2-color); */
@@ -44,7 +44,7 @@ though unfortunately this only 'covers up' the default
 .highlight pre {
   background-color: var(--color-background-secondary);
   border-radius: 3px;
-
+  /* color: transparent; */
 
 }
 
