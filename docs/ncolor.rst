@@ -21,3 +21,15 @@ In 3D, you could in principle have cells that touch every other cell, in which c
 well-behaved volumes I have tested, my algorithm ends up needing 6-7 unique labels. I am curious if some bound on N can be formulated in the context of constrained volumes,
 *e.g.*, packed spheres of mixed and arbitrary diameter...
 
+
+test section
+
+.. role:: raw-html(raw)
+   :format: html
+
+:raw-html:`<font color=red>test</font>`
+
+:raw-html:`<font color=sinebow11>test</font>`
+
+.. role:: sinebow11
+:sinebow11:`test`
