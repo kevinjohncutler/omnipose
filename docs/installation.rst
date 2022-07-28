@@ -2,15 +2,15 @@
 
 |
 
-.. :sinebow11:`Installation`
+.. raw:: html
+
+    <style> .sinebow {color:var(--sinebow11)} </style>
+
+.. role:: sinebow
 
 
-.. role:: raw-html(raw)
-   :format: html
-
-
-:raw-html:`<font color=var(--color-link--hover)>Installation</font>`
-=========================
+:sinebow:`Installation`
+============================================================
 
 
 .. include:: ../README.md

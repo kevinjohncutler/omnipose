@@ -1,3 +1,4 @@
+
 # Configuration file for the Sphinx documentation builder.
 #
 # This file only contains a selection of the most common options. For a full
@@ -127,10 +128,17 @@ html_css_files = [
 
 ]
 
-html_theme_options = {
-    "sidebar_hide_name": True,
-    "top_of_page_button": "edit",
-    "dark_css_variables": {
+
+from omnipose.utils import sinebow
+import matplotlib
+N = 42
+c = sinebow(N)
+colors = [matplotlib.colors.to_hex(c[i]) for i in range(1,N+1)]
+colordict = {}
+for i in range(N):
+    colordict['sinebow'+'%0d'%i] = colors[i]
+    
+dark = {
         "h2-color": "#aaa",
 
         # "color-brand-primary": "#6322f9",
@@ -197,9 +205,10 @@ html_theme_options = {
         
 
         # "color-card-marginals-background": "red",
-        'color-sidebar-link-text--top-level': 'blue',
-    },
-    "light_css_variables": {
+        # 'color-sidebar-link-text--top-level': 'blue',
+    }
+
+light = {
         "h2-color": "#333",
 
         "color-brand-primary": "#000",
@@ -231,7 +240,15 @@ html_theme_options = {
         "color-announcement-background": "#000000dd",
         "color-announcement-text": "#eee",
 
-    },
+    }
+
+dark.update(colordict)
+
+html_theme_options = {
+    "sidebar_hide_name": True,
+    "top_of_page_button": "edit",
+    "dark_css_variables": dark,
+    "light_css_variables": light.update(colordict),
     "footer_icons": [
             {
                 "name": "GitHub",

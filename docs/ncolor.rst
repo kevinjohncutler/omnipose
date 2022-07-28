@@ -58,3 +58,11 @@ test section
 
 :blue01:`test - this text should be color-link--hover`
 
+
+.. raw:: html
+
+    <style> .blue02 {color:var(--sinebow12)} </style>
+
+.. role:: blue02
+
+:blue02:`test - this text should be sinebow`

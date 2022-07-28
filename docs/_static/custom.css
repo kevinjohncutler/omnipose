@@ -112,8 +112,3 @@ div.cell_input > div, div.cell_output div.output > div.highlight {
 .sinebow19 { 
   color: #069cdd !important;
 } 
-
-.sidebar-tree .toctree-l1 > .reference, .sidebar-tree .toctree-l1 > label .icon {
-  /* color: transparent !important; */
-  color: var(--color-problematic) !important;
-}
