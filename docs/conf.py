@@ -14,30 +14,6 @@ import os
 import sys
 # sys.path.insert(0, os.path.abspath('.'))
 
-# make sinebow colors for use throughout 
-# def gen_color(N=42):
-#     from omnipose.utils import sinebow
-#     import matplotlib
-#     c = sinebow(N)
-#     colors = [matplotlib.colors.to_hex(c[i]) for i in range(1,N+1)]
-#     base = 'sinebow'#+str(N)
-#     css = ''
-#     rst = ''
-#     for i,col in enumerate(colors):
-#         name = base+'%0d'%i
-#         css+='\n.'+name+' { \n \t'+'color: '+str(col)+';\n} \n'
-#         rst+='\n.. role:: '+name
-
-#     f = open("_static/sinebow.css", "w")
-#     f.write(css)
-#     f.close()
-
-#     f = open(".special.rst", "w")
-#     f.write(rst)
-#     f.close()
-
-# rst_prolog = ".. include:: .special.rst\n"
-
 from sphinx_automodapi import automodsumm
 from sphinx_automodapi.utils import find_mod_objs
 
@@ -54,8 +30,6 @@ def setup(app):
     # app.add_css_file('tablefix.css')
     # app.add_css_file('_static/hacks.css')
     
-
-
 
 # -- Project information -----------------------------------------------------
 
@@ -83,27 +57,12 @@ extensions = [
     'sphinx.ext.napoleon', # for NumPy style docstrings
     'sphinx.ext.autosummary',  # autosummary directive
     'sphinx.ext.autosectionlabel',  # use :ref:`Heading` for any heading
-    # 'sphinxext.custom_roles',  # local extension
     'sphinx_copybutton',
     'sphinx_automodapi.automodapi',
-    # 'nbsphinx',    
-    # "sphinx_design",
-    # "sphinx_inline_tabs",
-    # "myst_parser",
-    "myst_nb",
-    # "sphinxext.opengraph",
-    # "sphinx_jupyterbook_latex",
+    'myst_nb',
+
     
 ]
-# default_dark_mode = True
-#extensions = ['sphinx.ext.autodoc',
-#            'sphinx.ext.mathjax',
-#            'sphinx.ext.viewcode',
-#            'sphinx.ext.autosummary',
-#            'sphinx.ext.doctest',
-#            'sphinx.ext.inheritance_diagram',
-#            'autoapi.extension',
-#            'sphinx.ext.napoleon']
 
 autoapi_dirs = ['../omnipose']
 # autosectionlabel_prefix_document = True
@@ -130,7 +89,7 @@ templates_path = ['_templates']
 # List of patterns, relative to source directory, that match files and
 # directories to ignore when looking for source files.
 # This pattern also affects html_static_path and html_extra_path.
-exclude_patterns = ['build', '_build', '**.ipynb_checkpoints', 'links.rst']
+exclude_patterns = ['build', '_build', '**.ipynb_checkpoints', 'links.rst','.special.rst']
 rst_epilog =""
 # Read link all targets from file
 with open('links.rst') as f:

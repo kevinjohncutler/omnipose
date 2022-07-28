@@ -2,3 +2,4 @@ sphinx-copybutton
 sphinx-automodapi
 myst-nb
 furo
+omnipose
