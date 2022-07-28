@@ -197,6 +197,7 @@ html_theme_options = {
         
 
         # "color-card-marginals-background": "red",
+        'color-sidebar-link-text--top-level': 'blue',
     },
     "light_css_variables": {
         "h2-color": "#333",

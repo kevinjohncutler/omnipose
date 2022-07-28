@@ -2,7 +2,14 @@
 
 |
 
-:sinebow11:`Installation`
+.. :sinebow11:`Installation`
+
+
+.. role:: raw-html(raw)
+   :format: html
+
+
+:raw-html:`<font color=var(--color-link--hover)>Installation</font>`
 =========================
 
 
@@ -93,7 +100,7 @@ you have installation problems.
 :header-2:`Dependencies`
 ------------------------
 
-cellpose relies on the following packages (which are
+Omnipose relies on the following packages (which are
 automatically installed with conda/pip if missing):
 
 -  `mxnet_mkl`_
@@ -105,6 +112,10 @@ automatically installed with conda/pip if missing):
 -  `scikit-image`_
 -  `natsort`_
 -  `matplotlib`_
+-  sklearn_
+-  
+
+
 
 .. _Anaconda: https://www.anaconda.com/download/
 .. _environment.yml: https://github.com/MouseLand/cellpose/blob/master/environment.yml?raw=true
@@ -119,5 +130,8 @@ automatically installed with conda/pip if missing):
 .. _scikit-image: https://scikit-image.org/
 .. _natsort: https://natsort.readthedocs.io/en/master/
 .. _matplotlib: https://matplotlib.org/
+.. _sklearn: https://scikit-learn.org/stable/
+
+
 
 

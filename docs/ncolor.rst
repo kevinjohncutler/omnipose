@@ -52,9 +52,9 @@ test section
 
 .. raw:: html
 
-    <style> .blue01 {color:#0000ff; font-weight:bold; font-size:16px} </style>
+    <style> .blue01 {color:var(--color-link--hover)} </style>
 
 .. role:: blue01
 
-:blue01:`test - this text should be blue`
+:blue01:`test - this text should be color-link--hover`
 

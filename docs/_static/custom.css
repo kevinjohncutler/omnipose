@@ -114,5 +114,6 @@ div.cell_input > div, div.cell_output div.output > div.highlight {
 } 
 
 .sidebar-tree .toctree-l1 > .reference, .sidebar-tree .toctree-l1 > label .icon {
-  color: transparent !important;
+  /* color: transparent !important; */
+  color: var(--color-problematic) !important;
 }
