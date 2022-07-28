@@ -3,11 +3,11 @@
 
 .. raw:: html
 
-    <style> .sinebow {color:var(--sinebow19)} </style>
+    <style> .sinebow19 {color:var(--sinebow19)} </style>
 
-.. role:: sinebow
+.. role:: sinebow19
 
-:sinebow:`API reference`
+:sinebow19:`API reference`
 ==========================
 
 Omnipose is composed of two main modules, ``core`` and ``utils``. The ``core`` module separates the truly new contributions of Omnipose to the Cellpose framework, while ``utils`` contains supporting functions that are either not needed in Cellpose or offer alternative / expanded functionality over similar functions within Cellpose. 

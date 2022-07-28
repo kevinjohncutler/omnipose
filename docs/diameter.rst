@@ -2,6 +2,12 @@
 
 |
 
+.. raw:: html
+
+    <style> .sinebow21 {color:var(--sinebow21)} </style>
+
+.. role:: sinebow21
+
 :sinebow21:`Diameter metric`
 ============================
 

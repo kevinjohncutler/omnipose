@@ -4,11 +4,11 @@
 
 .. raw:: html
 
-    <style> .sinebow {color:var(--sinebow15)} </style>
+    <style> .sinebow15 {color:var(--sinebow15)} </style>
 
-.. role:: sinebow
+.. role:: sinebow15
 
-:sinebow:`Outputs`
+:sinebow15:`Outputs`
 ====================
 Omnipose uses a generalized version of the Cellpose U-net to predict several output "images" based on an input image. 
 You can use a Cellpose model with Omnipose (``omni=True`` just turns on the Omnipose mask reconstruction algorithm), 

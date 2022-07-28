@@ -4,11 +4,11 @@
 
 .. raw:: html
 
-    <style> .sinebow {color:var(--sinebow18)} </style>
+    <style> .sinebow18 {color:var(--sinebow18)} </style>
 
-.. role:: sinebow
+.. role:: sinebow18
 
-:sinebow:`Command Line`
+:sinebow18:`Command Line`
 =========================
 
 :header-2:`Input settings`

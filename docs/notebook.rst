@@ -4,11 +4,11 @@
 
 .. raw:: html
 
-    <style> .sinebow {color:var(--sinebow17)} </style>
+    <style> .sinebow17 {color:var(--sinebow17)} </style>
 
-.. role:: sinebow
+.. role:: sinebow17
 
-:sinebow:`In a notebook`
+:sinebow17:`In a notebook`
 ==========================
 
 We have two thorough tutorials on using Omnipose in a Jupyter notebook. The first focuses on mono-channel segmentation of locally saved images.  
