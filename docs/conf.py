@@ -87,12 +87,12 @@ extensions = [
     'sphinx_copybutton',
     'sphinx_automodapi.automodapi',
     # 'nbsphinx',    
-    "sphinx_design",
-    "sphinx_inline_tabs",
+    # "sphinx_design",
+    # "sphinx_inline_tabs",
     # "myst_parser",
     "myst_nb",
-    "sphinxext.opengraph",
-    "sphinx_jupyterbook_latex",
+    # "sphinxext.opengraph",
+    # "sphinx_jupyterbook_latex",
     
 ]
 # default_dark_mode = True
@@ -307,24 +307,6 @@ copybutton_prompt_text = r'>>> |\.\.\. |\$ |In \[\d*\]: | {2,5}\.\.\.: | {5,8}: 
 copybutton_prompt_is_regexp = True
 copybutton_only_copy_prompt_lines = True
 copybutton_remove_prompts = True
-
-# Fail on error. Note nbsphinx compiles *all* notebooks in docs unless excluded
-nbsphinx_allow_errors = False
-
-# Give *lots* of time for cell execution!
-nbsphinx_timeout = 300
-
-# # Make nbsphinx detect jupytext
-# nbsphinx_custom_formats = {
-#     '.py': ['jupytext.reads', {'fmt': 'py:percent'}],
-# }
-
-nbsphinx_execute_arguments = [
-    "--InlineBackend.figure_formats={'svg', 'pdf'}",
-    "--InlineBackend.rc=figure.dpi=96",
-]
-
-nbsphinx_execute = 'never' #cannot demo segmentation on the website 
 
 # The name of the Pygments (syntax highlighting) style to use.
 pygments_style = 'default'
