@@ -104,6 +104,7 @@ html_favicon = '_static/icon.png'
 
 
 html_theme = 'furo'
+html_theme = 'sphinx_rtd_theme'
 # html_theme_path = ["_themes", ]
 # html_theme = 'theme' # use the theme in subdir 'theme'
 # html_theme_path = ['.'] # make sphinx search for themes in current dir
