@@ -52,7 +52,7 @@ def normalize99(Y,lower=0.01,upper=99.99):
     X = Y.copy()
     return np.interp(X, (np.percentile(X, lower), np.percentile(X, upper)), (0, 1))
 
-def normalize_image(im,mask,bg=0.5):
+def normalize_image(im,mask,bg=0.5,dim=2):
     """ Normalize image by rescaling from 0 to 1 and then adjusting gamma to bring 
     average background to specified value (0.5 by default).
     
@@ -64,19 +64,32 @@ def normalize_image(im,mask,bg=0.5):
     mask: ndarray, int or bool
         input labels or foreground mask
     
+    bg: float
+        background value in the range 0-1
+    
+    dim: int
+        dimension of image or volume
+        (extra dims are channels, assume in front)
+    
     Returns
     --------------
     gamma-normalized array with a minimum of 0 and maximum of 1
     
     """
     im = rescale(im)
-    if im.ndim>2:#assume first axis is channel axis
-        if mask is not list:
-            mask = [mask]
-        for k in range(len(mask)):
-            im[k] = im[k]**(np.log(bg)/np.log(np.mean(im[k][binary_erosion(mask[k]==0)])))
+    if im.ndim>dim:#assume first axis is channel axis
+        im = [chan for chan in im] # break into a list of channels
+    else:
+        im = [im]
         
-    return im
+    if mask is not list:
+        mask = [mask]*len(im)
+
+    for k in range(len(mask)):
+        im[k] = im[k]**(np.log(bg)/np.log(np.mean(im[k][binary_erosion(mask[k]==0)])))
+        
+    return np.stack(im,axis=0).squeeze()
+   
 
 def bbox_to_slice(bbox,shape,pad=0):
     """
@@ -136,6 +149,18 @@ def rescale(T):
     return T
 
 def get_boundary(mask):
+    """ND binary mask boundary using mahotas.
+    
+    Parameters
+    ----------
+    mask: ND array, bool
+        binary mask
+    
+    Returns
+    --------------
+    Binary boundary map
+    
+    """
     return np.logical_xor(mask,mh.morph.erode(mask))
 
 # Kevin's version of remove_edge_masks, need to merge (this one is more flexible)
@@ -172,6 +197,28 @@ def clean_boundary(labels, boundary_thickness=3, area_thresh=30, dists=None):
 
 
 def get_edge_masks(labels,dists):
+    """Finds and returns masks that are largely cut off by the edge of the image.
+    
+    This function loops over all masks touching the image boundary and compares the 
+    maximum value of the distance field along the boundary to the top quartile of distance
+    within the mask. Regions whose edges just skim the image edge will not be classified as 
+    an "edge mask" by this criteria, whereas masks cut off in their center (where distance is high)
+    will be returned as part of this output. 
+    
+    Parameters
+    ----------
+    labels: ND array, int
+        label matrix
+        
+    dists: ND array, float
+        distance field (calculated with reflection padding of labels)
+    
+    Returns
+    --------------
+    clean_labels: ND array, int
+        label matrix of all cells qualifying as 'edge masks'
+    
+    """
     border_mask = np.zeros(labels.shape, dtype=bool)
     border_mask = binary_dilation(border_mask, border_value=1, iterations=1)
     clean_labels = np.zeros_like(labels)
@@ -189,8 +236,22 @@ def get_edge_masks(labels,dists):
             
     return clean_labels
 
-# get the number of m-dimensional hypercubes connected to the n-cube
+# not acutally used anymore 
 def cubestats(n):
+    """gets the number of m-dimensional hypercubes connected to the n-cube, including itself
+    
+    Parameters
+    ----------
+    n: int
+        dimension of hypercube
+    
+    Returns
+    --------------
+    list whose length tells us how many hypercube types there are (point/edge/pixel/voxel...) connected 
+    to the central hypercube and whose entries denote many there in each group. E.g., a square would be n=2, 
+    so cubestats returns [4, 4, 1] for four points (m=0), four edges (m=1), and one face (the original square,m=n=2). 
+    
+    """
     faces = []
     for m in range(n+1):
           faces.append((2**(n-m))*math.comb(n,m))

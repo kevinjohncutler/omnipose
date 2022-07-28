@@ -50,10 +50,10 @@ Standalone versions of this GUI for Windows, macOS, and Linux are coming soon.
     pip install git+https://github.com/kevinjohncutler/omnipose.git
     ```
 
-We have tested Omnipose extensively on Python version 3.8.5 and have encountered issues on some lower versions. Versions up to 3.10.4 have been confirmed compatible. Check your python version by running `python -V`. If your version is too low (this happens if your default/base environment python is a lower version), make a new environment and specify the python version, e.g. `conda create --name omnipose python==3.8.5`.
-
+We have tested Omnipose extensively on Python version 3.8.5 and have encountered issues on some lower versions. Versions up to 3.10.4 have been confirmed compatible. Check your python version by running `python -V`. If your version is too low (this happens if your default/base environment python is a lower version), make a new environment and specify the python version, e.g. `conda create --name omnipose python==3.8.5`
 
 ### GPU support 
+
 Omnipose runs on CPU on MacOS, Windows, and Linux. PyTorch only supports NVIDIA GPUs, so you can only take advantage of GPU speeds on Linux or Windows. Your PyTorch version (>=1.6) needs to be compatible with your CUDA toolkit version and your NVIDIA driver. See [here](https://docs.nvidia.com/cuda/cuda-toolkit-release-notes/index.html) for compatibility chart of CUDA and diver versions. Also see the official documentation on installing both the [most recent](https://pytorch.org/get-started/locally/) and [previous](https://pytorch.org/get-started/previous-versions/) combinations of CUDA and PyTorch to suit your needs. Accordingly, you can get started with CUDA 11.3 by making the following environment:
 ```
 conda create -n omnipose pytorch cudatoolkit=11.3 -c pytorch 
@@ -64,7 +64,6 @@ conda create -n omnipose pytorch=1.8.2 cudatoolkit=10.2 -c pytorch-lts
 ```
 
 ## How to use Omnipose
-
 We have a few Jupyter notebooks in the [examples](examples/) directory that demonstrate how to use built-in models. You can also find all the scripts we used for generating our figures in the [figures](figures/) directory. These cover specific settings for all of the images found in our paper. 
 
 To use Omnipose on bacterial cells, use `model_type=bact_omni`. For other cell types, try `model_type=cyto2_omni`. You can also choose Cellpose models with `omni=True` to engage the Omnipose mask reconstruction algorithm to alleviate over-segmentation. 

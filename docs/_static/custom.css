@@ -1,0 +1,53 @@
+/* @import url("default.css");
+span.caption-text {
+  color: red;
+}
+*/
+/* .wy-menu > .caption > span.caption-text {
+  color: red;
+}  */
+@import url("default.css");
+
+/* h1{
+  color: var(--h1-color)
+}
+
+h2{
+  color: var(--color-brand-content,#00ff00)
+} */
+
+a:link {
+  color: var(--color-brand-content);
+  /* text-decoration: underline; */
+}
+
+a:visited {
+  color: var(--color-brand-content);
+}
+
+a:hover {
+  color: var(--color-link--hover);
+}
+
+/* .toc-list {
+  color: #fff;
+} */
+
+.header-2 { 
+	/* color: var(--h2-color); */
+  color: var(--color-foreground-primary)
+} 
+
+/* finally a way to define the background color of the pygments theme 
+though unfortunately this only 'covers up' the default
+*/
+.highlight, .highlight pre, .highlight table {
+  background-color: var(--color-background-secondary);
+  /* border-radius: 10px; */
+  border: 1px;
+  border-color: red;
+}
+
+.wy-nav-content {
+  max-width: none;
+}

@@ -53,7 +53,7 @@ omnipose_logger = logging.getLogger(__name__)
 
 
 # We moved a bunch of dupicated code over here from Cellpose to revert back to the original bahavior. This flag is used
-# within Cellpose only, but since I want to merge the shared code back together, I'll keep it around here. 
+# within Cellpose only, but since I want to merge the shared code back together someday, I'll keep it around here. 
 # Several '#'s denote locations where code needs to be changed if a remerger ever happens 
 OMNI_INSTALLED = True
 
@@ -88,6 +88,21 @@ from scipy.ndimage import convolve, mean
 # and it allows us to find a least upper bound for the number of iterations needed for our
 # smooth distance field computation. 
 def get_niter(dists):
+    """
+    Get number of iterations. 
+    
+    Parameters
+    --------------
+    dists: ND array, float
+        array of (nonnegative) distance field values
+        
+    Returns
+    --------------
+    niter: int
+        number of iterations empirically found to be the lower bound for convergence 
+        of the distance field relaxation method
+    
+    """
     return np.ceil(np.max(dists)*1.16).astype(int)+1
 
 # minor modification to generalize to nD 
@@ -97,7 +112,6 @@ def dist_to_diam(dt_pos,n):
     
     Parameters
     --------------
-
     dt_pos: 1D array, float
         array of positive distance field values
     n: int
@@ -106,7 +120,6 @@ def dist_to_diam(dt_pos,n):
         
     Returns
     --------------
-
     mean diameter: float
         a single number that corresponds to the diameter of the N-sphere when
         dt_pos for a sphere is given to the function, holds constant for 
@@ -117,7 +130,29 @@ def dist_to_diam(dt_pos,n):
     return 2*(n+1)*np.mean(dt_pos)
 #     return np.exp(3/2)*gmean(dt_pos[dt_pos>=gmean(dt_pos)])
 
-def diameters(masks,dt=None,dist_threshold=0):
+def diameters(masks, dt=None, dist_threshold=0):
+    
+    """
+    Calculate the mean cell diameter from a label matrix. 
+    
+    Parameters
+    --------------
+    masks: ND array, float
+        label matrix 0,...,N
+    dt: ND array, float
+        distance field
+    dist_threshold: float
+        cutoff below which all values in dt are set to 0. Must be >=0. 
+        
+    Returns
+    --------------
+    diam: float
+        a single number that corresponds to the average diameter of labeled regions in the image, see dist_to_diam()
+    
+    """
+    if dist_threshold<0:
+        dist_threshold = 0
+    
     if dt is None and np.any(masks):
         dt = edt.edt(np.int32(masks))
     dt_pos = np.abs(dt[dt>dist_threshold])
@@ -133,31 +168,27 @@ def diameters(masks,dt=None,dist_threshold=0):
 # enough, or maybe the network really does require the flow field prediction to work well. But in 3D, it will be a huge
 # advantage if the network could predict just the distance (and boudnary) classes and not 3 extra flow components. 
 def labels_to_flows(labels, files=None, use_gpu=False, device=None, omni=True, redo_flows=False, dim=2):
-    """ convert labels (list of masks or flows) to flows for training model 
+    """ Convert labels (list of masks or flows) to flows for training model.
 
     if files is not None, flows are saved to files to be reused
 
     Parameters
     --------------
-
     labels: list of ND-arrays
         labels[k] can be 2D or 3D, if [3 x Ly x Lx] then it is assumed that flows were precomputed.
         Otherwise labels[k][0] or labels[k] (if 2D) is used to create flows.
-        
     files: list of strings
         list of file names for the base images that are appended with '_flows.tif' for saving. 
-        
     use_gpu: bool
         flag to use GPU for speedup. Note that Omnipose fixes some bugs that caused the Cellpose GPU implementation
         to have different behavior compared to the Cellpose CPU implementation. 
-        
+    device: torch device
+        what compute hardware to use to run the code (GPU VS CPU)
     omni: bool
-        flag to generate Omnipose flows instead of Cellpose flows. 
-        
+        flag to generate Omnipose flows instead of Cellpose flows
     redo_flows: bool
         flag to overwrite existing flows. This is necessary when changing over from Cellpose to Omnipose, 
         as the flows are very different.
-        
     dim: int
         integer representing the intrinsic dimensionality of the data. This allows users to generate 3D flows
         for volumes. Some dependencies will need to be to be extended to allow for 4D, but the image and label
@@ -165,7 +196,6 @@ def labels_to_flows(labels, files=None, use_gpu=False, device=None, omni=True, r
 
     Returns
     --------------
-
     flows: list of [4 x Ly x Lx] arrays
         flows[k][0] is labels[k], flows[k][1] is cell distance transform, flows[k][2:2+dim] are the 
         (T)YX flow components, and flows[k][-1] is heat distribution / smooth distance 
@@ -176,7 +206,6 @@ def labels_to_flows(labels, files=None, use_gpu=False, device=None, omni=True, r
     nimg = len(labels)
     no_flow = labels[0].ndim != 3+dim # (6,Lt,Ly,Lx) for 3D, masks + dist + boundary + flow components, then image dimensions 
     
-    print('dfgfgfd',labels[0].ndim, dim+1)
     if no_flow or redo_flows:
         
         omnipose_logger.info('NOTE: computing flows for labels (could be done before to save time)')
@@ -209,26 +238,37 @@ def labels_to_flows(labels, files=None, use_gpu=False, device=None, omni=True, r
     return flows
 
 def masks_to_flows(masks, dists=None, use_gpu=False, device=None, omni=True, dim=2):
-    """ convert masks to flows using diffusion from center pixel
-
+    """Convert masks to flows. 
+    
+    First, we find the scalar field. In Omnipose, this is the distance field. In Cellpose, 
+    this is diffusion from center pixel. 
     Center of masks where diffusion starts is defined to be the 
     closest pixel to the median of all pixels that is inside the 
-    mask. Result of diffusion is converted into flows by computing
-    the gradients of the diffusion density map. 
+    mask.
+    
+    The flow components are then found as hthe gradient of the scalar field. 
 
     Parameters
     -------------
-
-    masks: int, 2D or 3D array
-        labelled masks 0=NO masks; 1,2,...=mask labels
+    masks: int, ND array
+        labelled masks, 0 = background, 1,2,...,N = mask labels   
+    dists: ND array, float
+        array of (nonnegative) distance field values
+    use_gpu: bool
+        flag to use GPU for speedup. Note that Omnipose fixes some bugs that caused the Cellpose GPU implementation
+        to have different behavior compared to the Cellpose CPU implementation. 
+    device: torch device
+        what compute hardware to use to run the code (GPU VS CPU)
+    omni: bool
+        flag to generate Omnipose flows instead of Cellpose flows
+    dim: int
+        dimensionality of image data
 
     Returns
     -------------
-
     mu: float, 3D or 4D array 
         flows in Y = mu[-2], flows in X = mu[-1].
         if masks are 3D, flows in Z = mu[0].
-
     mu_c: float, 2D or 3D array
         for each pixel, the distance to the center of the mask 
         in which it resides 
@@ -287,23 +327,27 @@ def masks_to_flows(masks, dists=None, use_gpu=False, device=None, omni=True, dim
 
 #Now fully converted to work for ND.
 def masks_to_flows_torch(masks, dists, device=None, omni=True):
-    """ convert masks to flows using diffusion from center pixel
-
-    Center of masks where diffusion starts is defined using COM
+    """Convert ND masks to flows. 
+    
+    Omnipose find distance field, Cellpose uses diffusion from center of mass.
 
     Parameters
     -------------
 
-    masks: int, 2D or 3D array
-        labelled masks 0=NO masks; 1,2,...=mask labels
+    masks: int, ND array
+        labelled masks, 0 = background, 1,2,...,N = mask labels
+    dists: ND array, float
+        array of (nonnegative) distance field values
+    device: torch device
+        what compute hardware to use to run the code (GPU VS CPU)
+    omni: bool
+        flag to generate Omnipose flows instead of Cellpose flows
 
     Returns
     -------------
-
     mu: float, 3D or 4D array 
         flows in Y = mu[-2], flows in X = mu[-1].
         if masks are 3D, flows in Z or T = mu[0].
-
     dist: float, 2D or 3D array
         scalar field representing temperature distribution (Cellpose)
         or the smooth distance field (Omnipose)
@@ -362,32 +406,26 @@ def _extend_centers_torch(masks, centers, n_iter=200, device=torch.device('cuda'
     PyTorch implementation is faster than jitted CPU implementation, therefore only the 
     GPU optimized code is being used moving forward. 
     
-   Parameters
+    Parameters
     -------------
 
     masks: int, 2D or 3D array
         labelled masks 0=NO masks; 1,2,...=mask labels
-    
     centers: int, 2D or 3D array
         array of center coordinates [[y0,x0],[x1,y1],...] or [[t0,y0,x0],...]
-        
     n_inter: int
         number of iterations
-    
     device: torch device
-        what compute hardware to use to run the code (GPU VS CPU)
-        
+        what compute hardware to use to run the code (GPU VS CPU)  
     omni: bool
         whether to generate Omnipose field (solve Eikonal equation) 
         or the Cellpose field (solve heat equation from "center") 
         
     Returns
     -------------
-
     mu: float, 3D or 4D array 
         flows in Y = mu[-2], flows in X = mu[-1].
         if masks are 3D, flows in Z (or T) = mu[0].
-
     dist: float, 2D or 3D array
         the smooth distance field (Omnipose)
         or temperature distribution (Cellpose)
@@ -467,9 +505,14 @@ def eikonal_update_torch(T,pt,isneigh,d=None,index_list=None,factors=None):
 
 def update_torch(a,f):
     # Turns out we can just avoid a ton of individual if/else by evaluating the update function
-    # for every upper limit on the sorted pairs. I do this by piecies using cumsum. The radicand
+    # for every upper limit on the sorted pairs. I do this by pieces using cumsum. The radicand
     # being nonegative sets the upper limit on the sorted pairs, so we simply select the largest 
     # upper limit that works. 
+    """
+    Update function for solving the Eikonal equation. 
+    
+    """
+    
     sum_a = torch.cumsum(a,dim=0)
     sum_a2 = torch.cumsum(a**2,dim=0)
     d = torch.cumsum(torch.ones_like(a),dim=0)
@@ -491,7 +534,76 @@ def compute_masks(dP, dist, bd=None, p=None, inds=None, niter=200, rescale=1.0, 
                   interp=True, cluster=False, do_3D=False, min_size=None, omni=True, 
                   calc_trace=False, verbose=False, use_gpu=False, device=None, nclasses=3, 
                   dim=2, eps=None, hdbscan=False, flow_factor=6, debug=False):
-    """ compute masks using dynamics from dP, dist, and boundary """
+    """
+    Compute masks using dynamics from dP, dist, and boundary outputs.
+    
+    Parameters
+    -------------
+    dP: float, ND array
+        flow field components (2D: 2 x Ly x Lx, 3D: 3 x Lz x Ly x Lx)
+    dist: float, ND array
+        distance field (Ly x Lx)
+    bd: float, ND array
+        boundary field
+    p: float32, ND array
+        initial locations of each pixel before dynamics,
+        size [axis x Ly x Lx] or [axis x Lz x Ly x Lx].  
+    inds: int32, 2D array
+        non-zero pixels to run dynamics on [npixels x N]
+    niter: int32
+        number of iterations of dynamics to run
+    rescale: float (optional, default None)
+        resize factor for each image, if None, set to 1.0   
+    resize: int, tuple
+        shape of array (alternative to rescaling)  
+    mask_threshold: float 
+        all pixels with value above threshold kept for masks, decrease to find more and larger masks 
+    flow_threshold: float 
+        flow error threshold (all cells with errors below threshold are kept) (not used for Cellpose3D)
+    interp: bool 
+        interpolate during dynamics
+    cluster: bool
+        use sub-pixel DBSCAN clustering of pixel coordinates to find masks
+    do_3D: bool (optional, default False)
+        set to True to run 3D segmentation on 4D image input
+    min_size: int (optional, default 15)
+        minimum number of pixels per mask, can turn off with -1
+    omni: bool 
+        use omnipose mask recontruction features
+    calc_trace: bool 
+        calculate pixel traces and return as part of the flow
+    verbose: bool 
+        turn on additional output to logs for debugging 
+    use_gpu: bool
+        use GPU of flow_threshold>0 (computes flows from predicted masks on GPU)
+    device: torch device
+        what compute hardware to use to run the code (GPU VS CPU)
+    nclasses:
+        number of output classes of the network (Omnipose=4,Cellpose=3)
+    dim: int
+        dimensionality of data / model output
+    eps: float
+        internal epsilon parameter for (H)DBSCAN
+    hdbscan: 
+        use better, but much SLOWER, hdbscan clustering algorithm (experimental)
+    flow_factor:
+        multiple to increase flow magnitdue (used in 3D only, experimental)
+    debug:
+        option to return list of unique mask labels as a fourth output (for debugging only)
+
+    Returns
+    -------------
+    mask: int, ND array
+        label matrix
+    p: float32, ND array
+        final locations of each pixel after dynamics,
+        size [axis x Ly x Lx] or [axis x Lz x Ly x Lx]. 
+    tr: float32, ND array
+        intermediate locations of each pixel during dynamics,
+        size [axis x niter x Ly x Lx] or [axis x niter x Lz x Ly x Lx]. 
+        For debugging/paper figures, very slow. 
+    
+    """
     if min_size is None:
         min_size = 3**dim
     
@@ -503,7 +615,7 @@ def compute_masks(dP, dist, bd=None, p=None, inds=None, niter=200, rescale=1.0, 
     # inds very useful for debugging and figures; allows us to easily specify specific indices for Euler integration
     if inds is not None:
         mask = np.zeros_like(dist,dtype=np.int32)
-        print('info', mask.shape, inds.shape)
+        # print('info', mask.shape, inds.shape)
         mask[tuple(inds)] = 1
     else:
         if omni and SKIMAGE_ENABLED:
@@ -602,10 +714,34 @@ def compute_masks(dP, dist, bd=None, p=None, inds=None, niter=200, rescale=1.0, 
 #this way, the same factor is used everywhere (CPU+-interp, GPU)
 @njit()
 def step_factor(t):
-    """ Euler integration suppression factor."""
+    """ Euler integration suppression factor.
+    
+    Conveneient wrapper function allowed me to test out several supression factors. 
+    
+    Parameters
+    -------------
+    t: int
+        time step
+    """
     return (1+t)
 
 def div_rescale(dP,mask):
+    """
+    Normalize the flow magnitude to rescaled 0-1 divergence. 
+    
+    Parameters
+    -------------
+    dP: float, ND array
+        flow field 
+    mask: int, ND array
+        label matrix
+        
+    Returns
+    -------------
+    dP: float, ND array
+        rescaled flow field
+    
+    """
     dP = dP.copy()
     dP *= mask 
     dP = utils.normalize_field(dP)
@@ -615,41 +751,72 @@ def div_rescale(dP,mask):
     return dP
 
 def sigmoid(x):
+    """The sigmoid function."""
     return 1 / (1 + np.exp(-x))
 
-def bd_rescale(dP,mask,bd):
-    dP = dP.copy()
-    dP *= mask 
-    dP = utils.normalize_field(dP)
-    w = np.stack([bd]*mask.ndim)
-    dP *= sigmoid(bd)
-    return dP
+# def bd_rescale(dP,mask,bd):
+#     dP = dP.copy()
+#     dP *= mask 
+#     dP = utils.normalize_field(dP)
+#     w = np.stack([bd]*mask.ndim)
+#     dP *= sigmoid(bd)
+#     return dP
 
 def divergence(f,sp=None):
-    """ Computes divergence of vector field 
-    f: array -> vector field components [Fx,Fy,Fz,...]
-    sp: array -> spacing between points in respecitve directions [spx, spy,spz,...]
+    """ Computes divergence of vector field
+    
+    Parameters
+    -------------
+    f: ND array, float
+        vector field components [Fx,Fy,Fz,...]
+    sp: ND array, float
+        spacing between points in respecitve directions [spx, spy, spz,...]
+        
     """
     num_dims = len(f)
     return np.ufunc.reduce(np.add, [np.gradient(f[i], axis=i) for i in range(num_dims)])
 
-def likewise(mu):
-    # return np.std(mu,axis=0)
-    return np.sum(np.abs(mu),axis=0)
 
-def get_masks(p,bd,dist,mask,inds,nclasses=4,cluster=False,
+def get_masks(p, bd, dist, mask, inds, nclasses=4,cluster=False,
               diam_threshold=12., eps=None, hdbscan=False, verbose=False):
     """Omnipose mask recontruction algorithm.
-    p: list of pixel coordinates 
-    bd: boundayr field
-    dist: distance field
-    mask: binary cell mask
-    inds: starting picel locations
-    nclasses: (optional, default 4) number of prediciton classes
-    cluster: (optional, defualt False) use DBSCAN clustering instead of coordinate thresholding
-    hdbscan: use better, but much SLOWER, hdbscan clustering algorithm
-    diam_threshold: (optional, default 12) mean diameter under which clustering will be turned on automatically
-    verbose: (optional, default False) option to print more info to log file
+    
+    This function is called after dynamics are run. The final pixel coordinates are provided, 
+    and cell labels are assigned to clusters found by labelling the pixel clusters after rounding
+    the coordinates (snapping each pixel to the grid and labelling the resulting binary mask) or 
+    by using DBSCAN or HDBSCAN for sub-pixel clustering. 
+    
+    Parameters
+    -------------
+    p: float32, ND array
+        final locations of each pixel after dynamics
+    bd: float, ND array
+        boundary field
+    dist: float, ND array
+        distance field
+    mask: bool, ND array
+        binary cell mask
+    inds: int, ND array 
+        initial indices of pixels for the Euler integration [npixels x ndim]
+    nclasses: int
+        number of prediciton classes
+    cluster: bool
+        use DBSCAN clustering instead of coordinate thresholding
+    diam_threshold: float
+        mean diameter under which clustering will be turned on automatically
+    eps: float
+        internal espilon parameter for (H)DBSCAN
+    hdbscan: bool
+        use better, but much SLOWER, hdbscan clustering algorithm
+    verbose: bool
+        option to print more info to log file
+    
+    Returns
+    -------------
+    mask: int, ND array
+        label matrix
+    labels: int, list
+        all unique labels 
     """
     if nclasses >= 4:
         dt = np.abs(dist[mask]) #abs needed if the threshold is negative
@@ -754,45 +921,28 @@ def get_masks(p,bd,dist,mask,inds,nclasses=4,cluster=False,
     return mask, labels
 
 
-@njit(['(int16[:,:,:], float32[:], float32[:], float32[:,:])', 
-        '(float32[:,:,:], float32[:], float32[:], float32[:,:])'], cache=True)
-def map_coordinates(I, yc, xc, Y):
-    """
-    bilinear interpolation of image 'I' in-place with ycoordinates yc and xcoordinates xc to Y
-    
-    Parameters
-    -------------
-    I : C x Ly x Lx
-    yc : ni
-        new y coordinates
-    xc : ni
-        new x coordinates
-    Y : C x ni
-        I sampled at (yc,xc)
-    """
-    C,Ly,Lx = I.shape
-    yc_floor = yc.astype(np.int32)
-    xc_floor = xc.astype(np.int32)
-    yc = yc - yc_floor
-    xc = xc - xc_floor
-    for i in range(yc_floor.shape[0]):
-        yf = min(Ly-1, max(0, yc_floor[i]))
-        xf = min(Lx-1, max(0, xc_floor[i]))
-        yf1 = min(Ly-1, yf+1)
-        xf1 = min(Lx-1, xf+1)
-        y = yc[i]
-        x = xc[i]
-        for c in range(C):
-            Y[c,i] = (np.float32(I[c, yf, xf]) * (1 - y) * (1 - x) +
-                      np.float32(I[c, yf, xf1]) * (1 - y) * x +
-                      np.float32(I[c, yf1, xf]) * y * (1 - x) +
-                      np.float32(I[c, yf1, xf1]) * y * x )
-
 # Generalizing to ND. Again, torch required but should be plenty fast on CPU too compared to jitted but non-explicitly-parallelized CPU code.
 # also should just rescale to desired resolution HERE instead of rescaling the masks later... <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<
 # grid_sample will only work for up to 5D tensors (3D segmentation). Will have to address this shortcoming if we ever do 4D. 
 # I got rid of the map_coordinates branch, I tested execution times and pytorch implemtation seems as fast or faster
 def steps_interp(p, dP, niter, use_gpu=True, device=None, omni=True, calc_trace=False, calc_bd=False):
+    """Euler integration of pixel locations p subject to flow dP for niter steps in N dimensions. 
+    
+    Parameters
+    ----------------
+    p: float32, ND array
+        pixel locations [axis x Lz x Ly x Lx] (start at initial meshgrid)
+    dP: float32, ND array
+        flows [axis x Lz x Ly x Lx]
+    niter: int32
+        number of iterations of dynamics to run
+
+    Returns
+    ---------------
+    p: float32, ND array
+        final locations of each pixel after dynamics
+
+    """
     align_corners = True
     mode = 'bilinear'
     d = dP.shape[0] # number of components = number of dimensions 
@@ -895,28 +1045,23 @@ def steps_interp(p, dP, niter, use_gpu=True, device=None, omni=True, calc_trace=
 
 @njit('(float32[:,:,:,:],float32[:,:,:,:], int32[:,:], int32)', nogil=True)
 def steps3D(p, dP, inds, niter):
-    """ run dynamics of pixels to recover masks in 3D
+    """ Run dynamics of pixels to recover masks in 3D.
     
-    Euler integration of dynamics dP for niter steps
+    Euler integration of dynamics dP for niter steps.
 
     Parameters
     ----------------
-
     p: float32, 4D array
         pixel locations [axis x Lz x Ly x Lx] (start at initial meshgrid)
-
     dP: float32, 4D array
         flows [axis x Lz x Ly x Lx]
-
     inds: int32, 2D array
         non-zero pixels to run dynamics on [npixels x 3]
-
     niter: int32
         number of iterations of dynamics to run
 
     Returns
     ---------------
-
     p: float32, 4D array
         final locations of each pixel after dynamics
 
@@ -936,28 +1081,23 @@ def steps3D(p, dP, inds, niter):
 
 @njit('(float32[:,:,:], float32[:,:,:], int32[:,:], int32, boolean, boolean)', nogil=True)
 def steps2D(p, dP, inds, niter, omni=True, calc_trace=False):
-    """ run dynamics of pixels to recover masks in 2D
+    """ Run dynamics of pixels to recover masks in 2D.
     
-    Euler integration of dynamics dP for niter steps
+    Euler integration of dynamics dP for niter steps.
 
     Parameters
     ----------------
-
     p: float32, 3D array
         pixel locations [axis x Ly x Lx] (start at initial meshgrid)
-
     dP: float32, 3D array
         flows [axis x Ly x Lx]
-
     inds: int32, 2D array
         non-zero pixels to run dynamics on [npixels x 2]
-
     niter: int32
         number of iterations of dynamics to run
 
     Returns
     ---------------
-
     p: float32, 3D array
         final locations of each pixel after dynamics
 
@@ -983,7 +1123,8 @@ def steps2D(p, dP, inds, niter, omni=True, calc_trace=False):
     return p, tr
 
 # now generalized and simplified. Will work for ND if dependencies are updated. 
-def follow_flows(dP, inds, niter=200, interp=True, use_gpu=True, device=None, omni=True, calc_trace=False):
+def follow_flows(dP, inds, niter=200, interp=True, use_gpu=True, 
+                 device=None, omni=True, calc_trace=False):
     """ define pixels and run dynamics to recover masks in 2D
     
     Pixels are meshgrid. Only pixels with non-zero cell-probability
@@ -991,44 +1132,29 @@ def follow_flows(dP, inds, niter=200, interp=True, use_gpu=True, device=None, om
 
     Parameters
     ----------------
-
     dP: float32, 3D or 4D array
         flows [axis x Ly x Lx] or [axis x Lz x Ly x Lx]
-    
-    mask: (optional, default None)
-        pixel mask to seed masks. Useful when flows have low magnitudes.
-        
-    inds: int, ND array (optional, default None)
+    inds: int, ND array 
         initial indices of pixels for the Euler integration 
-
-    niter: int (optional, default 200)
+    niter: int 
         number of iterations of dynamics to run
-
-    interp: bool (optional, default True)
-        interpolate during 2D dynamics (not available in 3D) 
-        (in previous versions + paper it was False)
-
-    use_gpu: bool (optional, default False)
-        use GPU to run interpolated dynamics (faster than CPU)
-        
-    omni: bool (optional, default True)
+    interp: bool 
+        interpolate during dynamics 
+    use_gpu: bool 
+        use GPU to run interpolated dynamics (faster than CPU)   
+    omni: bool 
         flag to enable Omnipose suppressed Euler integration etc. 
-    
-    calc_trace: bool (optional, default False)
+    calc_trace: bool 
         flag to store and retrun all pixel coordinates during Euler integration (slow)
-
 
     Returns
     ---------------
-
     p: float32, ND array
         final locations of each pixel after dynamics
-    
     inds: int, ND array
-        initial indices of pixels for the Euler integration 
-    
+        initial indices of pixels for the Euler integration [npixels x ndim]
     tr: float32, ND array
-        list of pixel coordinates for each step of the Euler integration
+        list of intermediate pixel coordinates for each step of the Euler integration
 
     """
     d = dP.shape[0] # dimension is the number of flow components 
@@ -1073,20 +1199,16 @@ def remove_bad_flow_masks(masks, flows, threshold=0.4, use_gpu=False, device=Non
 
     Parameters
     ----------------
-
     masks: int, 2D or 3D array
         labelled masks, 0=NO masks; 1,2,...=mask labels,
         size [Ly x Lx] or [Lz x Ly x Lx]
-
     flows: float, 3D or 4D array
         flows [axis x Ly x Lx] or [axis x Lz x Ly x Lx]
-
-    threshold: float (optional, default 0.4)
-        masks with flow error greater than threshold are discarded.
+    threshold: float
+        masks with flow error greater than threshold are discarded
 
     Returns
     ---------------
-
     masks: int, 2D or 3D array
         masks with inconsistent flow masks removed, 
         0=NO masks; 1,2,...=mask labels,
@@ -1111,7 +1233,6 @@ def flow_error(maski, dP_net, use_gpu=False, device=None, omni=True):
 
     Parameters
     ------------
-    
     maski: ND-array (int) 
         masks produced from running dynamics on dP_net, 
         where 0=NO masks; 1,2... are mask labels
@@ -1120,7 +1241,6 @@ def flow_error(maski, dP_net, use_gpu=False, device=None, omni=True):
 
     Returns
     ------------
-
     flow_errors: float array with length maski.max()
         mean squared error between predicted flows and flows from masks
     dP_masks: ND-array (float)
@@ -1160,40 +1280,36 @@ def random_rotate_and_resize(X, Y=None, scale_range=1., gamma_range=0.5, tyx = (
 
         Parameters
         ----------
-        X: LIST of ND-arrays, float
+        X: float, list of ND arrays
             list of image arrays of size [nchan x Lt x Ly x Lx] or [Lt x Ly x Lx]
-
-        Y: LIST of ND-arrays, float (optional, default None)
+        Y: float, list of ND arrays
             list of image labels of size [nlabels x Lt x Ly x Lx] or [Lt x Ly x Lx]. The 1st channel
             of Y is always nearest-neighbor interpolated (assumed to be masks or 0-1 representation).
             If Y.shape[0]==3, then the labels are assumed to be [cell probability, T flow, Y flow, X flow]. 
-
         scale_range: float (optional, default 1.0)
             Range of resizing of images for augmentation. Images are resized by
             (1-scale_range/2) + scale_range * np.random.rand()
-            
-        gamma_range: float (optional, default 0.5)
-           Images are gamma-adjusted im**gamma for gamma in (1-gamma_range,1+gamma_range) 
-
-        xy: tuple, int (optional, default (224,224))
-            size of transformed images to return
-
+        gamma_range: float
+           images are gamma-adjusted im**gamma for gamma in (1-gamma_range,1+gamma_range) 
+        tyx: int, tuple
+            size of transformed images to return, e.g. (Ly,Lx) or (Lt,Ly,Lx)
         do_flip: bool (optional, default True)
             whether or not to flip images horizontally
-
-        rescale: array, float (optional, default None)
+        rescale: float, array or list
             how much to resize images by before performing augmentations
+        inds: int, list
+            image indices (for debugging)
+        nchan: int
+            number of channels the images have 
 
         Returns
         -------
-        imgi: ND-array, float
+        imgi: float, ND array
             transformed images in array [nimg x nchan x xy[0] x xy[1]]
-
-        lbl: ND-array, float
+        lbl: float, ND array
             transformed labels in array [nimg x nchan x xy[0] x xy[1]]
-
-        scale: array, float
-            amount each image was resized by
+        scale: float, 1D array
+            scalar(s) by which each image was resized
 
     """
     dist_bg = 5 # background distance field is set to -dist_bg; desting makign this variable now 
@@ -1235,7 +1351,48 @@ def random_rotate_and_resize(X, Y=None, scale_range=1., gamma_range=0.5, tyx = (
 # This function allows a more efficient implementation for recursively checking that the random crop includes cell pixels.
 # Now it is rerun on a per-image basis if a crop fails to capture .1 percent cell pixels (minimum). 
 def random_crop_warp(img, Y, nt, tyx, nchan, scale, rescale, scale_range, gamma_range, do_flip, ind, dist_bg, depth=0):
-    # print('info',img.shape,Y.shape,nt,tyx,nchan,scale)
+    """
+    This sub-fuction of `random_rotate_and_resize()` recursively performs random cropping until 
+    a minimum number of cell pixels are found, then proceeds with augemntations. 
+    
+    Parameters
+    ----------
+    X: float, list of ND arrays
+        image array of size [nchan x Lt x Ly x Lx] or [Lt x Ly x Lx]
+    Y: float, ND array
+        image label array of size [nlabels x Lt x Ly x Lx] or [Lt x Ly x Lx].. The 1st channel
+        of Y is always nearest-neighbor interpolated (assumed to be masks or 0-1 representation).
+        If Y.shape[0]==3, then the labels are assumed to be [cell probability, T flow, Y flow, X flow]. 
+    tyx: int, tuple
+        size of transformed images to return, e.g. (Ly,Lx) or (Lt,Ly,Lx)
+    nchan: int
+        number of channels the images have 
+    rescale: float, array or list
+        how much to resize images by before performing augmentations
+    scale_range: float
+        Range of resizing of images for augmentation. Images are resized by
+        (1-scale_range/2) + scale_range * np.random.rand()
+    gamma_range: float
+       images are gamma-adjusted im**gamma for gamma in (1-gamma_range,1+gamma_range) 
+    do_flip: bool (optional, default True)
+        whether or not to flip images horizontally
+    ind: int
+        image index (for debugging)
+    dist_bg: float
+        nonegative value X for assigning -X to where distance=0 (deprecated, now adapts to field values)
+    depth: int
+        how many time this function has been called on an image 
+
+    Returns
+    -------
+    imgi: float, ND array
+        transformed images in array [nchan x xy[0] x xy[1]]
+    lbl: float, ND array
+        transformed labels in array [nchan x xy[0] x xy[1]]
+    scale: float, 1D array
+        scalar by which the image was resized
+    
+    """
     
     dim = len(tyx)
     # np.random.seed(depth)
@@ -1383,16 +1540,14 @@ def random_crop_warp(img, Y, nt, tyx, nchan, scale, rescale, scale_range, gamma_
 
 def do_warp(A,M,tyx,offset=0,order=1,mode='constant'):#,mode,method):
     """ Wrapper function for affine transformations during augmentation. 
-    Uses scipy.ndimage.affine_transform()
+    Uses scipy.ndimage.affine_transform().
         
     Parameters
     --------------
     A: NDarray, int or float
         input image to be transformed
-        
     M: NDarray, float
         tranformation matrix
-        
     order: int
         interpolation order, 1 is equivalent to 'nearest',
     """
@@ -1478,6 +1633,25 @@ def loss(self, lbl, y):
 # Omnipose variant is much closer to the edt edge behavior. A more sophisticated 'edge autofill' is really needed for
 # a more robust approach (or just crop edges all the time). 
 def smooth_distance(masks, dists=None, device=None):
+    """
+    A smooth fistance field generator implemented with pytorch. To reduce the effects of cut-off masks giving artifically 
+    low distance values at image boundaries, masks are padded with reflection. 
+    
+    Parameters
+    -------------
+    masks: int, ND array
+        labelled masks, 0 = background, 1,2,...,N = mask labels
+    dists: ND array, float
+        array of (nonnegative) distance field values
+    device: torch device
+        what compute hardware to use to run the code (GPU VS CPU)
+        
+    Returns
+    -------------
+    ND array, float
+    
+    """
+    
     if device is None:
         device = torch.device('cuda')
     if dists is None:
@@ -1527,7 +1701,7 @@ def smooth_distance(masks, dists=None, device=None):
 # I also have some edited trasnforms, namely 
 
 
-### Section V: Helper functions to be duplicated from Cellpose, plan to find a way to merge them back without import loop
+### Section V: Helper functions duplicated from Cellpose, plan to find a way to merge them back without import loop
 
 def get_masks_cp(p, iscell=None, rpad=20, flows=None, use_gpu=False, device=None):
     """ create masks using pixel convergence after running dynamics
@@ -1539,18 +1713,14 @@ def get_masks_cp(p, iscell=None, rpad=20, flows=None, use_gpu=False, device=None
 
     Parameters
     ----------------
-
     p: float32, 3D or 4D array
         final locations of each pixel after dynamics,
         size [axis x Ly x Lx] or [axis x Lz x Ly x Lx].
-
     iscell: bool, 2D or 3D array
         if iscell is not None, set pixels that are 
         iscell False to stay in their original location.
-
     rpad: int (optional, default 20)
         histogram edge padding
-
     flows: float, 3D or 4D array (optional, default None)
         flows [axis x Ly x Lx] or [axis x Lz x Ly x Lx]. If flows
         is not None, then masks with inconsistent flows are removed using 
@@ -1558,7 +1728,6 @@ def get_masks_cp(p, iscell=None, rpad=20, flows=None, use_gpu=False, device=None
 
     Returns
     ---------------
-
     M0: int, 2D or 3D array
         masks with inconsistent flow masks removed, 
         0=NO masks; 1,2,...=mask labels,
@@ -1657,17 +1826,14 @@ def fill_holes_and_remove_small_masks(masks, min_size=15, hole_size=3, scale_fac
     
     Parameters
     ----------------
-
     masks: int, 2D or 3D array
         labelled masks, 0=NO masks; 1,2,...=mask labels,
         size [Ly x Lx] or [Lz x Ly x Lx]
-
     min_size: int (optional, default 15)
         minimum number of pixels per mask, can turn off with -1
 
     Returns
     ---------------
-
     masks: int, 2D or 3D array
         masks with holes filled and masks smaller than min_size removed, 
         0=NO masks; 1,2,...=mask labels,
