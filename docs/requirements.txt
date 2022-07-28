@@ -1,7 +1,7 @@
 -e .
-sphinx_copybutton
-sphinx_automodapi
-myst_nb
+sphinx_copybutton==0.5.0
+sphinx_automodapi==0.14.dev0
+myst_nb==0.16.0
 furo==2022.06.21
 sphinx==4.1.2
 docutils==0.16
