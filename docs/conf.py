@@ -108,6 +108,10 @@ html_theme = 'furo'
 # html_theme = 'theme' # use the theme in subdir 'theme'
 html_theme_path = ['.'] # make sphinx search for themes in current dir
 
+# Add any paths that contain custom static files (such as style sheets) here,
+# relative to this directory. They are copied after the builtin static files,
+# so a file named "default.css" will overwrite the builtin "default.css".
+html_static_path = ['_static']
 
 # furo
 html_css_files = [
@@ -238,10 +242,7 @@ html_theme_options = {
 
 
 
-# Add any paths that contain custom static files (such as style sheets) here,
-# relative to this directory. They are copied after the builtin static files,
-# so a file named "default.css" will overwrite the builtin "default.css".
-html_static_path = ['_static']
+
 
 # Generate stub pages whenever ::autosummary directive encountered
 # This way don't have to call sphinx-autogen manually
@@ -283,3 +284,13 @@ autoapi_options = [
     'special-members',
     'imported-members',
 ]
+
+html_sidebars = {
+    "**": [
+        "sidebar/scroll-start.html",
+        "sidebar/brand.html",
+        "sidebar/search.html",
+        "sidebar/navigation.html",
+        "sidebar/scroll-end.html",
+    ]
+}
