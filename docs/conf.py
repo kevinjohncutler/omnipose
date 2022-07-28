@@ -28,7 +28,9 @@ def setup(app):
     app.connect("builder-inited", patch_automodapi)
     # gen_color()
     # app.add_css_file('tablefix.css')
-    # app.add_css_file('_static/hacks.css')
+    app.add_css_file('_static/sinebow.css')
+    app.add_css_file('_static/custom.css')
+
     
 
 # -- Project information -----------------------------------------------------
