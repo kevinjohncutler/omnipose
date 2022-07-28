@@ -6,7 +6,9 @@ span.caption-text {
 /* .wy-menu > .caption > span.caption-text {
   color: red;
 }  */
-/* @import url("default.css"); */
+@import url("default.css");
+/* @import url("furo.css"); */
+
 /* @import url("//media.readthedocs.org/css/sphinx_rtd_theme.css"); */
 
 /* h1{
@@ -110,3 +112,7 @@ div.cell_input > div, div.cell_output div.output > div.highlight {
 .sinebow19 { 
   color: #069cdd !important;
 } 
+
+.sidebar-tree .toctree-l1 > .reference, .sidebar-tree .toctree-l1 > label .icon {
+  color: transparent !important;
+}

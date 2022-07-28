@@ -10,7 +10,7 @@
 
 .. :sinebow20:`N-color`
 :raw-html:`<font color=red>N-color</font>`
-=============================
+===========================================
 
 If you have :math:`K` cells in an image and assign each a unique color, you will find for large :math:`K` (~10) that colors start to look too similar to distinguish 
 from each other, even when using a colormap covering the entire visible spectrum (or in practice, the sRGB color space). Outline overlays are a good 

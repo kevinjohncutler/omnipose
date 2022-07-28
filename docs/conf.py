@@ -28,8 +28,9 @@ def setup(app):
     app.connect("builder-inited", patch_automodapi)
     # gen_color()
     # app.add_css_file('tablefix.css')
-    app.add_css_file('_static/sinebow.css')
-    app.add_css_file('_static/custom.css')
+    # app.add_css_file('_static/sinebow.css')
+    # app.add_css_file('_static/custom.css')
+    app.add_css_file("custom.css")
 
     
 
@@ -296,3 +297,9 @@ html_sidebars = {
         "sidebar/variant-selector.html",
     ]
 }
+
+# html_context = {
+#     'css_files': [
+#         '_static/custom.css',  # overrides for wide tables in RTD theme
+#         ],
+#     }
