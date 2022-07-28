@@ -1,5 +1,5 @@
-sphinx-copybutton
-sphinx-automodapi
-myst-nb
+sphinx_copybutton
+sphinx_automodapi
+myst_nb
 furo
 omnipose
