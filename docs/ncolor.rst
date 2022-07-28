@@ -2,7 +2,14 @@
 
 |
 
-:sinebow20:`N-color`
+
+.. role:: raw-html(raw)
+   :format: html
+
+
+
+.. :sinebow20:`N-color`
+:raw-html:`<font color=red>N-color</font>`
 =============================
 
 If you have :math:`K` cells in an image and assign each a unique color, you will find for large :math:`K` (~10) that colors start to look too similar to distinguish 
