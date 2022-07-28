@@ -4,12 +4,13 @@
 
 .. raw:: html
 
-    <style> .sinebow {color:var(--sinebow11)} </style>
+   <style> .sinebow11 {color:var(--sinebow11)} </style>
 
-.. role:: sinebow
+   <style> .sidebar-tree .toctree-l1 > .reference, .sidebar-tree .toctree-l1 > label .icon {color: var(--sinebow11)}</style>
 
+.. role:: sinebow11
 
-:sinebow:`Installation`
+:sinebow11:`Installation`
 ============================================================
 
 
