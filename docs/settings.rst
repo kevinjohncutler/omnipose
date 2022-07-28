@@ -2,6 +2,13 @@
 
 |
 
+
+.. raw:: html
+
+    <style> .sinebow14 {color:var(--sinebow14)} </style>
+
+.. role:: sinebow14
+
 :sinebow14:`Settings`
 =====================
 

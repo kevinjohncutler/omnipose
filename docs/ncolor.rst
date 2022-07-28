@@ -3,13 +3,13 @@
 |
 
 
-.. role:: raw-html(raw)
-   :format: html
+.. raw:: html
 
+    <style> .sinebow20 {color:var(--sinebow20)} </style>
 
+.. role:: sinebow20
 
-.. :sinebow20:`N-color`
-:raw-html:`<font color=red>N-color</font>`
+:sinebow20:`N-color`
 ===========================================
 
 If you have :math:`K` cells in an image and assign each a unique color, you will find for large :math:`K` (~10) that colors start to look too similar to distinguish 

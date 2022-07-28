@@ -130,10 +130,10 @@ html_css_files = [
 
 
 from omnipose.utils import sinebow
-import matplotlib
+import colour
 N = 42
 c = sinebow(N)
-colors = [matplotlib.colors.to_hex(c[i]) for i in range(1,N+1)]
+colors = [colour.rgb2hex(c[i]) for i in range(1,N+1)]
 colordict = {}
 for i in range(N):
     colordict['sinebow'+'%0d'%i] = colors[i]
@@ -243,6 +243,8 @@ light = {
     }
 
 dark.update(colordict)
+light.update(colordict)
+
 
 html_theme_options = {
     "sidebar_hide_name": True,

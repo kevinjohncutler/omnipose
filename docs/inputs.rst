@@ -1,8 +1,13 @@
 .. include:: sinebow.rst
 
 |
+.. raw:: html
 
-:sinebow13:`Inputs`
+    <style> .sinebow {color:var(--sinebow13)} </style>
+
+.. role:: sinebow
+
+:sinebow:`Inputs`
 ===================
 
 Omnipose automatically detects TIFFs, PNGs, or JPEGs. ``cellpose.io`` uses tifffile or cv2 for image loading. 

@@ -2,7 +2,13 @@
 
 |
 
-:sinebow18:`Command Line`
+.. raw:: html
+
+    <style> .sinebow {color:var(--sinebow18)} </style>
+
+.. role:: sinebow
+
+:sinebow:`Command Line`
 =========================
 
 :header-2:`Input settings`

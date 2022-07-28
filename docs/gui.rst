@@ -4,11 +4,11 @@
 
 .. raw:: html
 
-    <style> .sinebow {color:var(--sinebow12)} </style>
+    <style> .sinebow12 {color:var(--sinebow12)} </style>
 
-.. role:: sinebow
+.. role:: sinebow12
 
-:sinebow:`GUI`
+:sinebow12:`GUI`
 ================
 The Omnipose GUI is an expansion and refinement of that from Cellpose. It defaults to the ``bact_phase_omni`` model and corresponding model parameters. 
 Additionally, we pre-load a small bacterial phase contrast image for demonstration purposes. Masks are also represented in :doc:`ncolor` format by default, 

@@ -2,7 +2,13 @@
 
 |
 
-:sinebow16:`Training`
+.. raw:: html
+
+    <style> .sinebow {color:var(--sinebow16)} </style>
+
+.. role:: sinebow
+
+:sinebow:`Training`
 =====================
 .. note:: 
     Training is generally done only via CLI. We have reports of training not working via Jupyter notebook. 
