@@ -9,7 +9,7 @@ span.caption-text {
 /* @import url("basic.css"); */
 /* @import url("furo.css"); */
 /* @import url("sphinx_rdt_theme.css");*/
-@import url("//media.readthedocs.org/css/sphinx_rtd_theme.css");
+/* @import url("//media.readthedocs.org/css/sphinx_rtd_theme.css"); */
 /* @import 'furo.css'; */
 
 /* @import 'sphinx_rtd_theme.css'; */
@@ -166,7 +166,7 @@ a[href^="index.html"] {color: var(--sinebow10) !important;}
 
 
 .rst-content .sidebar p,.rst-content .sidebar ul,.rst-content .sidebar dl{
-  font-size:10%;
+  /* font-size:10%; */
   color:none;
 }
 
