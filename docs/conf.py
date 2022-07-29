@@ -13,7 +13,7 @@
 #
 import os
 import sys
-# sys.path.insert(0, os.path.abspath('.'))
+sys.path.insert(0, os.path.abspath('.'))
 
 from sphinx_automodapi import automodsumm
 from sphinx_automodapi.utils import find_mod_objs
@@ -74,7 +74,7 @@ autoapi_dirs = ['../omnipose']
 #     '.ipynb': ['nbformat.reads', {'as_version': 4}, True],
 # }
 
-html_js_files = ["https://cdnjs.cloudflare.com/ajax/libs/require.js/2.3.4/require.min.js"] #plotly
+# html_js_files = ["https://cdnjs.cloudflare.com/ajax/libs/require.js/2.3.4/require.min.js"] #plotly
 nb_execution_mode = 'off'
 render_figure_options = {'align':'center'}
 nb_render_image_options = {'align':'center'}
@@ -105,6 +105,7 @@ html_favicon = '_static/icon.png'
 
 
 html_theme = 'furo'
+# html_theme = 'default'
 # html_theme = 'sinebow'
 
 # html_theme = 'sphinx_rtd_theme'
@@ -115,8 +116,8 @@ html_theme = 'furo'
 # Add any paths that contain custom static files (such as style sheets) here,
 # relative to this directory. They are copied after the builtin static files,
 # so a file named "default.css" will overwrite the builtin "default.css".
-# html_static_path = ['_static']
-html_static_path = []
+html_static_path = ['_static']
+# html_static_path = []
 
 
 # furo
@@ -147,7 +148,7 @@ dark = {
         # "color-brand-primary": "#6322f9",
         # "color-brand-primary": "#c8b600",
         # "color-brand-primary": "#04d8a3",
-        "color-brand-primary": "#131313",
+        "color-brand-primary": "#666666",
         
         "color-brand-content": "#0de989",
         # "color-highlight-on-target":"#fe5130",
@@ -270,7 +271,8 @@ html_theme_options = {
 }
 
 
-
+# If true, '()' will be appended to :func: etc. cross-reference text.
+add_function_parentheses = True
 
 
 # Generate stub pages whenever ::autosummary directive encountered

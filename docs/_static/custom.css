@@ -179,3 +179,5 @@ a[href^="index.html"] {color: var(--sinebow10) !important;}
   padding:6px 12px;
   margin-bottom:12px
 }
+
+.sidebar-tree ul {color:none}
