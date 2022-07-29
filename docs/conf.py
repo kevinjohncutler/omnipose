@@ -143,13 +143,14 @@ colordict = {}
 for i in range(N):
     colordict['sinebow'+'%0d'%i] = colors[i]
 
-shared = {"color-problematic":"#818181",
-    # "color-highlight-on-target":"#c8b600",
-    # "color-background-hover":"#8f0ae5",
-    "color-api-name":"#f0147a",
-    "color-api-pre-name":"#8f0ae5",
-    # "color-api-paren":"#04a3d8",
-    "color-api-keyword":"#04a3d8"}
+shared = {"color-problematic": "#818181",
+          # "color-highlight-on-target":"#c8b600",
+          # "color-background-hover":"#8f0ae5",
+          "color-api-name": "#f0147a",
+          "color-api-pre-name": "#8f0ae5",
+          # "color-api-paren":"#04a3d8",
+          "color-api-keyword": "#04a3d8"
+        }
 
 dark = {
         "h2-color": "#aaa",
@@ -249,8 +250,10 @@ light = {
 
     }
 
-dark.update(colordict).update(shared)
-light.update(colordict).update(shared)
+dark.update(colordict)
+dark.update(shared)
+light.update(colordict)
+light.update(shared)
 
 
 html_theme_options = {

@@ -187,3 +187,13 @@ a[href^="index.html"] {color: var(--sinebow10) !important;}
 /* pre {
   white-space: pre-wrap;
 } */
+
+.rst-content .sidebar{
+  float:right;
+  width:40%;
+  display:block;
+  margin:0 0 24px 24px;
+  padding:24px;
+  background: none;
+  border:none
+}
