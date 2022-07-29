@@ -6,7 +6,7 @@ span.caption-text {
 /* .wy-menu > .caption > span.caption-text {
   color: red;
 }  */
-/* @import url("default.css"); */
+@import url("basic.css");
 /* @import url("furo.css"); */
 /* @import url("sphinx_rdt_theme.css");*/
 @import 'furo.css';
@@ -163,4 +163,4 @@ a[href^="diameter.html"] {color: var(--sinebow21) !important;}
 a[href^="gamma.html"] {color: var(--sinebow22) !important;}
 
 
-
+a[href^="index.html"] {color: var(--sinebow10) !important;}

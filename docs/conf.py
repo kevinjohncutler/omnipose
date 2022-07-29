@@ -144,11 +144,11 @@ dark = {
         # "color-brand-primary": "#6322f9",
         # "color-brand-primary": "#c8b600",
         # "color-brand-primary": "#04d8a3",
-        "color-brand-primary": "#0000",
+        "color-brand-primary": "#818181",
         
         "color-brand-content": "#0de989",
         # "color-highlight-on-target":"#fe5130",
-        "color-problematic":"#ff4040",
+        "color-problematic":"#818181",
         # "color-highlight-on-target":"#c8b600",
         # "color-background-hover":"#8f0ae5",
         "color-api-name":"#f0147a",
@@ -248,9 +248,12 @@ light.update(colordict)
 
 
 html_theme_options = {
+    "externalrefs":True,
+    "sidebartextcolor": "cyan",
     "sidebar_hide_name": True,
     "top_of_page_button": "edit",
     "dark_css_variables": dark,
+    "extra_navbar": '<a href="installation.html" class="w3-bar-item w3-button"><span class="sinebow11">dfsfsdfs</span></a>',
     "light_css_variables": light.update(colordict),
     "footer_icons": [
             {
