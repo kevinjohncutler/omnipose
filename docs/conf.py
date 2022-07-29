@@ -122,8 +122,8 @@ html_static_path = ['_static']
 
 # furo
 html_css_files = [
-    '/_static/sinebow.css',
-    '/_static/custom.css',
+#     '/_static/sinebow.css',
+#     '/_static/custom.css',
     
     "https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/fontawesome.min.css",
     "https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/solid.min.css",
