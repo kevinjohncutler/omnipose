@@ -9,6 +9,7 @@ span.caption-text {
 /* @import url("basic.css"); */
 /* @import url("furo.css"); */
 /* @import url("sphinx_rdt_theme.css");*/
+@import url("//media.readthedocs.org/css/sphinx_rtd_theme.css");
 @import 'furo.css';
 
 /* @import 'sphinx_rtd_theme.css'; */

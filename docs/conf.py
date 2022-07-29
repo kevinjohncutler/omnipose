@@ -142,7 +142,15 @@ colors = [colour.rgb2hex(c[i]) for i in range(1,N+1)]
 colordict = {}
 for i in range(N):
     colordict['sinebow'+'%0d'%i] = colors[i]
-    
+
+shared = {"color-problematic":"#818181",
+    # "color-highlight-on-target":"#c8b600",
+    # "color-background-hover":"#8f0ae5",
+    "color-api-name":"#f0147a",
+    "color-api-pre-name":"#8f0ae5",
+    # "color-api-paren":"#04a3d8",
+    "color-api-keyword":"#04a3d8"}
+
 dark = {
         "h2-color": "#aaa",
 
@@ -153,13 +161,7 @@ dark = {
         
         "color-brand-content": "#0de989",
         # "color-highlight-on-target":"#fe5130",
-        "color-problematic":"#818181",
-        # "color-highlight-on-target":"#c8b600",
-        # "color-background-hover":"#8f0ae5",
-        "color-api-name":"#f0147a",
-        "color-api-pre-name":"#8f0ae5",
-        # "color-api-paren":"#04a3d8",
-        "color-api-keyword":"#04a3d8",
+
         
         "color-foreground-primary": "#ffffffcc", # for main text and headings
         "color-foreground-secondary": "#a0a0a0", # for secondary text
@@ -168,7 +170,6 @@ dark = {
 
         "color-background-primary": "#131313", # for content
         "color-background-secondary": "#191919", # for navigation + ToC, also the default for code block
-        # because I can't seem to change the code block background, just make it consistent: 202020
         
         "color-background-hover": "#202020ff", # for navigation-item hover
         "color-background-hover--transparent": "#20202000",
@@ -248,8 +249,8 @@ light = {
 
     }
 
-dark.update(colordict)
-light.update(colordict)
+dark.update(colordict).update(shared)
+light.update(colordict).update(shared)
 
 
 html_theme_options = {
@@ -259,7 +260,7 @@ html_theme_options = {
     "top_of_page_button": "edit",
     "dark_css_variables": dark,
     # "extra_navbar": '<a href="installation.html" class="w3-bar-item w3-button"><span class="sinebow11">dfsfsdfs</span></a>',
-    "light_css_variables": light.update(colordict),
+    "light_css_variables": light,
     "footer_icons": [
             {
                 "name": "GitHub",
