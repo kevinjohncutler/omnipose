@@ -4,7 +4,7 @@
 
 .. raw:: html
 
-    <style> .sinebow12 {color:var(--sinebow12)} </style>
+    <style> .sinebow12 {color:var(--sinebow12) !important} </style>
 
 .. role:: sinebow12
 

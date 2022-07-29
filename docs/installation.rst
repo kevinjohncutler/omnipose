@@ -4,7 +4,7 @@
 
 .. raw:: html
 
-   <style> .sinebow11 {color:var(--sinebow11)} </style>
+   <style> .sinebow11 {background:var(--sinebow11)} </style>
 
    <style> .sidebar-tree .toctree-l1 > .reference {color: None !important}</style>
 
