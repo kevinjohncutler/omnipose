@@ -8,8 +8,7 @@
 
 .. role:: sinebow17
 
-.. :sinebow17:`In a notebook`
-In a notebook
+:sinebow17:`In a notebook`
 ==========================
 
 We have two thorough tutorials on using Omnipose in a Jupyter notebook. The first focuses on mono-channel segmentation of locally saved images.  

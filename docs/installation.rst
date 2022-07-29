@@ -10,11 +10,7 @@
 
    <style> .sidebar-tree .toctree-l1 > .current {color: var(--sinebow11) !important}</style>
 
-   <div class="w3-sidebar w3-bar-block" style="width:25%">
-      <a href="gui.html" class="w3-bar-item w3-button" {color: var(--sinebow11)>GUI</a>
-      <a href="#" class="w3-bar-item w3-button">Link 2</a> <style> .sinebow11 {color:var(--sinebow11)} </style>
-      <a href="#" class="w3-bar-item w3-button"><span class="sinebow11">Outputs</span></a>
-   </div>
+
    
 
 .. role:: raw-html(raw)
@@ -23,11 +19,7 @@
 .. role:: sinebow11
 
 
-.. :raw-html:`<span class=sinebow11>Installation</span>`
-
-
-
-fgfd
+:raw-html:`<span class=sinebow11>Installation</span>`
 ============================================================
 
 

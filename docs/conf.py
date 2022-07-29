@@ -144,7 +144,7 @@ dark = {
         # "color-brand-primary": "#6322f9",
         # "color-brand-primary": "#c8b600",
         # "color-brand-primary": "#04d8a3",
-        # "color-brand-primary": "#0000",
+        "color-brand-primary": "#0000",
         
         "color-brand-content": "#0de989",
         # "color-highlight-on-target":"#fe5130",
