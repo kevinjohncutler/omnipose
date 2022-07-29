@@ -40,9 +40,9 @@ a:hover {
   color: var(--color-link--hover);
 }
 
-.toc-list {
+/* .toc-list {
   color: transparent;
-}
+} */
 
 .header-2 { 
 	/* color: var(--h2-color); */
@@ -111,6 +111,7 @@ div.cell_input > div, div.cell_output div.output > div.highlight {
 /* .wy-nav-content {
   max-width: none;
 } */
+.sidebar-tree .reference {color: none  !important}
 .sidebar-tree .toctree-l1 > .reference {color: None !important}
 .sidebar-tree .toctree-l1 > label .icon {color: var(--color-foreground-muted)}
 
@@ -125,4 +126,30 @@ a {
   color: red;
 }
 
-sidebar-tree .toctree-l1 {color: blue !important}
+.sidebar-tree .toctree-l1 {color: blue !important}
+
+.sidebar-tree .toctree-l1 > .current {color: green !important}
+
+
+.sidebar a:nth-child(1){
+  background-color: #ffffff!important;
+  color: #dd1d5e!important;
+} 
+
+
+
+/* // specific CSS for your menu */
+div.menuBar li.selected a { color: #FF0000; } 
+/* // more general CSS */
+li.selected a { color: #FF0000; }
+
+
+.main-navigation a { color: red; }
+
+a[href^="installation.html"] {color: var(--sinebow11) !important;}
+a[href^="notebook.html"] {color: pink !important;}
+
+
+a[href^="GUI"] {color: green !important;}
+a[href^="fgfd"] {color: green !important;}
+
