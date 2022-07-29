@@ -205,7 +205,8 @@ dark = {
         
 
         # "color-card-marginals-background": "red",
-        'color-sidebar-link-text--top-level': 'white',
+        'color-sidebar-link-text--top-level': 'transparent',
+        'text-color': 'transparent',
     }
 
 light = {
