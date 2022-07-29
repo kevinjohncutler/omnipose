@@ -111,3 +111,10 @@ a {
   /* text-decoration: underline; */
 }
 
+
+.wy-side-nav-search, .wy-nav-top {
+  /* background: #0b750a; */
+  color: red;
+}
+
+sidebar-tree .toctree-l1 {color: blue !important}

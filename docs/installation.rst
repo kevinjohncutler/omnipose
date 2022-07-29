@@ -14,10 +14,13 @@
 
    
 
+.. role:: raw-html(raw)
+   :format: html
 
 .. role:: sinebow11
 
-:sinebow11:`Installation`
+
+:raw-html:`<span class=sinebow11>Installation</span>`
 ============================================================
 
 
