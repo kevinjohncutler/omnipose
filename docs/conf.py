@@ -149,7 +149,8 @@ shared = {"color-problematic": "#818181",
           "color-api-name": "#f0147a",
           "color-api-pre-name": "#8f0ae5",
           # "color-api-paren":"#04a3d8",
-          "color-api-keyword": "#04a3d8"
+          "color-api-keyword": "#04a3d8",
+          "font-stack": "Arial, sans-serif",
         }
 
 dark = {

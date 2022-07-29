@@ -153,7 +153,7 @@ a[href^="examples/mono_channel_bact.html"] {color: var(--sinebow6) !important;}
 a[href^="examples/multi_channel_cyto.html"] {color: var(--sinebow7) !important;}
 
 a[href^="command.html"] {color: var(--sinebow18) !important;}
-a[href^="api/api.html"] {color: var(--sinebow19) !important;}
+a[href^="api/index.html"] {color: var(--sinebow19) !important;}
 
 a[href^="ncolor.html"] {color: var(--sinebow20) !important;}
 a[href^="diameter.html"] {color: var(--sinebow21) !important;}
@@ -211,7 +211,7 @@ body{
   color:none;
   min-height:100%;
   overflow-x:hidden;
-  background: var(--color-background-primary);
+  background: var(--color-background-primary) !important;
 }
 
 .content {
@@ -220,5 +220,12 @@ body{
   justify-content: space-between;
   padding: 0 3em;
   width: 50em;
-  background: var(--color-background-primary);
+  background: var(--color-background-primary) !important;
 }
+
+.rst-content tt.literal,.rst-content tt.literal,.rst-content code.literal {
+  color: var(--color-api-name) !important
+}
+
+
+body div.page div.main div.content {background: var(--color-background-primary) !important}
