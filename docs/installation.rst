@@ -10,8 +10,8 @@
 
    <style> .sidebar-tree .toctree-l1 > .current {color: var(--sinebow11) !important}</style>
 
-   <h1><a><span class="sinebow11">gggg</span></a></h1>
-   
+
+
 
 .. role:: raw-html(raw)
    :format: html

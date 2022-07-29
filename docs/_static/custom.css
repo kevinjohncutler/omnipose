@@ -6,10 +6,10 @@ span.caption-text {
 /* .wy-menu > .caption > span.caption-text {
   color: red;
 }  */
-@import url("basic.css");
+/* @import url("basic.css"); */
 /* @import url("furo.css"); */
 /* @import url("sphinx_rdt_theme.css");*/
-/* @import 'furo.css'; */
+@import 'furo.css';
 
 /* @import 'sphinx_rtd_theme.css'; */
 
@@ -123,18 +123,13 @@ a {
 
 .wy-side-nav-search, .wy-nav-top {
   /* background: #0b750a; */
-  color: red;
+  color: red !important;
 }
 
 .sidebar-tree .toctree-l1 {color: blue !important}
 
 .sidebar-tree .toctree-l1 > .current {color: green !important}
 
-
-.sidebar a:nth-child(1){
-  background-color: #ffffff!important;
-  color: #dd1d5e!important;
-} 
 
 
 
@@ -165,3 +160,6 @@ a[href^="diameter.html"] {color: var(--sinebow21) !important;}
 a[href^="gamma.html"] {color: var(--sinebow22) !important;}
 
 a[href^="index.html"] {color: var(--sinebow10) !important;}
+
+
+.sidebar a.selected {color: red !important;}

@@ -105,10 +105,12 @@ html_favicon = '_static/icon.png'
 
 
 html_theme = 'furo'
+# html_theme = 'sinebow'
+
 # html_theme = 'sphinx_rtd_theme'
 # html_theme_path = ["_themes", ]
 # html_theme = 'theme' # use the theme in subdir 'theme'
-# html_theme_path = ['.'] # make sphinx search for themes in current dir
+# html_theme_path = ['. /' # make sphinx search for themes in current dir
 
 # Add any paths that contain custom static files (such as style sheets) here,
 # relative to this directory. They are copied after the builtin static files,
