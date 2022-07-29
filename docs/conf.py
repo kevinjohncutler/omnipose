@@ -31,7 +31,7 @@ def setup(app):
     # app.add_css_file('tablefix.css')
     # app.add_css_file('_static/sinebow.css')
     # app.add_css_file('_static/custom.css')
-    # app.add_css_file("custom.css")
+    app.add_css_file("custom.css")
 
     
 
@@ -115,7 +115,9 @@ html_theme = 'furo'
 # Add any paths that contain custom static files (such as style sheets) here,
 # relative to this directory. They are copied after the builtin static files,
 # so a file named "default.css" will overwrite the builtin "default.css".
-html_static_path = ['_static']
+# html_static_path = ['_static']
+html_static_path = []
+
 
 # furo
 html_css_files = [
@@ -145,7 +147,7 @@ dark = {
         # "color-brand-primary": "#6322f9",
         # "color-brand-primary": "#c8b600",
         # "color-brand-primary": "#04d8a3",
-        "color-brand-primary": "#999",
+        "color-brand-primary": "#131313",
         
         "color-brand-content": "#0de989",
         # "color-highlight-on-target":"#fe5130",

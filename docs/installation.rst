@@ -123,7 +123,6 @@ automatically installed with conda/pip if missing):
 -  `natsort`_
 -  `matplotlib`_
 -  sklearn_
--  
 
 
 
