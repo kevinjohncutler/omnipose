@@ -132,7 +132,6 @@ a {
 
 
 
-
 /* // specific CSS for your menu */
 div.menuBar li.selected a { color: #FF0000; } 
 /* // more general CSS */
@@ -163,3 +162,20 @@ a[href^="index.html"] {color: var(--sinebow10) !important;}
 
 
 .sidebar a.selected {color: red !important;}
+
+
+.rst-content .sidebar p,.rst-content .sidebar ul,.rst-content .sidebar dl{
+  font-size:10%;
+  color:none;
+}
+
+.wy-alert-title,.rst-content .admonition-title{
+  color:none;
+  font-weight:bold;
+  display:block;
+  color:none;
+  background:#6ab0de;
+  margin:-12px;
+  padding:6px 12px;
+  margin-bottom:12px
+}
