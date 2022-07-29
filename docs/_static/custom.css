@@ -181,3 +181,8 @@ a[href^="index.html"] {color: var(--sinebow10) !important;}
 }
 
 .sidebar-tree ul {color:none}
+
+/* text wrapping, ugly */
+/* pre {
+  white-space: pre-wrap;
+} */
