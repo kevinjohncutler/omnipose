@@ -23,7 +23,7 @@
 :header-2:`Run settings`
 ------------------------
 
-These are the same :ref:`settings`, but set up for the command line, e.g.
+These are the same :doc:`settings`, but set up for the command line, e.g.
 `channels = [chan, chan2]`.
 
     * chan: (int)
