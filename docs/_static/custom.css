@@ -9,7 +9,7 @@ span.caption-text {
 /* @import url("basic.css"); */
 /* @import url("furo.css"); */
 /* @import url("sphinx_rdt_theme.css");*/
-/* @import url("//media.readthedocs.org/css/sphinx_rtd_theme.css"); */
+@import url("//media.readthedocs.org/css/sphinx_rtd_theme.css");
 /* @import 'furo.css'; */
 
 /* @import 'sphinx_rtd_theme.css'; */
@@ -203,3 +203,13 @@ html.prurelnmbs.idc0_341 body div.page aside.sidebar-drawer div.sidebar-containe
 .sinebow14 {color: var(--sinebow14) !important;}
 
 div.page aside.sidebar-drawer div.sidebar-container div.sidebar-sticky div.sidebar-scroll div.sidebar-tree ul li.toctree-l1.has-children a.reference.internal span.sinebow17 {color: var(--sinebow17) !important;}
+
+
+body{
+  /* font-family:"Lato","proxima-nova","Helvetica Neue",Arial,sans-serif; */
+  font-weight:normal;
+  color:none;
+  min-height:100%;
+  overflow-x:hidden;
+  background:none
+}
