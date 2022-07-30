@@ -2,12 +2,6 @@
 
 |
 
-.. raw:: html
-
-    <style> .sinebow12 {color:var(--sinebow12) !important} </style>
-
-.. role:: sinebow12
-
 :sinebow12:`GUI`
 ================
 The Omnipose GUI is an expansion and refinement of that from Cellpose. It defaults to the ``bact_phase_omni`` model and corresponding model parameters. 

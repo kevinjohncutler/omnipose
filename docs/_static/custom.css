@@ -139,7 +139,7 @@ li.selected a { color: #FF0000; }
 
 .main-navigation a { color: red; }
 
-/* a[href^="installation.html"] {color: var(--sinebow11) !important;}
+a[href^="installation.html"] {color: var(--sinebow11) !important;}
 a[href^="gui.html"] {color: var(--sinebow12) !important;}
 a[href^="inputs.html"] {color: var(--sinebow13) !important;}
 a[href^="settings.html"] {color: var(--sinebow14) !important;}
@@ -147,8 +147,8 @@ a[href^="outputs.html"] {color: var(--sinebow15) !important;}
 a[href^="train.html"] {color: var(--sinebow16) !important;}
 a[href^="notebook.html"] {color: var(--sinebow17) !important;}
 
-a[href^="examples/mono_channel_bact.html"] {color: var(--sinebow6) !important;}
-a[href^="examples/multi_channel_cyto.html"] {color: var(--sinebow7) !important;}
+/* a[href^="examples/mono_channel_bact.html"] {color: var(--sinebow6) !important;}
+a[href^="examples/multi_channel_cyto.html"] {color: var(--sinebow7) !important;} */
 
 a[href^="command.html"] {color: var(--sinebow18) !important;}
 a[href^="api/index.html"] {color: var(--sinebow19) !important;}
@@ -157,7 +157,7 @@ a[href^="ncolor.html"] {color: var(--sinebow20) !important;}
 a[href^="diameter.html"] {color: var(--sinebow21) !important;}
 a[href^="gamma.html"] {color: var(--sinebow22) !important;}
 
-a[href^="index.html"] {color: var(--sinebow10) !important;} */
+a[href^="index.html"] {color: var(--sinebow10) !important;}
 
 
 /* .sidebar a.selected {color: red !important;} */
@@ -239,7 +239,7 @@ body{
   flex-direction: column;
   justify-content: space-between;
   padding: 0 3em;*/
-  width: 50em; 
+  /* width: 50em;  */
   background: var(--color-background-primary) !important;
 }
 

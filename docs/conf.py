@@ -63,6 +63,7 @@ extensions = [
     'sphinx.ext.autosectionlabel',  # use :ref:`Heading` for any heading
     'sphinx_copybutton',
     'sphinx_automodapi.automodapi',
+    'sphinx_design',
     'myst_nb',
 ]
 
@@ -150,6 +151,13 @@ shared = {"color-problematic": "#818181",
           "color-api-pre-name": "#8f0ae5",
           # "color-api-paren":"#04a3d8",
           "color-api-keyword": "#04a3d8",
+
+          #Highlighted text
+          "color-highlight-on-target": "#1a1a1a", #only to suppress coloring when jumping to new page 
+          # "color-link": "#888", # defaults to the brand color, that is fine
+          "color-link--hover": "#f0147a",
+          "color-link-underline": "#0000",
+          "color-link-underline--hover": "#0000",        
         }
 
 dark = {
@@ -201,12 +209,8 @@ dark = {
         # "color-card-marginals-background": var(--color-background-hover);
 
 
-        #Highlighted text
-        "color-highlight-on-target": "#1a1a1a", #only to suppress coloring when jumping to new page 
-        # "color-link": "#888", # defaults to the brand color, that is fine
-        "color-link--hover": "#f0147a",
-        "color-link-underline": "#0000",
-        "color-link-underline--hover": "#0000",
+
+
         # "color-sidebar-link-text": "#fff", 
         # "color-sidebar-link-text--top-level": "#f0147a", #arrow?  defaults to primary brand 
         
@@ -257,12 +261,9 @@ light.update(shared)
 
 
 html_theme_options = {
-    # "externalrefs":True,
-    # "sidebartextcolor": "cyan",
     "sidebar_hide_name": True,
     "top_of_page_button": "edit",
     "dark_css_variables": dark,
-    # "extra_navbar": '<a href="installation.html" class="w3-bar-item w3-button"><span class="sinebow11">dfsfsdfs</span></a>',
     "light_css_variables": light,
     "footer_icons": [
             {
@@ -331,9 +332,3 @@ html_sidebars = {
         "sidebar/variant-selector.html",
     ]
 }
-
-# html_context = {
-#     'css_files': [
-#         '_static/custom.css',  # overrides for wide tables in RTD theme
-#         ],
-#     }

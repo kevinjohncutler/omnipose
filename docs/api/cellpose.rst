@@ -1,4 +1,3 @@
-.. _cpclass:
 
 cellpose.models
 -----------------------
@@ -6,6 +5,22 @@ cellpose.models
 .. automodule:: cellpose.models
 
 .. automodsumm:: cellpose.models
+    :functions-only:
+    :toctree: api
+
+cellpose.io
+------------------------
+.. automodule:: cellpose.io
+
+.. automodsumm:: cellpose.io
+    :functions-only:
+    :toctree: api
+
+cellpose.plot
+------------------------
+.. automodule:: cellpose.plot
+
+.. automodsumm:: cellpose.plot
     :functions-only:
     :toctree: api
 
@@ -33,13 +48,8 @@ cellpose.transforms
     :functions-only:
     :toctree: api
 
-cellpose.plot
-------------------------
-.. automodule:: cellpose.plot
 
-.. automodsumm:: cellpose.plot
-    :functions-only:
-    :toctree: api
+
 
 
 

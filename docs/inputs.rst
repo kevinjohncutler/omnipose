@@ -10,7 +10,7 @@
 :sinebow13:`Inputs`
 ===================
 
-Omnipose automatically detects TIFFs, PNGs, or JPEGs. ``cellpose.io`` uses tifffile or cv2 for image loading. 
+Omnipose automatically detects TIFFs, PNGs, or JPEGs. :mod:`cellpose.io` uses tifffile or cv2 for image loading. 
 Single-plane images can be formatted as nY x nX x channels or channels x nY x nX. 
 The `channels <settings.html#channels>`__ settings will take care of reshaping 
 the input appropriately for the network if we can safely assume that the smallest axis is the channel axis. 
@@ -44,7 +44,7 @@ then the GUI will automatically run 3D segmentation and display it in the GUI. W
 the command line for progress. It is recommended to use a GPU to speed up processing.
 
 If drag-and-drop doesn't work because of the shape of your tiff, 
-you need to transpose the tiff and resave to use the GUI, or 
+you need to transpose the tiff and re-save to use the GUI, or 
 use the napari plugin for cellpose, or run CLI/notebook and 
 specify the ``channel_axis`` and/or ``z_axis``
 parameters:

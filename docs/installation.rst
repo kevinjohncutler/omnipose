@@ -2,25 +2,8 @@
 
 |
 
-.. raw:: html
-
-   <style> .sinebow11 {color:var(--sinebow11)} </style>
-
-   <style> .sidebar-tree .toctree-l1 > .reference {color: None !important}</style>
-
-   <style> .sidebar-tree .toctree-l1 > .current {color: var(--sinebow11) !important}</style>
-
-
-
-
-.. role:: raw-html(raw)
-   :format: html
-
-.. role:: sinebow11
-
-
-:raw-html:`<span class=sinebow11>Installation</span>`
-============================================================
+:sinebow11:`Installation`
+=========================
 
 
 .. include:: ../README.md
@@ -56,6 +39,7 @@ To set this environment variable when running Omnipose in a jupyter notebook, ru
 this code at the beginning of your notebook before you import Omnipose:
 
 ::
+
    import os 
    os.environ["CELLPOSE_LOCAL_MODELS_PATH"] = "/PATH_FOR_MODELS/"
 
@@ -83,6 +67,7 @@ uninstalling and reinstalling pyqt5
 If you have errors related to OpenMP and libiomp5, then try 
 
 ::
+
    conda install nomkl
 
 If you receive an error associated with **matplotlib**, try upgrading
@@ -100,7 +85,7 @@ If you receive the error: ``ImportError: _arpack DLL load failed``, then try uni
 
 If you are having issues with the graphical interface, make sure you have **python 3.8.5** installed. Higher versions *should* also work. 
 
-If you are on Yosemite Mac OS or earlier, PyQt doesn't work and you won't be able
+If you are on Yosemite Mac OS or earlier, PyQt does not work and you won't be able
 to use the GUI. More recent versions of Mac
 OS are fine. The software has been heavily tested on Windows 10 and
 Ubuntu 18.04, and less well tested on Mac OS. Please post an issue if
@@ -116,7 +101,7 @@ automatically installed with conda/pip if missing):
 -  `mxnet_mkl`_
 -  `pyqtgraph`_
 -  `PyQt5`_
--  `numpy`_ (>=1.22.0)
+-  `numpy`_ (>=1.22.4)
 -  `numba`_
 -  `scipy`_
 -  `scikit-image`_

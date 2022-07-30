@@ -13,7 +13,7 @@
 =====================
 
 The most important settings are described on this page. 
-See :ref:`cpclass` for all options.
+See :mod:`cellpose.models` for all options. 
 
 This is a typical example of using an Omnipose model to segment a list of images in a notebook. 
 Cellpose users need only select an Omnipose model and use ``omni=True`` to update their existing code. 
@@ -35,7 +35,7 @@ Cellpose users need only select an Omnipose model and use ``omni=True`` to updat
 This example shows the same settings used for each image, but you can also pass in a list for ``channels`` and ``diameter`` that specifies unique values to apply to each image. See our example notebooks and figure notebooks for many advanced examples. 
 
 .. tip::
-    Use ``pretrained_model=<path to model>`` in place of ``model_type=<model name>`` when you want to use a model that is not bulit in. 
+    Use ``pretrained_model=<path to model>`` in place of ``model_type=<model name>`` when you want to use a model that is not bulit-in. 
 
 
 :header-2:`Channels`
@@ -45,10 +45,9 @@ Use ``channels = [0,0]`` for mono-channel images or multi-channel images that yo
 
 You can also use two channels for segmentation: a cystoplasm channel and a nuclear channel. The ``cyto2_omni`` model was trained with image channels re-ordered to have red cystoplasm and green nucleus (where applicable in the dataset) using ``--chan 1 --chan2 2`` and therefore was evaluated using ``channels = [1,2]``.
 
-See `Omnipose_Example_1.ipynb`_ for a monochannel segmentation on bacterial phase contrast images and `Omnipose_Example_2.ipynb`_ for multichannel segmentation of mouse neuron cells. 
+See :doc:`mono_channel_bact.ipynb <../examples/mono_channel_bact>` for a monochannel segmentation on bacterial phase contrast images 
+and :doc:`multi_channel_cyto.ipynb <../examples/multi_channel_cyto>` for multichannel segmentation of mouse neuron cells. 
 
-.. _Omnipose_Example_1.ipynb: https://github.com/kevinjohncutler/omnipose/tree/main/examples/Omnipose_Example_1.ipynb
-.. _Omnipose_Example_2.ipynb: https://github.com/kevinjohncutler/omnipose/tree/main/examples/Omnipose_Example_2.ipynb
 
 :header-2:`Resample`
 --------------------
