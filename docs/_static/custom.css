@@ -107,10 +107,6 @@ div.cell_input > div, div.cell_output div.output > div.highlight {
   box-shadow: none;
 }
 
-
-/* .wy-nav-content {
-  max-width: none;
-} */
 .sidebar-tree .reference {color: none  !important}
 .sidebar-tree .toctree-l1 > .reference {color: None !important}
 .sidebar-tree .toctree-l1 > label .icon {color: var(--color-foreground-muted)}
@@ -120,13 +116,13 @@ a {
   /* text-decoration: underline; */
 }
 
-
+/* This keeps link colors persistent within the text */
 a[href^="installation.html"] {color: var(--sinebow11) !important;}
 a[href^="gui.html"] {color: var(--sinebow12) !important;}
 a[href^="inputs.html"] {color: var(--sinebow13) !important;}
 a[href^="settings.html"] {color: var(--sinebow14) !important;}
 a[href^="outputs.html"] {color: var(--sinebow15) !important;}
-a[href^="train.html"] {color: var(--sinebow16) !important;}
+a[href^="training.html"] {color: var(--sinebow16) !important;}
 a[href^="notebook.html"] {color: var(--sinebow17) !important;}
 
 /* a[href^="examples/mono_channel_bact.html"] {color: var(--sinebow6) !important;}
@@ -142,15 +138,6 @@ a[href^="gamma.html"] {color: var(--sinebow22) !important;}
 a[href^="index.html"] {color: var(--sinebow10) !important;}
 
 
-/* .sidebar a.selected {color: red !important;} */
-
-
-/* 
-.rst-content .sidebar p,.rst-content .sidebar ul,.rst-content .sidebar dl{
-  color:none;
-} 
-*/
-
 .wy-alert-title,.rst-content .admonition-title{
   color:none;
   font-weight:bold;
@@ -164,23 +151,8 @@ a[href^="index.html"] {color: var(--sinebow10) !important;}
 
 .sidebar-tree ul {color:none}
 
-/* text wrapping, ugly */
-/* pre {
-  white-space: pre-wrap;
-} */
 
-/* .rst-content .sidebar{
-  float:right;
-  width:40%;
-  display:block;
-  margin:0 0 24px 24px;
-  padding:24px;
-  background: none;
-  border:none
-} */
-
-
-
+/* This keeps link colors on the sidebar persistent */
 .sinebow0 {color: var(--sinebow0) !important;}
 .sinebow1 {color: var(--sinebow1) !important;}
 .sinebow2 {color: var(--sinebow2) !important;}
@@ -206,27 +178,3 @@ a[href^="index.html"] {color: var(--sinebow10) !important;}
 .sinebow22 {color: var(--sinebow22) !important;}
 .sinebow23 {color: var(--sinebow23) !important;}
 
-body{
-  font-family: var(--font-stack) !important;
-  /* font-weight:normal;
-  color:none;
-  min-height:100%;
-  overflow-x:hidden; */
-  background: var(--color-background-primary) !important;
-}
-
-.content {
-  /* font-family: var(--font-stack) !important; */
-  /* display: flex;
-  flex-direction: column;
-  justify-content: space-between;
-  padding: 0 3em;*/
-  /* width: 50em;  */
-  background: var(--color-background-primary) !important;
-}
-
-
-body div.page div.main div.content {background: var(--color-background-primary) !important}
-
-
-h1, h2, .rst-content .toctree-wrapper p.caption, h3, h4, h5, h6, legend {font-family: var(--font-stack) !important;}

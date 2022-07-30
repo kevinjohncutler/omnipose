@@ -1,12 +1,6 @@
+:hide-toc:
 
-|
-
-.. raw:: html
-
-    <style> .sinebow19 {color:var(--sinebow19)} </style>
-
-
-.. role:: sinebow19
+.. include:: ../sinebow.rst
 
 :sinebow19:`API reference`
 ==========================
