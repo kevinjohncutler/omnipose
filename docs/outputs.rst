@@ -1,13 +1,5 @@
 .. include:: sinebow.rst
 
-|
-
-.. raw:: html
-
-    <style> .sinebow15 {color:var(--sinebow15)} </style>
-
-.. role:: sinebow15
-
 :sinebow15:`Outputs`
 ====================
 Omnipose uses a generalized version of the Cellpose U-net to predict several output "images" based on an input image. 

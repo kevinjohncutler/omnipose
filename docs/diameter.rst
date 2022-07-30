@@ -1,15 +1,7 @@
 .. include:: sinebow.rst
 
-|
-
-.. raw:: html
-
-    <style> .sinebow21 {color:var(--sinebow21)} </style>
-
-.. role:: sinebow21
-
-:sinebow21:`Diameter metric`
-============================
+:sinebow21:`Cell diameter`
+==========================
 
 The idea of an average cell diameter sounds intuitive, but the standard implementation of this idea fails to capture that intuition. 
 The go-to method (adopted in Cellpose) is to calculate the cell diameter as the diameter of the circle of equivalent area. As I will demonstrate, 

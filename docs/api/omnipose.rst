@@ -1,13 +1,15 @@
-omnipose.core
------------------------
+.. include:: ../sinebow.rst
+
+:header-2:`omnipose.core`
+-------------------------
 .. automodule:: omnipose.core
 
 .. automodsumm:: omnipose.core
     :functions-only:
     :toctree: api
 
-omnipose.utils
------------------------
+:header-2:`omnipose.utils`
+--------------------------
 .. automodule:: omnipose.utils
 
 .. automodsumm:: omnipose.utils

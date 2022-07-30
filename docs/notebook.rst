@@ -1,13 +1,5 @@
 .. include:: sinebow.rst
 
-|
-
-.. raw:: html
-
-    <style> .sinebow17 {color:var(--sinebow17)} </style>
-
-.. role:: sinebow17
-
 :sinebow17:`In a notebook`
 ==========================
 

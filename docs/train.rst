@@ -1,13 +1,5 @@
 .. include:: sinebow.rst
 
-|
-
-.. raw:: html
-
-    <style> .sinebow16 {color:var(--sinebow16)} </style>
-
-.. role:: sinebow16
-
 :sinebow16:`Training`
 =====================
 .. note:: 

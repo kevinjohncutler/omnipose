@@ -1,7 +1,5 @@
 .. include:: sinebow.rst
 
-|
-
 :sinebow12:`GUI`
 ================
 The Omnipose GUI is an expansion and refinement of that from Cellpose. It defaults to the ``bact_phase_omni`` model and corresponding model parameters. 

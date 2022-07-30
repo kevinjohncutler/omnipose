@@ -1,12 +1,5 @@
 .. include:: sinebow.rst
 
-|
-.. raw:: html
-
-    <style> .sinebow13 {color:var(--sinebow13)} </style>
-
-.. role:: sinebow13
-
 :sinebow13:`Inputs`
 ===================
 

@@ -81,7 +81,14 @@ render_figure_options = {'align':'center'}
 nb_render_image_options = {'align':'center'}
 nb_number_source_lines = True
 
-myst_enable_extensions = ["dollarmath", "amsmath"]
+# myst_enable_extensions = ["dollarmath", "amsmath"]
+myst_enable_extensions = [
+    "amsmath",
+    "colon_fence",
+    "deflist",
+    "dollarmath",
+    "html_image",
+]
 
 master_doc = 'index'
 

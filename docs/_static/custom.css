@@ -120,24 +120,6 @@ a {
   /* text-decoration: underline; */
 }
 
-.wy-side-nav-search, .wy-nav-top {
-  /* background: #0b750a; */
-  color: red !important;
-}
-
-.sidebar-tree .toctree-l1 {color: blue !important}
-
-.sidebar-tree .toctree-l1 > .current {color: green !important}
-
-
-
-/* // specific CSS for your menu */
-div.menuBar li.selected a { color: #FF0000; } 
-/* // more general CSS */
-li.selected a { color: #FF0000; }
-
-
-.main-navigation a { color: red; }
 
 a[href^="installation.html"] {color: var(--sinebow11) !important;}
 a[href^="gui.html"] {color: var(--sinebow12) !important;}
@@ -234,7 +216,7 @@ body{
 }
 
 .content {
-  font-family: var(--font-stack) !important;
+  /* font-family: var(--font-stack) !important; */
   /* display: flex;
   flex-direction: column;
   justify-content: space-between;
@@ -243,9 +225,6 @@ body{
   background: var(--color-background-primary) !important;
 }
 
-.rst-content tt.literal,.rst-content tt.literal, .rst-content code.literal {
-  color: pink !important
-}
 
 body div.page div.main div.content {background: var(--color-background-primary) !important}
 

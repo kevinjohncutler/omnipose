@@ -1,6 +1,5 @@
 .. include:: sinebow.rst
 
-|
 
 :sinebow11:`Installation`
 =========================

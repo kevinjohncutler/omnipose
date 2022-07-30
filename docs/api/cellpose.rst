@@ -1,6 +1,7 @@
+.. include:: ../sinebow.rst
 
-cellpose.models
------------------------
+:header-2:`cellpose.models`
+---------------------------
 
 .. automodule:: cellpose.models
 
@@ -8,7 +9,7 @@ cellpose.models
     :functions-only:
     :toctree: api
 
-cellpose.io
+:header-2:`cellpose.io`
 ------------------------
 .. automodule:: cellpose.io
 
@@ -16,32 +17,32 @@ cellpose.io
     :functions-only:
     :toctree: api
 
-cellpose.plot
-------------------------
+:header-2:`cellpose.plot`
+-------------------------
 .. automodule:: cellpose.plot
 
 .. automodsumm:: cellpose.plot
     :functions-only:
     :toctree: api
 
-cellpose.metrics
-------------------------
+:header-2:`cellpose.metrics`
+----------------------------
 .. automodule:: cellpose.metrics
 
 .. automodsumm:: cellpose.metrics
     :functions-only:
     :toctree: api
 
-cellpose.dynamics
-------------------------
+:header-2:`cellpose.dynamics`
+-----------------------------
 .. automodule:: cellpose.dynamics
 
 .. automodsumm:: cellpose.dynamics
     :functions-only:
     :toctree: api
 
-cellpose.transforms
-------------------------
+:header-2:`cellpose.transforms`
+-------------------------------
 .. automodule:: cellpose.transforms
 
 .. automodsumm:: cellpose.transforms
