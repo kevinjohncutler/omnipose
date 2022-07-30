@@ -1,6 +1,7 @@
 -e .
 sphinx_copybutton
 sphinx_automodapi
+sphinx_design
 myst_nb
 furo==2022.06.21
 sphinx==4.1.2
