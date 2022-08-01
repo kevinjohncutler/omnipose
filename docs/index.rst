@@ -72,3 +72,4 @@ For support, submit an `issue`_ on the Omnipose repo. For more on the workings o
                     ncolor
                     diameter
                     gamma
+                    logo

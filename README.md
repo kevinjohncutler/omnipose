@@ -73,7 +73,7 @@ To use Omnipose on bacterial cells, use `model_type=bact_omni`. For other cell t
 Training is best done on CLI. We trained our `bact_omni` model using the following command, and you can train custom Omnipose models similarly:
 
 ```
-python -m cellpose --train --use_gpu --dir <bacterial dataset directory> --mask_filter _masks --n_epochs 4000 --pretrained_model None --learning_rate 0.1 --diameter 0 --batch_size 16 --omni --RADAM
+python -m omnipose --train --use_gpu --dir <bacterial dataset directory> --mask_filter _masks --n_epochs 4000 --pretrained_model None --learning_rate 0.1 --diameter 0 --batch_size 16 --RADAM
 ```
 
 On our bacterial phase contrast data, we found that while Cellpose does not benefit much from more than 500 epochs, but Omnipose continues to improve until around 4000 epochs. Omnipose outperforms Cellpose at 500 epochs but is significantly better at 4000. You can use `--save_every <n>` and `--save_each` to store intermediate model training states to explore this behavior. 
@@ -83,7 +83,7 @@ On our bacterial phase contrast data, we found that while Cellpose does not bene
 
 To train a 3D model on image volumes, specify the dimension argument: `--dim 3`. You may have run out of VRAM on your GPU. In that case, you can specify a smaller crop size, *e.g.*, `--tyx 50,50,50`. The command we used in the paper on the *Arabidopsis thaliana* lateral root primordia dataset was:
 ```
-python -m cellpose --train --use_gpu --dir ./plantseg/traintest/LateralRootPrimordia/export_small/train --mask_filter _masks --n_epochs 4000 --pretrained_model None  --learning_rate 0.1 --save_every 50 --save_each --omni --verbose --look_one_level_down --all_channels --dim 3 --RAdam --batch_size 4 --diameter 0
+python -m omnipose --train --use_gpu --dir ./plantseg/traintest/LateralRootPrimordia/export_small/train --mask_filter _masks --n_epochs 4000 --pretrained_model None  --learning_rate 0.1 --save_every 50 --save_each  --verbose --look_one_level_down --all_channels --dim 3 --RAdam --batch_size 4 --diameter 0
 ```
 
 To evaluate Omnipose models on 3D data, see our [examples](examples/). If you run out of GPU memory, consider (a) evaluating on CPU or (b) using `tile=True`. 

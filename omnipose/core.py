@@ -211,7 +211,8 @@ def labels_to_flows(labels, files=None, use_gpu=False, device=None, omni=True, r
         omnipose_logger.info('NOTE: computing flows for labels (could be done before to save time)')
         
         # compute flows; labels are fixed in masks_to_flows, so they need to be passed back
-        labels, dist, heat, veci = map(list,zip(*[masks_to_flows(labels[n],use_gpu=use_gpu, device=device, omni=omni, dim=dim) 
+        labels, dist, heat, veci = map(list,zip(*[masks_to_flows(labels[n],use_gpu=use_gpu, 
+                                                                 device=device, omni=omni, dim=dim) 
                                                   for n in trange(nimg)])) 
         
         # concatenate labels, distance transform, vector flows, heat (boundary and mask are computed in augmentations)

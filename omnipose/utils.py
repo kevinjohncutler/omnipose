@@ -115,7 +115,7 @@ def bbox_to_slice(bbox,shape,pad=0):
     """
     if type(pad) is int:
         pad = [pad]*len(shape)
-    return tuple([slice(max(0,bbox[n]-pad[n]),min(bbox[n+2]+pad[n],shape[n])) for n in range(len(bbox)//2)])
+    return tuple([slice(int(max(0,bbox[n]-pad[n])),int(min(bbox[n+2]+pad[n],shape[n]))) for n in range(len(bbox)//2)])
 
 def sinebow(N,bg_color=[0,0,0,0]):
     """ Generate a color dictionary for use in visualizing N-colored labels. Background color 
