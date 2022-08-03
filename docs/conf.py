@@ -313,7 +313,7 @@ copybutton_only_copy_prompt_lines = True
 copybutton_remove_prompts = True
 
 # The name of the Pygments (syntax highlighting) style to use.
-pygments_style = 'default'
+pygments_style = 'ipython3'
 # pygments_dark_style = "monokai"
 
 # If true, "Created using Sphinx" is shown in the HTML footer. Default is True.
