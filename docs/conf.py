@@ -78,7 +78,7 @@ autoapi_dirs = ['../omnipose']
 # html_js_files = ["https://cdnjs.cloudflare.com/ajax/libs/require.js/2.3.4/require.min.js"] #plotly
 nb_execution_mode = 'off'
 render_figure_options = {'align':'center'}
-nb_render_image_options = {'align':'center'}
+nb_render_image_options = {'align':'center'}#,'width':'100%'}
 nb_number_source_lines = True
 
 # myst_enable_extensions = ["dollarmath", "amsmath"]
@@ -313,8 +313,7 @@ copybutton_only_copy_prompt_lines = True
 copybutton_remove_prompts = True
 
 # The name of the Pygments (syntax highlighting) style to use.
-pygments_style = 'ipython3'
-# pygments_dark_style = "monokai"
+pygments_dark_style = "monokai"
 
 # If true, "Created using Sphinx" is shown in the HTML footer. Default is True.
 html_show_sphinx = False
