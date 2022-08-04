@@ -109,7 +109,7 @@ with open('links.rst') as f:
 # html_favicon = '_static/favicon.ico'
 # html_logo = '_static/logo3.png'
 html_logo = '_static/logo.png'
-html_favicon = '_static/icon.png'
+html_favicon = '_static/icon.ico'
 
 
 html_theme = 'furo'
