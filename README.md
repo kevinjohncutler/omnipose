@@ -73,7 +73,7 @@ To use Omnipose on bacterial cells, use `model_type=bact_omni`. For other cell t
 Training is best done on CLI. We trained our `bact_omni` model using the following command, and you can train custom Omnipose models similarly:
 
 ```
-python -m omnipose --train --use_gpu --dir <bacterial dataset directory> --mask_filter _masks --n_epochs 4000 --pretrained_model None --learning_rate 0.1 --diameter 0 --batch_size 16 --RADAM
+python -m omnipose --train --use_gpu --dir <bacterial dataset directory> --mask_filter _masks --n_epochs 4000 --pretrained_model None --learning_rate 0.1 --diameter 0 --batch_size 16 --RAdam --img_filter _img
 ```
 
 On our bacterial phase contrast data, we found that while Cellpose does not benefit much from more than 500 epochs, but Omnipose continues to improve until around 4000 epochs. Omnipose outperforms Cellpose at 500 epochs but is significantly better at 4000. You can use `--save_every <n>` and `--save_each` to store intermediate model training states to explore this behavior. 

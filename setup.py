@@ -4,7 +4,8 @@ from setuptools import setup
 install_deps = ['numpy>=1.22.4', 'scipy', 'numba', 
                 'edt','scikit-image','ncolor',
                 'mgen','scikit-learn','mahotas==1.4.12',
-                'cellpose[all]@git+https://github.com/kevinjohncutler/cellpose#egg=cellpose[all]',]
+                'cellpose[all]@git+https://github.com/kevinjohncutler/cellpose#egg=cellpose[all]',
+                'mgen@git+https://github.com/kevinjohncutler/mgen#egg=mgen',]
 
 with open("README.md", "r") as fh:
     long_description = fh.read()
