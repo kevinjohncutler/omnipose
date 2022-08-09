@@ -61,13 +61,10 @@ from tqdm import trange
 import ncolor, scipy
 from scipy.ndimage.filters import maximum_filter1d
 from scipy.ndimage import find_objects, gaussian_filter, generate_binary_structure, label, maximum_filter1d, binary_fill_holes, zoom
-try:
-    from skimage.morphology import remove_small_holes
-    SKIMAGE_ENABLED = True
-except:
-    SKIMAGE_ENABLED = False
+
     
 try:
+    from skimage.morphology import remove_small_holes
     from skimage.util import random_noise
     from skimage.filters import gaussian
     from skimage import measure
@@ -611,7 +608,9 @@ def compute_masks(dP, dist, bd=None, p=None, inds=None, niter=200, rescale=1.0, 
     labels = None
     
     if verbose:
-         omnipose_logger.info('mask_threshold is %f',mask_threshold)
+        omnipose_logger.info('mask_threshold is %f',mask_threshold)
+        if omni and (not SKIMAGE_ENABLED):
+             omnipose_logger.warning('Omni enabled but skimage not enabled')
     
     # inds very useful for debugging and figures; allows us to easily specify specific indices for Euler integration
     if inds is not None:
