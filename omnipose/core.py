@@ -23,13 +23,12 @@ OMNI_MODELS = ['bact_phase_cp',
                'worm_bact_omni',
                'worm_high_res_omni']
 
-try:
-    import torch
-    TORCH_ENABLED = True 
-    torch_GPU = torch.device('cuda')
-    torch_CPU = torch.device('cpu')
-except:
-    TORCH_ENABLED = False
+# No reason to support anything but pytorch for omnipose
+# I want it to fail here otherwise, much easier to debug 
+import torch
+TORCH_ENABLED = True 
+torch_GPU = torch.device('cuda')
+torch_CPU = torch.device('cpu')
 
 try:
     from sklearn.cluster import DBSCAN

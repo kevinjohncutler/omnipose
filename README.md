@@ -102,15 +102,25 @@ This means that if you encounter bugs with Omnipose, you can check the [main Cel
 
 PyInstaller can be used to compile Omnipose into a standalone app. The limitation is that the build process itself needs to run within the OS on which the app will be run. We plan to release app versions for macOS 12.3, Windows 10, and Ubuntu 20.04, which should also work on newer versions of each OS. We will periodically update these apps for the public, but we will also post notes below to guide others in compiling the code:
 
-1. Paths must be updated in the .spec files to relect your own environment. For example, the original `cli_windows.spec` was compiled on a Windows machine under Carsen's local account and therefore used
-    ``` python
-        pathex=['C:\\Users\\carse\\github\\cellpose'],
+1. Start with a fresh conda environment with only the dependencies that Omnipose and pyinstaller need. 
+2. `cd` into the pyinstaller directory and run
+    ``` 
+    pyinstaller --clean --noconfirm --onefile omni.py --collect-all pyqtgraph
+    ``` 
+    This will make a `build` and `dist` folder. `--onefile` makes an exectible that opens up a terminal window. This is important because the GUI still outputs information there, especially with the debug box checked. This bare-bones command generates the omni.spec file that can be further edited. At this point, this minimal setup produces very large executibles (>300MB) depending on the OS, but they are functional.
+3. numpy seems to be the limiting factor preventing us from making universal2 executibles. This means that Intel (osx_64) and Apple Silicon (osx_arm64) apps need to be frozen separately on their respective platforms. The former works just the same as Windows and Ubuntu. The latter was a bit of a nightmare, as I had to ensure that all possible dependencies of Omnipose *and* Cellpose were manually installed from miniforge into a clean conda environemnt to get the osx_arm64 builds. Then I then installed Omnipose, which onyl needed to pip install the few other packages like ncolor and mgen that were not already installed via conda. I also needed to upgrade my fork of Cellpose, where the GUI lives, to PyQt6 (previously PyQt5). An environment.yaml is sorely needed to make this process easier. However, on osx_arm64 I found it necessary to additionally include a `--collect all skimage`:
+    ``` 
+    pyinstaller --clean --noconfirm --onefile omni.py --collect-all pyqtgraph --collect-all skimage
+    ``` 
+
+4. On macOS, there is a `NSRequiresAquaSystemAppearance` variable that needs to be set to `False` so that the app respects the system theme (no white title bar if you are in dark mode). I made this change in omni_mac.spec. To build off the spec file, run 
     ```
-    but I changed this to
-    ``` python
-        pathex=['C:\\Users\\Mougous Lab\\cellpose'],
-    ```
+    pyinstaller --noconfirm omni_mac.spec
+    ``` 
     
+Some more notes: 
+- the mgen dependency had some version declarations that are incompatible with pysintaller. Omnipose therefore now depends on my fork that fixes this issue. 
+
 
 ## Licensing
 See `LICENSE.txt` for details. This license does not affect anyone using Omnipose for noncommercial applications. 
