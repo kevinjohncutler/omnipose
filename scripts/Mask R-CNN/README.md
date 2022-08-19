@@ -1,0 +1,1 @@
+This training script was adapted from https://pytorch.org/tutorials/intermediate/torchvision_tutorial.html. As noted, the torchvision `/vision/references/detection/` folder needs to be available in the same directory as this notebook, so I have copied them to this folder. 
