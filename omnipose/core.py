@@ -62,17 +62,26 @@ from scipy.ndimage.filters import maximum_filter1d
 from scipy.ndimage import find_objects, gaussian_filter, generate_binary_structure, label, maximum_filter1d, binary_fill_holes, zoom
 
     
-try:
-    from skimage.morphology import remove_small_holes
-    from skimage.util import random_noise
-    from skimage.filters import gaussian
-    from skimage import measure
-    from skimage import filters
-    import skimage.io #for debugging only
-    SKIMAGE_ENABLED = True
-except:
-    from scipy.ndimage import gaussian_filter as gaussian
-    SKIMAGE_ENABLED = False
+# try:
+#     from skimage.morphology import remove_small_holes
+#     from skimage.util import random_noise
+#     from skimage.filters import gaussian
+#     from skimage import measure
+#     from skimage import filters
+#     import skimage.io #for debugging only
+#     SKIMAGE_ENABLED = True
+# except:
+#     from scipy.ndimage import gaussian_filter as gaussian
+#     SKIMAGE_ENABLED = False
+
+# skimage is necessary for Omnipose 
+from skimage.morphology import remove_small_holes
+from skimage.util import random_noise
+from skimage.filters import gaussian
+from skimage import measure
+from skimage import filters
+import skimage.io #for debugging only
+SKIMAGE_ENABLED = True
 
 from scipy.ndimage import convolve, mean
 
