@@ -6,7 +6,7 @@
 
 [cp]: https://github.com/MouseLand/cellpose
 
-Omnipose is a general image segmentation tool that builds on [Cellpose][cp] in a number of ways described in our [paper](http://biorxiv.org/content/early/2021/11/04/2021.11.03.467199). It works for both 2D and 3D images and on any imaging modality or cell shape, so long as you train it on representative images. We have several pre-trained models for:
+Omnipose is a general image segmentation tool that builds on [Cellpose][cp] in a number of ways described in our [paper](http://biorxiv.org/content/early/2021/11/04/2021.11.03.467199v4). It works for both 2D and 3D images and on any imaging modality or cell shape, so long as you train it on representative images. We have several pre-trained models for:
 * **bacterial phase contrast**: trained on a diverse range of bacterial species and morphologies. 
 * **bacterial fluorescence**: trained on the subset of the phase data that had a membrane or cytosol tag. 
 * ***C. elegans***: trained on a couple OpenWorm videos and the [BBBC010](https://bbbc.broadinstitute.org/BBBC010) alive/dead assay. We are working on expanding this significantly with the help of other labs contributing ground-truth data. 
@@ -64,7 +64,7 @@ conda create -n omnipose pytorch=1.8.2 cudatoolkit=10.2 -c pytorch-lts
 ```
 
 ## How to use Omnipose
-We have a few Jupyter notebooks in the [examples](examples/) directory that demonstrate how to use built-in models. You can also find all the scripts we used for generating our figures in the [figures](figures/) directory. These cover specific settings for all of the images found in our paper. 
+We have a few Jupyter notebooks in the [docs/examples](docs/examples/) directory that demonstrate how to use built-in models. You can also find all the scripts we used for generating our figures in the [scripts](scripts/) directory. These cover specific settings for all of the images found in our paper. 
 
 To use Omnipose on bacterial cells, use `model_type=bact_omni`. For other cell types, try `model_type=cyto2_omni`. You can also choose Cellpose models with `omni=True` to engage the Omnipose mask reconstruction algorithm to alleviate over-segmentation. 
 
