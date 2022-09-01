@@ -6,7 +6,7 @@
 
 [cp]: https://github.com/MouseLand/cellpose
 
-Omnipose is a general image segmentation tool that builds on [Cellpose][cp] in a number of ways described in our [paper](http://biorxiv.org/content/early/2021/11/04/2021.11.03.467199v4). It works for both 2D and 3D images and on any imaging modality or cell shape, so long as you train it on representative images. We have several pre-trained models for:
+Omnipose is a general image segmentation tool that builds on [Cellpose][cp] in a number of ways described in our [paper](https://www.biorxiv.org/content/10.1101/2021.11.03.467199). It works for both 2D and 3D images and on any imaging modality or cell shape, so long as you train it on representative images. We have several pre-trained models for:
 * **bacterial phase contrast**: trained on a diverse range of bacterial species and morphologies. 
 * **bacterial fluorescence**: trained on the subset of the phase data that had a membrane or cytosol tag. 
 * ***C. elegans***: trained on a couple OpenWorm videos and the [BBBC010](https://bbbc.broadinstitute.org/BBBC010) alive/dead assay. We are working on expanding this significantly with the help of other labs contributing ground-truth data. 
