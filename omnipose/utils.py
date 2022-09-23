@@ -1,6 +1,7 @@
 import numpy as np
 from scipy.ndimage.morphology import binary_dilation, binary_erosion
 from skimage.morphology import remove_small_holes
+from skimage import measure 
 import fastremap
 import mahotas as mh
 import math
@@ -116,6 +117,56 @@ def bbox_to_slice(bbox,shape,pad=0):
     if type(pad) is int:
         pad = [pad]*len(shape)
     return tuple([slice(int(max(0,bbox[n]-pad[n])),int(min(bbox[n+2]+pad[n],shape[n]))) for n in range(len(bbox)//2)])
+
+def crop_bbox(mask, pad=10, iterations=3, im_pad=0, area_cutoff=0, max_dim=np.inf):
+    """Take a label matrix and return a list of bounding boxes identifying clusters of labels.
+    
+    Parameters
+    --------------
+
+    mask: matrix of integer labels
+    pad: amount of space in pixels to add around the label (does not extend beyond image edges)
+    iterations: number of dilation iterations to merge labels separated by this number of pixel or less
+    im_pad: amount of space to subtract off the label matrix edges
+    area_cutoff: label clusters below this area in square pixels will be ignored
+    max_dim: if a cluster is above this cutoff, quit and return the original image bounding box
+    
+
+    Returns
+    ---------------
+
+    bbx: list of bounding boxes
+    
+    """
+    bw = binary_dilation(mask>0,iterations=iterations)
+    clusters = measure.label(bw)
+    regions = measure.regionprops(clusters)
+    sz = mask.shape
+    # ylim = [im_pad,sz[0]-im_pad]
+    # xlim = [im_pad,sz[1]-im_pad]
+    
+    bboxes = []
+    for props in regions:
+        if props.area>area_cutoff:
+            bbx = props.bbox 
+#             y1 = max(bbx[0]-pad,ylim[0])
+#             x1 = max(bbx[1]-pad,xlim[0])
+#             y2 = min(bbx[2]+pad,ylim[1])
+#             x2 = min(bbx[3]+pad,xlim[1])
+#             w = x2-x1
+#             h = y2-y1
+            
+#             if w>0 and h>0: 
+#                 if w<max_dim and h<max_dim:
+#                     bboxes.append([y1,y2,x1,x2])
+#                     # m = maski[y1:y2,x1:x2].copy()
+#             else:
+#                 return [[0,ylim,0,xlim]]
+
+            bboxes.append(bbox_to_slice(bbx,sz))
+    
+    
+    return bboxes
 
 def sinebow(N,bg_color=[0,0,0,0]):
     """ Generate a color dictionary for use in visualizing N-colored labels. Background color 

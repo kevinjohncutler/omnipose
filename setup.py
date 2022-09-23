@@ -3,6 +3,7 @@ from setuptools import setup
 
 install_deps = ['numpy>=1.22.4', 'scipy', 'numba', 
                 'edt','scikit-image','ncolor',
+                #hdbscan, should I include this?
                 'mgen','scikit-learn',
                 'mahotas@git+https://github.com/luispedro/mahotas#egg=mahotas', # 1.4.13 binary not compatible with some versions of numpy
                 'cellpose[all]@git+https://github.com/kevinjohncutler/cellpose#egg=cellpose[all]',

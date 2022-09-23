@@ -30,13 +30,23 @@ TORCH_ENABLED = True
 torch_GPU = torch.device('cuda')
 torch_CPU = torch.device('cpu')
 
+# try:
+#     from sklearn.cluster import DBSCAN
+#     from sklearn.neighbors import NearestNeighbors
+#     SKLEARN_ENABLED = True 
+# except:
+#     SKLEARN_ENABLED = False
+
+from sklearn.cluster import DBSCAN
+from sklearn.neighbors import NearestNeighbors
+SKLEARN_ENABLED = True 
+
 try:
-    from sklearn.cluster import DBSCAN
-    from sklearn.neighbors import NearestNeighbors
     from hdbscan import HDBSCAN
-    SKLEARN_ENABLED = True 
+    HDBSCAN_ENABLED = True
+    
 except:
-    SKLEARN_ENABLED = False
+    HDBSCAN_ENABLED = False
     
 import logging, sys
 logging.basicConfig(
@@ -678,9 +688,9 @@ def compute_masks(dP, dist, bd=None, p=None, inds=None, niter=200, rescale=1.0, 
                 
         #calculate masks
         if omni and OMNI_INSTALLED:
-            mask, labels = get_masks(p,bd,dist,mask,inds,nclasses,cluster=cluster,
-                             diam_threshold=diam_threshold,verbose=verbose, 
-                             eps=eps, hdbscan=hdbscan) ##### omnipose.core.get_masks
+            mask, labels = get_masks(p, bd, dist, mask, inds,nclasses, cluster=cluster,
+                                     diam_threshold=diam_threshold, verbose=verbose, 
+                                     eps=eps, hdbscan=hdbscan) ##### omnipose.core.get_masks
         else:
             mask = get_masks_cp(p, iscell=mask, flows=dP, use_gpu=use_gpu) ### just get_masks
         # flow thresholding factored out of get_masks
@@ -846,7 +856,7 @@ def get_masks(p, bd, dist, mask, inds, nclasses=4,cluster=False,
 
     if d <= diam_threshold: #diam_threshold needs to change for 3D
         cluster = True
-        if verbose:
+        if verbose and not cluster:
             omnipose_logger.info('Turning on subpixel clustering for label continuity.')
     
     cell_px = tuple(inds)
@@ -855,13 +865,15 @@ def get_masks(p, bd, dist, mask, inds, nclasses=4,cluster=False,
     mask = np.zeros(p.shape[1:],np.uint32)
     
     # the eps parameter needs to be opened as a parameter to the user
+    if verbose:
+        omnipose_logger.info('cluster: {}, SKLEARN_ENABLED: {}'.format(cluster,SKLEARN_ENABLED))
     if cluster and SKLEARN_ENABLED:
         startTime = time.time()
         if verbose:
             alg = ['','H']
             omnipose_logger.info('Doing {}DBSCAN clustering with eps={}'.format(alg[hdbscan],eps))
         
-        if hdbscan:
+        if hdbscan and HDBSCAN_ENABLED:
             clusterer = HDBSCAN(cluster_selection_epsilon=eps,
                                 # allow_single_cluster=True,
                                 min_samples=3)
@@ -907,10 +919,12 @@ def get_masks(p, bd, dist, mask, inds, nclasses=4,cluster=False,
         border_mask = binary_dilation(border_mask, border_value=1, iterations=5)
 
         border_px[border_mask] = skelmask[border_mask]
+        if verbose:
+             omnipose_logger.info('nclasses: {}, mask.ndim: {}'.format(nclasses,mask.ndim))
         if nclasses == mask.ndim+2: #can use boundary to erase joined edge skelmasks 
             border_px[bd>-1] = 0
             if verbose:
-                omnipose_logger.info('Using boundary output to split edge defects')
+                omnipose_logger.info('Using boundary output to split edge defects.')
         # else: #otherwise do morphological opening to attempt splitting 
         #     # border_px = binary_opening(border_px,border_value=0,iterations=3)
         #     print('BBBBB')
