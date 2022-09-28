@@ -92,7 +92,7 @@ def normalize_image(im,mask,bg=0.5,dim=2):
     return np.stack(im,axis=0).squeeze()
    
 
-def bbox_to_slice(bbox,shape,pad=0):
+def bbox_to_slice(bbox,shape,pad=0,im_pad=0):
     """
     return the tuple of slices for cropping an image based on the skimage.measure bounding box
     optional padding allows for the bounding box to be expanded, but not outside the original image dinensions 
@@ -108,15 +108,22 @@ def bbox_to_slice(bbox,shape,pad=0):
     pad: array, tuple, or list, int
         padding to be applied to each edge of the bounding box
         can be a common padding or a list of each axis padding 
+        
+    im_pad: array, tuple, or list, int
+        amount of space to subtract off the label matrix edges
+        
     
     Returns
     --------------
     tuple of slices 
     
     """
+    dim = len(shape)
     if type(pad) is int:
-        pad = [pad]*len(shape)
-    return tuple([slice(int(max(0,bbox[n]-pad[n])),int(min(bbox[n+2]+pad[n],shape[n]))) for n in range(len(bbox)//2)])
+        pad = [pad]*dim
+    # return tuple([slice(int(max(0,bbox[n]-pad[n])),int(min(bbox[n+dim]+pad[n],shape[n]))) for n in range(len(bbox)//2)])
+    return tuple([slice(int(max(im_pad[n],bbox[n]-pad[n])),int(min(bbox[n+dim]+pad[n],shape[n]-im_pad[n]))) for n in range(len(bbox)//2)])
+    
 
 def crop_bbox(mask, pad=10, iterations=3, im_pad=0, area_cutoff=0, max_dim=np.inf):
     """Take a label matrix and return a list of bounding boxes identifying clusters of labels.
@@ -163,7 +170,7 @@ def crop_bbox(mask, pad=10, iterations=3, im_pad=0, area_cutoff=0, max_dim=np.in
 #             else:
 #                 return [[0,ylim,0,xlim]]
 
-            bboxes.append(bbox_to_slice(bbx,sz))
+            bboxes.append(bbox_to_slice(bbx,sz,pad=pad))
     
     
     return bboxes

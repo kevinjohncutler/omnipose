@@ -17,7 +17,7 @@ Omnipose is a general image segmentation tool that builds on [Cellpose][cp] in a
 [colab]: https://colab.research.google.com/github/HenriquesLab/ZeroCostDL4Mic/blob/master/Colab_notebooks/Beta%20notebooks/Cellpose_2D_ZeroCostDL4Mic.ipynb
 [ZeroCostDL4Mic]: https://github.com/HenriquesLab/ZeroCostDL4Mic/wiki
 
-New users can check out the [ZeroCostDL4Mic][ZeroCostDL4Mic] Cellpose notebook on [Google Colab][colab] to try out our original release of Omnipose. We are working on updating this to the most recent version of Omnipose with advanced 3D features and more built-in models. 
+New users can check out the [ZeroCostDL4Mic][ZeroCostDL4Mic] Cellpose notebook on [Google Colab][colab] to try out our original release of Omnipose. We need to make sure this gets updated to the most recent version of Omnipose with advanced 3D features and more built-in models. 
 
 ## Use the GUI
 
@@ -107,8 +107,8 @@ PyInstaller can be used to compile Omnipose into a standalone app. The limitatio
     ``` 
     pyinstaller --clean --noconfirm --onefile omni.py --collect-all pyqtgraph
     ``` 
-    This will make a `build` and `dist` folder. `--onefile` makes an exectible that opens up a terminal window. This is important because the GUI still outputs information there, especially with the debug box checked. This bare-bones command generates the omni.spec file that can be further edited. At this point, this minimal setup produces very large executibles (>300MB) depending on the OS, but they are functional.
-3. numpy seems to be the limiting factor preventing us from making universal2 executibles. This means that Intel (osx_64) and Apple Silicon (osx_arm64) apps need to be frozen separately on their respective platforms. The former works just the same as Windows and Ubuntu. The latter was a bit of a nightmare, as I had to ensure that all possible dependencies of Omnipose *and* Cellpose were manually installed from miniforge into a clean conda environemnt to get the osx_arm64 builds. Then I then installed Omnipose, which onyl needed to pip install the few other packages like ncolor and mgen that were not already installed via conda. I also needed to upgrade my fork of Cellpose, where the GUI lives, to PyQt6 (previously PyQt5). An environment.yaml is sorely needed to make this process easier. However, on osx_arm64 I found it necessary to additionally include a `--collect all skimage`:
+    This will make a `build` and `dist` folder. `--onefile` makes an executable that opens up a terminal window. This is important because the GUI still outputs information there, especially with the debug box checked. This bare-bones command generates the omni.spec file that can be further edited. At this point, this minimal setup produces very large executibles (>300MB) depending on the OS, but they are functional.
+3. numpy seems to be the limiting factor preventing us from making universal2 executibles. This means that Intel (osx_64) and Apple Silicon (osx_arm64) apps need to be frozen separately on their respective platforms. The former works just the same as Windows and Ubuntu. The latter was a bit of a nightmare, as I had to ensure that all possible dependencies of Omnipose *and* Cellpose were manually installed from miniforge into a clean conda environment to get the osx_arm64 builds. I then installed Omnipose, which only needed to pip install the few other packages like ncolor and mgen that were not already installed via conda. I also needed to upgrade my fork of Cellpose, where the GUI lives, to PyQt6 (previously PyQt5). An environment.yaml is sorely needed to make this process easier. However, on osx_arm64 I found it necessary to additionally include a `--collect all skimage`:
     ``` 
     pyinstaller --clean --noconfirm --onefile omni.py --collect-all pyqtgraph --collect-all skimage
     ``` 
@@ -121,6 +121,7 @@ PyInstaller can be used to compile Omnipose into a standalone app. The limitatio
 Some more notes: 
 - the mgen dependency had some version declarations that are incompatible with pysintaller. Omnipose therefore now depends on my fork that fixes this issue. 
 
+pyinstaller --clean --noconfirm --onefile omni.py --collect-all pyqtgraph --collect-all skimage --collect-all torch
 
 ## Licensing
 See `LICENSE.txt` for details. This license does not affect anyone using Omnipose for noncommercial applications. 
