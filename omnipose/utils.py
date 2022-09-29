@@ -95,7 +95,7 @@ def normalize_image(im,mask,bg=0.5,dim=2):
 def bbox_to_slice(bbox,shape,pad=0,im_pad=0):
     """
     return the tuple of slices for cropping an image based on the skimage.measure bounding box
-    optional padding allows for the bounding box to be expanded, but not outside the original image dinensions 
+    optional padding allows for the bounding box to be expanded, but not outside the original image dimensions 
     
     Parameters
     ----------
@@ -106,12 +106,13 @@ def bbox_to_slice(bbox,shape,pad=0,im_pad=0):
         shape of corresponding array to be sliced
     
     pad: array, tuple, or list, int
-        padding to be applied to each edge of the bounding box
-        can be a common padding or a list of each axis padding 
+        padding to be applied to each axis of the bounding box
+        can be a common padding (5 means 5 on every side) 
+        or a list of each axis padding ([3,4] means 3 on y and 4 on x).
+        N-volume requires an N-tuple. 
         
-    im_pad: array, tuple, or list, int
-        amount of space to subtract off the label matrix edges
-        
+    im_pad: int
+        region around the edges to avoid (pull back coordinate limits)
     
     Returns
     --------------
@@ -121,6 +122,8 @@ def bbox_to_slice(bbox,shape,pad=0,im_pad=0):
     dim = len(shape)
     if type(pad) is int:
         pad = [pad]*dim
+    if type(im_pad) is int:
+        im_pad = [im_pad]*dim
     # return tuple([slice(int(max(0,bbox[n]-pad[n])),int(min(bbox[n+dim]+pad[n],shape[n]))) for n in range(len(bbox)//2)])
     return tuple([slice(int(max(im_pad[n],bbox[n]-pad[n])),int(min(bbox[n+dim]+pad[n],shape[n]-im_pad[n]))) for n in range(len(bbox)//2)])
     
@@ -170,7 +173,7 @@ def crop_bbox(mask, pad=10, iterations=3, im_pad=0, area_cutoff=0, max_dim=np.in
 #             else:
 #                 return [[0,ylim,0,xlim]]
 
-            bboxes.append(bbox_to_slice(bbx,sz,pad=pad))
+            bboxes.append(bbox_to_slice(bbx,sz,pad=pad,im_pad=im_pad))
     
     
     return bboxes

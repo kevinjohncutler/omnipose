@@ -46,4 +46,3 @@ Time permitting, these instructions will be updated to support Apple Silicon ins
 
 A Napari plugin is on our to-do list.
 
-## ZeroCostDL4Mic 
