@@ -620,6 +620,7 @@ def compute_masks(dP, dist, bd=None, p=None, inds=None, niter=200, rescale=1.0, 
         For debugging/paper figures, very slow. 
     
     """
+    # Min size taken to be 9px or 27 voxels etc. if not specified 
     if min_size is None:
         min_size = 3**dim
     
@@ -644,7 +645,10 @@ def compute_masks(dP, dist, bd=None, p=None, inds=None, niter=200, rescale=1.0, 
         else:
             mask = dist > mask_threshold # analog to original iscell=(cellprob>cellprob_threshold)
             inds = np.array(np.nonzero(np.abs(dP[0])>1e-3)).astype(np.int32) ### that dP[0] is a big bug... only first component!!!
-    if np.any(mask): #mask at this point is a cell cluster binary map, not labels 
+    
+    # mask at this point is a cell cluster binary map, not labels. If nclasses>1, we can do instance segmentation. 
+    if np.any(mask) and nclasses>1: 
+        
         # the clustering algorithm requires far fewer iterations because it 
         # can handle subpixel separation to define blobs, wheras the thresholding method
         # requires blobs to be separated by more than 1 pixel 
@@ -674,7 +678,6 @@ def compute_masks(dP, dist, bd=None, p=None, inds=None, niter=200, rescale=1.0, 
         else:
             dP_ = dP * mask / 5.
         
-        
         # follow flows
         if p is None:
             p, inds, tr = follow_flows(dP_, inds, niter=niter, interp=interp,
@@ -702,19 +705,22 @@ def compute_masks(dP, dist, bd=None, p=None, inds=None, niter=200, rescale=1.0, 
                 _,mask = np.unique(mask, return_inverse=True)
                 mask = np.reshape(mask, shape0).astype(np.int32)
         
-        if resize is not None:
-            if verbose:
-                omnipose_logger.info(f'resizing output with resize = {resize}')
-            # mask = resize_image(mask, resize[0], resize[1], interpolation=cv2.INTER_NEAREST).astype(np.int32) 
-            mask = zoom(mask, resize/np.array(mask.shape), order=0).astype(np.int32) 
-        mask = fill_holes_and_remove_small_masks(mask, min_size=min_size, dim=dim) ##### utils.fill_holes_and_remove_small_masks
-        # print('warning, temp disable remove small masks')
-        fastremap.renumber(mask,in_place=True) #convenient to guarantee non-skipped labels
+
     else: # nothing to compute, just make it compatible
         omnipose_logger.info('No cell pixels found.')
         p = np.zeros([2,1,1])
         tr = []
-        mask = np.zeros(resize,dtype=np.uint8) if resize is not None else np.zeros_like(dist)
+        # mask = np.zeros(resize,dtype=np.uint8) if resize is not None else np.zeros_like(dist) not necessary, would be zeros 
+    
+    # Resize mask, semantic or instance 
+    if resize is not None:
+        if verbose:
+            omnipose_logger.info(f'resizing output with resize = {resize}')
+        # mask = resize_image(mask, resize[0], resize[1], interpolation=cv2.INTER_NEAREST).astype(np.int32) 
+        mask = zoom(mask, resize/np.array(mask.shape), order=0).astype(np.int32) 
+    mask = fill_holes_and_remove_small_masks(mask, min_size=min_size, dim=dim) ##### utils.fill_holes_and_remove_small_masks
+    # print('warning, temp disable remove small masks')
+    fastremap.renumber(mask,in_place=True) #convenient to guarantee non-skipped labels
 
     # print('maskinfo',mask.shape,len(np.unique(mask)))
     # moving the cleanup to the end helps avoid some bugs arising from scaling...
@@ -1295,7 +1301,7 @@ def flow_error(maski, dP_net, use_gpu=False, device=None, omni=True):
 # Spacetime segmentation: augmentations need to treat time differently 
 # Need to assume a particular axis is the temporal axis; most convenient is tyx. 
 def random_rotate_and_resize(X, Y=None, scale_range=1., gamma_range=0.5, tyx = (224,224), 
-                             do_flip=True, rescale=None, inds=None, nchan=1):
+                             do_flip=True, rescale=None, inds=None, nchan=1, nclasses=4):
     """ augmentation by random rotation and resizing
 
         X and Y are lists or arrays of length nimg, with channels x Lt x Ly x Lx (channels optional, Lt only in 3D)
@@ -1334,7 +1340,7 @@ def random_rotate_and_resize(X, Y=None, scale_range=1., gamma_range=0.5, tyx = (
             scalar(s) by which each image was resized
 
     """
-    dist_bg = 5 # background distance field is set to -dist_bg; desting makign this variable now 
+    dist_bg = 5 # background distance field was set to -dist_bg; now is variable 
     dim = len(tyx) # 2D will just have yx dimensions, 3D will be tyx
     
     nimg = len(X)
@@ -1349,12 +1355,13 @@ def random_rotate_and_resize(X, Y=None, scale_range=1., gamma_range=0.5, tyx = (
                 omnipose_logger.critical(error_message)
                 raise ValueError(error_message)
             Y[n] = np.stack([masks,iscell])
-
-    nt = 5+dim #masks, iscell, boundary, distance, weight, flow components preallocated 
-    lbl = np.zeros((nimg, nt)+tyx, np.float32)
+    
+    nt = 2 # instance seg (labels), semantic seg (cellprob)
+    if nclasses==4:
+        nt += 3+dim # add boundary, distance, weight, flow components
         
+    lbl = np.zeros((nimg, nt)+tyx, np.float32)
     scale = np.zeros((nimg,dim), np.float32)
-    # scale = np.zeros((nimg,2), np.float32) # for now limited to 2D scaling
     
     for n in range(nimg):
         img = X[n].copy()
@@ -1372,7 +1379,8 @@ def random_rotate_and_resize(X, Y=None, scale_range=1., gamma_range=0.5, tyx = (
 
 # This function allows a more efficient implementation for recursively checking that the random crop includes cell pixels.
 # Now it is rerun on a per-image basis if a crop fails to capture .1 percent cell pixels (minimum). 
-def random_crop_warp(img, Y, nt, tyx, nchan, scale, rescale, scale_range, gamma_range, do_flip, ind, dist_bg, depth=0):
+def random_crop_warp(img, Y, nt, tyx, nchan, scale, rescale, scale_range, gamma_range, 
+                     do_flip, ind, dist_bg, depth=0):
     """
     This sub-fuction of `random_rotate_and_resize()` recursively performs random cropping until 
     a minimum number of cell pixels are found, then proceeds with augemntations. 
@@ -1471,7 +1479,7 @@ def random_crop_warp(img, Y, nt, tyx, nchan, scale, rescale, scale_range, gamma_
     # M = np.vstack((M,offset))
     mode = 'reflect'
     if Y is not None:
-        for k in [0,1]:#[i for i in range(nt) if i not in range(2,5)]: used to do firsrt two and flows, now just first two
+        for k in [0,1]:#[i for i in range(nt) if i not in range(2,5)]: used to do first two and flows, now just first two
             l = labels[k].copy()
             if k==0:
                 lbl[k] = do_warp(l, M, tyx, offset=offset, order=0, mode=mode) # order 0 is 'nearest neighbor'
@@ -1491,9 +1499,10 @@ def random_crop_warp(img, Y, nt, tyx, nchan, scale, rescale, scale_range, gamma_
                 # if k==1:
                 #     print('fgd', np.sum(lbl[k]))
         
-        # LABELS ARE NOW (masks,mask,bd,dist,weight,flows)
-        if nt > 1:
-   
+        # LABELS ARE NOW (masks,mask) for semantic seg + (bd,dist,weight,flows) for instance seg
+        # semantic seg label transformations taken care of above, those are simple enough. Others
+        # must be computed after mask transformations are made. 
+        if nt > 2:
             l = lbl[0].astype(np.uint16)
             l, dist, T, mu = masks_to_flows(l,omni=True,dim=dim)
             cutoff = diameters(l,dist)/2
@@ -1587,7 +1596,6 @@ def do_warp(A,M,tyx,offset=0,order=1,mode='constant'):#,mode,method):
 
 def loss(self, lbl, y):
     """ Loss function for Omnipose.
-    
     Parameters
     --------------
     lbl: ND-array, float
@@ -1606,46 +1614,60 @@ def loss(self, lbl, y):
         y[:,D+1] boundary fields at D+1
     
     """
-    
-    # flow components are stored as the last self.dim slices 
-    veci = self._to_device(lbl[:,5:]) 
-    dist = lbl[:,3] # now distance transform replaces probability
-    boundary =  lbl[:,2]
-    cellmask = dist>0 #why is this not using the thrsholded mask layer?
-    w =  self._to_device(lbl[:,4])  
-    dist = self._to_device(dist)
-    boundary = self._to_device(boundary)
-    cellmask = self._to_device(cellmask).bool()
-    flow = y[:,:self.dim] # 0,1,...self.dim-1
-    dt = y[:,self.dim]
-    bd = y[:,self.dim+1]
-    a = 10.
-    
-    # stacked versions for weighting vector fields with scalars 
-    wt = torch.stack([w]*self.dim,dim=1)
-    ct = torch.stack([cellmask]*self.dim,dim=1) 
+    nt = lbl.shape[1]
+    cellmask = lbl[:,1]
 
-    #luckily, torch.gradient did exist after all and derivative loss was easy to implement. Could also fix divergenceloss, but I have not been using it. 
-    # the rest seem good to go. 
-    
-    loss1 = 10.*self.criterion12(flow,veci,wt)  #weighted MSE 
-    loss2 = self.criterion14(flow,veci,w,cellmask) #ArcCosDotLoss
-    loss3 = self.criterion11(flow,veci,wt,ct)/a # DerivativeLoss
-    loss4 = 2.*self.criterion2(bd,boundary) #BCElogits 
-    loss5 = 2.*self.criterion15(flow,veci,w,cellmask) # loss on norm 
-    loss6 = 2.*self.criterion12(dt,dist,w) #weighted MSE 
-    loss7 = self.criterion11(dt.unsqueeze(1),dist.unsqueeze(1),w.unsqueeze(1),cellmask.unsqueeze(1))/a  
-    loss8 = self.criterion16(flow,veci,cellmask) #divergence loss
+    cellmask = self._to_device(cellmask>0)#.bool()
 
-    # print('loss1',loss1,loss1.type())
-    # print('loss2',loss2,loss2.type())
-    # print('loss3',loss3,loss3.type())
-    # print('loss4',loss4,loss4.type())
-    # print('loss5',loss5,loss5.type())
-    # print('loss6',loss6,loss6.type())
-    # print('loss7',loss7,loss7.type())
+    if nt==2: # semantic segmentation
+        loss1 = self.criterion(y[:,0],cellmask) #MSE
+        # loss1 = self.criterion17(y[:,0]*1.0,cellmask*1.0) 
+        
+        loss2 = self.criterion2(y[:,0],cellmask) #BCElogits 
+        return loss1+loss2
+        # return loss2
+        
+    else: #instance segmentation
+        cellmask = cellmask.bool() #acts as a mask now, not output 
     
-    return loss1 + loss2 + loss3 + loss4 + loss5 + loss6 + loss7 +loss8
+        # flow components are stored as the last self.dim slices 
+        veci = self._to_device(lbl[:,5:]) 
+        dist = lbl[:,3] # now distance transform replaces probability
+        boundary =  lbl[:,2]
+
+        w =  self._to_device(lbl[:,4])  
+        dist = self._to_device(dist)
+        boundary = self._to_device(boundary)
+        flow = y[:,:self.dim] # 0,1,...self.dim-1
+        dt = y[:,self.dim]
+        bd = y[:,self.dim+1]
+        a = 10.
+
+        # stacked versions for weighting vector fields with scalars 
+        wt = torch.stack([w]*self.dim,dim=1)
+        ct = torch.stack([cellmask]*self.dim,dim=1) 
+
+        #luckily, torch.gradient did exist after all and derivative loss was easy to implement. Could also fix divergenceloss, but I have not been using it. 
+        # the rest seem good to go. 
+
+        loss1 = 10.*self.criterion12(flow,veci,wt)  #weighted MSE 
+        loss2 = self.criterion14(flow,veci,w,cellmask) #ArcCosDotLoss
+        loss3 = self.criterion11(flow,veci,wt,ct)/a # DerivativeLoss
+        loss4 = 2.*self.criterion2(bd,boundary) #BCElogits 
+        loss5 = 2.*self.criterion15(flow,veci,w,cellmask) # loss on norm 
+        loss6 = 2.*self.criterion12(dt,dist,w) #weighted MSE 
+        loss7 = self.criterion11(dt.unsqueeze(1),dist.unsqueeze(1),w.unsqueeze(1),cellmask.unsqueeze(1))/a  
+        loss8 = self.criterion16(flow,veci,cellmask) #divergence loss
+
+        # print('loss1',loss1,loss1.type())
+        # print('loss2',loss2,loss2.type())
+        # print('loss3',loss3,loss3.type())
+        # print('loss4',loss4,loss4.type())
+        # print('loss5',loss5,loss5.type())
+        # print('loss6',loss6,loss6.type())
+        # print('loss7',loss7,loss7.type())
+
+        return loss1 + loss2 + loss3 + loss4 + loss5 + loss6 + loss7 +loss8
 
 
 # used to recompute the smooth distance on transformed labels
@@ -1912,3 +1934,4 @@ def fill_holes_and_remove_small_masks(masks, min_size=15, hole_size=3, scale_fac
     #             masks[slc][msk] = (j+1)
     #             j+=1
     # return masks
+
