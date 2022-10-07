@@ -27,7 +27,7 @@ OMNI_MODELS = ['bact_phase_cp',
 # I want it to fail here otherwise, much easier to debug 
 import torch
 TORCH_ENABLED = True 
-torch_GPU = torch.device('cuda')
+torch_GPU = torch.device('mps') if torch.backends.mps.is_available() else torch.device('cuda')
 torch_CPU = torch.device('cpu')
 
 # try:
@@ -468,7 +468,7 @@ def _extend_centers_torch(masks, centers, n_iter=200, device=torch.device('cuda'
     
     nimg = neighbors.shape[1] // (3**d)
     pt = torch.from_numpy(neighbors).to(device)
-    T = torch.zeros((nimg,)+masks.shape, dtype=torch.double, device=device)
+    T = torch.zeros((nimg,)+masks.shape, dtype=torch.float, device=device)
     isneigh = torch.from_numpy(isneighbor).to(device) # isneigh is <3**d> x <number of points in mask>
     
     meds = torch.from_numpy(centers.astype(int)).to(device)
@@ -976,23 +976,27 @@ def steps_interp(p, dP, niter, use_gpu=True, device=None, omni=True, calc_trace=
     d = dP.shape[0] # number of components = number of dimensions 
     shape = dP.shape[1:] # shape of component array is the shape of the ambient volume 
     inds = list(range(d))[::-1] # grid_sample requires a particular ordering 
-    # import time
-    # startTime = time.time()
+    import time
+    startTime = time.time()
     if device is None:
         if use_gpu:
             device = torch_GPU
         else:
             device = torch_CPU
+    # for now, looks like grid_sampler_2d is not implemented for mps
+    # so it is much faster to just default to CPU instead of allowing for fallback
+    if torch.backends.mps.is_available():
+        device = torch_CPU
     shape = np.array(shape)[inds]-1.  # dP is d.Ly.Lx, inds flips this to flipped X-1, Y-1, ...
 
     # for grid_sample to work, we need im,pt to be (N,C,H,W),(N,H,W,2) or (N,C,D,H,W),(N,D,H,W,3). The 'image' getting interpolated
     # is the flow, which has d=2 channels in 2D and 3 in 3D (d vector components). Output has shape (N,C,H,W) or (N,C,D,H,W)
-    pt = torch.from_numpy(p[inds].T).double().to(device)
+    pt = torch.from_numpy(p[inds].T).float().to(device)
     # print('pt shape',pt.shape)
     pt0 = pt.clone() # save first
     for k in range(d):
         pt = pt.unsqueeze(0) # get it in the right shape
-    flow = torch.from_numpy(dP[inds]).double().to(device).unsqueeze(0) #covert flow numpy array to tensor on GPU, add dimension 
+    flow = torch.from_numpy(dP[inds]).float().to(device).unsqueeze(0) #covert flow numpy array to tensor on GPU, add dimension 
     # print('shapes',p.shape,dP.shape,pt.shape)
 
     # we want to normalize the coordinates between 0 and 1. To do this, 
@@ -1046,7 +1050,7 @@ def steps_interp(p, dP, niter, use_gpu=True, device=None, omni=True, calc_trace=
         # # print(pt[:10,:10].cpu().numpy())
         # print('r', r.squeeze().cpu().numpy()[:10])
         
-        # snapping to coordinate locations is no good... distance of points to all orifginal 
+        # snapping to coordinate locations is no good... distance of points to all original 
     #undo the normalization from before, reverse order of operations 
     pt = (pt+1)*0.5
     for k in range(d): 
@@ -1067,8 +1071,8 @@ def steps_interp(p, dP, niter, use_gpu=True, device=None, omni=True, calc_trace=
     p =  pt[...,inds].cpu().numpy().squeeze().T
 
 
-    # executionTime = (time.time() - startTime)
-    # print('Execution time in seconds: ' + str(executionTime))
+    executionTime = (time.time() - startTime)
+    omnipose_logger.info('steps_interp() execution time: {0:.3g} sec'.format(executionTime))
     return p, tr
 
 @njit('(float32[:,:,:,:],float32[:,:,:,:], int32[:,:], int32)', nogil=True)
@@ -1730,7 +1734,7 @@ def smooth_distance(masks, dists=None, device=None):
         
     nimg = neighbors.shape[1] // (3**d)
     pt = torch.from_numpy(neighbors).to(device)
-    T = torch.zeros((nimg,)+masks_padded.shape, dtype=torch.double, device=device)#(nimg,)+
+    T = torch.zeros((nimg,)+masks_padded.shape, dtype=torch.float, device=device)#(nimg,)+
     isneigh = torch.from_numpy(isneighbor).to(device)
     for t in range(n_iter):
         T[(Ellipsis,)+tuple(pt[:,idx])] = eikonal_update_torch(T,pt,isneigh,d,inds,fact) 
