@@ -7,7 +7,7 @@ install_deps = ['numpy>=1.22.4', 'scipy', 'numba',
                 'scikit-learn',
                 'mahotas>=1.4.13',
                 # 'mahotas@git+https://github.com/luispedro/mahotas#egg=mahotas', # 1.4.13 binary not compatible with some versions of numpy
-                'cellpose-omni[all]',
+                'cellpose-omni[all]>=0.6.8',
                 # 'cellpose[all]@git+https://github.com/kevinjohncutler/cellpose#egg=cellpose[all]',
                 'mgen']
                 # 'mgen@git+https://github.com/kevinjohncutler/mgen#egg=mgen',] # my version just removes stuff for pyinstaller to work 
