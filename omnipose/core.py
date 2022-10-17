@@ -27,7 +27,15 @@ OMNI_MODELS = ['bact_phase_cp',
 # I want it to fail here otherwise, much easier to debug 
 import torch
 TORCH_ENABLED = True 
-torch_GPU = torch.device('mps') if torch.backends.mps.is_available() else torch.device('cuda')
+# the following is duplicated but I cannot import cellpose, circular import issue
+import platform  
+ARM = 'arm' in platform.processor() # the backend chack for apple silicon does not work on intel macs
+try: #backends not available in order versions of torch 
+    ARM = torch.backends.mps.is_available() and ARM
+except Exception as e:
+    ARM = False
+    print('You are running a version of pytorch that cannot check for backends.',e)
+torch_GPU = torch.device('mps') if ARM else torch.device('cuda')
 torch_CPU = torch.device('cpu')
 
 # try:
@@ -682,7 +690,7 @@ def compute_masks(dP, dist, bd=None, p=None, inds=None, niter=200, rescale=1.0, 
         if p is None:
             p, inds, tr = follow_flows(dP_, inds, niter=niter, interp=interp,
                                        use_gpu=use_gpu, device=device, omni=omni,
-                                       calc_trace=calc_trace)
+                                       calc_trace=calc_trace, verbose=verbose)
         else:
             tr = []
             inds = np.stack(np.nonzero(mask))
@@ -953,7 +961,7 @@ def get_masks(p, bd, dist, mask, inds, nclasses=4,cluster=False,
 # also should just rescale to desired resolution HERE instead of rescaling the masks later... <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<
 # grid_sample will only work for up to 5D tensors (3D segmentation). Will have to address this shortcoming if we ever do 4D. 
 # I got rid of the map_coordinates branch, I tested execution times and pytorch implemtation seems as fast or faster
-def steps_interp(p, dP, niter, use_gpu=True, device=None, omni=True, calc_trace=False, calc_bd=False):
+def steps_interp(p, dP, niter, use_gpu=True, device=None, omni=True, calc_trace=False, calc_bd=False, verbose=False):
     """Euler integration of pixel locations p subject to flow dP for niter steps in N dimensions. 
     
     Parameters
@@ -976,8 +984,10 @@ def steps_interp(p, dP, niter, use_gpu=True, device=None, omni=True, calc_trace=
     d = dP.shape[0] # number of components = number of dimensions 
     shape = dP.shape[1:] # shape of component array is the shape of the ambient volume 
     inds = list(range(d))[::-1] # grid_sample requires a particular ordering 
-    import time
-    startTime = time.time()
+    
+    if verbose:
+        startTime = time.time()
+    
     if device is None:
         if use_gpu:
             device = torch_GPU
@@ -1070,9 +1080,9 @@ def steps_interp(p, dP, niter, use_gpu=True, device=None, omni=True, calc_trace=
 
     p =  pt[...,inds].cpu().numpy().squeeze().T
 
-
-    executionTime = (time.time() - startTime)
-    omnipose_logger.info('steps_interp() execution time: {0:.3g} sec'.format(executionTime))
+    if verbose:
+        executionTime = (time.time() - startTime)
+        omnipose_logger.info('steps_interp() execution time: {0:.3g} sec'.format(executionTime))
     return p, tr
 
 @njit('(float32[:,:,:,:],float32[:,:,:,:], int32[:,:], int32)', nogil=True)
@@ -1156,7 +1166,7 @@ def steps2D(p, dP, inds, niter, omni=True, calc_trace=False):
 
 # now generalized and simplified. Will work for ND if dependencies are updated. 
 def follow_flows(dP, inds, niter=200, interp=True, use_gpu=True, 
-                 device=None, omni=True, calc_trace=False):
+                 device=None, omni=True, calc_trace=False, verbose=False):
     """ define pixels and run dynamics to recover masks in 2D
     
     Pixels are meshgrid. Only pixels with non-zero cell-probability
@@ -1218,7 +1228,8 @@ def follow_flows(dP, inds, niter=200, interp=True, use_gpu=True,
 
     else:
         p_interp, tr = steps_interp(p[cell_px], dP, niter, use_gpu=use_gpu,
-                                    device=device, omni=omni, calc_trace=calc_trace)
+                                    device=device, omni=omni, calc_trace=calc_trace, 
+                                    verbose=verbose)
         p[cell_px] = p_interp
     return p, inds, tr
 
