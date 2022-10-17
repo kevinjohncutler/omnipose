@@ -32,9 +32,8 @@ import platform
 ARM = 'arm' in platform.processor() # the backend chack for apple silicon does not work on intel macs
 try: #backends not available in order versions of torch 
     ARM = torch.backends.mps.is_available() and ARM
-except Exception as e:
+except:
     ARM = False
-    print('You are running a version of pytorch that cannot check for backends.',e)
 torch_GPU = torch.device('mps') if ARM else torch.device('cuda')
 torch_CPU = torch.device('cpu')
 
@@ -995,7 +994,7 @@ def steps_interp(p, dP, niter, use_gpu=True, device=None, omni=True, calc_trace=
             device = torch_CPU
     # for now, looks like grid_sampler_2d is not implemented for mps
     # so it is much faster to just default to CPU instead of allowing for fallback
-    if torch.backends.mps.is_available():
+    if ARM:
         device = torch_CPU
     shape = np.array(shape)[inds]-1.  # dP is d.Ly.Lx, inds flips this to flipped X-1, Y-1, ...
 
