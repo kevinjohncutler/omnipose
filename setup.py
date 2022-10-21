@@ -3,15 +3,21 @@ from setuptools import setup
 
 install_deps = ['numpy>=1.22.4', 'scipy', 'numba', 
                 'edt','scikit-image','ncolor',
-                #hdbscan, should I include this?
                 'scikit-learn',
                 'mahotas>=1.4.13',
-                # 'mahotas@git+https://github.com/luispedro/mahotas#egg=mahotas', # 1.4.13 binary not compatible with some versions of numpy
-                'cellpose-omni[all]>=0.6.8',
-                # 'cellpose[all]@git+https://github.com/kevinjohncutler/cellpose#egg=cellpose[all]',
                 'mgen']
-                # 'mgen@git+https://github.com/kevinjohncutler/mgen#egg=mgen',] # my version just removes stuff for pyinstaller to work 
 
+gui_deps = ['cellpose-omni[all]>=0.6.9',]
+
+import os
+
+if os.getenv('NO_GUI'):
+    extra = 'omni'
+else:
+    extra = 'all'
+
+cp_deps = ['cellpose-omni['+extra+']>=0.6.9',]
+    
 with open("README.md", "r") as fh:
     long_description = fh.read()
     
@@ -29,7 +35,10 @@ setup(
     ],
     packages=setuptools.find_packages(),
     use_scm_version=True,
-    install_requires = install_deps,
+    install_requires = install_deps+cp_deps,
+    extras_require = {
+      'all': gui_deps,
+    },
     tests_require=[
       'pytest'
     ],
@@ -37,5 +46,5 @@ setup(
     classifiers=(
         "Programming Language :: Python :: 3",
         "Operating System :: OS Independent",
-    )
+    ),
 )

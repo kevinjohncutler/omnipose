@@ -1,4 +1,4 @@
-.. _paper: https://www.biorxiv.org/content/10.1101/2021.11.03.467199v3
+.. _paper: https://www.nature.com/articles/s41592-022-01639-4
 .. _github: https://github.com/kevinjohncutler/omnipose
 .. _ncolor: https://github.com/kevinjohncutler/ncolor/
 .. _four color theorem: https://en.wikipedia.org/wiki/Four_color_theorem

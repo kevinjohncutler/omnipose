@@ -6,7 +6,7 @@
 
 [cp]: https://github.com/MouseLand/cellpose
 
-Omnipose is a general image segmentation tool that builds on [Cellpose][cp] in a number of ways described in our [paper](https://www.biorxiv.org/content/10.1101/2021.11.03.467199). It works for both 2D and 3D images and on any imaging modality or cell shape, so long as you train it on representative images. We have several pre-trained models for:
+Omnipose is a general image segmentation tool that builds on [Cellpose][cp] in a number of ways described in our [paper](https://www.nature.com/articles/s41592-022-01639-4). It works for both 2D and 3D images and on any imaging modality or cell shape, so long as you train it on representative images. We have several pre-trained models for:
 * **bacterial phase contrast**: trained on a diverse range of bacterial species and morphologies. 
 * **bacterial fluorescence**: trained on the subset of the phase data that had a membrane or cytosol tag. 
 * ***C. elegans***: trained on a couple OpenWorm videos and the [BBBC010](https://bbbc.broadinstitute.org/BBBC010) alive/dead assay. We are working on expanding this significantly with the help of other labs contributing ground-truth data. 
@@ -51,6 +51,10 @@ Standalone versions of this GUI for Windows, macOS, and Linux are coming soon.
     ```
 
 We have tested Omnipose extensively on Python version 3.8.5 and have encountered issues on some lower versions. Versions up to 3.10.4 have been confirmed compatible. Check your python version by running `python -V`. If your version is too low (this happens if your default/base environment python is a lower version), make a new environment and specify the python version, e.g. `conda create --name omnipose python==3.8.5`
+
+### Install without the GUI dependencies 
+
+Set the environment variable `NO_GUI` prior to running the install commands. In linux/macOS, `export NO_GUI=True` (the value here does not matter, `setup.py` just checks for the variable existence). To undo, use `unset NO_GUI`. In Windows, use `set NO_GUI=True` and `set NO_GUI=`. 
 
 ### GPU support 
 
