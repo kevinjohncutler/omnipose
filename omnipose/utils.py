@@ -7,6 +7,9 @@ import mahotas as mh
 import math
 from ncolor import format_labels # just in case I forgot to switch it out elsewhere
 
+def getname(path,prefix='',suffix='',padding=0):
+    return os.path.splitext(Path(path).name)[0].replace(prefix,'').replace(suffix,'').zfill(padding)
+
 def normalize_field(mu):
     """ normalize all nonzero field vectors to magnitude 1
     
@@ -225,7 +228,7 @@ def get_boundary(mask):
     return np.logical_xor(mask,mh.morph.erode(mask))
 
 # Kevin's version of remove_edge_masks, need to merge (this one is more flexible)
-def clean_boundary(labels, boundary_thickness=3, area_thresh=30, dists=None):
+def clean_boundary(labels, boundary_thickness=3, area_thresh=30, cutoff=0.5):
     """Delete boundary masks below a given size threshold within a certain distance from the boundary. 
     
     Parameters
@@ -235,6 +238,10 @@ def clean_boundary(labels, boundary_thickness=3, area_thresh=30, dists=None):
         
     area_thresh: int
         labels with area below this value will be removed. 
+        
+    cutoff: float
+        Fraction from 0 to 1 of the overlap with the boundary before the mask is removed. Default 0.5. 
+        Set to 0 if you want any mask touching the boundary to be removed. 
     
     Returns
     --------------
@@ -244,14 +251,12 @@ def clean_boundary(labels, boundary_thickness=3, area_thresh=30, dists=None):
     border_mask = np.zeros(labels.shape, dtype=bool)
     border_mask = binary_dilation(border_mask, border_value=1, iterations=boundary_thickness)
     clean_labels = np.copy(labels)
-    # bddist = dists[border_mask]
-    # dist_thresh = np.mean(bddist[bddist>0])
-    # print(dist_thresh)
+
     for cell_ID in fastremap.unique(labels[border_mask])[1:]:
         mask = labels==cell_ID 
         area = np.count_nonzero(mask)
         overlap = np.count_nonzero(np.logical_and(mask, border_mask))
-        if overlap > 0 and area<area_thresh and overlap/area >= 0.5: #only remove cells that are 50% or more edge px
+        if overlap > 0 and area<area_thresh and overlap/area >= cutoff: #only remove cells that are X% or more edge px
             clean_labels[mask] = 0
 
     return clean_labels
