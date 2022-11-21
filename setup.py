@@ -7,7 +7,7 @@ install_deps = ['numpy>=1.22.4', 'scipy', 'numba',
                 'mahotas>=1.4.13',
                 'mgen']
 
-gui_deps = ['cellpose-omni[all]>=0.6.9',]
+gui_deps = ['cellpose-omni[all]>=0.7.3',]
 
 import os
 
