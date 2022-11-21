@@ -90,7 +90,7 @@ To train a 3D model on image volumes, specify the dimension argument: `--dim 3`.
 python -m omnipose --train --use_gpu --dir ./plantseg/traintest/LateralRootPrimordia/export_small/train --mask_filter _masks --n_epochs 4000 --pretrained_model None  --learning_rate 0.1 --save_every 50 --save_each  --verbose --look_one_level_down --all_channels --dim 3 --RAdam --batch_size 4 --diameter 0
 ```
 
-To evaluate Omnipose models on 3D data, see our [examples](examples/). If you run out of GPU memory, consider (a) evaluating on CPU or (b) using `tile=True`. 
+To evaluate Omnipose models on 3D data, see our [examples](docs/examples/). If you run out of GPU memory, consider (a) evaluating on CPU or (b) using `tile=True`. 
 
 
 ## Known limitations

@@ -1,14 +1,79 @@
 import numpy as np
-from scipy.ndimage.morphology import binary_dilation, binary_erosion
+from scipy.ndimage import binary_dilation, binary_erosion
+from scipy.ndimage import convolve1d, convolve
 from skimage.morphology import remove_small_holes
+from skimage.registration import phase_cross_correlation
+from scipy.ndimage import shift as im_shift
+
 from skimage import measure 
 import fastremap
 import mahotas as mh
 import math
 from ncolor import format_labels # just in case I forgot to switch it out elsewhere
+from pathlib import Path
+import os
+import re
+
+def findbetween(s,string1='[',string2=']'):
+    return re.findall(str(re.escape(string1))+"(.*)"+str(re.escape(string2)),s)[0]
 
 def getname(path,prefix='',suffix='',padding=0):
     return os.path.splitext(Path(path).name)[0].replace(prefix,'').replace(suffix,'').zfill(padding)
+
+def to_16_bit(im):
+    return np.uint16(rescale(im)*(2**16-1))
+
+def to_8_bit(im):
+    return np.uint8(rescale(im)*(2**8-1))
+
+def shifts_to_slice(shifts,shape):
+    """
+    Find the minimal crop box from time lapse registraton shifts.
+    """
+    max_shift = np.max(shifts,axis=0)
+    min_shift = np.min(shifts,axis=0)
+    slc = tuple([slice(np.maximum(0,0-int(mn)),np.minimum(s,s-int(mx))) for mx,mn,s in zip(np.flip(max_shift),np.flip(min_shift),shape)])
+    return slc
+
+def cross_reg(imstack,upsample_factor=100,order=1,normalization=None,cval=None):
+    """
+    Find the transformation matrices for all images in a time series to align to the beginning frame. 
+    """
+    s = np.zeros(2)
+    shape = imstack.shape[-2:]
+    regstack = np.zeros_like(imstack)
+    shifts = np.zeros((len(imstack),2))
+    for i,im in enumerate(imstack):
+        ref = regstack[i-1] if i>0 else im 
+        # reference_mask=~np.isnan(ref)
+        # moving_mask=~np.isnan(im)
+        shift = phase_cross_correlation(ref, im, 
+                                        upsample_factor=upsample_factor, 
+                                        return_error = False, 
+                                        normalization=normalization)
+                                      # reference_mask=reference_mask,
+                                      # moving_mask=moving_mask)
+        # print(shift)
+        shifts[i] = shift
+        regstack[i] = im_shift(im, shift, order=order,
+                               mode='nearest' if cval is None else 'constant',
+                               cval=np.nanmean(imstack[i]) if cval is None else cval)   
+    return shifts, regstack
+
+def shift_stack(shifts, imstack, order=1, cval=None):
+    """
+    Shift each time slice of imstack according to list of 2D shifts. 
+    """
+    regstack = np.zeros_like(imstack)
+    for i in range(len(shifts)):        
+        regstack[i] = im_shift(imstack[i],shifts[i],order=order, 
+                               mode='nearest' if cval is None else 'constant',
+                               cval=np.nanmean(imstack[i]) if cval is None else cval)   
+    return regstack
+
+def moving_average(x, w, tmats):
+    # return np.convolve(x, np.ones(w), 'valid') / w
+    return scipy.ndimage.convolve1d(tmats,np.ones(w)/w,axis=0)
 
 def normalize_field(mu):
     """ normalize all nonzero field vectors to magnitude 1
@@ -93,7 +158,58 @@ def normalize_image(im,mask,bg=0.5,dim=2):
         im[k] = im[k]**(np.log(bg)/np.log(np.mean(im[k][binary_erosion(mask[k]==0)])))
         
     return np.stack(im,axis=0).squeeze()
-   
+
+def moving_average(x, w):
+    return convolve1d(x,np.ones(w)/w,axis=0)
+
+def rescale(T,floor=None,ceiling=None):
+    """Rescale array between 0 and 1"""
+    if ceiling is None:
+        ceiling = T[:].max()
+    if floor is None:
+        floor = T[:].min()
+    T = np.interp(T, (floor, ceiling), (0, 1))
+    return T
+
+def normalize_stack(vol,mask,bg=0.5,bright_foreground=None):
+    """
+    Adjust image stacks so that background is 
+    (1) consistent in brightness and 
+    (2) brought to an even average via semantic gamma normalization.
+    """
+    
+    # vol = rescale(vol)
+    vol = vol.copy()
+    bg_mask = [binary_erosion(m==0) for m in mask] # binarize background mask, recede from foreground, slice-wise to not erode in time
+    bg_real = [np.nanmean(v[m]) for v,m in zip(vol,bg_mask)] # find mean backgroud for each slice
+    
+    # automatically determine if foreground objects are bright or dark 
+    if bright_foreground is None:
+        bright_foreground = np.mean(vol[bg_mask]) < np.mean(vol[mask>0])
+    
+    # if smooth: 
+    #     bg_real = moving_average(bg_real,5) 
+    # some weird fluctuations happening with background being close to zero, but just on fluorescnece... might need to invert or go by foreground
+    
+    bg_min = np.min(bg_real) # git the minimum one, want to normalize by lowest one 
+    vol = np.stack([v*safe_divide(bg_min,bg_r) for v,bg_r in zip(vol,bg_real)]) # normalize background
+    
+    # equalize foreground signal
+    if bright_foreground:
+        fg_real = [np.percentile(v[m>0],99.99) for v,m in zip(vol,mask)]
+        # fg_real = [v.max() for v,m in zip(vol,bg_mask)]    
+        floor = np.percentile(vol[bg_mask],0.01)
+        vol = [rescale(v,ceiling=f, floor=floor) for v,f in zip(vol,fg_real)]
+    else:
+        fg_real = [np.percentile(v[m>0],1) for v,m in zip(vol,mask)]
+        ceiling = np.percentile(vol[bg_mask],99.99)
+        vol = [rescale(v,ceiling=ceiling,floor=f) for v,f in zip(vol,fg_real)]
+        
+    # vol = rescale(vol) # now rescale by overall min and max 
+    vol = np.stack([v**(np.log(bg)/np.log(np.mean(v[bg_m]))) for v,bg_m in zip(vol,bg_mask)]) # now can gamma normalize 
+    return vol
+
+
 
 def bbox_to_slice(bbox,shape,pad=0,im_pad=0):
     """
@@ -138,7 +254,7 @@ def crop_bbox(mask, pad=10, iterations=3, im_pad=0, area_cutoff=0, max_dim=np.in
     --------------
 
     mask: matrix of integer labels
-    pad: amount of space in pixels to add around the label (does not extend beyond image edges)
+    pad: amount of space in pixels to add around the label (does not extend beyond image edges, will shrink for consistency)
     iterations: number of dilation iterations to merge labels separated by this number of pixel or less
     im_pad: amount of space to subtract off the label matrix edges
     area_cutoff: label clusters below this area in square pixels will be ignored
@@ -162,6 +278,7 @@ def crop_bbox(mask, pad=10, iterations=3, im_pad=0, area_cutoff=0, max_dim=np.in
     for props in regions:
         if props.area>area_cutoff:
             bbx = props.bbox 
+            minpad = min(pad,bbx[0],bbx[1],sz[0]-bbx[2],sz[1]-bbx[3])
 #             y1 = max(bbx[0]-pad,ylim[0])
 #             x1 = max(bbx[1]-pad,xlim[0])
 #             y2 = min(bbx[2]+pad,ylim[1])
@@ -175,9 +292,8 @@ def crop_bbox(mask, pad=10, iterations=3, im_pad=0, area_cutoff=0, max_dim=np.in
 #                     # m = maski[y1:y2,x1:x2].copy()
 #             else:
 #                 return [[0,ylim,0,xlim]]
-
-            bboxes.append(bbox_to_slice(bbx,sz,pad=pad,im_pad=im_pad))
-    
+            
+            bboxes.append(bbox_to_slice(bbx,sz,pad=minpad,im_pad=im_pad))
     
     return bboxes
 
@@ -207,10 +323,6 @@ def sinebow(N,bg_color=[0,0,0,0]):
         colordict.update({j+1:[r,g,b,1]})
     return colordict
 
-def rescale(T):
-    """Rescale array between 0 and 1"""
-    T = np.interp(T, (T[:].min(), T[:].max()), (0, 1))
-    return T
 
 def get_boundary(mask):
     """ND binary mask boundary using mahotas.
@@ -324,3 +436,65 @@ def cubestats(n):
     return faces
 
 
+def curve_filter(im,filterWidth=1.5):
+    """
+    curveFilter : calculates the curvatures of an image.
+
+     INPUT : 
+           im : image to be filtered
+           filterWidth : filter width
+     OUTPUT : 
+           M_ : Mean curvature of the image without negative values
+           G_ : Gaussian curvature of the image without negative values
+           C1_ : Principal curvature 1 of the image without negative values
+           C2_ : Principal curvature 2 of the image without negative values
+           M : Mean curvature of the ima ge
+           G : Gaussian curvature of the image
+           C1 : Principal curvature 1 of the image
+           C2 : Principal curvature 2 of the image
+           im_xx :
+           im_yy :
+           im_xy :
+
+    """
+    shape = [np.floor(7*filterWidth)]*2
+    m,n = [(s-1.)/2. for s in shape]
+    y,x = np.ogrid[-m:m+1,-n:n+1]
+    v = filterWidth**2
+    gau = 1/(2*np.pi*v) * np.exp( -(x**2 + y**2) / (2.*v) )
+    
+    
+    f_xx = ((x/v)**2-1/v)*gau
+    f_yy = ((y/v)**2-1/v)*gau
+    f_xy = y*x*gau/v**2
+    
+    
+    im_xx = convolve(im, f_xx, mode='nearest')
+    im_yy = convolve(im, f_yy, mode='nearest')
+    im_xy = convolve(im, f_xy, mode='nearest')
+    
+    # gaussian curvature
+    G = im_xx*im_yy-im_xy**2
+
+    # mean curvature
+    M = -(im_xx+im_yy)/2
+
+    # compute principal curvatures
+    C1 = (M-np.sqrt(np.abs(M**2-G)));
+    C2 = (M+np.sqrt(np.abs(M**2-G)));
+
+    
+    # remove negative values
+    G_ = G.copy()
+    G_[G<0] = 0;
+
+    M_ = M.copy()
+    M_[M<0] = 0
+
+    C1_ = C1.copy()
+    C1_[C1<0] = 0
+
+    C2_ = C2.copy()
+    C2_[C2<0] = 0
+
+    return M_, G_, C1_, C2_, M, G, C1, C2, im_xx, im_yy, im_xy
