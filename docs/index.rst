@@ -21,11 +21,10 @@ For support, submit an `issue`_ on the Omnipose repo. For more on the workings o
 .. grid:: 1 1 2 2
     :gutter: 1 
     
-
     .. grid-item:: 
 
         .. grid:: 1 1 1 1
-            :gutter: 0
+            :gutter: 2
 
             .. grid-item-card::
 
@@ -40,7 +39,6 @@ For support, submit an `issue`_ on the Omnipose repo. For more on the workings o
                     outputs
                     training
 
-    
     .. grid-item::
 
         .. grid:: 1 1 1 1
