@@ -27,7 +27,7 @@
 :header-2:`Where are models stored?`
 ------------------------------------
 To maintain compatibility with Cellpose, the pretrained Omnipose models are also downloaded to ``$HOME/.cellpose/models/``.
-This path on linux is ``/home/USERNAME/.cellpose/``, on macOS ``/Users/USERNAME/.cellpose``, and on Windows
+This path on linux is ``/home/USERNAME/.cellpose/``, on macOS ``/Users/USERNAME/.cellpose/``, and on Windows
 ``C:\Users\USERNAME\.cellpose\models\``. These models are downloaded the first time you 
 try to use them, either on the command line, in the GUI, or in a notebook.
 

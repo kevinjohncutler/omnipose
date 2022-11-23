@@ -1,12 +1,12 @@
 .. include:: ../sinebow.rst
 
+
 :header-2:`cellpose.models`
 ---------------------------
 
 .. automodule:: cellpose.models
 
 .. automodsumm:: cellpose.models
-    :functions-only:
     :toctree: api
 
 :header-2:`cellpose.io`
