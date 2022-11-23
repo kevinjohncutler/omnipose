@@ -23,14 +23,14 @@ For support, submit an `issue`_ on the Omnipose repo. For more on the workings o
     
     .. grid-item:: 
 
-        .. grid:: 1 1 1 1
+        .. grid:: 1 1 1 1 
             :gutter: 2
 
             .. grid-item-card::
 
                 .. toctree::
-                    :maxdepth: 3
                     :caption: Basics
+                    :maxdepth: 3
                     
                     installation
                     gui
@@ -38,6 +38,7 @@ For support, submit an `issue`_ on the Omnipose repo. For more on the workings o
                     settings
                     outputs
                     training
+
 
     .. grid-item::
 

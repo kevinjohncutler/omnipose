@@ -35,7 +35,8 @@ def shifts_to_slice(shifts,shape):
     slc = tuple([slice(np.maximum(0,0-int(mn)),np.minimum(s,s-int(mx))) for mx,mn,s in zip(np.flip(max_shift),np.flip(min_shift),shape)])
     return slc
 
-def cross_reg(imstack,upsample_factor=100,order=1,normalization=None,cval=None):
+# import imreg_dft 
+def cross_reg(imstack,upsample_factor=100,order=1,normalization=None,cval=None,prefilter=True):
     """
     Find the transformation matrices for all images in a time series to align to the beginning frame. 
     """
@@ -47,15 +48,20 @@ def cross_reg(imstack,upsample_factor=100,order=1,normalization=None,cval=None):
         ref = regstack[i-1] if i>0 else im 
         # reference_mask=~np.isnan(ref)
         # moving_mask=~np.isnan(im)
-        shift = phase_cross_correlation(ref, im, 
+        # pad = 1
+        # shift = phase_cross_correlation(np.pad(ref,pad), np.pad(im,pad), 
+        shift = phase_cross_correlation(ref,im,
                                         upsample_factor=upsample_factor, 
                                         return_error = False, 
                                         normalization=normalization)
                                       # reference_mask=reference_mask,
                                       # moving_mask=moving_mask)
+        
+        # shift = imreg_dft.imreg.translation(ref,im)['tvec']
+        
         # print(shift)
         shifts[i] = shift
-        regstack[i] = im_shift(im, shift, order=order,
+        regstack[i] = im_shift(im, shift, order=order, prefilter=prefilter,
                                mode='nearest' if cval is None else 'constant',
                                cval=np.nanmean(imstack[i]) if cval is None else cval)   
     return shifts, regstack

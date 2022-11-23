@@ -4,10 +4,16 @@
 :sinebow11:`Installation`
 =========================
 
-
 .. include:: ../README.md
    :parser: myst_parser.sphinx_
    :start-after: ## How to install Omnipose
+   :end-before: ### Install without the GUI dependencies
+  
+:header-2:`Install without the GUI dependencies`
+-----------------------
+.. include:: ../README.md
+   :parser: myst_parser.sphinx_
+   :start-after: ### Install without the GUI dependencies
    :end-before: ### GPU support
 
 :header-2:`GPU Support`
