@@ -1,6 +1,6 @@
 import numpy as np
 from scipy.ndimage import binary_dilation, binary_erosion
-from scipy.ndimage import convolve1d, convolve
+from scipy.ndimage import convolve1d, convolve, affine_transform
 from skimage.morphology import remove_small_holes
 from skimage.registration import phase_cross_correlation
 from scipy.ndimage import shift as im_shift
@@ -13,6 +13,10 @@ from ncolor import format_labels # just in case I forgot to switch it out elsewh
 from pathlib import Path
 import os
 import re
+
+import mgen
+import fastremap
+
 
 def findbetween(s,string1='[',string2=']'):
     return re.findall(str(re.escape(string1))+"(.*)"+str(re.escape(string2)),s)[0]
@@ -34,6 +38,17 @@ def shifts_to_slice(shifts,shape):
     min_shift = np.min(shifts,axis=0)
     slc = tuple([slice(np.maximum(0,0-int(mn)),np.minimum(s,s-int(mx))) for mx,mn,s in zip(np.flip(max_shift),np.flip(min_shift),shape)])
     return slc
+
+def make_unique(masks):
+    masks = masks.copy().astype(np.uint32)
+    T = range(len(masks))
+    offset = 0 
+    for t in T:
+        # f = format_labels(masks[t],clean=True)
+        fastremap.renumber(masks[t],in_place=True)
+        masks[t][masks[t]>0]+=offset
+        offset = masks[t].max()
+    return masks
 
 # import imreg_dft 
 def cross_reg(imstack,upsample_factor=100,order=1,normalization=None,cval=None,prefilter=True):
@@ -79,7 +94,7 @@ def shift_stack(shifts, imstack, order=1, cval=None):
 
 def moving_average(x, w, tmats):
     # return np.convolve(x, np.ones(w), 'valid') / w
-    return scipy.ndimage.convolve1d(tmats,np.ones(w)/w,axis=0)
+    return convolve1d(tmats,np.ones(w)/w,axis=0)
 
 def normalize_field(mu):
     """ normalize all nonzero field vectors to magnitude 1
@@ -504,3 +519,88 @@ def curve_filter(im,filterWidth=1.5):
     C2_[C2<0] = 0
 
     return M_, G_, C1_, C2_, M, G, C1, C2, im_xx, im_yy, im_xy
+
+
+def rotate(V,theta,order=1,output_shape=None,center=None):
+    
+    dim = V.ndim
+    v1 = np.array([0]*(dim-1)+[1])
+    v2 = np.array([0]*(dim-2)+[1,0])
+
+    s_in = V.shape
+    if output_shape is None:
+        s_out = s_in
+    else:
+        s_out = output_shape
+    M = mgen.rotation_from_angle_and_plane(np.pi/2-theta,v2,v1)
+    if center is None:
+        c_in = 0.5 * np.array(s_in) 
+    else:
+        c_in = center
+    c_out = 0.5 * np.array(s_out)
+    offset = c_in  - np.dot(np.linalg.inv(M), c_out)
+    V_rot = affine_transform(V, np.linalg.inv(M), offset=offset, 
+                                           order=order, output_shape=output_shape)
+
+    return V_rot
+
+
+
+# make a list of all sprues 
+from sklearn.utils.extmath import cartesian
+from scipy.ndimage import binary_hit_or_miss
+
+def get_spruepoints(bw):
+    d = bw.ndim
+    idx = (3**d)//2 # the index of the center pixel is placed here when considering the neighbor kernel 
+    neigh = [[-1,0,1] for i in range(d)]
+    steps = cartesian(neigh) # all the possible step sequences in ND
+    sign = np.sum(np.abs(steps),axis=1) # signature distinguishing each kind of m-face via the number of steps 
+    uniq = fastremap.unique(sign)
+    inds = [np.where(sign==i)[0] for i in uniq] # 2D: [4], [1,3,5,7], [0,2,6,8]. 1-7 are y axis, 3-5 are x, etc. 
+    fact = np.sqrt(uniq) # weighting factor for each hypercube group 
+    
+    hits = []
+    mid = tuple([1]*d) # kernel 3 wide in every axis, so middle is 1
+    substeps = [steps[i] for i in np.concatenate(inds[1:])]
+    # substeps = steps.copy()
+    for step in substeps:
+        oppose = np.array([np.dot(step,s) for s in steps])
+        sprue = np.zeros([3]*d) # allocate matrix
+        sprue[tuple(step+1)] = 1
+        
+        # just require the center pixel, 
+        sprue[mid] = 1
+        
+        # ignore the rest 
+        # for idx in np.argwhere(oppose<=0).flatten():
+        #     c = tuple(steps[idx]+1)
+        #     sprue[c] = 1
+        
+        # miss = ndimage.shift(sprue,-step,order=0)
+        miss = np.zeros([3]*d)
+        # for idx in np.argwhere(oppose>0).flatten():
+        for idx in np.argwhere(np.logical_and(oppose>=0,sign!=0)).flatten():
+            c = tuple(steps[idx]+1)
+            miss[c] = 1
+            
+        # miss+= ndimage.shift(1-sprue,-step,order=0)
+
+        hm = binary_hit_or_miss(bw,
+                               structure1=sprue,
+                               origin1=step,
+                               structure2=miss,
+                               origin2=0
+                              )
+        # if np.any(hm):
+        #     print(sprue)
+        #     print(miss)
+        #     print(step)
+        
+        hits.append(hm)
+        
+    return np.sum(hits,axis=0)>0
+
+# from https://stackoverflow.com/questions/47370718/indexing-numpy-array-by-a-numpy-array-of-coordinates
+def ravel_index(b, shp):
+    return np.concatenate((np.asarray(shp[1:])[::-1].cumprod()[::-1],[1])).dot(b)
