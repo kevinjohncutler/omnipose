@@ -39,7 +39,7 @@ Here is an example of loading in a ``*_seg.npy`` file and plotting masks and out
 ::
 
     import numpy as np
-    from cellpose import plot
+    from cellpose_omni import plot
     dat = np.load('_seg.npy', allow_pickle=True).item()
 
     # plot image with masks overlaid
@@ -57,7 +57,7 @@ If you run in a notebook and want to save to a `*_seg.npy` file, run
 
 ::
 
-    from cellpose import io
+    from cellpose_omni import io
     io.masks_flows_to_seg(images, masks, flows, diams, file_name, channels)
 
 where each of these inputs is a list (as the output of `model.eval` is)
@@ -75,7 +75,7 @@ In a notebook, use:
 
 ::
 
-    from cellpose import io
+    from cellpose_omni import io
     io.save_to_png(images, masks, flows, image_names)
 
 :header-2:`ROI manager compatible output for ImageJ`
@@ -90,7 +90,7 @@ Use the function below if running in a notebook:
 
 ::
 
-    from cellpose import io, plot
+    from cellpose_omni import io, plot
 
     # image_name is file name of image 
     # masks is numpy array of masks for image
@@ -116,7 +116,7 @@ In ``plot.py`` there are functions, like ``show_segmentation``:
 
 ::
 
-    from cellpose import plot
+    from cellpose_omni import plot
 
     nimg = len(imgs)
     for idx in range(nimg):

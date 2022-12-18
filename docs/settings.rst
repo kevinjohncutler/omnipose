@@ -11,7 +11,7 @@ Cellpose users need only select an Omnipose model and use ``omni=True`` to updat
 
 ::
 
-    from cellpose import models
+    from cellpose_omni import models
     import skimage.io
     model = models.Cellpose(gpu=False, model_type='bact_phase_omni')
 

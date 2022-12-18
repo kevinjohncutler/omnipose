@@ -1,6 +1,6 @@
 import numpy
 import os
-from cellpose import models, io, core, plot
+from cellpose_omni import models, io, core, plot
 import ncolor
 import omnipose
 from skimage.transform import resize

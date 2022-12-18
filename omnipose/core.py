@@ -75,7 +75,7 @@ omnipose_logger = logging.getLogger(__name__)
 # logging.getLogger().addHandler(logging.StreamHandler())
 
 
-# We moved a bunch of dupicated code over here from Cellpose to revert back to the original bahavior. This flag is used
+# We moved a bunch of dupicated code over here from cellpose_omni to revert back to the original bahavior. This flag is used
 # within Cellpose only, but since I want to merge the shared code back together someday, I'll keep it around here. 
 # Several '#'s denote locations where code needs to be changed if a remerger ever happens 
 OMNI_INSTALLED = True
@@ -216,7 +216,7 @@ def labels_to_flows(labels, files=None, use_gpu=False, device=None, omni=True, r
     omni: bool
         flag to generate Omnipose flows instead of Cellpose flows
     redo_flows: bool
-        flag to overwrite existing flows. This is necessary when changing over from Cellpose to Omnipose, 
+        flag to overwrite existing flows. This is necessary when changing over from cellpose_omni to Omnipose, 
         as the flows are very different.
     dim: int
         integer representing the intrinsic dimensionality of the data. This allows users to generate 3D flows
@@ -358,6 +358,7 @@ def masks_to_flows(masks, dists=None, boundaries=None, use_gpu=False, device=Non
             # step 2: restore the masks in the original area
             masks_pad[unpad] = masks
             bd_pad[unpad] = boundaries
+            
             mu, T = masks_to_flows_device(masks_pad, dists, bd_pad, device=device, omni=omni, smooth=smooth)
             return masks, dists, T[unpad], mu[(Ellipsis,)+unpad]
 
@@ -367,7 +368,7 @@ def masks_to_flows(masks, dists=None, boundaries=None, use_gpu=False, device=Non
 
 
 #Now fully converted to work for ND.
-def masks_to_flows_torch(masks, dists, boundaries, device=None, omni=True, smooth=True):
+def masks_to_flows_torch(masks, dists, boundaries, device=None, omni=True, smooth=True, niter=None):
     """Convert ND masks to flows. 
     
     Omnipose find distance field, Cellpose uses diffusion from center of mass.
@@ -383,6 +384,10 @@ def masks_to_flows_torch(masks, dists, boundaries, device=None, omni=True, smoot
         what compute hardware to use to run the code (GPU VS CPU)
     omni: bool
         flag to generate Omnipose flows instead of Cellpose flows
+    smooth: bool
+        use relaxation to smooth out distance and therby flow field
+    niter: int
+        override number of iterations 
 
     Returns
     -------------
@@ -429,7 +434,6 @@ def masks_to_flows_torch(masks, dists, boundaries, device=None, omni=True, smoot
             n_iter = 2 * (ext.sum(axis=1)).max()
 
         # run diffusion 
-        print('niter',n_iter)
         mu, T = _extend_centers_torch(masks_padded, centers, boundaries_padded, 
                                       n_iter=n_iter, device=device, omni=omni, smooth=smooth)
         # normalize
@@ -539,10 +543,7 @@ def _extend_centers_torch(masks, centers, boundaries, n_iter=200, device=torch.d
     # calculate gradient with contributions along cardinal, ordinal, etc. 
     for idx,f in zip(inds[1:],fact[1:]):
     # for idx,f in zip(inds[1:2],fact[1:2]):
-    
-    
-    # for idx,f in zip(inds[1:2],fact[1:2]):
-    
+
     # for idx,f in zip(inds[2:3],fact[2:3]):
     
         # idx = inds[1] # cardinal points
@@ -691,7 +692,6 @@ def compute_masks(dP, dist, bd=None, p=None, inds=None, niter=200, rescale=1.0, 
         For debugging/paper figures, very slow. 
     
     """
-    print('BBBB',boundary_seg)
     # Min size taken to be 9px or 27 voxels etc. if not specified 
     if min_size is None:
         min_size = 3**dim
@@ -717,6 +717,8 @@ def compute_masks(dP, dist, bd=None, p=None, inds=None, niter=200, rescale=1.0, 
         else:
             mask = dist > mask_threshold # analog to original iscell=(cellprob>cellprob_threshold)
             inds = np.array(np.nonzero(np.abs(dP[0])>1e-3)).astype(np.int32) ### that dP[0] is a big bug... only first component!!!
+
+    iscell = mask.copy()
     
     # mask at this point is a cell cluster binary map, not labels. If nclasses>1, we can do instance segmentation. 
     if np.any(mask) and nclasses>1: 
@@ -742,13 +744,10 @@ def compute_masks(dP, dist, bd=None, p=None, inds=None, niter=200, rescale=1.0, 
 
         else:
             dP_ = dP * mask / 5.
-        
-        
-        
+                
         if boundary_seg: # new tactic is to use flow to compute boundaries, including self-contact ones
             if verbose:
                 omnipose_logger.info('doing new boundary seg')
-            print('aaaa')
             bd = get_boundary(dP,mask)
             mask, bounds, _ = boundary_to_masks(bd,mask)
             # mask = bounds # test to see if boundary multiplied masks could work 
@@ -786,22 +785,25 @@ def compute_masks(dP, dist, bd=None, p=None, inds=None, niter=200, rescale=1.0, 
             else:
                 mask = get_masks_cp(p, iscell=mask, flows=dP, use_gpu=use_gpu) ### just get_masks
         
-        
+            bounds = find_boundaries(mask)
+            
         # flow thresholding factored out of get_masks
         # still could be useful for boundaries! Need to put in the self-contact boundaries as input <<<<<<
+        # also can now turn on for do_3D... 
         if not do_3D: 
             shape0 = dP.shape[1:]
             flows = dP
             if mask.max()>0 and flow_threshold is not None and flow_threshold > 0 and flows is not None:
-                mask = remove_bad_flow_masks(mask, flows, threshold=flow_threshold, use_gpu=use_gpu, device=device, omni=omni)
+                mask = remove_bad_flow_masks(mask, flows, bounds, threshold=flow_threshold, use_gpu=use_gpu, device=device, omni=omni)
                 _,mask = np.unique(mask, return_inverse=True)
                 mask = np.reshape(mask, shape0).astype(np.int32)
         
-
+        
     else: # nothing to compute, just make it compatible
         omnipose_logger.info('No cell pixels found.')
         p = np.zeros([2,1,1])
         tr = []
+        bounds = mask
         # mask = np.zeros(resize,dtype=np.uint8) if resize is not None else np.zeros_like(dist) not necessary, would be zeros 
     
     
@@ -815,10 +817,8 @@ def compute_masks(dP, dist, bd=None, p=None, inds=None, niter=200, rescale=1.0, 
     
     # need to reconsider this for self-contact 
     # could fill the region internal to boundaries, aka mask0
-    if not boundary_seg:
-        mask = fill_holes_and_remove_small_masks(mask, min_size=min_size, dim=dim) ##### utils.fill_holes_and_remove_small_masks
-    
-    print('jjjj',np.unique(mask))
+    mask = fill_holes_and_remove_small_masks(mask, min_size=min_size, dim=dim)*iscell ##### utils.fill_holes_and_remove_small_masks
+        
     # print('warning, temp disable remove small masks')
     fastremap.renumber(mask,in_place=True) #convenient to guarantee non-skipped labels
 
@@ -827,12 +827,11 @@ def compute_masks(dP, dist, bd=None, p=None, inds=None, niter=200, rescale=1.0, 
     # maybe better would be to rescale the min_size and hole_size parameters to do the
     # cleanup at the prediction scale, or switch depending on which one is bigger... 
     
-    ret = [mask, p, tr]
+    ret = [mask, p, tr, bounds]
     
     if debug:
         ret += [labels]
-    if boundary_seg:
-        ret += [bounds]
+ 
     return ret
 
 
@@ -1329,7 +1328,7 @@ def follow_flows(dP, inds, niter=200, interp=True, use_gpu=True,
         p[cell_px] = p_interp
     return p, inds, tr
 
-def remove_bad_flow_masks(masks, flows, threshold=0.4, use_gpu=False, device=None, omni=True):
+def remove_bad_flow_masks(masks, flows, bounds=None, threshold=0.4, use_gpu=False, device=None, omni=True):
     """ remove masks which have inconsistent flows 
     
     Uses metrics.flow_error to compute flows from predicted masks 
@@ -1354,12 +1353,12 @@ def remove_bad_flow_masks(masks, flows, threshold=0.4, use_gpu=False, device=Non
         size [Ly x Lx] or [Lz x Ly x Lx]
     
     """
-    merrors, _ =  flow_error(masks, flows, use_gpu, device, omni) ##### metrics.flow_error
+    merrors, _ =  flow_error(masks, flows, bounds, use_gpu, device, omni) ##### metrics.flow_error
     badi = 1+(merrors>threshold).nonzero()[0]
     masks[np.isin(masks, badi)] = 0
     return masks
 
-def flow_error(maski, dP_net, use_gpu=False, device=None, omni=True):
+def flow_error(maski, dP_net, bounds=None, use_gpu=False, device=None, omni=True):
     """ error in flows from predicted masks vs flows predicted by network run on image
 
     This function serves to benchmark the quality of masks, it works as follows
@@ -1394,9 +1393,9 @@ def flow_error(maski, dP_net, use_gpu=False, device=None, omni=True):
     # maski = np.reshape(np.unique(maski.astype(np.float32), return_inverse=True)[1], maski.shape)
     fastremap.renumber(maski,in_place=True)
 
-    # flows predicted from estimated masks
+    # flows predicted from estimated masks and boundaries
     idx = -1 # flows are the last thing returned now
-    dP_masks = masks_to_flows(maski, use_gpu=use_gpu, device=device, omni=omni)[idx] ##### dynamics.masks_to_flows
+    dP_masks = masks_to_flows(maski, boundaries=bounds, use_gpu=use_gpu, device=device, omni=omni)[idx] ##### dynamics.masks_to_flows
     # difference between predicted flows vs mask flows
     flow_errors = np.zeros(maski.max())
     for i in range(dP_masks.shape[0]):
@@ -1856,7 +1855,7 @@ def smooth_distance(masks, dists=None, device=None):
 # I also have some edited trasnforms, namely 
 
 
-### Section V: Helper functions duplicated from Cellpose, plan to find a way to merge them back without import loop
+### Section V: Helper functions duplicated from cellpose_omni, plan to find a way to merge them back without import loop
 
 def get_masks_cp(p, iscell=None, rpad=20, flows=None, use_gpu=False, device=None):
     """ create masks using pixel convergence after running dynamics
@@ -1973,7 +1972,7 @@ def get_masks_cp(p, iscell=None, rpad=20, flows=None, use_gpu=False, device=None
     return M0
 
 
-# duplicated from cellpose temporarily, need to pass through spacetime before re-inserting 
+# duplicated from cellpose_omni temporarily, need to pass through spacetime before re-inserting 
 def fill_holes_and_remove_small_masks(masks, min_size=15, hole_size=3, scale_factor=1, dim=2):
     """ fill holes in masks (2D/3D) and discard masks smaller than min_size (2D)
     
@@ -2047,80 +2046,156 @@ def fill_holes_and_remove_small_masks(masks, min_size=15, hole_size=3, scale_fac
     # return masks
 
 
-def get_boundary(mu,mask):
+def get_boundary(mu,mask,contour=False,use_gpu=False,device=None):
     """
     mask can be binary 
     """
     d = mu.shape[0]
-    axes = range(d)
     pad = 1
     pad_seq = [(0,)*2]+[(pad,)*2]*d
     mu_pad = utils.normalize_field(np.pad(mu,pad_seq))
-    mask_pad = np.pad(mask>0,pad)
-    mag_pad = np.sqrt(np.nansum(mu_pad**2,axis=0))
-    angles1 = []
-    angles2 = []
-    cutoff1 = np.pi*(1/3) # was 1/2, then 1/3, then 
-    cutoff2 = np.pi*(3/4) # was 3/4, changed to 0.9, back to 3/4 
+    lab_pad = np.pad(mask,pad)
+    bd_pad = np.zeros_like(lab_pad,dtype=bool)
+    # print(bd_pad.shape,bd_pad.dtype)
+    # mu_pad = np.pad(mu,pad_seq)
 
     neigh = [[-1,0,1] for i in range(d)]
     steps = cartesian(neigh) # all the possible step sequences in ND    
-    steps = list(set([tuple(s) for s in steps])-set([(0,)*d])) # convert to tuples and remove zero shift element 
-    for s in steps:
-        mu_shift = shift(mu_pad,(0,)+s,order=0,prefilter=0) # (0,) added since we need to prefix a value for each axis
-        mag_shift = np.sqrt(np.nansum(mu_shift**2,axis=0))
-        mask_shift = shift(mask_pad,s,order=0,prefilter=0)
-        # first compare the direction of the flow in the direction of the step 
-        dot1 = np.sum(np.prod(np.stack((mu_pad,mu_shift)),axis=0),axis=0) #/ (mag_pad*mag_shift)
-        angle1 = np.arccos(dot1.clip(-1,1))>cutoff1 
-        angle1[np.logical_and(mask_pad,mask_shift==0)] = np.pi # consider all background pixels to be opposite
-        angle1[mask_pad==0] = 0
-        
-        # next see if the flow is paralle with the step itself 
-        mag_s = np.sqrt(np.nansum(np.array(s)**2,axis=0))
-        dot2 = np.sum([mu_pad[a]*(-s[a]) for a in axes],axis=0) #/ (mag_pad*mag_s)      
-        angle2 = np.arccos(dot2.clip(-1,1))*mag_pad>cutoff2
-        angle2[mask_pad==0] = 0
-        
-        angles1.append(angle1)
-        angles2.append(angle2)
+    steps = np.array(list(set([tuple(s) for s in steps])-set([(0,)*d]))) # remove zero shift element 
 
-    bd_mask = np.any([np.logical_and(a1,a2) for a1,a2 in zip(angles1,angles2)],axis=0)
+    # first time to extract boundaries 
+    bd_pad = _get_bd(steps, np.int32(lab_pad), mu_pad, bd_pad) 
+    bd_pad = remove_small_objects(bd_pad,min_size=9)
+    bd_pad[utils.get_spruepoints(bd_pad)] = False # remove spurs 
+    
     unpad = tuple([slice(pad,-pad)]*d)
-    bd_mask = remove_small_objects(bd_mask,min_size=9)[unpad]
-    bd_mask = np.logical_xor(bd_mask,utils.get_spruepoints(bd_mask)) # remove spurs 
- 
-    return bd_mask
+    
+    #second time to parametrize
+    # probably a way to do the boundary finding and stepping in the same step... 
+    if contour:
+        _,_,T,mu_pad = masks_to_flows(lab_pad,boundaries=bd_pad,
+                              use_gpu=use_gpu,
+                              device=device,smooth=1)
+        
+        step_ok, ind_shift, cross, dot = _get_bd(steps, lab_pad, mu_pad, bd_pad) 
+        values = dot-cross # might be some cancellation here to leverage in computation earlier 
+        bd_coords = np.array(np.nonzero(bd_pad))
+        bd_inds = np.ravel_multi_index(bd_coords,bd_pad.shape)
+        labs = np.take(lab_pad,bd_inds)
+        unique_L = fastremap.unique(labs)
+        contours = parametrize(steps,np.int32(labs),np.int32(unique_L),bd_inds,ind_shift,values,step_ok)
 
-def trace_boundary(bd,mu):
+        contour_map = np.zeros(bd_pad.shape,dtype=np.int32)
+        for contour in contours:
+            coords_t = np.unravel_index(contour,bd_pad.shape)
+            contour_map[coords_t] = np.arange(1,len(contour)+1)
+            
+        return contour_map[unpad]
     
-    coords = np.array(np.nonzero(bd))
-    inds = np.ravel_multi_index(coords,bd.shape)
-    vecs = np.stack([np.take(m,inds) for m in mu])
-    start = np.argmin(coords[0]) # start somewhere consistent
-    param = []
+    else:
+        return bd_pad[unpad]
+
+
+# numba does not wrok yet with this indexing... 
+# @njit('(int64[:,:], int32[:,:], float64[:,:,:], boolean[:,:])', nogil=True)
+def _get_bd(steps, lab_pad, mu_pad, bd_pad):
     
-    neighbors = [[0,1],[1,0],[0,-1],[-1,0]]
-    # this countour tracing should keep trck of the last step as to exclude it
-    # can also just move up, down, left, and right, or maybe look for neighbors
-    # once a neighbor is found, compare flow field (the gradent of distance field)
-    # choose the one with the best matching 
+    get_bd = np.all(~bd_pad)
+    axes = range(mu_pad.shape[0])
+    mask_pad = lab_pad>0
+    mag_pad = np.sqrt(np.sum(mu_pad**2,axis=0))
+    coord = np.nonzero(mask_pad)
+    coords = np.argwhere(mask_pad).T
+    A = mu_pad[(Ellipsis,)+coord]
     
-    for c,v in zip(coords,vecs):
-        # veci = mu[tuple(c)]
-        # print(veci)
-        print(c)
-        # get neighbor points
+    if not get_bd:
+        dot = []
+        cross = []
+        ind_shift = []
+        step_ok = [] #whether or not this step will take you off the boundary 
+    else:
+        angles1 = []
+        angles2 = []
+        cutoff1 = np.pi*(1/3) # was 1/2, then 1/3, then 
+        cutoff2 = np.pi*(3/4) # was 3/4, changed to 0.9, back to 3/4 
+        # cutoff1 = np.pi*1/3
+        # cutoff2 = np.pi*1/4 # too low finds sekeletons 
+
+    for s in steps:
+        # First see if the flow is parallel to the flow OPPOSITE the direction of the step 
+        neigh_opp = tuple(coords-s[np.newaxis].T)
+        B = mu_pad[(Ellipsis,)+neigh_opp]
+        dot1 = np.sum(np.multiply(A,B),axis=0)
         
-        # get vectors
-        
-        #do dot products
-        
-        # chose max
-        
-    # the adjacent dot prodcts are already computed in the get-boundary function, this should be absorbed? 
+        if get_bd:
+            angle1 = np.arccos(dot1.clip(-1,1))
+            angle1[np.logical_and(mask_pad[coord],mask_pad[neigh_opp]==0)] = np.pi # consider all background pixels to be opposite
+
+            # next see if the flow is parallel with the step itself 
+            dot2 = np.sum([A[a]*(-s[a]) for a in axes],axis=0) #/ (mag_pad*mag_s)      
+            angle2 = np.arccos(dot2.clip(-1,1))#*mag_pad[coord] # note the mag_pad multiplication here, attenuates 
+
+            angles1.append(angle1>cutoff1)
+            angles2.append(angle2>cutoff2)
+
+        else:
+            cross.append(np.cross(A,s,axisa=0))
+            dot.append(dot1)
+            coord_shift = tuple(coords[:,bd_pad[coord]]+s[np.newaxis].T)
+            x = np.ravel_multi_index(coord_shift,bd_pad.shape)
+            ind_shift.append(x)
+            step_ok.append(np.logical_and(bd_pad[coord_shift],lab_pad[coord_shift]==lab_pad[bd_pad]))
     
     
+    if get_bd:
+        is_bd = np.any([np.logical_and(a1,a2) for a1,a2 in zip(angles1,angles2)],axis=0)
+        bd_pad = np.zeros_like(mask_pad)
+        bd_pad[coord] = is_bd
+        return bd_pad
+    else:
+        step_ok = np.stack(step_ok)
+        ind_shift = np.array(ind_shift)
+        cross = np.stack([c[bd_pad[coord]] for c in cross])
+        dot = np.stack([d[bd_pad[coord]] for d in dot])    
+        return step_ok, ind_shift, cross, dot
+
+@njit('(int64[:,:], int32[:], int32[:], int64[:], int64[:,:], float64[:,:], boolean[:,:])', nogil=True)
+def parametrize(steps, labs, unique_L, inds, ind_shift, values, step_ok):
+    sign = np.sum(np.abs(steps),axis=1)
+    cardinal_mask = sign>1 # limit to cardinal steps fro traversing 
+    contours = []
+    for l in unique_L:
+        indices = np.argwhere(labs==l).flatten() # which spots withing the inds list etc. are the boundary we want
+
+        # just loop, manually calculate the best step, and proceed
+        index = indices[0]
+        closed = 0
+        contour = []
+        n_iter = 0
+    
+        while not closed and n_iter<len(indices)+1:
+            contour.append(inds[index])
+
+            # first step: find list of local points
+            neighbor_inds = ind_shift[:,index]
+            step_ok_here = step_ok[:,index]
+            seen = np.array([i in contour for i in neighbor_inds])
+            step_mask = (seen+cardinal_mask+~step_ok_here)>0 # save a smidge of time this way vs logical_or 
+            
+            vals = values[:,index]
+            vals[step_mask] = np.inf # avoid these with min 
+            
+            if np.sum(step_mask)<len(step_mask): # 1.1 ms faster than np.any np.any(~step_mask)
+                select = np.argmin(vals)
+                neighbor_idx = neighbor_inds[select]
+                w = np.argwhere(inds[indices]==neighbor_idx)[0][0] # find within limited list
+                index = indices[w]
+                n_iter += 1
+            else:
+                closed = True
+                contours.append(contour)
+    
+    return contours  
 
 from skimage.segmentation import expand_labels 
 def boundary_to_masks(boundaries, binary_mask, min_size=9, dist=np.sqrt(2),connectivity=1):
@@ -2337,3 +2412,5 @@ def build_pants(node,cells,labels,img_stack,depth=0,reference_point=None, debug=
         
         # print(tab+'parent_stack',len(parent_stack))
         return [np.hstack([p,c]) for p,c in zip(parent_stack,child_stack)], [np.hstack([p,c]) for p,c in zip(parent_masks,child_masks)], reference_point, angle
+    
+    

@@ -3,11 +3,9 @@ from setuptools import setup
 
 install_deps = ['numpy>=1.22.4', 'scipy', 'numba', 
                 'edt','scikit-image','ncolor',
-                'scikit-learn',
+                'scikit-learn','torch>=1.10',
                 'mahotas>=1.4.13',
                 'mgen']
-
-gui_deps = ['cellpose-omni[all]>=0.7.3',]
 
 import os
 
@@ -15,8 +13,9 @@ if os.getenv('NO_GUI'):
     extra = 'omni'
 else:
     extra = 'all'
-
-cp_deps = ['cellpose-omni['+extra+']>=0.6.9',]
+    
+cp_ver = '0.7.3'
+cp_deps = ['cellpose-omni['+extra+']>='+cp_ver,]
     
 with open("README.md", "r") as fh:
     long_description = fh.read()
@@ -36,9 +35,6 @@ setup(
     packages=setuptools.find_packages(),
     use_scm_version=True,
     install_requires = install_deps+cp_deps,
-    extras_require = {
-      'all': gui_deps,
-    },
     tests_require=[
       'pytest'
     ],

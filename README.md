@@ -21,7 +21,7 @@ New users can check out the [ZeroCostDL4Mic][ZeroCostDL4Mic] Cellpose notebook o
 
 ## Use the GUI
 
-Launch our Omnipose-optimized version of the Cellpose GUI from terminal: `python -m omnipose`. The latest version of Omnipose (see GitHub installation) automatically downloads the GUI dependencies of our Cellpose fork. On Ubuntu 2022.04 (and possibly earlier), we found it necessary to run the following to install a missing package: 
+Launch our Omnipose-optimized version of the Cellpose GUI from terminal: `python -m omnipose`. The latest version of Omnipose (see GitHub installation) automatically downloads the GUI dependencies of our Cellpose fork. On Ubuntu 2022.04 (and possibly earlier), we found it necessary to run the following to install a missing system package: 
 ```
 sudo apt install libxcb-xinerama0
 ```
@@ -35,7 +35,7 @@ Standalone versions of this GUI for Windows, macOS, and Linux are coming soon.
 2. Open an anaconda prompt / command prompt with `conda` for **python 3** in the path.
 3. To create a new environment, run
     ```
-    conda create --name omnipose 'python>=3.8.5'
+    conda create --name omnipose 'python>=3.8.5' pytorch
     ```
 4. To activate this new environment, run 
     ```
