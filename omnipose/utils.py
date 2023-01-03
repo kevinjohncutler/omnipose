@@ -36,7 +36,7 @@ def shifts_to_slice(shifts,shape):
     """
     max_shift = np.max(shifts,axis=0)
     min_shift = np.min(shifts,axis=0)
-    slc = tuple([slice(np.maximum(0,0-int(mn)),np.minimum(s,s-int(mx))) for mx,mn,s in zip(np.flip(max_shift),np.flip(min_shift),shape)])
+    slc = tuple([slice(np.maximum(0,0+int(mn)),np.minimum(s,s-int(mx))) for mx,mn,s in zip(np.flip(max_shift),np.flip(min_shift),shape)])
     return slc
 
 def make_unique(masks):
@@ -51,7 +51,7 @@ def make_unique(masks):
     return masks
 
 # import imreg_dft 
-def cross_reg(imstack,upsample_factor=100,order=1,normalization=None,cval=None,prefilter=True):
+def cross_reg(imstack,upsample_factor=100,order=1,normalization=None,cval=None,prefilter=True,reverse=True):
     """
     Find the transformation matrices for all images in a time series to align to the beginning frame. 
     """
@@ -59,7 +59,7 @@ def cross_reg(imstack,upsample_factor=100,order=1,normalization=None,cval=None,p
     shape = imstack.shape[-2:]
     regstack = np.zeros_like(imstack)
     shifts = np.zeros((len(imstack),2))
-    for i,im in enumerate(imstack):
+    for i,im in enumerate(imstack[::-1] if reverse else imstack):
         ref = regstack[i-1] if i>0 else im 
         # reference_mask=~np.isnan(ref)
         # moving_mask=~np.isnan(im)
@@ -79,7 +79,10 @@ def cross_reg(imstack,upsample_factor=100,order=1,normalization=None,cval=None,p
         regstack[i] = im_shift(im, shift, order=order, prefilter=prefilter,
                                mode='nearest' if cval is None else 'constant',
                                cval=np.nanmean(imstack[i]) if cval is None else cval)   
-    return shifts, regstack
+    if reverse:
+        return shifts[::-1], regstack[::-1]
+    else:
+        return shifts,restack
 
 def shift_stack(shifts, imstack, order=1, cval=None):
     """
@@ -92,9 +95,6 @@ def shift_stack(shifts, imstack, order=1, cval=None):
                                cval=np.nanmean(imstack[i]) if cval is None else cval)   
     return regstack
 
-def moving_average(x, w, tmats):
-    # return np.convolve(x, np.ones(w), 'valid') / w
-    return convolve1d(tmats,np.ones(w)/w,axis=0)
 
 def normalize_field(mu):
     """ normalize all nonzero field vectors to magnitude 1
@@ -231,7 +231,6 @@ def normalize_stack(vol,mask,bg=0.5,bright_foreground=None):
     return vol
 
 
-
 def bbox_to_slice(bbox,shape,pad=0,im_pad=0):
     """
     return the tuple of slices for cropping an image based on the skimage.measure bounding box
@@ -268,7 +267,7 @@ def bbox_to_slice(bbox,shape,pad=0,im_pad=0):
     return tuple([slice(int(max(im_pad[n],bbox[n]-pad[n])),int(min(bbox[n+dim]+pad[n],shape[n]-im_pad[n]))) for n in range(len(bbox)//2)])
     
 
-def crop_bbox(mask, pad=10, iterations=3, im_pad=0, area_cutoff=0, max_dim=np.inf):
+def crop_bbox(mask, pad=10, iterations=3, im_pad=0, area_cutoff=0, max_dim=np.inf, binary=False):
     """Take a label matrix and return a list of bounding boxes identifying clusters of labels.
     
     Parameters
@@ -285,38 +284,30 @@ def crop_bbox(mask, pad=10, iterations=3, im_pad=0, area_cutoff=0, max_dim=np.in
     Returns
     ---------------
 
-    bbx: list of bounding boxes
+    slices: list of bounding box slices with padding 
     
     """
     bw = binary_dilation(mask>0,iterations=iterations)
     clusters = measure.label(bw)
     regions = measure.regionprops(clusters)
     sz = mask.shape
+    d = mask.ndim
     # ylim = [im_pad,sz[0]-im_pad]
     # xlim = [im_pad,sz[1]-im_pad]
     
-    bboxes = []
+    slices = []
     for props in regions:
         if props.area>area_cutoff:
             bbx = props.bbox 
             minpad = min(pad,bbx[0],bbx[1],sz[0]-bbx[2],sz[1]-bbx[3])
-#             y1 = max(bbx[0]-pad,ylim[0])
-#             x1 = max(bbx[1]-pad,xlim[0])
-#             y2 = min(bbx[2]+pad,ylim[1])
-#             x2 = min(bbx[3]+pad,xlim[1])
-#             w = x2-x1
-#             h = y2-y1
-            
-#             if w>0 and h>0: 
-#                 if w<max_dim and h<max_dim:
-#                     bboxes.append([y1,y2,x1,x2])
-#                     # m = maski[y1:y2,x1:x2].copy()
-#             else:
-#                 return [[0,ylim,0,xlim]]
-            
-            bboxes.append(bbox_to_slice(bbx,sz,pad=minpad,im_pad=im_pad))
+            slices.append(bbox_to_slice(bbx,sz,pad=minpad,im_pad=im_pad))
     
-    return bboxes
+    if binary:
+        start_xy = np.min([[slc[i].start for i in range(d)] for slc in slices],axis=0)
+        stop_xy = np.max([[slc[i].stop for i in range(d)] for slc in slices],axis=0)
+        slices = tuple([slice(start,stop) for start,stop in zip(start_xy,stop_xy)])
+    
+    return slices
 
 def sinebow(N,bg_color=[0,0,0,0]):
     """ Generate a color dictionary for use in visualizing N-colored labels. Background color 
@@ -550,56 +541,65 @@ def rotate(V,theta,order=1,output_shape=None,center=None):
 from sklearn.utils.extmath import cartesian
 from scipy.ndimage import binary_hit_or_miss
 
+
+import mahotas as mh
+
 def get_spruepoints(bw):
     d = bw.ndim
     idx = (3**d)//2 # the index of the center pixel is placed here when considering the neighbor kernel 
     neigh = [[-1,0,1] for i in range(d)]
     steps = cartesian(neigh) # all the possible step sequences in ND
     sign = np.sum(np.abs(steps),axis=1) # signature distinguishing each kind of m-face via the number of steps 
-    uniq = fastremap.unique(sign)
-    inds = [np.where(sign==i)[0] for i in uniq] # 2D: [4], [1,3,5,7], [0,2,6,8]. 1-7 are y axis, 3-5 are x, etc. 
-    fact = np.sqrt(uniq) # weighting factor for each hypercube group 
     
-    hits = []
+    # print(steps)
+    hits = np.zeros_like(bw)
     mid = tuple([1]*d) # kernel 3 wide in every axis, so middle is 1
-    substeps = [steps[i] for i in np.concatenate(inds[1:])]
+    
+    # alt
+    substeps = np.array(list(set([tuple(s) for s in steps])-set([(0,)*d]))) # remove zero shift element 
+    # print(substeps)
     # substeps = steps.copy()
     for step in substeps:
         oppose = np.array([np.dot(step,s) for s in steps])
-        sprue = np.zeros([3]*d) # allocate matrix
-        sprue[tuple(step+1)] = 1
         
-        # just require the center pixel, 
+        sprue = np.zeros([3]*d,dtype=int) # allocate matrix
+        sprue[tuple(mid-step)] = 1
         sprue[mid] = 1
         
-        # ignore the rest 
-        # for idx in np.argwhere(oppose<=0).flatten():
-        #     c = tuple(steps[idx]+1)
-        #     sprue[c] = 1
-        
-        # miss = ndimage.shift(sprue,-step,order=0)
-        miss = np.zeros([3]*d)
-        # for idx in np.argwhere(oppose>0).flatten():
+        miss = np.zeros([3]*d,dtype=int)
         for idx in np.argwhere(np.logical_and(oppose>=0,sign!=0)).flatten():
             c = tuple(steps[idx]+1)
             miss[c] = 1
             
-        # miss+= ndimage.shift(1-sprue,-step,order=0)
-
-        hm = binary_hit_or_miss(bw,
-                               structure1=sprue,
-                               origin1=step,
-                               structure2=miss,
-                               origin2=0
-                              )
-        # if np.any(hm):
-        #     print(sprue)
-        #     print(miss)
-        #     print(step)
+        # hm = binary_hit_or_miss(bw,
+        #                        structure1=sprue,
+        #                        origin1=step,
+        #                        structure2=miss,
+        #                        origin2=0
+        #                       )
+        # print(sprue.dtype,miss.dtype)
+        # hitmiss = 2*np.ones(sprue.shape,dtype=int)
+        # hitmiss[miss] = 0
+        # hitmiss[sprue] = 1
+        # hitmiss = np.logical_and(sprue,~miss).astype(int)
+        # hitmiss[~np.logical_or(sprue,miss)] = 2
         
-        hits.append(hm)
+        hitmiss = 2 - 2*miss - sprue
         
-    return np.sum(hits,axis=0)>0
+        # mahotas hitmiss is far faster than ndimage 
+        hm = mh.morph.hitmiss(bw,hitmiss)
+        # hm = np.zeros_like(bw)
+        # print(step)
+        # print('sprue\n',sprue)
+        # print('miss\n',miss)
+        # print('hitmiss\n',hitmiss)
+        # print()
+        
+        # hits[hm]=True
+        # hits = np.logical_or(hm,hits)
+        hits = hits+hm
+        
+    return hits>0
 
 # from https://stackoverflow.com/questions/47370718/indexing-numpy-array-by-a-numpy-array-of-coordinates
 def ravel_index(b, shp):

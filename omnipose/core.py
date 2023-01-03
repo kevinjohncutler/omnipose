@@ -267,7 +267,7 @@ def labels_to_flows(labels, files=None, use_gpu=False, device=None, omni=True, r
 
     return flows
 
-def masks_to_flows(masks, dists=None, boundaries=None, use_gpu=False, device=None, omni=True, dim=2, smooth=True):
+def masks_to_flows(masks, dists=None, boundaries=None, use_gpu=False, device=None, omni=True, dim=2, smooth=True, normalize=True):
     """Convert masks to flows. 
     
     First, we find the scalar field. In Omnipose, this is the distance field. In Cellpose, 
@@ -359,16 +359,16 @@ def masks_to_flows(masks, dists=None, boundaries=None, use_gpu=False, device=Non
             masks_pad[unpad] = masks
             bd_pad[unpad] = boundaries
             
-            mu, T = masks_to_flows_device(masks_pad, dists, bd_pad, device=device, omni=omni, smooth=smooth)
+            mu, T = masks_to_flows_device(masks_pad, dists, bd_pad, device=device, omni=omni, smooth=smooth, normalize=normalize)
             return masks, dists, T[unpad], mu[(Ellipsis,)+unpad]
 
         else: # reflection not a good idea for centroid model 
-            mu, T = masks_to_flows_device(masks, dists=dists, boundaries=boundaries, device=device, omni=omni, smooth=smooth)
+            mu, T = masks_to_flows_device(masks, dists=dists, boundaries=boundaries, device=device, omni=omni, smooth=smooth, normalize=normalize)
             return masks, dists, T, mu
 
 
 #Now fully converted to work for ND.
-def masks_to_flows_torch(masks, dists, boundaries, device=None, omni=True, smooth=True, niter=None):
+def masks_to_flows_torch(masks, dists, boundaries, device=None, omni=True, smooth=True, normalize=True, niter=None):
     """Convert ND masks to flows. 
     
     Omnipose find distance field, Cellpose uses diffusion from center of mass.
@@ -437,7 +437,8 @@ def masks_to_flows_torch(masks, dists, boundaries, device=None, omni=True, smoot
         mu, T = _extend_centers_torch(masks_padded, centers, boundaries_padded, 
                                       n_iter=n_iter, device=device, omni=omni, smooth=smooth)
         # normalize
-        mu = utils.normalize_field(mu) ##### transforms.normalize_field(mu,omni) # maybe do not normalize the field with my computation now...
+        if normalize:
+            mu = utils.normalize_field(mu) ##### transforms.normalize_field(mu,omni) # maybe do not normalize the field with my computation now...
 
         # put into original image
         mu0 = np.zeros((mu.shape[0],)+masks.shape)
@@ -494,7 +495,7 @@ def _extend_centers_torch(masks, centers, boundaries, n_iter=200, device=torch.d
     inds = [np.where(sign==i)[0] for i in uniq] # 2D: [4], [1,3,5,7], [0,2,6,8]. 1-7 are y axis, 3-5 are x, etc. 
     fact = np.sqrt(uniq) # weighting factor for each hypercube group 
     # determine which pixels are neighbors. Pixels that are within reach (from step list) and the same label
-    # are cosnidered neighbors. However, boundaries should not consider other boundaries neighbors. 
+    # are considered neighbors. However, boundaries should not consider other boundaries neighbors. 
     # this means that the central pixel is not a boundary at the same time as the other. 
     neighbor_masks = masks[tuple(neighbors)] #extract list of label values, 
     neighbor_bd = boundaries[tuple(neighbors)] #extract list of boundary values 
@@ -503,10 +504,10 @@ def _extend_centers_torch(masks, centers, boundaries, n_iter=200, device=torch.d
                                     # neighbor_bd != neighbor_bd[idx], # neighbor not the same as central 
                                     np.logical_and(neighbor_bd==0,neighbor_bd[idx]==0), # or the neighbor is not a boundary
                                     np.logical_and(neighbor_bd==1,neighbor_bd[idx]==0), #
-                                    np.logical_and(neighbor_bd==0,neighbor_bd[idx]==1), #
+                                    np.logical_and(neighbor_bd==0,neighbor_bd[idx]==1), #                                    
                                 ))
                                )
-
+    # isneighbor[np.logical_and(neighbor_bd==1,neighbor_bd[idx]==1)] = 0
     # isneighbor = neighbor_masks == neighbor_masks[idx]
     
     nimg = neighbors.shape[1] // (3**d)
@@ -514,7 +515,8 @@ def _extend_centers_torch(masks, centers, boundaries, n_iter=200, device=torch.d
     T = torch.zeros((nimg,)+masks.shape, dtype=torch.float, device=device)
     isneigh = torch.from_numpy(isneighbor).to(device) # isneigh is <3**d> x <number of points in mask>
     
-    isneigh0 = torch.from_numpy(neighbor_masks == neighbor_masks[idx]).to(device)
+    # isneigh0 = torch.from_numpy(neighbor_masks == neighbor_masks[idx]).to(device) # old?
+    # isneigh0 = torch.from_numpy(isneighbor).to(device)
     
     meds = torch.from_numpy(centers.astype(int)).to(device)
 
@@ -544,24 +546,31 @@ def _extend_centers_torch(masks, centers, boundaries, n_iter=200, device=torch.d
     for idx,f in zip(inds[1:],fact[1:]):
     # for idx,f in zip(inds[1:2],fact[1:2]):
 
-    # for idx,f in zip(inds[2:3],fact[2:3]):
+    # for idx,f in zip(inds[2:3],fact[2:3]): 
+        # might be an issue with calculating gradient where there are are mostly just boundary points
+        # also am I making sure that the derivative does truly ignore neignbors?
     
         # idx = inds[1] # cardinal points
-        mask = isneigh0[idx]    
+        mask = isneigh[idx]    # used to be isneigh0?  
         cardinal_points = (Ellipsis,)+tuple(pt[:,idx]) 
-        vals = (T[cardinal_points]*mask).cpu().squeeze() # prevent bleedover, big problem in stock Cellpose that got reverted! 
+        vals = (T[cardinal_points]*mask).cpu().squeeze()  
+        # T[]*mask prevent bleedover / boundary issues, big problem in stock Cellpose that got reverted!
         
         # pairwise differences, e.g. cardinals of [1,3,5,7] pair up 1 and 7 (0,-1) and 3 and 5 (1,-2)
         diff = np.stack([(vals[-(i+1)] - vals[i]) / (2*f) for i in range(0,vals.shape[0]//2)])
+        
         # unit vectors 
         vecs = steps[idx]
         uvecs = [(vecs[-(i+1)] - vecs[i]) / f for i in range(0,vecs.shape[0]//2)]
+        
         # dot products
         # diff[0]*uvec[0][0] + diff[1]*uvec[0][1]+...
         diff_cardinal = np.stack([np.sum([d*u for d,u in zip(diff,uvecs[i])],axis=0) for i in range(d)])
     
         mu_torch.append(diff_cardinal)
-        
+
+    # maybe I should be summing with a weight according to how many boundary points were involved 
+    # diagonal derivatives give the right field at 
     mu_torch = np.mean(mu_torch,axis=0)
     
     # I need a smoother way to compute the gradient, avergae out multiple directions
@@ -619,7 +628,7 @@ def update_torch(a,f):
 # the 
 def compute_masks(dP, dist, bd=None, p=None, inds=None, niter=200, rescale=1.0, resize=None, 
                   mask_threshold=0.0, diam_threshold=12.,flow_threshold=0.4, 
-                  interp=True, cluster=False, boundary_seg=False, do_3D=False, min_size=None, omni=True, 
+                  interp=True, cluster=False, boundary_seg=False, do_3D=False, min_size=None, hole_size=None, omni=True, 
                   calc_trace=False, verbose=False, use_gpu=False, device=None, nclasses=3, 
                   dim=2, eps=None, hdbscan=False, flow_factor=6, debug=False):
     """
@@ -694,7 +703,10 @@ def compute_masks(dP, dist, bd=None, p=None, inds=None, niter=200, rescale=1.0, 
     """
     # Min size taken to be 9px or 27 voxels etc. if not specified 
     if min_size is None:
-        min_size = 3**dim
+        min_size = 3**dim # N cube 
+    
+    if hole_size is None:
+        hole_size = 3**(dim//2) # just a guess
     
     labels = None
     
@@ -749,7 +761,12 @@ def compute_masks(dP, dist, bd=None, p=None, inds=None, niter=200, rescale=1.0, 
             if verbose:
                 omnipose_logger.info('doing new boundary seg')
             bd = get_boundary(dP,mask)
-            mask, bounds, _ = boundary_to_masks(bd,mask)
+            mask, bounds, _ = boundary_to_masks(bd,mask) 
+            # iscell = mask>0 # must override to fix the self-contact holes we need to keep 
+            # or not, I do not think boundayr seg requires hole filling at all 
+            hole_size = 0 # turn off small hole filling, still do area threhsolding 
+            
+            
             # mask = bounds # test to see if boundary multiplied masks could work 
             # compatibility 
             p = np.zeros([2,1,1])
@@ -815,9 +832,10 @@ def compute_masks(dP, dist, bd=None, p=None, inds=None, niter=200, rescale=1.0, 
         # mask = resize_image(mask, resize[0], resize[1], interpolation=cv2.INTER_NEAREST).astype(np.int32) 
         mask = zoom(mask, resize/np.array(mask.shape), order=0).astype(np.int32) 
     
-    # need to reconsider this for self-contact 
+    # need to reconsider this for self-contact... yep, screws up small holes there, must find a way to exclude 
     # could fill the region internal to boundaries, aka mask0
-    mask = fill_holes_and_remove_small_masks(mask, min_size=min_size, dim=dim)*iscell ##### utils.fill_holes_and_remove_small_masks
+    mask = fill_holes_and_remove_small_masks(mask, min_size=min_size, 
+                                             hole_size=hole_size, dim=dim)*iscell ##### utils.fill_holes_and_remove_small_masks
         
     # print('warning, temp disable remove small masks')
     fastremap.renumber(mask,in_place=True) #convenient to guarantee non-skipped labels
@@ -1999,8 +2017,8 @@ def fill_holes_and_remove_small_masks(masks, min_size=15, hole_size=3, scale_fac
         # formatting to integer is critical
         # need to test how it does with 3D
     masks = ncolor.format_labels(masks, min_area=min_size)#, clean=True)
-        
     hole_size *= scale_factor
+    fill_holes = hole_size>0 # toggle off hole filling by setting hole zie to 0
     
     slices = find_objects(masks)
     j = 0
@@ -2010,9 +2028,10 @@ def fill_holes_and_remove_small_masks(masks, min_size=15, hole_size=3, scale_fac
             npix = msk.sum()
             if min_size > 0 and npix < min_size:
                 masks[slc][msk] = 0
-            else:   
+            elif fill_holes:   
                 hsz = np.count_nonzero(msk)*hole_size/100 #turn hole size into percentage
-                #eventually the boundary output should be used to properly exclude real holes vs label gaps      
+                #eventually the boundary output should be used to properly exclude real holes vs label gaps
+                # for not I just toggle it off 
                 if SKIMAGE_ENABLED: # Omnipose version (passes 2D tests)
                     pad = 1
                     unpad = tuple([slice(pad,-pad)]*msk.ndim) 
@@ -2064,9 +2083,21 @@ def get_boundary(mu,mask,contour=False,use_gpu=False,device=None):
     steps = np.array(list(set([tuple(s) for s in steps])-set([(0,)*d]))) # remove zero shift element 
 
     # first time to extract boundaries 
+    # steps = np.array([[0,1],[1,0],[0,-1],[-1,0]])
+    print(steps)
+    
     bd_pad = _get_bd(steps, np.int32(lab_pad), mu_pad, bd_pad) 
+    # for k in range(2):
+    sprue = 1
+    s_inter = 0
+    while sprue and s_inter<np.sum(bd_pad): 
+    # for k in [0]:
+        sp = utils.get_spruepoints(bd_pad)
+        sprue = np.any(sp)
+        bd_pad[sp] = False # remove spurs 
+        # print(sprue)
+    
     bd_pad = remove_small_objects(bd_pad,min_size=9)
-    bd_pad[utils.get_spruepoints(bd_pad)] = False # remove spurs 
     
     unpad = tuple([slice(pad,-pad)]*d)
     
@@ -2079,6 +2110,8 @@ def get_boundary(mu,mask,contour=False,use_gpu=False,device=None):
         
         step_ok, ind_shift, cross, dot = _get_bd(steps, lab_pad, mu_pad, bd_pad) 
         values = dot-cross # might be some cancellation here to leverage in computation earlier 
+        # values = -cross
+        
         bd_coords = np.array(np.nonzero(bd_pad))
         bd_inds = np.ravel_multi_index(bd_coords,bd_pad.shape)
         labs = np.take(lab_pad,bd_inds)
@@ -2090,7 +2123,7 @@ def get_boundary(mu,mask,contour=False,use_gpu=False,device=None):
             coords_t = np.unravel_index(contour,bd_pad.shape)
             contour_map[coords_t] = np.arange(1,len(contour)+1)
             
-        return contour_map[unpad]
+        return contour_map[unpad], contours
     
     else:
         return bd_pad[unpad]
@@ -2118,8 +2151,15 @@ def _get_bd(steps, lab_pad, mu_pad, bd_pad):
         angles2 = []
         cutoff1 = np.pi*(1/3) # was 1/2, then 1/3, then 
         cutoff2 = np.pi*(3/4) # was 3/4, changed to 0.9, back to 3/4 
-        # cutoff1 = np.pi*1/3
-        # cutoff2 = np.pi*1/4 # too low finds sekeletons 
+        # cutoff1 = np.pi/2
+        # cutoff2 = np.pi*1/6 # too low finds skeletons 
+        
+        # cutoff1 = np.pi*(0.5-(1/6)) # was 1/2, then 1/3, then 
+#         cutoff1 = np.pi*(0.1) # was 1/2, then 1/3, then 
+        
+#         cutoff1 = np.pi*(0.15) # was 1/2, then 1/3, then 
+               
+        # cutoff2 = np.pi*(0.5) # 1/2 fixes some problems 
 
     for s in steps:
         # First see if the flow is parallel to the flow OPPOSITE the direction of the step 
@@ -2197,6 +2237,60 @@ def parametrize(steps, labs, unique_L, inds, ind_shift, values, step_ok):
     
     return contours  
 
+
+def ncolor_contour(contour_map,contour_list):
+    
+    contour_ncolor = np.zeros(np.array(contour_map.shape)+1,np.uint32)
+    for contour in contour_list:
+    # for contour in [contour_list[0]]:
+        ll,mapping = fastremap.renumber(np.array(contour))
+        lab = np.zeros(np.array(contour_map.shape)+1,np.uint32)
+        lab_ncolor = lab.copy() # preallocate ncolor array
+        coords_t = np.unravel_index(contour,np.pad(contour_map,1).shape)
+        lab[coords_t] = ll # this is actually equivalent to contour_map already, optimize later
+        # adjacent points (1 step), diagonal points (2 step) and endpoints
+
+         # all pairs 1 apart, includes ll[-1],ll[0] but not ll[0],ll[-1]
+        contour_connect = [(ll[i],ll[np.mod(i+1,len(ll))]) for i in range(0,len(ll))]
+
+         # all pairs 2 apart, includes ll[-1],l[1] but not (ll[1],ll[-1]), (ll[-2,],ll[0]), (ll[0],ll[-2])
+        contour_connect += [(ll[i-1],ll[np.mod(i+1,len(ll))]) for i in range(0,len(ll))]
+
+        # fill in missing endpoint connections
+        contour_connect += [(ll[0],ll[-1]),(ll[1],ll[-1]),(ll[-2],ll[0]),(ll[0],ll[-2])]
+
+        label_connect = ncolor.connect(lab,conn=2)
+        A = set([tuple(m) for m in label_connect])
+        B = set(contour_connect)
+        C = A-B # set of all nontrivial connections
+        # D = SymDict(C)
+        D = dict([c for c in C])
+        D2 = dict([c[::-1] for c in C])
+        D.update(D2)
+        # print(B)
+        self_connected = list(D.values())
+        current_label = 1
+
+        coords_t = np.array(coords_t).T
+
+        for t,l in enumerate(ll):
+            coord = coords_t[t]
+            if l in self_connected:
+                cc = coords_t[D[l]-1] # get coordinate of self-contact pix
+                vc = lab_ncolor[tuple(cc)] # value of self-contact pix
+
+                # when the previous pixel in contour has the same number as
+                # the self-contact contour, then we need to choose a new color 
+
+                if vc==current_label: #nonzero means we have seen it before
+                    current_label+=1
+            lab_ncolor[tuple(coord)] = current_label
+        lab_ncolor[lab_ncolor>0] += np.max(contour_ncolor)
+        contour_ncolor += lab_ncolor  
+    
+    return contour_ncolor
+    
+
 from skimage.segmentation import expand_labels 
 def boundary_to_masks(boundaries, binary_mask, min_size=9, dist=np.sqrt(2),connectivity=1):
     
@@ -2209,7 +2303,6 @@ def boundary_to_masks(boundaries, binary_mask, min_size=9, dist=np.sqrt(2),conne
     outer_bounds = find_boundaries(masks,mode='inner',connectivity=masks.ndim) #ensure that the mask interfaces are d-1-connected 
     bounds = np.logical_or(inner_bounds,outer_bounds) #restore the inner boundaries 
     return masks, bounds, masks0
-
 
 import math, cv2
 def get_midline(cell,img_stack,reference_point,debug=False):
