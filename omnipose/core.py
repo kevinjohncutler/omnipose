@@ -267,7 +267,8 @@ def labels_to_flows(labels, files=None, use_gpu=False, device=None, omni=True, r
 
     return flows
 
-def masks_to_flows(masks, dists=None, boundaries=None, use_gpu=False, device=None, omni=True, dim=2, smooth=True, normalize=True):
+def masks_to_flows(masks, dists=None, boundaries=None, use_gpu=False, device=None, 
+                   omni=True, dim=2, smooth=True, normalize=True):
     """Convert masks to flows. 
     
     First, we find the scalar field. In Omnipose, this is the distance field. In Cellpose, 
@@ -310,7 +311,7 @@ def masks_to_flows(masks, dists=None, boundaries=None, use_gpu=False, device=Non
         dists = edt.edt(masks,parallel=8)
         
     if boundaries is None:
-        boundaries = find_boundaries(masks,connectivity=dim) # does not find self-interesction boundaries of course 
+        boundaries = find_boundaries(masks,mode='inner',connectivity=dim) # does not find self-interesction boundaries of course 
         
     if device is None:
         if use_gpu:
@@ -450,7 +451,8 @@ def masks_to_flows_torch(masks, dists, boundaries, device=None, omni=True, smoot
         return np.zeros((masks.ndim,)+masks.shape),np.zeros(masks.shape)
 
 # edited slightly to fix a 'bleeding' issue with the gradient; now identical to CPU version
-def _extend_centers_torch(masks, centers, boundaries, n_iter=200, device=torch.device('cuda'), omni=True, smooth=True):
+def _extend_centers_torch(masks, centers, boundaries, links=None, n_iter=200, 
+                          device=torch.device('cuda'), omni=True, smooth=True):
     """ runs diffusion on GPU to generate flows for training images or quality control
     PyTorch implementation is faster than jitted CPU implementation, therefore only the 
     GPU optimized code is being used moving forward. 
@@ -498,15 +500,19 @@ def _extend_centers_torch(masks, centers, boundaries, n_iter=200, device=torch.d
     # are considered neighbors. However, boundaries should not consider other boundaries neighbors. 
     # this means that the central pixel is not a boundary at the same time as the other. 
     neighbor_masks = masks[tuple(neighbors)] #extract list of label values, 
-    neighbor_bd = boundaries[tuple(neighbors)] #extract list of boundary values 
-    isneighbor = np.logical_and(neighbor_masks == neighbor_masks[idx], # must have the same label 
-                                np.logical_or.reduce((
-                                    # neighbor_bd != neighbor_bd[idx], # neighbor not the same as central 
-                                    np.logical_and(neighbor_bd==0,neighbor_bd[idx]==0), # or the neighbor is not a boundary
-                                    np.logical_and(neighbor_bd==1,neighbor_bd[idx]==0), #
-                                    np.logical_and(neighbor_bd==0,neighbor_bd[idx]==1), #                                    
-                                ))
-                               )
+    if links is None:
+        neighbor_bd = boundaries[tuple(neighbors)] #extract list of boundary values 
+        isneighbor = np.logical_and(neighbor_masks == neighbor_masks[idx], # must have the same label 
+                                    np.logical_or.reduce((
+                                        # neighbor_bd != neighbor_bd[idx], # neighbor not the same as central 
+                                        np.logical_and(neighbor_bd==0,neighbor_bd[idx]==0), # or the neighbor is not a boundary
+                                        np.logical_and(neighbor_bd==1,neighbor_bd[idx]==0), #
+                                        np.logical_and(neighbor_bd==0,neighbor_bd[idx]==1), #                                    
+                                    ))
+                                   )
+    else:
+        isneighbor = np.logical_or(neighbor_masks == neighbor_masks[idx], # must have the same label 
+                                    neighbor_masks != neighbor_remap[idx]) # or could be linked
     # isneighbor[np.logical_and(neighbor_bd==1,neighbor_bd[idx]==1)] = 0
     # isneighbor = neighbor_masks == neighbor_masks[idx]
     
@@ -553,11 +559,12 @@ def _extend_centers_torch(masks, centers, boundaries, n_iter=200, device=torch.d
         # idx = inds[1] # cardinal points
         mask = isneigh[idx]    # used to be isneigh0?  
         cardinal_points = (Ellipsis,)+tuple(pt[:,idx]) 
-        vals = (T[cardinal_points]*mask).cpu().squeeze()  
+        vals = (T[cardinal_points]*mask).cpu().numpy().squeeze()  
         # T[]*mask prevent bleedover / boundary issues, big problem in stock Cellpose that got reverted!
-        
+        # print('aa',vals.shape)
         # pairwise differences, e.g. cardinals of [1,3,5,7] pair up 1 and 7 (0,-1) and 3 and 5 (1,-2)
         diff = np.stack([(vals[-(i+1)] - vals[i]) / (2*f) for i in range(0,vals.shape[0]//2)])
+        # print('bb',diff.shape)
         
         # unit vectors 
         vecs = steps[idx]
@@ -566,18 +573,14 @@ def _extend_centers_torch(masks, centers, boundaries, n_iter=200, device=torch.d
         # dot products
         # diff[0]*uvec[0][0] + diff[1]*uvec[0][1]+...
         diff_cardinal = np.stack([np.sum([d*u for d,u in zip(diff,uvecs[i])],axis=0) for i in range(d)])
+        # print('cc',diff_cardinal.shape)
     
         mu_torch.append(diff_cardinal)
 
     # maybe I should be summing with a weight according to how many boundary points were involved 
-    # diagonal derivatives give the right field at 
     mu_torch = np.mean(mu_torch,axis=0)
-    
-    # I need a smoother way to compute the gradient, avergae out multiple directions
-    # cardindals, ordinals, etc. I just need to rotate the field appropriately 
-    
-    
-    return mu_torch, Tcpy.cpu().squeeze()
+
+    return mu_torch,Tcpy.cpu().numpy().squeeze()
 
 def eikonal_update_torch(T,pt,isneigh,d=None,index_list=None,factors=None):
     """Update for iterative solution of the eikonal equation on GPU."""
@@ -630,7 +633,7 @@ def compute_masks(dP, dist, bd=None, p=None, inds=None, niter=200, rescale=1.0, 
                   mask_threshold=0.0, diam_threshold=12.,flow_threshold=0.4, 
                   interp=True, cluster=False, boundary_seg=False, do_3D=False, min_size=None, hole_size=None, omni=True, 
                   calc_trace=False, verbose=False, use_gpu=False, device=None, nclasses=3, 
-                  dim=2, eps=None, hdbscan=False, flow_factor=6, debug=False):
+                  dim=2, eps=None, hdbscan=False, flow_factor=6, debug=False, override=False):
     """
     Compute masks using dynamics from dP, dist, and boundary outputs.
     
@@ -707,7 +710,7 @@ def compute_masks(dP, dist, bd=None, p=None, inds=None, niter=200, rescale=1.0, 
     
     if hole_size is None:
         hole_size = 3**(dim//2) # just a guess
-    
+
     labels = None
     
     if verbose:
@@ -721,7 +724,7 @@ def compute_masks(dP, dist, bd=None, p=None, inds=None, niter=200, rescale=1.0, 
         # print('info', mask.shape, inds.shape)
         mask[tuple(inds)] = 1
     else:
-        if omni and SKIMAGE_ENABLED:
+        if (omni and SKIMAGE_ENABLED) or override:
             if verbose:
                 omnipose_logger.info('Using hysteresis threshold.')
             mask = filters.apply_hysteresis_threshold(dist, mask_threshold-1, mask_threshold) # good for thin features
@@ -737,8 +740,8 @@ def compute_masks(dP, dist, bd=None, p=None, inds=None, niter=200, rescale=1.0, 
         
         #preprocess flows
         if omni and OMNI_INSTALLED:
-            if bd is None:
-                bd = np.ones_like(mask).astype(np.float)
+            # if bd is None:
+            #     bd = np.ones_like(mask).astype(np.float)
 
             # the interpolated version of div_rescale is detrimental in 3D
             # the problem is thin sections where the
@@ -795,15 +798,19 @@ def compute_masks(dP, dist, bd=None, p=None, inds=None, niter=200, rescale=1.0, 
                     omnipose_logger.info('p given')
 
             #calculate masks
-            if omni and OMNI_INSTALLED:
-                mask, labels = get_masks(p, bd, dist, mask, inds,nclasses, cluster=cluster,
+            if (omni and OMNI_INSTALLED) or override:
+                mask, labels = get_masks(p, bd, dist, mask, inds, nclasses, cluster=cluster,
                                          diam_threshold=diam_threshold, verbose=verbose, 
                                          eps=eps, hdbscan=hdbscan) ##### omnipose.core.get_masks
             else:
-                mask = get_masks_cp(p, iscell=mask, flows=dP, use_gpu=use_gpu) ### just get_masks
+                mask = get_masks_cp(p, iscell=iscell, 
+                                    flows = dP if flow_threshold>0 else None, 
+                                    use_gpu=use_gpu) ### just get_masks
         
-            bounds = find_boundaries(mask)
-            
+            if bd is None:
+                bounds = find_boundaries(mask,mode='inner',connectivity=dim)
+            else:
+                bounds = bd
         # flow thresholding factored out of get_masks
         # still could be useful for boundaries! Need to put in the self-contact boundaries as input <<<<<<
         # also can now turn on for do_3D... 
@@ -834,6 +841,7 @@ def compute_masks(dP, dist, bd=None, p=None, inds=None, niter=200, rescale=1.0, 
     
     # need to reconsider this for self-contact... yep, screws up small holes there, must find a way to exclude 
     # could fill the region internal to boundaries, aka mask0
+    # ended up just disabling with hole size 0
     mask = fill_holes_and_remove_small_masks(mask, min_size=min_size, 
                                              hole_size=hole_size, dim=dim)*iscell ##### utils.fill_holes_and_remove_small_masks
         
@@ -1473,6 +1481,7 @@ def random_rotate_and_resize(X, Y=None, scale_range=1., gamma_range=0.5, tyx = (
     
     nimg = len(X)
     imgi  = np.zeros((nimg, nchan)+tyx, np.float32)
+    print(np.array(Y).shape,'C',imgi.shape)
         
     if Y is not None:
         for n in range(nimg):
@@ -1494,6 +1503,7 @@ def random_rotate_and_resize(X, Y=None, scale_range=1., gamma_range=0.5, tyx = (
     for n in range(nimg):
         img = X[n].copy()
         y = None if Y is None else Y[n]
+        print(y.shape,'B')
         # use recursive function here to pass back single image that was cropped appropriately 
         # # print(y.shape)
         # skimage.io.imsave('/home/kcutler/DataDrive/debug/img_orig.png',img[0])
@@ -1573,6 +1583,7 @@ def random_crop_warp(img, Y, nt, tyx, nchan, scale, rescale, scale_range, gamma_
     numpx = np.prod(tyx)
     if Y is not None:
         labels = Y.copy()
+        print(labels.shape,'A')
         # We want the scale distibution to have a mean of 1
         # There may be a better way to skew the distribution to
         # interpolate the parameter space without skewing the mean 
@@ -1610,6 +1621,7 @@ def random_crop_warp(img, Y, nt, tyx, nchan, scale, rescale, scale_range, gamma_
         for k in [0,1]:#[i for i in range(nt) if i not in range(2,5)]: used to do first two and flows, now just first two
             l = labels[k].copy()
             if k==0:
+                print(l.shape,M,tyx)
                 lbl[k] = do_warp(l, M, tyx, offset=offset, order=0, mode=mode) # order 0 is 'nearest neighbor'
                 # check to make sure the region contains at enough cell pixels; if not, retry
                 cellpx = np.sum(lbl[k]>0)
@@ -1627,11 +1639,18 @@ def random_crop_warp(img, Y, nt, tyx, nchan, scale, rescale, scale_range, gamma_
                 # if k==1:
                 #     print('fgd', np.sum(lbl[k]))
         
-        # LABELS ARE NOW (masks,mask) for semantic seg + (bd,dist,weight,flows) for instance seg
+        # LABELS ARE NOW (masks,mask) for semantic seg with additional (bd,dist,weight,flows) for instance seg
         # semantic seg label transformations taken care of above, those are simple enough. Others
         # must be computed after mask transformations are made. 
         if nt > 2:
             l = lbl[0].astype(np.uint16)
+            # insert boundary here
+            do_boundary = 0
+            # if do_boundary:
+                # bd = l==2
+                # inner = l==1
+                # yes, I do need a function that can fix label thickness 
+                # need to have the inners labelled so that swiching dones't hurt it 
             l, dist, T, mu = masks_to_flows(l,omni=True,dim=dim)
             cutoff = diameters(l,dist)/2
             lbl[2] = dist==1 # position 2 stores the boundary field
@@ -1644,9 +1663,9 @@ def random_crop_warp(img, Y, nt, tyx, nchan, scale, rescale, scale_range, gamma_
             # for larger MSE
             
             # print('dists',np.max(dist),np.max(smooth_dist))
-            # the black border may not be good in 3D, as it highlights a larger fraction? 
+            # the black border arg may not be good in 3D, as it highlights a larger fraction? 
             mask = lbl[1] #binary mask 
-            bg_edt = edt.edt(mask<0.5,black_border=True) #last arg gives weight to the border, which seems to always lose
+            bg_edt = edt.edt(mask<0.5,black_border=True) #last arg gives weight to the border
             lbl[4] = (gaussian(1-np.clip(bg_edt,0,cutoff)/cutoff, 1)+0.5)
 
 
@@ -1863,7 +1882,7 @@ def smooth_distance(masks, dists=None, device=None):
     for t in range(n_iter):
         T[(Ellipsis,)+tuple(pt[:,idx])] = eikonal_update_torch(T,pt,isneigh,d,inds,fact) 
         
-    return T.cpu().squeeze().numpy()[tuple([slice(pad,-pad)]*d)]
+    return T.cpu().numpy().squeeze()[tuple([slice(pad,-pad)]*d)]
 
 
 ### Section IV: duplicated mask recontruction
@@ -2035,7 +2054,7 @@ def fill_holes_and_remove_small_masks(masks, min_size=15, hole_size=3, scale_fac
                 if SKIMAGE_ENABLED: # Omnipose version (passes 2D tests)
                     pad = 1
                     unpad = tuple([slice(pad,-pad)]*msk.ndim) 
-                    padmsk = remove_small_holes(np.pad(msk,pad,mode='constant'),hsz)
+                    padmsk = remove_small_holes(np.pad(msk,pad,mode='constant'),area_threshold=hsz)
                     msk = padmsk[unpad]
                 else: #Cellpose version
                     msk = binary_fill_holes(msk)
@@ -2082,10 +2101,7 @@ def get_boundary(mu,mask,contour=False,use_gpu=False,device=None):
     steps = cartesian(neigh) # all the possible step sequences in ND    
     steps = np.array(list(set([tuple(s) for s in steps])-set([(0,)*d]))) # remove zero shift element 
 
-    # first time to extract boundaries 
-    # steps = np.array([[0,1],[1,0],[0,-1],[-1,0]])
-    print(steps)
-    
+    # first time to extract boundaries    
     bd_pad = _get_bd(steps, np.int32(lab_pad), mu_pad, bd_pad) 
     # for k in range(2):
     sprue = 1
@@ -2238,15 +2254,15 @@ def parametrize(steps, labs, unique_L, inds, ind_shift, values, step_ok):
     return contours  
 
 
-def ncolor_contour(contour_map,contour_list):
+def ncolor_contour(contour_map,contour_list,pad=1):
     
-    contour_ncolor = np.zeros(np.array(contour_map.shape)+1,np.uint32)
+    contour_ncolor = np.zeros(np.array(contour_map.shape)+2*pad,np.uint32)
     for contour in contour_list:
     # for contour in [contour_list[0]]:
         ll,mapping = fastremap.renumber(np.array(contour))
-        lab = np.zeros(np.array(contour_map.shape)+1,np.uint32)
+        lab = np.zeros(np.array(contour_map.shape)+2*pad,np.uint32)
         lab_ncolor = lab.copy() # preallocate ncolor array
-        coords_t = np.unravel_index(contour,np.pad(contour_map,1).shape)
+        coords_t = np.unravel_index(contour,np.pad(contour_map,pad).shape)
         lab[coords_t] = ll # this is actually equivalent to contour_map already, optimize later
         # adjacent points (1 step), diagonal points (2 step) and endpoints
 
@@ -2288,21 +2304,33 @@ def ncolor_contour(contour_map,contour_list):
         lab_ncolor[lab_ncolor>0] += np.max(contour_ncolor)
         contour_ncolor += lab_ncolor  
     
-    return contour_ncolor
+    unpad = tuple([slice(pad,-pad)]*lab.ndim)
+    return contour_ncolor[unpad]
     
 
 from skimage.segmentation import expand_labels 
-def boundary_to_masks(boundaries, binary_mask, min_size=9, dist=np.sqrt(2),connectivity=1):
+
+# hmm so in fact binary internal masks would work too
+# the assumption is simply that the inner masks are separated by 2px boundaries 
+def boundary_to_masks(boundaries, binary_mask=None, min_size=9, dist=np.sqrt(2),connectivity=1):
     
-    masks0 = remove_small_objects(measure.label((1-boundaries)*binary_mask,connectivity=connectivity),min_size=min_size)
+    nlab = len(fastremap.unique(np.uint32(boundaries)))
+    # 0-1-2 format can also work here 
+    if binary_mask is None:
+        if nlab==3:
+            inner_mask = boundaries==1
+        else:
+            omnipose_logger.warning('boundary labels improperly formatted')
+    else:
+        inner_mask = remove_small_objects(measure.label((1-boundaries)*binary_mask,connectivity=connectivity),min_size=min_size)
     # bounds = find_boundaries(masks0,mode='outer')
     
-    masks =  expand_labels(masks0,dist)
-    # bounds = masks - masks0
-    inner_bounds = (masks - masks0) > 0
+    masks = expand_labels(inner_mask,dist) # need to genralize dist to fact in ND <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<
+    # bounds = masks - inner_mask
+    inner_bounds = (masks - inner_mask) > 0
     outer_bounds = find_boundaries(masks,mode='inner',connectivity=masks.ndim) #ensure that the mask interfaces are d-1-connected 
     bounds = np.logical_or(inner_bounds,outer_bounds) #restore the inner boundaries 
-    return masks, bounds, masks0
+    return masks, bounds, inner_mask
 
 import math, cv2
 def get_midline(cell,img_stack,reference_point,debug=False):
