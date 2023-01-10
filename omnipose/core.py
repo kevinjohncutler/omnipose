@@ -818,7 +818,8 @@ def compute_masks(dP, dist, bd=None, p=None, inds=None, niter=200, rescale=1.0, 
             shape0 = dP.shape[1:]
             flows = dP
             if mask.max()>0 and flow_threshold is not None and flow_threshold > 0 and flows is not None:
-                mask = remove_bad_flow_masks(mask, flows, bounds, threshold=flow_threshold, use_gpu=use_gpu, device=device, omni=omni)
+                mask = remove_bad_flow_masks(mask, flows, bounds, threshold=flow_threshold, 
+                                             use_gpu=use_gpu, device=device, omni=omni)
                 _,mask = np.unique(mask, return_inverse=True)
                 mask = np.reshape(mask, shape0).astype(np.int32)
         
@@ -830,15 +831,14 @@ def compute_masks(dP, dist, bd=None, p=None, inds=None, niter=200, rescale=1.0, 
         bounds = mask
         # mask = np.zeros(resize,dtype=np.uint8) if resize is not None else np.zeros_like(dist) not necessary, would be zeros 
     
-    
-    
+        
     # Resize mask, semantic or instance 
     if resize is not None:
         if verbose:
             omnipose_logger.info(f'resizing output with resize = {resize}')
         # mask = resize_image(mask, resize[0], resize[1], interpolation=cv2.INTER_NEAREST).astype(np.int32) 
         mask = zoom(mask, resize/np.array(mask.shape), order=0).astype(np.int32) 
-    
+        iscell = zoom(iscell, resize/np.array(iscell.shape), order=0).astype(np.bool) 
     # need to reconsider this for self-contact... yep, screws up small holes there, must find a way to exclude 
     # could fill the region internal to boundaries, aka mask0
     # ended up just disabling with hole size 0
