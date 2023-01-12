@@ -687,7 +687,7 @@ def compute_masks(dP, dist, bd=None, p=None, inds=None, niter=200, rescale=1.0, 
     hdbscan: 
         use better, but much SLOWER, hdbscan clustering algorithm (experimental)
     flow_factor:
-        multiple to increase flow magnitdue (used in 3D only, experimental)
+        multiple to increase flow magnitude (used in 3D only, experimental)
     debug:
         option to return list of unique mask labels as a fourth output (for debugging only)
 
@@ -1481,7 +1481,7 @@ def random_rotate_and_resize(X, Y=None, scale_range=1., gamma_range=0.5, tyx = (
     
     nimg = len(X)
     imgi  = np.zeros((nimg, nchan)+tyx, np.float32)
-    print(np.array(Y).shape,'C',imgi.shape)
+    # print(np.array(Y).shape,'C',imgi.shape)
         
     if Y is not None:
         for n in range(nimg):
@@ -1503,7 +1503,7 @@ def random_rotate_and_resize(X, Y=None, scale_range=1., gamma_range=0.5, tyx = (
     for n in range(nimg):
         img = X[n].copy()
         y = None if Y is None else Y[n]
-        print(y.shape,'B')
+        # print(y.shape,'B')
         # use recursive function here to pass back single image that was cropped appropriately 
         # # print(y.shape)
         # skimage.io.imsave('/home/kcutler/DataDrive/debug/img_orig.png',img[0])
@@ -1583,7 +1583,7 @@ def random_crop_warp(img, Y, nt, tyx, nchan, scale, rescale, scale_range, gamma_
     numpx = np.prod(tyx)
     if Y is not None:
         labels = Y.copy()
-        print(labels.shape,'A')
+        # print(labels.shape,'A')
         # We want the scale distibution to have a mean of 1
         # There may be a better way to skew the distribution to
         # interpolate the parameter space without skewing the mean 
@@ -1621,7 +1621,7 @@ def random_crop_warp(img, Y, nt, tyx, nchan, scale, rescale, scale_range, gamma_
         for k in [0,1]:#[i for i in range(nt) if i not in range(2,5)]: used to do first two and flows, now just first two
             l = labels[k].copy()
             if k==0:
-                print(l.shape,M,tyx)
+                # print(l.shape,M,tyx)
                 lbl[k] = do_warp(l, M, tyx, offset=offset, order=0, mode=mode) # order 0 is 'nearest neighbor'
                 # check to make sure the region contains at enough cell pixels; if not, retry
                 cellpx = np.sum(lbl[k]>0)
