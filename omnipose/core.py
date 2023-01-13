@@ -51,7 +51,7 @@ torch_CPU = torch.device('cpu')
 # except:
 #     SKLEARN_ENABLED = False
 
-from sklearn.cluster import DBSCAN
+from sklearn.cluster import DBSCAN, SpectralClustering
 from sklearn.neighbors import NearestNeighbors
 SKLEARN_ENABLED = True 
 
@@ -533,6 +533,10 @@ def _extend_centers_torch(masks, centers, boundaries, links=None, n_iter=200,
     for t in range(n_iter):
         if omni and OMNI_INSTALLED:
             T[mask_pix] = eikonal_update_torch(T,pt,isneigh,d,inds,fact) ##### omnipose.core.eikonal_update_torch
+            
+             #appears to work with smooth enabled and my boundary neighbor code? 
+            # not a true distance field, but faster to compute 
+            # T[mask_pix] += 1
         else:
             T[center_pix] += 1
             
@@ -631,7 +635,8 @@ def update_torch(a,f):
 # the 
 def compute_masks(dP, dist, bd=None, p=None, inds=None, niter=200, rescale=1.0, resize=None, 
                   mask_threshold=0.0, diam_threshold=12.,flow_threshold=0.4, 
-                  interp=True, cluster=False, boundary_seg=False, do_3D=False, min_size=None, hole_size=None, omni=True, 
+                  interp=True, cluster=False, boundary_seg=False, do_3D=False, 
+                  min_size=None, hole_size=None, omni=True, 
                   calc_trace=False, verbose=False, use_gpu=False, device=None, nclasses=3, 
                   dim=2, eps=None, hdbscan=False, flow_factor=6, debug=False, override=False):
     """
@@ -1007,6 +1012,9 @@ def get_masks(p, bd, dist, mask, inds, nclasses=4,cluster=False,
         if verbose:
             alg = ['','H']
             omnipose_logger.info('Doing {}DBSCAN clustering with eps={}'.format(alg[hdbscan],eps))
+
+        if hdbscan and not HDBSCAN_ENABLED:
+            omnipose_logger.warning('HDBSCAN clustering requested but not installed. Defaulting to DBSCAN')
         
         if hdbscan and HDBSCAN_ENABLED:
             clusterer = HDBSCAN(cluster_selection_epsilon=eps,
@@ -1016,8 +1024,18 @@ def get_masks(p, bd, dist, mask, inds, nclasses=4,cluster=False,
             clusterer = DBSCAN(eps=eps, min_samples=5, n_jobs=-1)
         
         clusterer.fit(newinds)
+        # print(dir(clusterer))
+        # print(clusterer.p)
         labels = clusterer.labels_
         executionTime = (time.time() - startTime)
+        
+        # filter out small clusters
+        # unique_labels = set(labels) - {-1,0}
+        # print(unique_labels)
+        # for l in unique_labels:
+        #     hits = labels==l
+        #     if np.sum(hits)<9:
+        #         labels[hits] = -1 # make outliers
         
         if verbose:
             print('Execution time in seconds: ' + str(executionTime))
@@ -1028,6 +1046,7 @@ def get_masks(p, bd, dist, mask, inds, nclasses=4,cluster=False,
         if snap:
             nearest_neighbors = NearestNeighbors(n_neighbors=50)
             neighbors = nearest_neighbors.fit(newinds)
+            # print(dir(neighbors))
             o_inds= np.where(labels==-1)[0]
             if len(o_inds)>1:
                 outliers = [newinds[i] for i in o_inds]
