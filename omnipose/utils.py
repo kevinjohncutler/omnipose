@@ -30,13 +30,19 @@ def to_16_bit(im):
 def to_8_bit(im):
     return np.uint8(rescale(im)*(2**8-1))
 
+
+
 def shifts_to_slice(shifts,shape):
     """
     Find the minimal crop box from time lapse registraton shifts.
     """
-    max_shift = np.max(shifts,axis=0)
-    min_shift = np.min(shifts,axis=0)
-    slc = tuple([slice(np.maximum(0,0+int(mn)),np.minimum(s,s-int(mx))) for mx,mn,s in zip(np.flip(max_shift),np.flip(min_shift),shape)])
+#     max_shift = np.max(shifts,axis=0)
+#     min_shift = np.min(shifts,axis=0)
+#     slc = tuple([slice(np.maximum(0,0+int(mn)),np.minimum(s,s-int(mx))) for mx,mn,s in zip(np.flip(max_shift),np.flip(min_shift),shape)])
+    # slc = tuple([slice(np.maximum(0,0+int(mn)),np.minimum(s,s-int(mx))) for mx,mn,s in zip(max_shift,min_shift,shape)])
+    upper_shift = np.min(shifts,axis=0)
+    lower_shift = np.max(shifts,axis=0)
+    slc = tuple([slice(np.maximum(0,0+int(l)),np.minimum(s,s-int(u))) for u,l,s in zip(upper_shift,lower_shift,shape)])
     return slc
 
 def make_unique(masks):
@@ -51,7 +57,8 @@ def make_unique(masks):
     return masks
 
 # import imreg_dft 
-def cross_reg(imstack,upsample_factor=100,order=1,normalization=None,cval=None,prefilter=True,reverse=True):
+def cross_reg(imstack,upsample_factor=100,order=1,
+              normalization=None,cval=None,prefilter=True,reverse=True):
     """
     Find the transformation matrices for all images in a time series to align to the beginning frame. 
     """
@@ -84,11 +91,12 @@ def cross_reg(imstack,upsample_factor=100,order=1,normalization=None,cval=None,p
     else:
         return shifts,restack
 
-def shift_stack(shifts, imstack, order=1, cval=None):
+def shift_stack(imstack, shifts, order=1, cval=None):
     """
     Shift each time slice of imstack according to list of 2D shifts. 
     """
     regstack = np.zeros_like(imstack)
+    print()
     for i in range(len(shifts)):        
         regstack[i] = im_shift(imstack[i],shifts[i],order=order, 
                                mode='nearest' if cval is None else 'constant',
@@ -180,6 +188,28 @@ def normalize_image(im,mask,bg=0.5,dim=2):
         
     return np.stack(im,axis=0).squeeze()
 
+
+from skimage import color
+def mask_outline_overlay(img,masks,outlines,mono=None):
+    if mono is None:
+        m,n = ncolor.label(masks,max_depth=20,return_n=True)
+        c = sinebow(n)
+        colors = np.array(list(c.values()))[1:]
+        print(colors)
+    else:
+        colors = mono
+        m = masks>0
+    im = rescale(color.rgb2gray(img))
+    overlay = color.label2rgb(m,im,colors,
+                              bg_label=0,
+                              alpha=np.stack([((m>0)*1.+outlines*0.75)/3]*3,axis=-1))
+    return overlay
+
+def mono_mask_bd(masks,outlines,color=[1,0,0],a=0.25):
+    m = masks>0
+    alpha = (m>0)*a+outlines*(1-a)
+    return np.stack([m*c for c in color]+[alpha],axis=-1)
+
 def moving_average(x, w):
     return convolve1d(x,np.ones(w)/w,axis=0)
 
@@ -267,7 +297,7 @@ def bbox_to_slice(bbox,shape,pad=0,im_pad=0):
     return tuple([slice(int(max(im_pad[n],bbox[n]-pad[n])),int(min(bbox[n+dim]+pad[n],shape[n]-im_pad[n]))) for n in range(len(bbox)//2)])
     
 
-def crop_bbox(mask, pad=10, iterations=3, im_pad=0, area_cutoff=0, max_dim=np.inf, binary=False):
+def crop_bbox(mask, pad=10, iterations=3, im_pad=0, area_cutoff=0, max_dim=np.inf, get_biggest=False, binary=False):
     """Take a label matrix and return a list of bounding boxes identifying clusters of labels.
     
     Parameters
@@ -296,11 +326,18 @@ def crop_bbox(mask, pad=10, iterations=3, im_pad=0, area_cutoff=0, max_dim=np.in
     # xlim = [im_pad,sz[1]-im_pad]
     
     slices = []
-    for props in regions:
-        if props.area>area_cutoff:
-            bbx = props.bbox 
-            minpad = min(pad,bbx[0],bbx[1],sz[0]-bbx[2],sz[1]-bbx[3])
-            slices.append(bbox_to_slice(bbx,sz,pad=minpad,im_pad=im_pad))
+    if get_biggest:
+        w = np.argmax([props.area for props in regions])
+        bbx = regions[w].bbox 
+        minpad = min(pad,bbx[0],bbx[1],sz[0]-bbx[2],sz[1]-bbx[3])
+        slices.append(bbox_to_slice(bbx,sz,pad=minpad,im_pad=im_pad))
+        
+    else:
+        for props in regions:
+            if props.area>area_cutoff:
+                bbx = props.bbox 
+                minpad = min(pad,bbx[0],bbx[1],sz[0]-bbx[2],sz[1]-bbx[3])
+                slices.append(bbox_to_slice(bbx,sz,pad=minpad,im_pad=im_pad))
     
     if binary:
         start_xy = np.min([[slc[i].start for i in range(d)] for slc in slices],axis=0)
@@ -335,7 +372,32 @@ def sinebow(N,bg_color=[0,0,0,0]):
         colordict.update({j+1:[r,g,b,1]})
     return colordict
 
+import matplotlib as mpl
 
+import ncolor
+def apply_ncolor(masks):
+    m,n = ncolor.label(masks,max_depth=20,return_n=True,conn=2)
+    c = sinebow(n)
+    colors = np.array(list(c.values()))
+    cmap = mpl.colors.ListedColormap(colors)
+    return cmap(m)
+
+import matplotlib.pyplot as plt
+def imshow(img,figsize=2,**kwargs):
+    if type(figsize) is not (list or tuple):
+        figsize = (figsize,figsize)
+    plt.figure(frameon=False,figsize=figsize)
+    plt.imshow(img,**kwargs)
+    plt.axis("off")
+    plt.show()
+
+# def get_cmap(masks):
+#     lut = ncolor.get_lut(masks)
+#     c = sinebow(lut.max())
+#     colors = [c[l] for l in lut]
+#     cmap = mpl.colors.ListedColormap(colors)
+#     return cmap
+    
 def get_boundary(mask):
     """ND binary mask boundary using mahotas.
     
@@ -385,7 +447,7 @@ def clean_boundary(labels, boundary_thickness=3, area_thresh=30, cutoff=0.5):
 
     return clean_labels
 
-
+# This function takes a few milliseconds for a typical image 
 def get_edge_masks(labels,dists):
     """Finds and returns masks that are largely cut off by the edge of the image.
     
@@ -469,7 +531,9 @@ def curve_filter(im,filterWidth=1.5):
            im_xy :
 
     """
-    shape = [np.floor(7*filterWidth)]*2
+    shape = [np.floor(7*filterWidth) //2 *2 +1]*2 # minor modification is to make this odd
+    
+    # print('shape is',shape,'oldshape',np.floor(7*filterWidth) )
     m,n = [(s-1.)/2. for s in shape]
     y,x = np.ogrid[-m:m+1,-n:n+1]
     v = filterWidth**2
@@ -601,6 +665,24 @@ def get_spruepoints(bw):
         
     return hits>0
 
+def localnormalize(im,sigma1=2,sigma2=20):
+    im = normalize99(im)
+    blur1 = gaussian_filter(im,sigma=sigma1)
+    num = im - blur1
+    blur2 = gaussian_filter(num*num, sigma=sigma2)
+    den = np.sqrt(blur2)
+    
+    return normalize99(num/den+1e-8)
+
 # from https://stackoverflow.com/questions/47370718/indexing-numpy-array-by-a-numpy-array-of-coordinates
 def ravel_index(b, shp):
     return np.concatenate((np.asarray(shp[1:])[::-1].cumprod()[::-1],[1])).dot(b)
+
+# https://stackoverflow.com/questions/31544129/extract-separate-non-zero-blocks-from-array
+def find_nonzero_runs(a):
+    # Create an array that is 1 where a is nonzero, and pad each end with an extra 0.
+    isnonzero = np.concatenate(([0], (np.asarray(a) != 0).view(np.int8), [0]))
+    absdiff = np.abs(np.diff(isnonzero))
+    # Runs start and end where absdiff is 1.
+    ranges = np.where(absdiff == 1)[0].reshape(-1, 2)
+    return ranges

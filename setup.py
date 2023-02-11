@@ -2,10 +2,10 @@ import setuptools
 from setuptools import setup
 
 install_deps = ['numpy>=1.22.4', 'scipy', 'numba', 
-                'edt','scikit-image','ncolor',
+                'edt','scikit-image','ncolor>=1.2.1',
                 'scikit-learn','torch>=1.10',
                 'mahotas>=1.4.13',
-                'mgen']
+                'mgen','matplotlib','networkx']
 
 import os
 

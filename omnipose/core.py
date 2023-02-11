@@ -6,6 +6,7 @@ from scipy.ndimage import binary_dilation, binary_opening, binary_closing, label
 from skimage.morphology import remove_small_objects
 from sklearn.utils.extmath import cartesian
 from skimage.segmentation import find_boundaries
+import networkx as nx
 
 
 import fastremap
@@ -15,6 +16,10 @@ import mgen #ND rotation matrix
 from . import utils
 from ncolor.format_labels import delete_spurs
 
+# Use of sets...
+from numba.core.errors import NumbaDeprecationWarning, NumbaPendingDeprecationWarning
+import warnings
+warnings.simplefilter('ignore', category=NumbaPendingDeprecationWarning)
 
 
 # define the list of unqiue omnipose models 
@@ -196,7 +201,7 @@ def diameters(masks, dt=None, dist_threshold=0):
 # It is possible that flows can be eliminated in place of the distance field. The current distance field may not be smooth 
 # enough, or maybe the network really does require the flow field prediction to work well. But in 3D, it will be a huge
 # advantage if the network could predict just the distance (and boudnary) classes and not 3 extra flow components. 
-def labels_to_flows(labels, files=None, use_gpu=False, device=None, omni=True, redo_flows=False, dim=2):
+def labels_to_flows(labels, links=None, files=None, use_gpu=False, device=None, omni=True, redo_flows=False, dim=2):
     """ Convert labels (list of masks or flows) to flows for training model.
 
     if files is not None, flows are saved to files to be reused
@@ -206,6 +211,10 @@ def labels_to_flows(labels, files=None, use_gpu=False, device=None, omni=True, r
     labels: list of ND-arrays
         labels[k] can be 2D or 3D, if [3 x Ly x Lx] then it is assumed that flows were precomputed.
         Otherwise labels[k][0] or labels[k] (if 2D) is used to create flows.
+    links: list of label links
+        These lists of label pairs define which labels are "linked",
+        i.e. should be treated as part of the same object. This is how
+        Omnipose handles internal/self-contact boundaries during training. 
     files: list of strings
         list of file names for the base images that are appended with '_flows.tif' for saving. 
     use_gpu: bool
@@ -233,6 +242,8 @@ def labels_to_flows(labels, files=None, use_gpu=False, device=None, omni=True, r
     
     
     nimg = len(labels)
+    if links is None:
+        links = [None]*nimg # just for entering below 
     no_flow = labels[0].ndim != 3+dim # (6,Lt,Ly,Lx) for 3D, masks + dist + boundary + flow components, then image dimensions 
     
     if no_flow or redo_flows:
@@ -240,7 +251,7 @@ def labels_to_flows(labels, files=None, use_gpu=False, device=None, omni=True, r
         omnipose_logger.info('NOTE: computing flows for labels (could be done before to save time)')
         
         # compute flows; labels are fixed in masks_to_flows, so they need to be passed back
-        labels, dist, heat, veci = map(list,zip(*[masks_to_flows(labels[n],use_gpu=use_gpu, 
+        labels, dist, heat, veci = map(list,zip(*[masks_to_flows(labels[n], links=links[n], use_gpu=use_gpu, 
                                                                  device=device, omni=omni, dim=dim) 
                                                   for n in trange(nimg)])) 
         
@@ -267,8 +278,8 @@ def labels_to_flows(labels, files=None, use_gpu=False, device=None, omni=True, r
 
     return flows
 
-def masks_to_flows(masks, dists=None, boundaries=None, use_gpu=False, device=None, 
-                   omni=True, dim=2, smooth=True, normalize=True):
+def masks_to_flows(masks, dists=None, boundaries=None, links=None, use_gpu=False, device=None, 
+                   omni=True, dim=2, smooth=True, normalize=True, n_iter=None):
     """Convert masks to flows. 
     
     First, we find the scalar field. In Omnipose, this is the distance field. In Cellpose, 
@@ -282,9 +293,14 @@ def masks_to_flows(masks, dists=None, boundaries=None, use_gpu=False, device=Non
     Parameters
     -------------
     masks: int, ND array
-        labelled masks, 0 = background, 1,2,...,N = mask labels   
+        labeled masks, 0 = background, 1,2,...,N = mask labels   
     dists: ND array, float
-        array of (nonnegative) distance field values
+        array of (nonnegative) distance field values    
+    boundaries: ND array, bool
+        boundary point array, alternative to providing overseg labels and links
+        not used during training due to affine warp artifacts 
+    links: list of label links
+        list of tuples used for treating label pairs as the same  
     use_gpu: bool
         flag to use GPU for speedup. Note that Omnipose fixes some bugs that caused the Cellpose GPU implementation
         to have different behavior compared to the Cellpose CPU implementation. 
@@ -306,12 +322,30 @@ def masks_to_flows(masks, dists=None, boundaries=None, use_gpu=False, device=Non
 
     """
     m_orig = masks.copy()
-    if dists is None:
-        masks = ncolor.format_labels(masks)
-        dists = edt.edt(masks,parallel=8)
+    if links is not None and dists is not None:
+        print('Your dists are probably wrong...')
+        masks_recon = masks
         
+    if dists is None:
+        # formatting reshuffles indices, so only do this
+        # when no links are pesent 
+        if links is None:
+            masks = ncolor.format_labels(masks)
+            dists = edt.edt(masks,parallel=-1)
+            masks_recon = masks
+        else:
+            boundaries,masks,_,_ = links_to_boundary(masks,links) 
+            masks_recon = links_to_mask(masks,links)
+            # this distance field is not completely accurate, but the point of it
+            # is to estimate the number of iterations needed only, so close enough
+            # better this than have self-contact boundaries mess up the distance field
+            # and therefore completely overestimate the number of iterations required 
+            # (Need to test to see if checking for convergence is faster...)
+            dists = edt.edt(masks_recon-boundaries,parallel=-1)+(masks_recon>0)
+
     if boundaries is None:
-        boundaries = find_boundaries(masks,mode='inner',connectivity=dim) # does not find self-interesction boundaries of course 
+        # boundaries = find_boundaries(masks,mode='inner',connectivity=dim) # does not find self-interesction boundaries of course 
+        boundaries = np.zeros_like(masks)
         
     if device is None:
         if use_gpu:
@@ -346,30 +380,36 @@ def masks_to_flows(masks, dists=None, boundaries=None, use_gpu=False, device=Non
         if omni and OMNI_INSTALLED: 
             # padding helps avoid edge artifacts from cut-off cells 
             # amount of padding should depend on how wide the cells are 
-            pad = int(diameters(masks,dists)/2)
+            pad = int(diameters(masks,dists)/2) # masks not used here except for ndim 
             unpad = tuple([slice(pad,-pad) if pad else slice(None,None)]*masks.ndim) # works in case pad is zero
             
             # reflect over those masks with high distance at the boundary, relevant when cropping 
             # step 1: remove any masks we do not want to reflect, then perform reflection padding
-            edge_masks = utils.get_edge_masks(masks,dists=dists)
-            edge_bd = boundaries*(edge_masks>0)
-            masks_pad = np.pad(edge_masks,pad,mode='reflect') 
-            bd_pad = np.pad(edge_bd,pad,mode='reflect') # note that the boundaries better not contain the edge of the image here... might need to crop the image in by 1px first 
+            # this was updated to use links
+            edge_mask = utils.get_edge_masks(masks_recon,dists=dists)>0 
+            edge_bd = boundaries*edge_mask
+            masks_pad = np.pad(masks*edge_mask,pad,mode='reflect') 
+            bd_pad = np.pad(edge_bd,pad,mode='reflect') # boundaries should NOT include border pixels to work properly here 
+            # no need to do dists, that's just to calculate n_iter 
             
             # step 2: restore the masks in the original area
             masks_pad[unpad] = masks
             bd_pad[unpad] = boundaries
             
-            mu, T = masks_to_flows_device(masks_pad, dists, bd_pad, device=device, omni=omni, smooth=smooth, normalize=normalize)
+            mu, T = masks_to_flows_device(masks_pad, dists, bd_pad, links, 
+                                          device=device, omni=omni, smooth=smooth, 
+                                          normalize=normalize, n_iter=n_iter)
             return masks, dists, T[unpad], mu[(Ellipsis,)+unpad]
 
         else: # reflection not a good idea for centroid model 
-            mu, T = masks_to_flows_device(masks, dists=dists, boundaries=boundaries, device=device, omni=omni, smooth=smooth, normalize=normalize)
+            mu, T = masks_to_flows_device(masks, dists=dists, boundaries=boundaries, device=device, 
+                                          omni=omni, smooth=smooth, normalize=normalize)
             return masks, dists, T, mu
 
 
 #Now fully converted to work for ND.
-def masks_to_flows_torch(masks, dists, boundaries, device=None, omni=True, smooth=True, normalize=True, niter=None):
+def masks_to_flows_torch(masks, dists, boundaries, links=None, device=None, omni=True, 
+                         smooth=True, normalize=True, n_iter=None):
     """Convert ND masks to flows. 
     
     Omnipose find distance field, Cellpose uses diffusion from center of mass.
@@ -387,7 +427,7 @@ def masks_to_flows_torch(masks, dists, boundaries, device=None, omni=True, smoot
         flag to generate Omnipose flows instead of Cellpose flows
     smooth: bool
         use relaxation to smooth out distance and therby flow field
-    niter: int
+    n_iter: int
         override number of iterations 
 
     Returns
@@ -424,31 +464,248 @@ def masks_to_flows_torch(masks, dists, boundaries, device=None, omni=True, smoot
                 meds = np.median(coords,axis=0)
                 imin = np.argmin(np.sum((coords-meds)**2,axis=0))
                 centers[:,i]=coords[:,imin]
-
+                
         # set number of iterations
-        if omni and OMNI_INSTALLED:
-            # omni version requires fewer iterations 
-            n_iter = get_niter(dists) ##### omnipose.core.get_niter
-        else:
-            slices = scipy.ndimage.find_objects(masks)
-            ext = np.array([[s.stop - s.start + 1 for s in slc] for slc in slices])
-            n_iter = 2 * (ext.sum(axis=1)).max()
+        if n_iter is None:
+            if omni and OMNI_INSTALLED:
+                # omni version requires fewer iterations 
+                n_iter = get_niter(dists) ##### omnipose.core.get_niter
+            else:
+                slices = scipy.ndimage.find_objects(masks)
+                ext = np.array([[s.stop - s.start + 1 for s in slc] for slc in slices])
+                n_iter = 2 * (ext.sum(axis=1)).max()
 
         # run diffusion 
-        mu, T = _extend_centers_torch(masks_padded, centers, boundaries_padded, 
+        mu, T, coords = _extend_centers_torch(masks_padded, centers, boundaries_padded, links,
                                       n_iter=n_iter, device=device, omni=omni, smooth=smooth)
         # normalize
         if normalize:
             mu = utils.normalize_field(mu) ##### transforms.normalize_field(mu,omni) # maybe do not normalize the field with my computation now...
 
         # put into original image
-        mu0 = np.zeros((mu.shape[0],)+masks.shape)
-        mu0[(Ellipsis,)+np.nonzero(masks)] = mu
-        unpad =  tuple([slice(pad,-pad)]*masks.ndim)
+        d = mu.shape[0]
+        mu_pad = np.zeros((d,)+masks_padded.shape)
+        # print('\n',mu0.shape,mu.shape,coords)
+        mu_pad[(Ellipsis,)+coords] = mu
+        unpad =  tuple([slice(pad,-pad)]*d)
         dist = T[unpad] # mu_c now heat/distance
-        return mu0, dist
+        # print('yyy',dist.shape,mu_pad[(Ellipsis,)+unpad].shape)
+        return mu_pad[(Ellipsis,)+unpad], dist
     else:
-        return np.zeros((masks.ndim,)+masks.shape),np.zeros(masks.shape)
+        return np.zeros((masks.ndim,)+masks.shape), np.zeros(masks.shape)
+
+    
+def get_links(masks,labels,bd,connectivity=1):    
+    d = labels.ndim
+    coords = np.nonzero(labels)
+    idx = (3**d)//2 # the index of the center pixel is placed here when considering the neighbor kernel 
+
+    neigh = [[-1,0,1] for i in range(d)]
+    steps = cartesian(neigh) # all the possible step sequences in ND
+    neighbors = np.array([np.add.outer(coords[i],steps[:,i]) for i in range(d)]).swapaxes(-1,-2)
+
+    # get indices of the hupercubes sharing m-faces on the central n-cube
+    sign = np.sum(np.abs(steps),axis=1) # signature distinguishing each kind of m-face via the number of steps 
+    uniq = fastremap.unique(sign)
+    inds = [np.where(sign==i)[0] for i in uniq] # 2D: [4], [1,3,5,7], [0,2,6,8]. 1-7 are y axis, 3-5 are x, etc. 
+    fact = np.sqrt(uniq) # weighting factor for each hypercube group 
+    # determine which pixels are neighbors. Pixels that are within reach (from step list) and the same label
+    # are considered neighbors. However, boundaries should not consider other boundaries neighbors. 
+    # this means that the central pixel is not a boundary at the same time as the other. 
+
+    neighbor_masks = masks[tuple(neighbors)] #extract list of label values, here mmasks are the original, non-oversegged
+    neighbor_bd = bd[tuple(neighbors)] #extract list of boundary values, here the original ones 
+    isneighbor = np.logical_and(neighbor_masks == neighbor_masks[idx], # must have the same label 
+                                np.logical_or.reduce((
+                                    # neighbor_bd != neighbor_bd[idx], # neighbor not the same as central 
+                                    np.logical_and(neighbor_bd==0,neighbor_bd[idx]==0), # or the neighbor is not a boundary
+                                    np.logical_and(neighbor_bd==1,neighbor_bd[idx]==0), #
+                                    np.logical_and(neighbor_bd==0,neighbor_bd[idx]==1), #                                    
+                                ))
+                               )
+
+    piece_masks = labels[tuple(neighbors)] #extract list of label values from overseg 
+    target = np.stack([piece_masks[idx]]*9)
+    
+    if connectivity==2:
+        links = set([(a,b) for a,b in zip(target[isneighbor],piece_masks[isneighbor])]) #2-connected by default 
+    else:
+        #1-connected helps to avoid links I don't want
+        sub_inds = np.concatenate(inds[:2])
+        links = set([(a,b) for a,b in zip(target[sub_inds][isneighbor[sub_inds]],piece_masks[sub_inds][isneighbor[sub_inds]])]) 
+
+    return links
+
+def links_to_mask(masks,links):
+    """
+    Convert linked masks to stictched masks. 
+    """
+    G = nx.from_edgelist(links)
+    l = list(nx.connected_components(G))
+    # after that we create the map dict, for get the unique id for each nodes
+    mapdict={z:x for x, y in enumerate(l) for z in y }
+    # increment the dict keys 
+    mapdict = {k:v+1 for k,v in mapdict.items()}
+    # remap
+    return fastremap.remap(masks,mapdict,preserve_missing_labels=True, in_place=False)
+
+import numba
+@njit#('(int64[:,:], int32[:,:], float64[:,:,:], boolean[:,:])', nogil=True)
+def get_link_matrix(links, piece_masks, shape, inds, idx):
+    is_link = np.zeros(shape,dtype=numba.boolean)
+    for i in inds:
+        is_link[i] = [(((a,b) in links) or ((b,a) in links)) for a,b in zip(piece_masks[i], piece_masks[idx])]   
+    return is_link
+
+
+def links_to_boundary(masks,links):
+    pad = 1
+    d = masks.ndim
+    
+    masks_padded = np.pad(masks,pad)
+    coords = np.nonzero(masks_padded)
+    # binary_dilation
+    # coords = np.nonzero(binary_dilation(masks_padded>0))
+    
+    idx = (3**d)//2 # the index of the center pixel is placed here when considering the neighbor kernel 
+
+    neigh = [[-1,0,1] for i in range(d)]
+    steps = cartesian(neigh) # all the possible step sequences in ND
+    neighbors = np.array([np.add.outer(coords[i],steps[:,i]) for i in range(d)]).swapaxes(-1,-2)
+   
+    # get indices of the hupercubes sharing m-faces on the central n-cube
+    sign = np.sum(np.abs(steps),axis=1) # signature distinguishing each kind of m-face via the number of steps 
+    uniq = fastremap.unique(sign)
+    inds = [np.where(sign==i)[0] for i in uniq] # 2D: [4], [1,3,5,7], [0,2,6,8]. 1-7 are y axis, 3-5 are x, etc.
+
+    piece_masks = masks_padded[tuple(neighbors)] #extract list of label values, 
+    is_link = get_link_matrix(links,piece_masks, tuple(piece_masks.shape), np.concatenate(inds), idx)
+    
+    border_mask = np.pad(np.zeros(masks.shape,dtype=bool),pad,constant_values=1)
+    isborder = border_mask[tuple(neighbors)] #extract list of border values
+    
+    # this tells us if a pixel in one of the 9 steps (0,0 included) is different
+    # if so, the central pixel should be considered boundary, but that is determined later 
+
+        # this version of neighbors does not rely on boundaries, ad the links are used to make the boundaries 
+    isneighbor = np.logical_or.reduce((piece_masks == piece_masks[idx], # must have the same label 
+                                       is_link,# or is linked 
+                                       isborder)) 
+    isboundary = ~isneighbor #equivalent to and of nots 
+    
+    bd0 = np.zeros(masks_padded.shape,dtype=bool)
+    masks0 = np.zeros_like(masks_padded)
+    
+    s_all = np.concatenate(inds[1:])
+    flat_bd = np.any(isboundary[s_all],axis=0)
+    bd0[coords] = flat_bd
+    
+    
+    neighbor_bd = bd0[tuple(neighbors)]
+
+    # flat_bd = np.sum(is_neighbor_bd,axis=0)==2
+    # sel = np.concatenate(inds[1:])
+    sel = inds[1]
+    # flat_bd = (np.sum(is_neighbor_bd[sel],axis=0)>1)*flat_bd
+    # bd0[np.nonzero(masks_padded)] = flat_bd
+    
+    # implement below... does not quite work for pixels next to some that we want to remove 
+    crit1 = np.sum(isneighbor[inds[1]],axis=0)>=2 # at least 2 edges touching linked pixels, REMOVES SPURS
+    crit2 = np.sum(isboundary[inds[2]],axis=0)>=1 # at least 1 vertex touching unlinked pixels     
+    crit3 = np.sum(isneighbor[inds[1]],axis=0)==3 # edges need 
+    crit12 = np.logical_and(crit1,crit2)
+    flat_bd = np.logical_or(crit12,crit3)
+    bd0[coords] = flat_bd
+    
+    # delete the removed spurs 
+    masks0[coords] = piece_masks[idx]*crit1
+    coords = np.nonzero(masks0)
+    neighbors = np.array([np.add.outer(coords[i],steps[:,i]) for i in range(d)]).swapaxes(-1,-2)
+    
+    # masks0[coords] = piece_masks[idx]
+    # isneighbor[s_all]*=crit1
+    # isboundary[s_all]*=crit1
+    # piece_masks[(Ellipsis,)+np.where(crit1)] = 0
+    
+    #have to reocmpute?
+    piece_masks = masks0[tuple(neighbors)] #extract list of label values, 
+    # print(piece_masks.shape,isneighbor.shape,is_link.shape,isborder.shape)
+    is_link = get_link_matrix(links,piece_masks, tuple(piece_masks.shape), np.concatenate(inds), idx)
+
+    isborder = border_mask[tuple(neighbors)] #extract list of border values
+    
+    isneighbor = np.logical_or.reduce((piece_masks == piece_masks[idx], # must have the same label 
+                                       is_link, # or is linked 
+                                       isborder)) 
+    isboundary = ~isneighbor
+    
+    if 0:
+        # ok, try the boundary cleanup way; given nearly perfect boundaries, clean up islands 
+        # not equivalent to using flat_bd...
+        neighbor_bd = np.logical_or(bd0[tuple(neighbors)],isborder)
+        sel = inds[1]
+        c1 = np.sum(np.logical_and(neighbor_bd[sel],isneighbor[sel]),axis=0)>=2 # at least two neighbors are linked 
+        # c1*=flat_bd # might need to fix this 
+        sel = inds[2]
+        c2 =  np.sum(~isneighbor[sel],axis=0)>=1 # one vertex unlinked 
+        a = np.logical_and(c1,c2)
+        sel = s_all
+        outside = np.any(np.logical_and(piece_masks[sel]==0,~isborder[sel])*piece_masks[idx],axis=0)
+        bd0[coords] = np.logical_or(a,outside)
+        # bd0[coords] = a
+
+    # final cleanup of the spurs
+    sel = inds[1]
+    neighbor_bd = np.logical_or(bd0[tuple(neighbors)],isborder)
+    c1 = np.sum(neighbor_bd[sel],axis=0)>=2
+    bd0[coords] = np.logical_and(c1,bd0[coords])
+
+    isboundary = bd0[tuple(neighbors)]
+    # need to keep the boundary info as links throughout?
+    bd0[coords] = np.any(isboundary[inds[0]],axis=0)
+        
+    unpad = tuple([slice(pad,-pad)]*d)
+    return bd0[unpad], masks0[unpad], isboundary, neighbors-pad
+
+
+def mode_filter(masks):
+    """
+    super fast mode filter (compared to scipy, idk about PIL) to clean up interpolated labels
+    """
+    pad = 1
+    masks = np.pad(masks,pad).astype(int)
+    d = masks.ndim
+    coords = np.nonzero(masks)
+    idx = (3**d)//2 # the index of the center pixel is placed here when considering the neighbor kernel 
+
+    neigh = [[-1,0,1] for i in range(d)]
+    steps = cartesian(neigh) # all the possible step sequences in ND
+    
+    # get indices of the hupercubes sharing m-faces on the central n-cube
+    sign = np.sum(np.abs(steps),axis=1) # signature distinguishing each kind of m-face via the number of steps 
+    uniq = fastremap.unique(sign)
+    inds = [np.where(sign==i)[0] for i in uniq] # 2D: [4], [1,3,5,7], [0,2,6,8]. 1-7 are y axis, 3-5 are x, etc. 
+    
+    subinds = np.concatenate(inds[0:2]) # only consider center+cardinal 
+    substeps = steps[subinds]
+    neighbors = np.array([np.add.outer(coords[i],substeps[:,i]) for i in range(d)]).swapaxes(-1,-2)
+    
+    
+    neighbor_masks = masks[tuple(neighbors)]
+    
+    mask_filt = np.zeros_like(masks)
+    # mask_filt[coords] = scipy.stats.mode(neighbor_masks,axis=0,keepdims=1)[0] # wayyyyyy tooo slow, nearly 500ms 
+
+    # 30ms and identical output to mode, 16 now when I restrict to cardinal points of course  
+    most_f = np.array([np.bincount(row).argmax() for row in neighbor_masks.T])  
+    mask_filt[coords] = most_f
+    
+    unpad = tuple([slice(pad,-pad)]*d) 
+    return mask_filt[unpad]
+    
+    
+    
+    # return mask_filt
 
 # edited slightly to fix a 'bleeding' issue with the gradient; now identical to CPU version
 def _extend_centers_torch(masks, centers, boundaries, links=None, n_iter=200, 
@@ -482,7 +739,6 @@ def _extend_centers_torch(masks, centers, boundaries, links=None, n_iter=200,
         or temperature distribution (Cellpose)
          
     """
-        
     d = masks.ndim
     coords = np.nonzero(masks)
     idx = (3**d)//2 # the index of the center pixel is placed here when considering the neighbor kernel 
@@ -500,102 +756,219 @@ def _extend_centers_torch(masks, centers, boundaries, links=None, n_iter=200,
     # are considered neighbors. However, boundaries should not consider other boundaries neighbors. 
     # this means that the central pixel is not a boundary at the same time as the other. 
     neighbor_masks = masks[tuple(neighbors)] #extract list of label values, 
-    if links is None:
-        neighbor_bd = boundaries[tuple(neighbors)] #extract list of boundary values 
-        isneighbor = np.logical_and(neighbor_masks == neighbor_masks[idx], # must have the same label 
-                                    np.logical_or.reduce((
-                                        # neighbor_bd != neighbor_bd[idx], # neighbor not the same as central 
-                                        np.logical_and(neighbor_bd==0,neighbor_bd[idx]==0), # or the neighbor is not a boundary
-                                        np.logical_and(neighbor_bd==1,neighbor_bd[idx]==0), #
-                                        np.logical_and(neighbor_bd==0,neighbor_bd[idx]==1), #                                    
-                                    ))
-                                   )
-    else:
-        isneighbor = np.logical_or(neighbor_masks == neighbor_masks[idx], # must have the same label 
-                                    neighbor_masks != neighbor_remap[idx]) # or could be linked
-    # isneighbor[np.logical_and(neighbor_bd==1,neighbor_bd[idx]==1)] = 0
-    # isneighbor = neighbor_masks == neighbor_masks[idx]
     
+
+    if links is not None:
+        boundaries,masks,isboundary,neighbors = links_to_boundary(masks,links) 
+        coords = np.nonzero(masks)
+        # isneighbor = ~isboundary # ah this is too simplified now! 
+        
+        
+        neighbor_bd = boundaries[tuple(neighbors)] #extract list of boundary values 
+
+        # isneighbor = np.ones(neighbor_masks.shape,dtype=bool)
+        internal = np.logical_xor(masks,boundaries)
+        neighbor_int = internal[tuple(neighbors)] 
+        # neighbor_int = np.logical_xor(neighbor_masks,neighbor_bd) #internal
+        isneighbor = np.stack([neighbor_int[idx]]*len(steps))
+
+
+        connect = []
+        subinds = np.concatenate(inds[1:])
+        # subinds = np.concatenate(inds[1:2])
+        # subinds = np.concatenate(inds[2:3])
+        for i,step,sgn in zip(subinds,steps[subinds],sign[subinds]):
+            dot = np.array([np.dot(step,s) for s in steps])
+            cross = np.array([np.cross(step,s) for s in steps])
+            mag = np.array([np.linalg.norm(s) for s in steps])
+            # indices = np.argwhere(np.logical_and(dot>=0,sign!=sgn)).flatten()
+            # indices = np.argwhere(np.logical_and(dot>0,sign!=sgn)).flatten()
+            # indices =  np.argwhere(np.logical_and(dot>=0,mag<=1)).flatten()
+            # indices = np.argwhere(np.logical_and(dot>=0,np.logical_or(mag<=1,sign!=sgn))).flatten()
+            indices = np.argwhere(np.logical_and.reduce((mag>0,dot>=0,np.logical_or(mag<=1,sign!=sgn)))).flatten() #winner 
+            # indices = np.argwhere(dot>0).flatten()
+            # indices = np.argwhere(np.logical_and(dot>=0,sign<=1)).flatten()
+            # indices = np.argwhere(np.logical_and(dot>=0,np.abs(cross)<=1)).flatten()
+
+            # indices = np.argwhere(np.logical_and(dot>0,mag<=1)).flatten()
+
+            # print(indices,neighbor_int[indices].shape)
+            # print(i,'index')
+            isneighbor[i] = np.logical_or.reduce((np.any(neighbor_int[indices],axis=0), # if a qualifying adjacent pixel is internal
+                                                  neighbor_int[i], # target is internal
+                                                  isneighbor[i] # or the source is internal
+                                                 ))
+        
+
+
+        
+
+
     nimg = neighbors.shape[1] // (3**d)
     pt = torch.from_numpy(neighbors).to(device)
     T = torch.zeros((nimg,)+masks.shape, dtype=torch.float, device=device)
+    
     isneigh = torch.from_numpy(isneighbor).to(device) # isneigh is <3**d> x <number of points in mask>
     
-    # isneigh0 = torch.from_numpy(neighbor_masks == neighbor_masks[idx]).to(device) # old?
-    # isneigh0 = torch.from_numpy(isneighbor).to(device)
-    
     meds = torch.from_numpy(centers.astype(int)).to(device)
+    
+    
+    #experiment
+    # n_iter = 200
+    # print('yo',n_iter)
+    # coords_bd = np.nonzero(boundaries)
+    # pt_bd = torch.from_numpy(np.array([np.add.outer(coords_bd[i],steps[:,i]) for i in range(d)]).swapaxes(-1,-2)).to(device)
+    # bd_pix = (Ellipsis,)+tuple(pt_bd[:,idx]) #indexing for the central coordinates 
+   
 
     mask_pix = (Ellipsis,)+tuple(pt[:,idx]) #indexing for the central coordinates 
     center_pix = (Ellipsis,)+tuple(meds)
-    neigh_pix = (Ellipsis,)+tuple(pt)   
+    neigh_pix = (Ellipsis,)+tuple(pt)  
+    
+    cbd = np.nonzero(boundaries)
+    nbd = np.array([np.add.outer(cbd[i],steps[:,i]) for i in range(d)]).swapaxes(-1,-2)
+    bdp = torch.from_numpy(nbd).to(device)
+    bd_pix = (Ellipsis,)+tuple(bdp[:,idx])
+    
+    # bd_pix = 
+    # print(pt[:,idx].shape)
+    # print('niter',n_iter)
+    # n_iter = 1000
+    weight = np.sqrt((1/np.sqrt(2)))
+    # weight = np.sqrt(2)
+    # weight = 1/np.sqrt(2)
+    weight = 1
+    #init
+    # T[mask_pix] = torch.from_numpy(edt.edt(masks)[tuple(pt[:,idx])])**10
+    # T[mask_pix] = 10
     
     for t in range(n_iter):
         if omni and OMNI_INSTALLED:
-            T[mask_pix] = eikonal_update_torch(T,pt,isneigh,d,inds,fact) ##### omnipose.core.eikonal_update_torch
-            
-             #appears to work with smooth enabled and my boundary neighbor code? 
-            # not a true distance field, but faster to compute 
-            # T[mask_pix] += 1
+            T[bd_pix] = 1 # helps with numerical stability at boundaries 
+            T[mask_pix] = eikonal_update_torch(T,pt,isneigh,d,inds,fact,weight) ##### omnipose.core.eikonal_update_torch
+
         else:
             T[center_pix] += 1
-            
+
         if smooth or not omni:
             Tneigh = T[neigh_pix] # T is square, but Tneigh is nimg x <3**d> x <number of points in mask>
             Tneigh *= isneigh  #zeros out any elements that do not belong in convolution
             T[mask_pix] = Tneigh.mean(axis=1) # mean along the <3**d>-element column does the box convolution 
-
+            
+        
     # There is still a fade out effect on long cells, not enough iterations to diffuse far enough I think 
     # The log operation does not help much to alleviate it, would need a smaller constant inside. 
+    
+    
     if not omni:
         T = torch.log(1.+ T)
     
     Tcpy = T.clone()
     mu_torch = []
+    weights = []
     # calculate gradient with contributions along cardinal, ordinal, etc. 
+    
+    central_points = (Ellipsis,)+tuple(pt[:,idx]) 
+    cval =  (T[central_points]).cpu().numpy().squeeze()  
+    
     for idx,f in zip(inds[1:],fact[1:]):
     # for idx,f in zip(inds[1:2],fact[1:2]):
-
     # for idx,f in zip(inds[2:3],fact[2:3]): 
         # might be an issue with calculating gradient where there are are mostly just boundary points
         # also am I making sure that the derivative does truly ignore neignbors?
     
         # idx = inds[1] # cardinal points
-        mask = isneigh[idx]    # used to be isneigh0?  
-        cardinal_points = (Ellipsis,)+tuple(pt[:,idx]) 
-        vals = (T[cardinal_points]*mask).cpu().numpy().squeeze()  
+        mask = isneigh[idx]   # used to be isneigh0?  
+        neigh_points = (Ellipsis,)+tuple(pt[:,idx]) 
+        vals = T[neigh_points].squeeze()  
+        vals[~mask] = torch.nan # mask off contributions from non-neighbors with nanmean...
+        vals = vals.cpu().numpy()  
         # T[]*mask prevent bleedover / boundary issues, big problem in stock Cellpose that got reverted!
-        # print('aa',vals.shape)
-        # pairwise differences, e.g. cardinals of [1,3,5,7] pair up 1 and 7 (0,-1) and 3 and 5 (1,-2)
-        diff = np.stack([(vals[-(i+1)] - vals[i]) / (2*f) for i in range(0,vals.shape[0]//2)])
-        # print('bb',diff.shape)
         
+        forward = [(cval - vals[i]) / f for i in range(0,vals.shape[0]//2)]
+        backward = [(vals[-(i+1)] - cval) / f for i in range(0,vals.shape[0]//2)]
+        center = [(vals[-(i+1)] - vals[i]) / (2*f) for i in range(0,vals.shape[0]//2)]    
+        
+        # really need an operator that checks all cases
+        diff = np.stack([[(a - b) / (2*f) if (~np.isnan(a) and ~np.isnan(b)) else
+                            (a - c) / f if ~np.isnan(a) else
+                            (c - b) / f  if ~np.isnan(b) else
+                          0
+                          for a,b,c in zip(vals[-(i+1)],vals[i],cval)]
+                        for i in range(0,vals.shape[0]//2)])
+
         # unit vectors 
         vecs = steps[idx]
-        uvecs = [(vecs[-(i+1)] - vecs[i]) / f for i in range(0,vecs.shape[0]//2)]
+        uvecs = [(vecs[-(i+1)] - vecs[i]) / (2*f) for i in range(0,vecs.shape[0]//2)]
+        # uvecs = vecs/f
+        # uvecs = [vecs[-(i+1)]/f for i in range(0,vecs.shape[0]//2)]
+        # print('d',d)
+        # print('uvecs',uvecs,vecs,f)
         
-        # dot products
+        # dot products, project differences onto cardinal coorinate system 
         # diff[0]*uvec[0][0] + diff[1]*uvec[0][1]+...
-        diff_cardinal = np.stack([np.sum([d*u for d,u in zip(diff,uvecs[i])],axis=0) for i in range(d)])
+        diff_cardinal = np.stack(np.sum([[df*u for u in uvec] for df,uvec in zip(diff,uvecs)],axis=0))
+        
+        # diff_cardinal = np.stack([np.sum([df*u for df,u in zip(diff,uvec)],axis=0) for uvec in uvecs])
+        # diff_cardinal = np.stack([np.nanmean([diff_cardinal[-(i+1)],-diff_cardinal[i]],axis=0) for i in range(0,vecs.shape[0]//2)])
+        # diff_cardinal = diff
+        
         # print('cc',diff_cardinal.shape)
     
+        # mu_torch.append(diff_cardinal/f) # weight by distance 
+        # w = np.sum(~np.isnan(vals),axis=0)
+        # print(w.shape,vals.shape,diff.shape)
+        # mu_torch.append(diff_cardinal*w)
+        # weights.append(w)
+        # mu_torch.append(diff_cardinal)
+        w = np.sum(vals>0,axis=0)
+        # w = np.sum(~np.isnan(vals),axis=0)
+        # w = np.sqrt(np.nansum(diff**2,axis=0))
+        w = np.count_nonzero(~np.isnan(diff),axis=0)
+        
+        # w = 1
+        # print(w.shape,vals.shape,diff.shape)
         mu_torch.append(diff_cardinal)
+        weights.append(w)
+        
 
     # maybe I should be summing with a weight according to how many boundary points were involved 
-    mu_torch = np.mean(mu_torch,axis=0)
+    # mu_torch = np.nanmean(mu_torch,axis=0)/np.sum(1/fact[1:]) # weight by distance 
+    # mu_torch = np.nanmean(mu_torch,axis=0)
+    # print('hhh',len(mu_torch),mu_torch[0].shape)
+    # mu_torch = np.nansum(np.multiply(mu_torch,weights),axis=0)/(np.nansum(weights,axis=0)) # equivalent to using nan elements
+    
+    # print([m.shape for m in mu_torch])
+    mu_torch = np.nanmean(mu_torch,axis=0)
+    # mu_torch = np.nanmax(mu_torch,axis=0)
+    # mu_torch = np.nanprod(np.stack(mu_torch),axis=-1)
 
-    return mu_torch,Tcpy.cpu().numpy().squeeze()
+    # mu_torch =  np.nansum(np.multiply(mu_torch,weights),axis=0)
+    # weights = np.array(weights)+100
+    # mu_torch = np.nansum(np.multiply(mu_torch,weights),axis=0)/(np.sum(weights,axis=0)) # equivalent to using nan elements
+    # mu_torch = np.nansum([m*w for m,w in zip(mu_torch,weights)],axis=0)/(np.sum(weights)) # equivalent to using nan elements
+    
+    
+    
+    # print('mmmm',mu_torch.shape)
+    
 
-def eikonal_update_torch(T,pt,isneigh,d=None,index_list=None,factors=None):
+    return mu_torch, Tcpy.cpu().numpy().squeeze(), coords
+    
+# [print(inds[i],inds[-(i+1)]) for i in range(len(inds)//2)] # just a check 
+
+def eikonal_update_torch(T,pt,isneigh,d=None,index_list=None,factors=None,weight=1):
     """Update for iterative solution of the eikonal equation on GPU."""
     # Flatten the zero out the non-neighbor elements so that they do not participate in min
     # Tneigh = T[:, pt[:,:,0], pt[:,:,1]] 
-    # Flatten and zero out the non-neighbor elements so that they do not participate in min
     
     Tneigh = T[(Ellipsis,)+tuple(pt)]
     Tneigh *= isneigh
     # preallocate array to multiply into to do the geometric mean
-    phi_total = torch.ones_like(Tneigh[0,0,:])
+    # weight = np.sqrt((1/np.sqrt(2)))
+    # weight = 1/np.sqrt(2) # works perfectly gine with contours 
+    # weight = 2**(-1/d)
+    phi_total = torch.ones_like(Tneigh[0,0,:])*weight
     # loop over each index list + weight factor 
     for inds,fact in zip(index_list[1:],factors[1:]):
         # find the minimum of each hypercube pair along each axis
@@ -603,12 +976,19 @@ def eikonal_update_torch(T,pt,isneigh,d=None,index_list=None,factors=None):
         #apply update rule using the array of mins
         phi = update_torch(torch.cat(mins),fact)
         # multipy into storage array
-        phi_total *= phi
+        phi_total *= phi 
+        # phi_total *= (phi+1)
+        # phi_total+=1
+    # phi_total[phi_total<weight] = weight
+    # phi_total*=weight
+    # phi_total = phi_total**(1/d) #geometric mean of update along each connectivity set 
+    phi_total = torch.pow(phi_total,1/d) #geometric mean of update along each connectivity set 
+    
+    # phi_total /= weight
         
-        # # new: handle boundaries
-        # phi_total[bd] = 1
-        
-    return phi_total**(1/d) #geometric mean of update along each connectivity set 
+    return phi_total
+
+    
 
 def update_torch(a,f):
     # Turns out we can just avoid a ton of individual if/else by evaluating the update function
@@ -616,6 +996,7 @@ def update_torch(a,f):
     # being nonegative sets the upper limit on the sorted pairs, so we simply select the largest 
     # upper limit that works. 
     """Update function for solving the Eikonal equation. """
+    eps = 1e-6
     
     sum_a = torch.cumsum(a,dim=0)
     sum_a2 = torch.cumsum(a**2,dim=0)
@@ -626,7 +1007,7 @@ def update_torch(a,f):
     r = torch.arange(0,a.shape[-1])
     ad = sum_a[d-1,r]
     rd = radicand[d-1,r]
-    return (1/d)*(ad+torch.sqrt(rd))
+    return (1/(d+eps))*(ad+torch.sqrt(rd))
 
 
 ### Section II: mask recontruction
@@ -1170,6 +1551,7 @@ def steps_interp(p, dP, niter, use_gpu=True, device=None, omni=True, calc_trace=
         # r = torch.zeros_like(p)
 
     #here is where the stepping happens 
+    # niter=1000
     for t in range(niter):
         if calc_trace:
             trace = torch.cat((trace,pt))
@@ -1443,6 +1825,8 @@ def flow_error(maski, dP_net, bounds=None, use_gpu=False, device=None, omni=True
     dP_masks = masks_to_flows(maski, boundaries=bounds, use_gpu=use_gpu, device=device, omni=omni)[idx] ##### dynamics.masks_to_flows
     # difference between predicted flows vs mask flows
     flow_errors = np.zeros(maski.max())
+    
+    print(omni,'bbbbb',np.mean(np.sum(dP_net**2,axis=0)**0.5),np.mean(np.sum(dP_masks**2,axis=0)**0.5))
     for i in range(dP_masks.shape[0]):
         flow_errors += mean((dP_masks[i] - dP_net[i]/5.)**2, maski, #the /5 is to compensate for the *5 we do for training
                             index=np.arange(1, maski.max()+1))
@@ -1455,7 +1839,7 @@ def flow_error(maski, dP_net, bounds=None, use_gpu=False, device=None, omni=True
 # Omnipose has special training settings. Loss function and augmentation. 
 # Spacetime segmentation: augmentations need to treat time differently 
 # Need to assume a particular axis is the temporal axis; most convenient is tyx. 
-def random_rotate_and_resize(X, Y=None, scale_range=1., gamma_range=0.5, tyx = (224,224), 
+def random_rotate_and_resize(X, Y=None, links=None, scale_range=1., gamma_range=0.5, tyx = (224,224), 
                              do_flip=True, rescale=None, inds=None, nchan=1, nclasses=4):
     """ augmentation by random rotation and resizing
 
@@ -1468,7 +1852,10 @@ def random_rotate_and_resize(X, Y=None, scale_range=1., gamma_range=0.5, tyx = (
         Y: float, list of ND arrays
             list of image labels of size [nlabels x Lt x Ly x Lx] or [Lt x Ly x Lx]. The 1st channel
             of Y is always nearest-neighbor interpolated (assumed to be masks or 0-1 representation).
-            If Y.shape[0]==3, then the labels are assumed to be [cell probability, T flow, Y flow, X flow]. 
+            If Y.shape[0]==3, then the labels are assumed to be [distance, T flow, Y flow, X flow]. 
+        links: list of label links
+            lists of label pairs linking parts of multi-label object together
+            this is how omnipose gets around boudary artifacts druing image warps 
         scale_range: float (optional, default 1.0)
             Range of resizing of images for augmentation. Images are resized by
             (1-scale_range/2) + scale_range * np.random.rand()
@@ -1513,21 +1900,23 @@ def random_rotate_and_resize(X, Y=None, scale_range=1., gamma_range=0.5, tyx = (
             Y[n] = np.stack([masks,iscell])
     
     nt = 2 # instance seg (labels), semantic seg (cellprob)
-    if nclasses==4:
+    if nclasses>3:
         nt += 3+dim # add boundary, distance, weight, flow components
         
     lbl = np.zeros((nimg, nt)+tyx, np.float32)
     scale = np.zeros((nimg,dim), np.float32)
     
+    # print('bbb',lbl.shape,nclasses, nt)
     for n in range(nimg):
         img = X[n].copy()
         y = None if Y is None else Y[n]
+        lnk = None if links is None else links[n]
         # print(y.shape,'B')
         # use recursive function here to pass back single image that was cropped appropriately 
         # # print(y.shape)
         # skimage.io.imsave('/home/kcutler/DataDrive/debug/img_orig.png',img[0])
         # skimage.io.imsave('/home/kcutler/DataDrive/debug/label_orig.tiff',y[n]) #so at this point the bad label is just fine 
-        imgi[n], lbl[n], scale[n] = random_crop_warp(img, y, nt, tyx, nchan, scale[n], 
+        imgi[n], lbl[n], scale[n] = random_crop_warp(img, y, lnk, nt, tyx, nchan, scale[n], 
                                                      rescale is None if rescale is None else rescale[n], 
                                                      scale_range, gamma_range, do_flip, 
                                                      inds is None if inds is None else inds[n], dist_bg)
@@ -1536,7 +1925,7 @@ def random_rotate_and_resize(X, Y=None, scale_range=1., gamma_range=0.5, tyx = (
 
 # This function allows a more efficient implementation for recursively checking that the random crop includes cell pixels.
 # Now it is rerun on a per-image basis if a crop fails to capture .1 percent cell pixels (minimum). 
-def random_crop_warp(img, Y, nt, tyx, nchan, scale, rescale, scale_range, gamma_range, 
+def random_crop_warp(img, Y, links, nt, tyx, nchan, scale, rescale, scale_range, gamma_range, 
                      do_flip, ind, dist_bg, depth=0):
     """
     This sub-fuction of `random_rotate_and_resize()` recursively performs random cropping until 
@@ -1584,7 +1973,11 @@ def random_crop_warp(img, Y, nt, tyx, nchan, scale, rescale, scale_range, gamma_
     dim = len(tyx)
     # np.random.seed(depth)
     if depth>100:
-        error_message = 'Sparse or over-dense image detected. Problematic index is: '+str(ind)+' Image shape is: '+str(img.shape)+' tyx is: '+str(tyx)+' rescale is '+str(rescale)
+        error_message = """Sparse or over-dense image detected. 
+        Problematic index is: {}. 
+        Image shape is: {}. 
+        tyx is: {}. 
+        rescale is {}""".format(ind,img.shape,tyx,rescale)
         omnipose_logger.critical(error_message)
         skimage.io.imsave('/home/kcutler/DataDrive/debug/img'+str(depth)+'.png',img[0]) 
         raise ValueError(error_message)
@@ -1642,6 +2035,7 @@ def random_crop_warp(img, Y, nt, tyx, nchan, scale, rescale, scale_range, gamma_
             if k==0:
                 # print(l.shape,M,tyx)
                 lbl[k] = do_warp(l, M, tyx, offset=offset, order=0, mode=mode) # order 0 is 'nearest neighbor'
+                lbl[k] = mode_filter(lbl[k])
                 # check to make sure the region contains at enough cell pixels; if not, retry
                 cellpx = np.sum(lbl[k]>0)
                 cutoff = (numpx/10**(dim+1)) # .1 percent of pixels must be cells
@@ -1663,23 +2057,13 @@ def random_crop_warp(img, Y, nt, tyx, nchan, scale, rescale, scale_range, gamma_
         # must be computed after mask transformations are made. 
         if nt > 2:
             l = lbl[0].astype(np.uint16)
-            # insert boundary here
-            do_boundary = 0
-            # if do_boundary:
-                # bd = l==2
-                # inner = l==1
-                # yes, I do need a function that can fix label thickness 
-                # need to have the inners labelled so that swiching dones't hurt it 
-            l, dist, T, mu = masks_to_flows(l,omni=True,dim=dim)
+            l, dist, T, mu = masks_to_flows(l,links=links,omni=True,dim=dim)
             cutoff = diameters(l,dist)/2
             lbl[2] = dist==1 # position 2 stores the boundary field
             smooth_dist = T
             smooth_dist[dist<=0] = - cutoff#-dist_bg
             lbl[3] = smooth_dist # position 3 stores the smooth distance field 
-            lbl[-dim:] = mu*5.0 #oops, forgot this needs to be x5.0 for training
-            # used to be that this put it in the same range as cellprob, but it still
-            # puts it in the same range as the logits for the boundary, plus the magnitude makes 
-            # for larger MSE
+            lbl[-dim:] = mu*5.0 # x5 puts this in the same range as boundary logits 
             
             # print('dists',np.max(dist),np.max(smooth_dist))
             # the black border arg may not be good in 3D, as it highlights a larger fraction? 
@@ -1719,7 +2103,7 @@ def random_crop_warp(img, Y, nt, tyx, nchan, scale, rescale, scale_range, gamma_
         im = (imgi[k]*(2**16-1)).astype(np.uint16)
         imgi[k] = utils.normalize99(im>>bit_shift)
     
-    
+    # print('aaa',imgi.shape,lbl.shape,nt)
     # Moved to the end because it conflicted with the recursion. 
     # Also, flipping the crop is ultimately equivalent and slightly faster.         
     # We now flip along every axis (randomly); could make do_flip a list to avoid some axes if needed
@@ -1735,7 +2119,7 @@ def random_crop_warp(img, Y, nt, tyx, nchan, scale, rescale, scale_range, gamma_
         
     return imgi, lbl, scale
 
-def do_warp(A,M,tyx,offset=0,order=1,mode='constant'):#,mode,method):
+def do_warp(A,M,tyx,offset=0,order=1,mode='constant',**kwargs):#,mode,method):
     """ Wrapper function for affine transformations during augmentation. 
     Uses scipy.ndimage.affine_transform().
         
@@ -1756,7 +2140,7 @@ def do_warp(A,M,tyx,offset=0,order=1,mode='constant'):#,mode,method):
     # print('debug',A.shape,M.shape,tyx)
     
     return scipy.ndimage.affine_transform(A, np.linalg.inv(M), offset=offset, 
-                                          output_shape=tyx, order=order, mode=mode)
+                                          output_shape=tyx, order=order, mode=mode,**kwargs)
     
 
 
@@ -1780,9 +2164,12 @@ def loss(self, lbl, y):
         y[:,D+1] boundary fields at D+1
     
     """
+    # print(y.shape,y[0,0])
+    
     nt = lbl.shape[1]
     cellmask = lbl[:,1]
-
+    # print(lbl.shape,nt)
+    # print(lbl[0,5])
     cellmask = self._to_device(cellmask>0)#.bool()
 
     if nt==2: # semantic segmentation
@@ -2103,9 +2490,11 @@ def fill_holes_and_remove_small_masks(masks, min_size=15, hole_size=3, scale_fac
     # return masks
 
 
-def get_boundary(mu,mask,contour=False,use_gpu=False,device=None):
+def get_boundary(mu,mask,contour=False,use_gpu=False,device=None,desprue=False):
     """
     mask can be binary 
+    desprue currently can have issues with close boudaries with small pixel voids
+    Should try hole filling binary map first?
     """
     d = mu.shape[0]
     pad = 1
@@ -2123,7 +2512,7 @@ def get_boundary(mu,mask,contour=False,use_gpu=False,device=None):
     # first time to extract boundaries    
     bd_pad = _get_bd(steps, np.int32(lab_pad), mu_pad, bd_pad) 
     # for k in range(2):
-    sprue = 1
+    sprue = desprue
     s_inter = 0
     while sprue and s_inter<np.sum(bd_pad): 
     # for k in [0]:
@@ -2141,22 +2530,27 @@ def get_boundary(mu,mask,contour=False,use_gpu=False,device=None):
     if contour:
         _,_,T,mu_pad = masks_to_flows(lab_pad,boundaries=bd_pad,
                               use_gpu=use_gpu,
-                              device=device,smooth=1)
+                              device=device)#,smooth=0,normalize=1)
+        
+        # utils.imshow(T,10)
         
         step_ok, ind_shift, cross, dot = _get_bd(steps, lab_pad, mu_pad, bd_pad) 
-        values = dot-cross # might be some cancellation here to leverage in computation earlier 
-        # values = -cross
-        
+        values = -(dot+cross) # clockwise 
+        values = (-dot+cross) # anticlockwise
+
         bd_coords = np.array(np.nonzero(bd_pad))
         bd_inds = np.ravel_multi_index(bd_coords,bd_pad.shape)
         labs = np.take(lab_pad,bd_inds)
         unique_L = fastremap.unique(labs)
         contours = parametrize(steps,np.int32(labs),np.int32(unique_L),bd_inds,ind_shift,values,step_ok)
 
+        # value_map = np.zeros(bd_pad.shape,dtype=np.float64)
         contour_map = np.zeros(bd_pad.shape,dtype=np.int32)
         for contour in contours:
             coords_t = np.unravel_index(contour,bd_pad.shape)
             contour_map[coords_t] = np.arange(1,len(contour)+1)
+            # contour_map[coords_t] = contours
+            
             
         return contour_map[unpad], contours
     
@@ -2164,17 +2558,18 @@ def get_boundary(mu,mask,contour=False,use_gpu=False,device=None):
         return bd_pad[unpad]
 
 
-# numba does not wrok yet with this indexing... 
+# numba does not work yet with this indexing... 
 # @njit('(int64[:,:], int32[:,:], float64[:,:,:], boolean[:,:])', nogil=True)
 def _get_bd(steps, lab_pad, mu_pad, bd_pad):
-    
+
     get_bd = np.all(~bd_pad)
     axes = range(mu_pad.shape[0])
     mask_pad = lab_pad>0
-    mag_pad = np.sqrt(np.sum(mu_pad**2,axis=0))
     coord = np.nonzero(mask_pad)
     coords = np.argwhere(mask_pad).T
     A = mu_pad[(Ellipsis,)+coord]
+    mag_pad = np.sqrt(np.sum(mu_pad**2,axis=0))
+    mag_A = mag_pad[coord]
     
     if not get_bd:
         dot = []
@@ -2186,40 +2581,73 @@ def _get_bd(steps, lab_pad, mu_pad, bd_pad):
         angles2 = []
         cutoff1 = np.pi*(1/3) # was 1/2, then 1/3, then 
         cutoff2 = np.pi*(3/4) # was 3/4, changed to 0.9, back to 3/4 
-        # cutoff1 = np.pi/2
+        
+        # cutoff1 = np.pi/6
+        
         # cutoff2 = np.pi*1/6 # too low finds skeletons 
         
         # cutoff1 = np.pi*(0.5-(1/6)) # was 1/2, then 1/3, then 
-#         cutoff1 = np.pi*(0.1) # was 1/2, then 1/3, then 
+        # cutoff1 = np.pi*(0.1) # was 1/2, then 1/3, then 
         
-#         cutoff1 = np.pi*(0.15) # was 1/2, then 1/3, then 
+        cutoff1 = np.pi*(1/2.5) # was 1/2, then 1/3, then 1/2.5 or 2/5
                
-        # cutoff2 = np.pi*(0.5) # 1/2 fixes some problems 
+        # cutoff2 = np.pi*(np.sqrt(2)/2) # 1/2 fixes some problems 
 
     for s in steps:
-        # First see if the flow is parallel to the flow OPPOSITE the direction of the step 
-        neigh_opp = tuple(coords-s[np.newaxis].T)
-        B = mu_pad[(Ellipsis,)+neigh_opp]
-        dot1 = np.sum(np.multiply(A,B),axis=0)
-        
+        mag_s = np.sqrt(np.sum(s**2,axis=0))
+
+        # print(s,'aa')
         if get_bd:
+            # First see if the flow is parallel to the flow OPPOSITE the direction of the step 
+            neigh_opp = tuple(coords-s[np.newaxis].T)
+            B = mu_pad[(Ellipsis,)+neigh_opp]
+            mag_B = mag_pad[neigh_opp]
+            dot1 = np.sum(np.multiply(A,B),axis=0)
+            
+            
             angle1 = np.arccos(dot1.clip(-1,1))
-            angle1[np.logical_and(mask_pad[coord],mask_pad[neigh_opp]==0)] = np.pi # consider all background pixels to be opposite
+            angle1[np.logical_and(mask_pad[coord],mask_pad[neigh_opp]==0)] = np.pi 
+            # consider all background pixels to be opposite
 
             # next see if the flow is parallel with the step itself 
-            dot2 = np.sum([A[a]*(-s[a]) for a in axes],axis=0) #/ (mag_pad*mag_s)      
-            angle2 = np.arccos(dot2.clip(-1,1))#*mag_pad[coord] # note the mag_pad multiplication here, attenuates 
+            dot2 = utils.safe_divide(np.sum([A[a]*(-s[a]) for a in axes],axis=0), mag_s * mag_A)#/ (mag_A*mag_s)      
+            angle2 = np.arccos(dot2.clip(-1,1))#*mag_A # note the mag_A multiplication here, attenuates 
 
             angles1.append(angle1>cutoff1)
             angles2.append(angle2>cutoff2)
 
         else:
-            cross.append(np.cross(A,s,axisa=0))
+            # maybe I want the dot product with the fild at the step point, choose the most similar 
+            # neigh_step = tuple(coords+s[np.newaxis].T)
+            neigh_bd = tuple(coords[:,bd_pad[coord]])
+            neigh_step = tuple(coords[:,bd_pad[coord]]+s[np.newaxis].T)
+            A = mu_pad[(Ellipsis,)+neigh_bd]
+            mag_A = mag_pad[neigh_bd]
+            B = mu_pad[(Ellipsis,)+neigh_step]
+            mag_B = mag_pad[neigh_step]
+            dot1 = utils.safe_divide(np.sum(np.multiply(A,B),axis=0),(mag_B * mag_A))
+            # print(np.sum(np.multiply(A,B),axis=0))
+            # print(A==B)
             dot.append(dot1)
-            coord_shift = tuple(coords[:,bd_pad[coord]]+s[np.newaxis].T)
-            x = np.ravel_multi_index(coord_shift,bd_pad.shape)
+            
+            dot2 = utils.safe_divide(np.sum([B[a]*(s[a]) for a in axes],axis=0), mag_s * mag_B)#/ (mag_A*mag_s)      
+            # print(dot2[bd_pad[coord]])
+            # print(s)
+            # dot.append(np.sum((A.T*(s)).T,axis=0))
+            # print(np.array(coord)==np.array(coords))
+            cross.append(np.cross(A,s,axisa=0))
+            x = np.ravel_multi_index(neigh_step,bd_pad.shape)
             ind_shift.append(x)
-            step_ok.append(np.logical_and(bd_pad[coord_shift],lab_pad[coord_shift]==lab_pad[bd_pad]))
+            # print(dot1.shape,bd_pad[coord_shift].shape)
+            # print(bd_pad[coord].shape,np.sum(bd_pad[coord]))
+            step_ok.append(np.logical_and.reduce((bd_pad[neigh_step],
+                                                  lab_pad[neigh_step]==lab_pad[neigh_bd],
+                                                  # dot1[bd_pad[coord]]>0,
+                                                  # dot2[bd_pad[coord]]>np.cos(3*np.pi/4),
+                                                     
+                                                 )))
+            # print(bd_pad[coord_shift],'aa')
+            # print(coords[:,bd_pad[coord]][:,0])
     
     
     if get_bd:
@@ -2230,14 +2658,18 @@ def _get_bd(steps, lab_pad, mu_pad, bd_pad):
     else:
         step_ok = np.stack(step_ok)
         ind_shift = np.array(ind_shift)
-        cross = np.stack([c[bd_pad[coord]] for c in cross])
-        dot = np.stack([d[bd_pad[coord]] for d in dot])    
+        # cross = np.stack([c[bd_pad[coord]] for c in cross])
+        # dot = np.stack([d[bd_pad[coord]] for d in dot])    
+        cross = np.stack(cross)
+        dot = np.stack(dot)
+        
         return step_ok, ind_shift, cross, dot
 
-@njit('(int64[:,:], int32[:], int32[:], int64[:], int64[:,:], float64[:,:], boolean[:,:])', nogil=True)
+# possible optimization with ind_shift = np.ravel_multi_index(neighbors,mask.shape)
+# @njit('(int64[:,:], int32[:], int32[:], int64[:], int64[:,:], float64[:,:], boolean[:,:])', nogil=True)
 def parametrize(steps, labs, unique_L, inds, ind_shift, values, step_ok):
     sign = np.sum(np.abs(steps),axis=1)
-    cardinal_mask = sign>1 # limit to cardinal steps fro traversing 
+    cardinal_mask = sign>1 # limit to cardinal steps for traversing
     contours = []
     for l in unique_L:
         indices = np.argwhere(labs==l).flatten() # which spots withing the inds list etc. are the boundary we want
@@ -2258,8 +2690,20 @@ def parametrize(steps, labs, unique_L, inds, ind_shift, values, step_ok):
             step_mask = (seen+cardinal_mask+~step_ok_here)>0 # save a smidge of time this way vs logical_or 
             
             vals = values[:,index]
-            vals[step_mask] = np.inf # avoid these with min 
-            
+            # if np.sum(step_mask)>1:
+
+                
+#             if n_iter>20 and n_iter<35:
+#                 print(~step_mask,'steps that are allowed')
+#                 print(step_ok_here,'step_ok_here')
+#                 print(~cardinal_mask,'cardinal step')
+#                 print(n_iter)
+#                 # print(vals)
+#                 print(inds[index], index)
+#                 print(vals)
+#                 print('\n')
+            vals[step_mask] = np.inf # avoid these points with min 
+
             if np.sum(step_mask)<len(step_mask): # 1.1 ms faster than np.any np.any(~step_mask)
                 select = np.argmin(vals)
                 neighbor_idx = neighbor_inds[select]
@@ -2554,3 +2998,221 @@ def build_pants(node,cells,labels,img_stack,depth=0,reference_point=None, debug=
         return [np.hstack([p,c]) for p,c in zip(parent_stack,child_stack)], [np.hstack([p,c]) for p,c in zip(parent_masks,child_masks)], reference_point, angle
     
     
+from skimage import filters
+from skimage.feature import peak_local_max, corner_peaks
+from omnipose.utils import rescale
+from scipy.ndimage import center_of_mass, binary_erosion, binary_dilation
+from skimage import measure
+from skimage.morphology import skeletonize, medial_axis
+# import peakdetect
+
+def overseg_seeds(msk, bd, mu, T, ks=1.5, 
+                  rskel=True,extra_peaks=None):
+    skel = skeletonize(np.logical_xor(msk,bd))
+    
+    div = divergence(mu)
+    # cf = utils.curve_filter(div,2.5)
+    # cf = utils.curve_filter(skel*1.,2.5)
+    # imgin = gaussian(bd-(msk>0)*1.,3)
+    # imgin = skel*1.
+    # imgin = gaussian(skel*1.,1) # potential best 
+    
+    # imgin = bd-(msk>0)*1.
+    # cf = utils.curve_filter(imgin,2.5)
+    
+    imgin = T # no I think this is the best... 
+    # imgin = div
+    # ks = 2
+    
+    cf = utils.curve_filter(imgin,ks)
+    
+    # if rskel:
+    if 1:
+        image1 = np.abs(cf[-1]) #xy second derivative 
+        
+        cf = utils.curve_filter(image1,ks)
+        # image = np.abs(cf[5])
+        image = cf[5]
+    else:
+        # image = cf[2]
+        # image = np.abs(div)
+        cfx = utils.curve_filter(mu[1],ks)
+        cfy = utils.curve_filter(mu[0],ks)
+        image1 = cfx[-3]+cfy[-2]
+
+        # image1 = np.abs(cf[-1]) #xy second derivative 
+        
+        cf = utils.curve_filter(image1,ks)
+        # image = np.abs(cf[5])
+        image = cf[5]
+        
+        
+
+    image = utils.rescale(image)
+    # skel = binary_erosion(np.logical_xor(msk,bd),iterations=1)
+    # skel = binary_dilation(skel,iterations=1)
+    
+    if rskel:
+        restriction=skel
+    else:
+        restriction = np.logical_xor(msk,bd)
+        # restriction = image>.1
+    # restriction=r1
+    
+    min_dist = 2
+    # peaks = corner_peaks((1-utils.rescale(image))*restriction,min_distance=min_dist)#,footprint=np.ones((3, 3)))
+
+    peaks = corner_peaks((image)*restriction,min_distance=min_dist)#,footprint=np.ones((3, 3)))
+    
+    is_peak = np.zeros(image.shape,dtype=bool)
+    is_peak[tuple(peaks.T)] = True
+    
+    if extra_peaks is not None: # add in more 
+        is_peak = np.logical_or(is_peak,extra_peaks)
+    
+    labels = measure.label(is_peak,connectivity=2)
+    merged_peaks = center_of_mass(is_peak, labels, range(1, np.max(labels)+1))
+    peaks = np.array(merged_peaks).astype(int)
+    
+    return peaks, image
+
+def turn_overseg(masks,boundaries):
+    """
+    This function works by detecting turns in boundary labels. First, the boundary
+    is parametrized. Then, changes in boundary label are detected. For ND compatibility,
+    this should be replaced with a version that detects these turns while rejecting other
+    points of self-contact (where the boundary label is different) by another metric. 
+    In particular, the flow should be more or less parallel at these turn points, at least
+    not antiparallel. This is how the contour finding works. 
+    
+    An advantage of using contours is that they are closed, such that the labels can cycle back. 
+    Contours provide the necessary ordering. In ND, there is no such ordering, and so I must 
+    devise an alternative way to ensure that labels from different internal boundaries are still linked. 
+    Currently, adjacent boundary labels get the same integer. 
+    """
+    _, _, T, mu = omnipose.core.masks_to_flows(masks,
+                                               boundaries=boundaries,
+                                               use_gpu=0,omni=1,
+                                               smooth=0,normalize=0)
+    
+    contour_map,contour_list = omnipose.core.get_boundary(mu,masks,contour=contour,desprue=False)
+    
+    pad = 1
+    pad_bdi_lab = np.pad(bdi_label,1)
+    contour_map_pad = np.pad(contour_map,1)
+    maski_pad = np.pad(maski,1)
+    bd_dumb_pad = find_boundaries(maski_pad,mode='inner',connectivity=2)
+
+    turn_map = np.zeros_like(pad_bdi_lab)
+    repl_map = np.zeros_like(pad_bdi_lab)
+
+    turnpoints = []
+    offset = 0
+    turnlabels = []
+    links = set()
+    for c,contour in enumerate(contour_list):
+
+        coords_t = np.unravel_index(contour,contour_map_pad.shape)
+        u = pad_bdi_lab[coords_t].astype(int)
+        label = np.unique(maski_pad[coords_t])[0]
+        d = np.diff(u,append=u[0])
+        turns = np.nonzero(d)[0]
+
+        bd_interior_pad = np.logical_xor(pad_bdi_lab[coords_t],bd_dumb_pad[coords_t]) 
+        bd_interior_pad_cpy = bd_interior_pad.copy()
+
+        for turn in turns:
+            bd_interior_pad[slice(turn-1,turn+1)] = True
+
+        nturn = len(turns)
+        if nturn:
+            runs = utils.find_nonzero_runs(bd_interior_pad)
+
+            # generalize to any number of turns
+            labels = [[i,2,i+2] for i in range(1,2*nturn,2)]
+            if nturn>1: #make cyclic 
+                labels[-1][-1] = labels[0][0]
+            labels = np.array(labels)+offset
+
+      # keep track of which labels correspond to turns 
+        turnlabels.append(labels[0][1]) 
+        
+        # create links
+        [links.add((lnk[0],lnk[1])) for lnk in labels]
+        if nturn>2: # make sure it loops around 
+            [links.add((lnk[-1],lnk[1])) for lnk in [labels[-1]]]
+        
+        r = runs.flatten()
+        intervals = [np.abs(r.take(i,mode='wrap')-r.take(i+1,mode='wrap')) for i in range(1,len(r),2)]
+        endpoints = [0]+[r[1] for r in runs[:-1]]+[len(u)]
+        for j,(run,turn,labs) in enumerate(zip(runs,turns,labels)):
+            mid = slice(turn,turn+2)
+            skip = np.sum(bd_interior_pad_cpy[mid])<2 # these are the joins along external boundaries 
+            
+            # replace with cyclic take 
+            pads = [intervals[i%len(intervals)]//2 for i in [j,j+1]]
+            inds = [range(turn-pads[0],turn),range(turn,turn+2),range(turn+2,turn+2+pads[1])]
+
+            for l,i in zip(labs,inds):
+                turn_map[tuple([ct.take(i,mode='wrap') for ct in coords_t])] = labs[1] if skip else l
+                
+            if not skip:  # put in the label to either side
+                repl_map[tuple([ct.take(inds[1],mode='wrap') for ct in coords_t])] = [labs[i] for i in [0,-1]]
+                
+            offset+=3
+
+        else:
+            turn_map[coords_t] = offset+1
+            offset += 1
+
+        vals = contour_map_pad[coords_t]
+        # print(vals)
+        p = [[vals[t],vals[t+1]] for t in turns]
+        if len(p):
+            turnpoints.append([label,p])
+            
+            
+    result = np.zeros_like(maski_pad)
+    for l in fastremap.unique(maski_pad)[1:]:
+        mask = maski_pad==l
+        # seeds = turn_map*bd_interior_pad*mask
+        seeds = turn_map*mask
+
+        if np.any(seeds):
+            exp = ncolor.expand_labels(seeds)*mask
+
+        result[mask] = exp[mask]
+        
+        
+    # remove turnlabels, expand the remaining labels, then put the turnlabels back in the remaining space
+    # turn_mask = np.zeros_like(turn_map)
+    r2 = result.copy()
+    for l in turnlabels:
+        r2[np.nonzero(result==l)] = 0
+
+    for l in fastremap.unique(maski_pad)[1:]:
+        mask = maski_pad==l
+        seeds = r2*mask
+
+        if np.any(seeds):
+            exp = skimage_expand_labels(seeds,1)*mask
+
+        r2[mask] = exp[mask] # put in texpanded labels 
+        r2[np.logical_and(mask,r2==0)] = result[np.logical_and(mask,r2==0)] # put back linker 
+
+    # restore tips; expansion can mess this up a bit 
+    r2[repl_map>0] = repl_map[repl_map>0]
+    
+    # unpad things and return split masks and corresponding links 
+    unpad = tuple([slice(pad,-pad)]*maski.ndim)
+    return r2[unpad], links
+
+
+def curvature(contour,shape):
+    """
+    return the curvature of a contour
+    input: list of courtour points in order
+    outut: curvature at each contour point given by |T'(t)|/|r'(t)|
+    """
+    
+    # calculate tangent vec
