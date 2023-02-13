@@ -329,7 +329,7 @@ def masks_to_flows(masks, dists=None, boundaries=None, links=None, use_gpu=False
     if dists is None:
         # formatting reshuffles indices, so only do this
         # when no links are pesent 
-        if links is None:
+        if links is None or len(links)==0:
             masks = ncolor.format_labels(masks)
             dists = edt.edt(masks,parallel=-1)
             masks_recon = masks
@@ -1896,7 +1896,8 @@ def random_crop_warp(img, Y, links, nt, tyx, nchan, scale, rescale, scale_range,
         raise ValueError(error_message)
     
     if depth>200:
-        error_message = 'Recusion depth exceeded. Check that your images contain cells and background within a typical crop. Failed index is: '+str(ind)
+        error_message = """Recusion depth exceeded. Check that your images contain cells and background within a typical crop. 
+                           Failed index is: {}.""".format(ind)
         omnipose_logger.critical(error_message)
         raise ValueError(error_message)
         return
@@ -1954,11 +1955,11 @@ def random_crop_warp(img, Y, links, nt, tyx, nchan, scale, rescale, scale_range,
                 cutoff = (numpx/10**(dim+1)) # .1 percent of pixels must be cells
                 # print('after warp',len(np.unique(lbl[k])),np.max(lbl[k]),np.min(lbl[k]),cutoff,numpx, cellpx, theta)
                 if cellpx<cutoff:# or cellpx==numpx: # had to disable the overdense feature for cyto2
-                                #, may nto actually be a problem now anyway
+                                # may not actually be a problem now anyway
                     # print('toosmall',nt)
                     # skimage.io.imsave('/home/kcutler/DataDrive/debug/img'+str(depth)+'.png',img[0])
                     # skimage.io.imsave('/home/kcutler/DataDrive/debug/training'+str(depth)+'.png',lbl[0])
-                    return random_crop_warp(img, Y, nt, tyx, nchan, scale, rescale, scale_range, 
+                    return random_crop_warp(img, Y, links, nt, tyx, nchan, scale, rescale, scale_range, 
                                             gamma_range, do_flip, ind, dist_bg, depth=depth+1)
             else:
                 lbl[k] = do_warp(l, M, tyx, offset=offset, mode=mode)
