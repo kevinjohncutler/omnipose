@@ -488,9 +488,85 @@ def get_edge_masks(labels,dists):
             
     return clean_labels
 
-# not acutally used anymore 
+
+def get_steps(dim):
+    """
+    Get a symmetrical list of all 3**N points in a hypercube represented
+    by a list of all possible sequences of -1, 0, and 1 in ND.
+    
+    1D: [[-1],[0],[1]]
+    2D: [[-1, -1],
+         [-1,  0],
+         [-1,  1],
+         [ 0, -1],
+         [ 0,  0],
+         [ 0,  1],
+         [ 1, -1],
+         [ 1,  0],
+         [ 1,  1]]
+    
+    The opposite pixel at index i is always found at index -(i+1). The number
+    of possible face, edge, vertex, etc. connections grows exponentially with
+    dimension: 3 steps in 1D, 9 steps in 3D, 3**N in ND. 
+    """
+    neigh = [[-1,0,1] for i in range(dim)]
+    steps = cartesian(neigh) # all the possible step sequences in ND
+    return steps
+    
+def steps_to_indices(steps):
+    """
+    Get indices of the hupercubes sharing m-faces on the central n-cube. These
+    are sorted by the connectivity (by center, face, edge, vertex, ...). I.e.,
+    the central point index is first, followed by cardinal directions, ordinals,
+    and so on. 
+    """
+     # each kind of m-face can be categorized by the number of steps to get there
+    sign = np.sum(np.abs(steps),axis=1)
+    
+    # we want to bin them into groups 
+    # E.g., in 2D: [4] (central), [1,3,5,7] (cardinal), [0,2,6,8] (ordinal)
+    uniq = fastremap.unique(sign)
+    inds = [np.where(sign==i)[0] for i in uniq] 
+    
+    # weighting factor for each hypercube group (distance from central point)
+    fact = np.sqrt(uniq) 
+    return inds, fact
+
+# [steps[:idx],steps[idx+1:]] can give the other steps 
+def kernel_setup(dim):
+    """
+    Get relevant kernel information for the hypercube of interest. 
+    Calls get_steps(), steps_to_indices(). Input is the dimesion.
+    Returns:
+    
+    steps: ndarray, int 
+        list of steps to each kernal point
+        see get_steps()
+        
+    idx: int
+        index of the central point within the step list
+        this is always (3**dim)//2
+        
+    inds: ndarray, int
+        list of kernel points sorted by type
+        see  steps_to_indices()
+    
+    fact: float
+        list of face/edge/vertex/... distances 
+        see steps_to_indices()
+    
+    """
+    steps = get_steps(dim)
+    inds, fact = steps_to_indices(steps)
+    idx = inds[0][0] # the central point is always first 
+    return steps,inds,idx,fact
+    
+    
+    
+# not acutally used in the code, typically use  steps_to_indices etc. 
 def cubestats(n):
-    """gets the number of m-dimensional hypercubes connected to the n-cube, including itself
+    """
+    Gets the number of m-dimensional hypercubes connected to the n-cube, including itself. 
     
     Parameters
     ----------
@@ -499,9 +575,10 @@ def cubestats(n):
     
     Returns
     --------------
-    list whose length tells us how many hypercube types there are (point/edge/pixel/voxel...) connected 
-    to the central hypercube and whose entries denote many there in each group. E.g., a square would be n=2, 
-    so cubestats returns [4, 4, 1] for four points (m=0), four edges (m=1), and one face (the original square,m=n=2). 
+    List whose length tells us how many hypercube types there are (point/edge/pixel/voxel...) 
+    connected to the central hypercube and whose entries denote many there in each group. 
+    E.g., a square would be n=2, so cubestats returns [4, 4, 1] for four points (m=0), 
+    four edges (m=1), and one face (the original square,m=n=2). 
     
     """
     faces = []

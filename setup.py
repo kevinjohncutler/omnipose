@@ -5,7 +5,8 @@ install_deps = ['numpy>=1.22.4', 'scipy', 'numba',
                 'edt','scikit-image','ncolor>=1.2.1',
                 'scikit-learn','torch>=1.10',
                 'mahotas>=1.4.13',
-                'mgen','matplotlib','networkx']
+                'mgen','matplotlib',
+                'peakdetect','igraph','torchvf']
 
 import os
 
@@ -15,10 +16,10 @@ else:
     extra = 'all'
     
 cp_ver = '0.7.3'
-cp_deps = ['cellpose-omni['+extra+']>='+cp_ver,]
+cp_deps = ['cellpose-omni[{}]>={}'.format(extra,cp_ver),]
     
 with open("README.md", "r") as fh:
-    long_description = fh.read()
+    long_description = fh.read() 
     
 setup(
     name="omnipose",
