@@ -327,9 +327,7 @@ def masks_to_flows(masks, dists=None, coords=None, affinity_graph=None, links=No
     m_orig = masks.copy()
     if links is not None and dists is not None:
         print('Your dists are probably wrong...')
-    
-    print(np.array(coords).shape)
-    
+        
     if coords is None:
         coords = np.nonzero(masks) 
     # Generalize method of computing affinity graph for flow
@@ -342,7 +340,6 @@ def masks_to_flows(masks, dists=None, coords=None, affinity_graph=None, links=No
         affinity_graph = masks_to_affinity(masks,links)
         if case[1]:
             print('Warning: passed affinity does not match mask coordinates. Recomputing.')
-    print(masks.shape,np.sum(masks>0),np.array(coords).shape,affinity_graph.shape)
     boundaries = affinity_to_boundary(masks,affinity_graph,coords)
     
     if dists is None:
@@ -701,7 +698,7 @@ def links_to_boundary(masks,links):
     
     #have to reocmpute?
     piece_masks = masks0[tuple(neighbors)] #extract list of label values, 
-    # print(piece_masks.shape,isneighbor.shape,is_link.shape,isborder.shape)
+
     is_link = get_link_matrix(links,piece_masks, tuple(piece_masks.shape), np.concatenate(inds), idx)
 
     isborder = border_mask[tuple(neighbors)] #extract list of border values
@@ -771,7 +768,7 @@ def mode_filter(masks):
     # return mask_filt
 
 def _extend_centers_torch(masks, centers, affinity_graph, n_iter=200, 
-                          device=torch.device('cuda'), omni=True, smooth=True):
+                          device=torch.device('cuda'), omni=True, smooth=True, weight=1):
     """ runs diffusion on GPU to generate flows for training images or quality control
     PyTorch implementation is faster than jitted CPU implementation, therefore only the 
     GPU optimized code is being used moving forward. 
@@ -822,16 +819,6 @@ def _extend_centers_torch(masks, centers, affinity_graph, n_iter=200,
     mask_pix = (Ellipsis,)+tuple(pt[:,idx]) #indexing for the central coordinates 
     center_pix = (Ellipsis,)+tuple(meds)
     neigh_pix = (Ellipsis,)+tuple(pt)  
-    
-    # cbd = np.nonzero(boundaries)
-    # nbd = np.array([np.add.outer(cbd[i],steps[:,i]) for i in range(d)]).swapaxes(-1,-2)
-    # bdp = torch.from_numpy(nbd).to(device)
-    # bd_pix = (Ellipsis,)+tuple(bdp[:,idx])
-
-    weight = np.sqrt((1/np.sqrt(2)))
-    # weight = np.sqrt(2)
-    # weight = 1/np.sqrt(2)
-    weight = 1
     
     for t in range(n_iter):
         if omni and OMNI_INSTALLED:
@@ -887,10 +874,6 @@ def _extend_centers_torch(masks, centers, affinity_graph, n_iter=200,
         # unit vectors 
         vecs = steps[idx]
         uvecs = [(vecs[-(i+1)] - vecs[i]) / (2*f) for i in range(0,vecs.shape[0]//2)]
-        # uvecs = vecs/f
-        # uvecs = [vecs[-(i+1)]/f for i in range(0,vecs.shape[0]//2)]
-        # print('d',d)
-        # print('uvecs',uvecs,vecs,f)
         
         # dot products, project differences onto cardinal coorinate system 
         # diff[0]*uvec[0][0] + diff[1]*uvec[0][1]+...
@@ -938,8 +921,6 @@ def eikonal_update_torch(T,pt,isneigh,d=None,index_list=None,factors=None,weight
     # phi_total /= weight
         
     return phi_total
-
-    
 
 def update_torch(a,f):
     # Turns out we can just avoid a ton of individual if/else by evaluating the update function
@@ -2198,22 +2179,15 @@ def loss(self, lbl, y):
         y[:,D] distance fields at D
         y[:,D+1] boundary fields at D+1
     
-    """
-    # print(y.shape,y[0,0])
-    
+    """    
     nt = lbl.shape[1]
     cellmask = lbl[:,1]
-    # print(lbl.shape,nt)
-    # print(lbl[0,5])
     cellmask = self._to_device(cellmask>0)#.bool()
 
     if nt==2: # semantic segmentation
-        loss1 = self.criterion(y[:,0],cellmask) #MSE
-        # loss1 = self.criterion17(y[:,0]*1.0,cellmask*1.0) 
-        
+        loss1 = self.criterion(y[:,0],cellmask) #MSE        
         loss2 = self.criterion2(y[:,0],cellmask) #BCElogits 
         return loss1+loss2
-        # return loss2
         
     else: #instance segmentation
         cellmask = cellmask.bool() #acts as a mask now, not output 
@@ -2941,26 +2915,28 @@ def _get_affinity(steps, mask_pad, mu_pad, dt_pad, p, p0,
         connect[-(i+1),target[sel]] = isconnectAB[sel] #target to source
         
 
-    # boundary cleanup - through frankly if I have 2x symmetry this is not needed I think 
+    # boundary cleanup 
     cardinal = np.concatenate(inds[1:2])
     ordinal = np.concatenate(inds[2:])
     
     # non_self = np.concatenate(inds[1:])
     non_self = np.array(list(set(np.arange(len(steps)))-{inds[0][0]})) # I need these to be in order
 
-    connect = _despur(connect, neigh_inds, indexes, non_self, cardinal, ordinal, d, clean_bd_connections)
+    connect = _despur(connect, neigh_inds, indexes, steps, non_self, cardinal, ordinal, d, clean_bd_connections)
 
+    # need to ensure that pixels connected to internal pixels ar enot connected to boundaries in the oppoiste direction 
+    
     
     # discard pixels with low connectivity  
     csum = np.sum(connect,axis=0)
     crop = csum<d
-    
     for i in non_self:
         target = neigh_inds[i,crop]
         connect[i,crop] = 0 
-        connect[-(i+1),target] = 0 
+        connect[-(i+1),target[target>-1]] = 0 
 
     # construct boundary
+    csum = np.sum(connect,axis=0)
     boundary = np.logical_and(csum<(3**d-1),csum>=d)
 
     bd_matrix = np.zeros_like(mask_pad,dtype=int)
@@ -2971,13 +2947,12 @@ def _get_affinity(steps, mask_pad, mu_pad, dt_pad, p, p0,
 # numba will require getting rid of stacking, summation, etc., super annoying... the numebr of pixels to fix is quite
 # small in practice, so may not be worth it 
 # @njit('(bool_[:,:], int64[:,:], int64[:], int64[:], int64[:],  int64[:], int64, bool_)')
-def _despur(connect, neigh_inds, indexes, non_self, cardinal, ordinal, dim, clean_bd_connections):
+def _despur(connect, neigh_inds, indexes, steps, non_self, cardinal, ordinal, dim, clean_bd_connections):
     count = 0
     delta = True
     s0 = len(non_self)//2 #<<<<<<<<<<<<<< idx 
     iter_cutoff = 100
-    while delta and count<iter_cutoff: 
-    
+    while delta and count<iter_cutoff:    
         count+=1
         before = connect.copy()
         
@@ -3001,7 +2976,7 @@ def _despur(connect, neigh_inds, indexes, non_self, cardinal, ordinal, dim, clea
                 sel = spur*valid_target
                 connect[i,sel] = connection
                 connect[-(i+1),target[sel]] = connection
-            
+        
 
         # must recompute after those operations were perfomed 
         csum =  np.sum(connect,axis=0)
