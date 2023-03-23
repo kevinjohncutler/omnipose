@@ -43,7 +43,7 @@ Standalone versions of this GUI for Windows, macOS, and Linux are available on t
     ```
 5. To install the latest PyPi release of Omnipose, run
     ``` 
-    pip install omnipose
+    pip install omnipose[gui]  # or just 'omnipose' if you don't need the GUI
     ``` 
     or, for the most up-to-date development version,
     ```
