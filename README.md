@@ -21,7 +21,7 @@ New users can check out the [ZeroCostDL4Mic][ZeroCostDL4Mic] Cellpose notebook o
 
 ## Use the GUI
 
-Launch the Omnipose-optimized version of the Cellpose GUI from terminal: `python -m omnipose`. The latest version of Omnipose (see GitHub installation) automatically downloads the GUI dependencies of our Cellpose fork. On Ubuntu 2022.04 (and possibly earlier), we found it necessary to run the following to install a missing system package: 
+Launch the Omnipose-optimized version of the Cellpose GUI from terminal: `python -m omnipose`. Version 0.4.0 and onward will *not* install the GUI dependencies by default. When you first run the GUI command, you will be prompted to install the GUI dependencies. On Ubuntu 2022.04 (and possibly earlier), we found it necessary to run the following to install a missing system package: 
 ```
 sudo apt install libxcb-xinerama0
 ```
@@ -31,7 +31,7 @@ Standalone versions of this GUI for Windows, macOS, and Linux are available on t
 
 ## How to install Omnipose
 
-1. Install an [Anaconda](https://www.anaconda.com/download/) distribution of Python. Note you might need to use an anaconda prompt if you did not add anaconda to the path.
+1. Install an [Anaconda](https://www.anaconda.com/download/) distribution of Python. Note you might need to use an anaconda prompt if you did not add anaconda to the path. Alternatives like miniconda also work just as well. 
 2. Open an anaconda prompt / command prompt with `conda` for **python 3** in the path.
 3. To create a new environment, run
     ```
@@ -52,10 +52,6 @@ Standalone versions of this GUI for Windows, macOS, and Linux are available on t
     ```
 
 We have tested Omnipose extensively on Python version 3.8.5 and have encountered issues on some lower versions. Versions up to 3.10.8 have been confirmed compatible. Check your python version by running `python -V`. If your version is too low (this happens if your default/base environment python is a lower version), make a new environment and specify the python version, e.g. `conda create --name omnipose python==3.8.5`
-
-### Install without the GUI dependencies 
-
-Set the environment variable `NO_GUI` prior to running the install commands. In linux/macOS, `export NO_GUI=True` (the value here does not matter, `setup.py` just checks for the variable existence). To undo, use `unset NO_GUI`. In Windows, use `set NO_GUI=True` and `set NO_GUI=`. 
 
 ### GPU support 
 
@@ -104,9 +100,9 @@ Cell size remains the only practical limitation of Omnipose. On the low end, cel
 
 
 ## Issues and feature requests
-As Omnipose is built on [Cellpose][cp], this repo serves mostly to contain new Omnipose-specific functions (like the smooth distance field and the mean cell diameter metric) and our versions of key Cellpose functions (like mask reconstruction). The main Cellpose code base imports these functions and uses them with `omni=True`. This approach was not feasible for my more recent work with ND volume processing, which required extensive rewrites to the file handling and network architecture that could not be so easily separated from the original code base (and arguably should not, as these changes are the same ideas just expressed in a dimension-agnostic way). For the foreseeable future, my [fork](https://github.com/kevinjohncutler/cellpose) of Cellpose will be the only version compatible with new development of Omnipose after 0.2.1, and it is installed automatically when you install Omnipose. 
+As Omnipose is built on [Cellpose][cp], this repo serves mostly to contain new Omnipose-specific functions (like the smooth distance field and the mean cell diameter metric) and our versions of key Cellpose functions (like mask reconstruction). The main Cellpose code base imports these functions and uses them with `omni=True`. This approach was not feasible for my more recent work with ND volume processing, which required extensive rewrites to the file handling and network architecture that could not be so easily separated from the original code base (and arguably should not, as these changes are the same ideas just expressed in a dimension-agnostic way). For the foreseeable future, my [fork](https://github.com/kevinjohncutler/cellpose-omni) of Cellpose will be the only version compatible with new development of Omnipose after 0.2.1, and it is installed automatically when you install Omnipose. 
 
-This means that if you encounter bugs with Omnipose, you can check the [main Cellpose repo][cp] for related issues and also post them here. Our Cellpose fork will continue to be updated with bug fixes and features from the main branch. If there are any features or pull requests that you want to see in Omnipose ASAP, please let us know. 
+This means that if you encounter bugs with Omnipose, you can check the [main Cellpose repo][cp] for related issues and also post them here. Our Cellpose fork will continue to be updated with bug fixes and features from the main branch. If there are any features or pull requests that you want to see in Omnipose ASAP, please let me know. 
 
 ## Building the GUI app
 
@@ -129,7 +125,7 @@ PyInstaller can be used to compile Omnipose into a standalone app. The limitatio
     ``` 
     
 Some more notes: 
-- the mgen dependency had some version declarations that are incompatible with pysintaller. Omnipose therefore now depends on my fork that fixes this issue. 
+- the mgen dependency had some version declarations that are incompatible with pyinstaller. Install my fork of mgen prior to building the app. 
 
 pyinstaller --clean --noconfirm --onefile omni.py --collect-all pyqtgraph --collect-all skimage --collect-all torch
 
