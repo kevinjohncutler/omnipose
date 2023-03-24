@@ -10,10 +10,11 @@ install_deps = ['numpy>=1.22.4', 'scipy', 'numba',
 
 import os
 
-if os.getenv('NO_GUI'):
-    extra = 'omni'
-else:
-    extra = 'all'
+# if os.getenv('NO_GUI'):
+#     extra = 'omni'
+# else:
+#     extra = 'all'
+extra = 'omni'
     
 cp_ver = '0.7.3'
 cp_deps = ['cellpose-omni[{}]>={}'.format(extra,cp_ver),]

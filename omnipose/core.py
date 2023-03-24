@@ -2091,7 +2091,7 @@ def random_crop_warp(img, Y, links, nt, tyx, nchan, scale, rescale, scale_range,
     # Makes more sense to spend time on image augmentations
     # after the label augmentation succeeds without triggering recursion 
     imgi  = np.zeros((nchan,)+tyx, np.float32)
-    for k in range(nchan): # replace k with slice that handles when nchan=0
+    for k in range(nchan): 
         I = do_warp(img[k], M, tyx, offset=offset, mode=mode)
         
         # gamma agumentation 
