@@ -10,7 +10,7 @@
    :end-before: ### Install without the GUI dependencies
   
 :header-2:`Install without the GUI dependencies`
------------------------
+------------------------------------------------
 .. include:: ../README.md
    :parser: myst_parser.sphinx_
    :start-after: ### Install without the GUI dependencies
@@ -90,10 +90,9 @@ If you receive the error: ``ImportError: _arpack DLL load failed``, then try uni
 
 If you are having issues with the graphical interface, make sure you have **python 3.8.5** installed. Higher versions *should* also work. 
 
-If you are on Yosemite Mac OS or earlier, PyQt does not work and you won't be able
-to use the GUI. More recent versions of Mac
-OS are fine. The software has been heavily tested on Windows 10 and
-Ubuntu 18.04, and less well tested on Mac OS. Please post an issue if
+If you are on macOS Yosemite or earlier, PyQt does not work and you won't be able
+to use the GUI. More recent versions of macOS are fine. The software has been heavily tested on Windows 10 and
+Ubuntu 18.04, and less well tested on macOS. Please post an issue if
 you have installation problems.
 
 

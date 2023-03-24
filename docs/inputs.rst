@@ -3,7 +3,7 @@
 :sinebow13:`Inputs`
 ===================
 
-Omnipose automatically detects TIFs, PNGs, or JPEGs. :mod:`cellpose.io` uses tifffile 
+Omnipose automatically detects TIFs, PNGs, or JPEGs. :mod:`cellpose_omni.io` uses tifffile 
 for loading TIFs and cv2 for PNG and JPEG. We are considering adding direct support for 
 other bioformats types such as ND2, but for now all input must be exported to the above
 image formats prior to running Omnipose. 

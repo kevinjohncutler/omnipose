@@ -21,9 +21,9 @@ If you choose to use a pretrained model, then this fixed median diameter is used
 If you choose to train from scratch, you can set the median diameter you want to use for rescaling with the ``--diameter`` flag, or set it to 0 to disable rescaling. 
 The ``cyto``, ``cyto2``, and ``cyto2_omni`` models were trained with a diameter of 30 pixels and the `nuclei` model with a diameter of 17 pixels.
 
-If your training image set varies a lot in cell diameter, you may also want to learn a :mod:`~cellpose.models.SizeModel` that predicts the diameter from the styles that the 
+If your training image set varies a lot in cell diameter, you may also want to learn a :mod:`~cellpose_omni.models.SizeModel` that predicts the diameter from the styles that the 
 network outputs. Add the flag ``--train_size`` and this model will be trained and saved as an 
-``*.npy`` file. **Omnipose models generally do not come with a** :mod:`~cellpose.models.SizeModel`, with the exeption of ``cyto2_omni``.
+``*.npy`` file. **Omnipose models generally do not come with a** :mod:`~cellpose_omni.models.SizeModel`, with the exeption of ``cyto2_omni``.
 
 The same channel settings apply for training models (see all Command line `options
 <http://www.cellpose.org/static/docs/command.html>`_). 

@@ -8,6 +8,11 @@ install_deps = ['numpy>=1.22.4', 'scipy', 'numba',
                 'mgen','matplotlib',
                 'peakdetect','igraph','torchvf']
 
+doc_deps = ['sphinx-autobuild',
+            'sphinx_automodapi',
+            'sphinx_copybutton',
+            'sphinx_design','furo','myst_nb']
+
 import os
 
 # if os.getenv('NO_GUI'):
