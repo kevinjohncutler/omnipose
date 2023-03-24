@@ -696,7 +696,7 @@ def links_to_boundary(masks,links):
     # isboundary[s_all]*=crit1
     # piece_masks[(Ellipsis,)+np.where(crit1)] = 0
     
-    #have to reocmpute?
+    #have to recompute?
     piece_masks = masks0[tuple(neighbors)] #extract list of label values, 
 
     is_link = get_link_matrix(links,piece_masks, tuple(piece_masks.shape), np.concatenate(inds), idx)
@@ -763,10 +763,6 @@ def mode_filter(masks):
     unpad = tuple([slice(pad,-pad)]*d) 
     return mask_filt[unpad]
     
-    
-    
-    # return mask_filt
-
 def _extend_centers_torch(masks, centers, affinity_graph, n_iter=200, 
                           device=torch.device('cuda'), omni=True, smooth=True, weight=1):
     """ runs diffusion on GPU to generate flows for training images or quality control
