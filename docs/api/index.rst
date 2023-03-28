@@ -19,4 +19,4 @@ The API for our Cellpose fork is actively being expanded over that of the main b
     :maxdepth: 1
     :caption: Cellpose
     
-    cellpose-omni
+    cellpose

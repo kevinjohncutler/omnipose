@@ -204,7 +204,8 @@ def diameters(masks, dt=None, dist_threshold=0):
 # It is possible that flows can be eliminated in place of the distance field. The current distance field may not be smooth 
 # enough, or maybe the network really does require the flow field prediction to work well. But in 3D, it will be a huge
 # advantage if the network could predict just the distance (and boudnary) classes and not 3 extra flow components. 
-def labels_to_flows(labels, links=None, files=None, use_gpu=False, device=None, omni=True, redo_flows=False, dim=2):
+def labels_to_flows(labels, links=None, files=None, use_gpu=False, device=None, 
+                    omni=True, redo_flows=False, dim=2):
     """ Convert labels (list of masks or flows) to flows for training model.
 
     if files is not None, flows are saved to files to be reused
@@ -221,14 +222,14 @@ def labels_to_flows(labels, links=None, files=None, use_gpu=False, device=None, 
     files: list of strings
         list of file names for the base images that are appended with '_flows.tif' for saving. 
     use_gpu: bool
-        flag to use GPU for speedup. Note that Omnipose fixes some bugs that caused the Cellpose GPU implementation
-        to have different behavior compared to the Cellpose CPU implementation. 
+        flag to use GPU for speedup. Note that Omnipose fixes some bugs that caused the Cellpose GPU 
+        implementation to have different behavior compared to the Cellpose CPU implementation. 
     device: torch device
         what compute hardware to use to run the code (GPU VS CPU)
     omni: bool
         flag to generate Omnipose flows instead of Cellpose flows
     redo_flows: bool
-        flag to overwrite existing flows. This is necessary when changing over from cellpose_omni to Omnipose, 
+        flag to overwrite existing flows. This is necessary when changing over from Cellpose to Omnipose, 
         as the flows are very different.
     dim: int
         integer representing the intrinsic dimensionality of the data. This allows users to generate 3D flows
@@ -1172,8 +1173,7 @@ def compute_masks(dP, dist, bd=None, p=None, inds=None, niter=None, rescale=1.0,
                                              diam_threshold=diam_threshold, verbose=verbose, 
                                              eps=eps, hdbscan=hdbscan) ##### omnipose.core.get_masks
                     affinity_graph = None
-                    coords = np.nonzero(labels)
-                
+                    coords = np.nonzero(labels)                
             else:
                 labels = get_masks_cp(p, iscell=iscell_pad,
                                       flows = dP_pad if flow_threshold>0 else None, 
@@ -1198,6 +1198,10 @@ def compute_masks(dP, dist, bd=None, p=None, inds=None, niter=None, rescale=1.0,
                 labels = np.reshape(labels, shape0).astype(np.int32)
         
         
+        # need to reconsider this for self-contact... ended up just disabling with hole size 0
+        masks = fill_holes_and_remove_small_masks(labels, min_size=min_size, ##### utils.fill_holes_and_remove_small_masks
+                                                 hole_size=hole_size, dim=dim)*iscell_pad 
+        # masks = labels
         # Resize mask, semantic or instance 
         resize_pad = np.array([r+2*pad for r in resize]) if resize is not None else labels.shape
         if tuple(resize_pad)!=labels.shape:
@@ -1205,24 +1209,29 @@ def compute_masks(dP, dist, bd=None, p=None, inds=None, niter=None, rescale=1.0,
                 omnipose_logger.info(f'resizing output with resize = {resize_pad}')
             # mask = resize_image(mask, resize[0], resize[1], interpolation=cv2.INTER_NEAREST).astype(np.int32) 
             ratio = np.array(resize_pad)/np.array(labels.shape)
-            labels = zoom(labels, ratio, order=0).astype(np.int32) 
-            iscell_pad = zoom(iscell_pad, ratio, order=0).astype(np.bool) 
+            masks = zoom(masks, ratio, order=0).astype(np.int32) 
+            iscell_pad = masks>0
+            dt_pad = zoom(dt_pad, ratio, order=1)
             dP_pad = zoom(dP_pad, np.concatenate([[1],ratio]), order=1) # for boundary 
+            
+            # affinity_seg not compatible with rescaling after euler integration
+            # would need to upscale predcitons first 
+            if verbose and affinity_seg:
+                omnipose_logger.info('affinity_seg not compatible with rescaling, disabling')
+            affinity_seg = False
+            
+        if not affinity_seg or boundary_seg:
+            bounds = find_boundaries(masks,mode='inner',connectivity=dim)
 
-        # need to reconsider this for self-contact... ended up just disabling with hole size 0
-        masks = fill_holes_and_remove_small_masks(labels, min_size=min_size, ##### utils.fill_holes_and_remove_small_masks
-                                                 hole_size=hole_size, dim=dim)*iscell_pad 
-        
         # If using default omnipose/cellpose for getting masks, still try to get accurate boundaries 
         if bounds is None:
-            # bounds = find_boundaries(mask,mode='inner',connectivity=dim)
-            # bounds = get_boundary(np.pad(dP,pad_seq),masks>0)
             affinity_graph, neigh_inds, bounds = _get_affinity(steps,masks,dP_pad,dt_pad,p,inds)
+            # steps, mask_pad, mu_pad, dt_pad, p, p0, 
 
             # boundary finder gets rid of some edge pixels, remove these from the mask 
             gone = neigh_inds[3**dim//2,np.sum(affinity_graph,axis=0)==0]
             # coords = np.argwhere(masks)
-            coords = inds.T
+            coords = inds.T 
             masks[tuple(coords[gone].T)] = 0 
             iscell_pad[tuple(coords[gone].T)] = 0 
         else:
@@ -1241,7 +1250,7 @@ def compute_masks(dP, dist, bd=None, p=None, inds=None, niter=None, rescale=1.0,
         masks_unpad = masks[unpad]
         bounds_unpad = bounds[unpad]
         
-        if not boundary_seg:
+        if affinity_seg:
             # I also want to return the raw affinity graph
             # the problem there is that it is computed on the padded array
             # besides unpadding, I need to delete columns for missing pixels 

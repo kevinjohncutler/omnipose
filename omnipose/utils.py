@@ -19,18 +19,20 @@ import fastremap
 
 
 def findbetween(s,string1='[',string2=']'):
+    """Find text between string1 and string2."""
     return re.findall(str(re.escape(string1))+"(.*)"+str(re.escape(string2)),s)[0]
 
 def getname(path,prefix='',suffix='',padding=0):
+    """Extract the file name."""
     return os.path.splitext(Path(path).name)[0].replace(prefix,'').replace(suffix,'').zfill(padding)
 
 def to_16_bit(im):
+    """Rescale image [0,2^16-1] and then cast to uint16."""
     return np.uint16(rescale(im)*(2**16-1))
 
 def to_8_bit(im):
+    """Rescale image [0,2^8-1] and then cast to uint8."""
     return np.uint8(rescale(im)*(2**8-1))
-
-
 
 def shifts_to_slice(shifts,shape):
     """
@@ -46,6 +48,7 @@ def shifts_to_slice(shifts,shape):
     return slc
 
 def make_unique(masks):
+    """Relabel stack of label matrices such that there is no repeated label across slices."""
     masks = masks.copy().astype(np.uint32)
     T = range(len(masks))
     offset = 0 
