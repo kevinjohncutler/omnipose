@@ -20,8 +20,7 @@ import os
 # else:
 #     extra = 'all'
 extra = 'omni'
-    
-cp_ver = '0.7.3'
+cp_ver = '0.9.1'
 cp_deps = ['cellpose-omni[{}]>={}'.format(extra,cp_ver),]
     
 with open("README.md", "r") as fh:
@@ -39,15 +38,15 @@ setup(
         'pytest-runner',
         'setuptools_scm',
     ],
-    packages=setuptools.find_packages(),
+    packages=setuptools.find_packages(exclude=("omnipose.scripts",)),
     use_scm_version=True,
     install_requires = install_deps+cp_deps,
     tests_require=[
       'pytest'
     ],
     include_package_data=True,
-    classifiers=(
+    classifiers=[
         "Programming Language :: Python :: 3",
         "Operating System :: OS Independent",
-    ),
+    ],
 )
