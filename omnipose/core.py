@@ -141,6 +141,7 @@ def get_niter(dists):
     
     """
     return np.ceil(np.max(dists)*1.16).astype(int)+1
+    
 
 # minor modification to generalize to nD 
 def dist_to_diam(dt_pos,n): 
@@ -368,6 +369,7 @@ def masks_to_flows(masks, dists=None, coords=None, affinity_graph=None, links=No
     
     if masks.ndim==3 and dim==2:
         # this branch preserves original 3D apprach 
+        print('Sorry, this branch has not yet been updated - do not use omnipiose for this')
         Lz, Ly, Lx = masks.shape
         mu = np.zeros((3, Lz, Ly, Lx), np.float32)
         for z in range(Lz):
@@ -398,7 +400,6 @@ def masks_to_flows(masks, dists=None, coords=None, affinity_graph=None, links=No
             edge_mask = utils.get_edge_masks(masks,dists=dists)>0 
             masks_pad = np.pad(masks*edge_mask,pad,mode='reflect') 
             
-
         # step 2: restore the masks in the original area
             masks_pad[unpad] = masks
             
@@ -424,21 +425,21 @@ def masks_to_flows(masks, dists=None, coords=None, affinity_graph=None, links=No
             # coords_pad = tuple([coords[i]+pad for i in range(dim)])
             bd = affinity_to_boundary(masks_pad,affinity_graph_pad,coords_pad)
             
-            mu, T = masks_to_flows_torch(masks_pad, dists, affinity_graph_pad,
+            mu, T = masks_to_flows_torch(masks_pad, affinity_graph_pad, dists, 
                                              device=device, omni=omni, smooth=smooth,
                                              normalize=normalize, n_iter=n_iter)
             
             return masks, dists, bd[unpad], T[unpad], mu[(Ellipsis,)+unpad]
 
         else: # reflection not a good idea for centroid model 
-            mu, T = masks_to_flows_torch(masks, dists, affinity_graph, device=device, 
+            mu, T = masks_to_flows_torch(masks, affinity_graph, dists, device=device, 
                                               omni=omni, smooth=smooth, normalize=normalize)
             return masks, dists, boundaries, T, mu
 
 
 #Now fully converted to work for ND.
-def masks_to_flows_torch(masks, dists, affinity_graph, device=None, omni=True, 
-                         smooth=True, normalize=True, n_iter=None):
+def masks_to_flows_torch(masks, affinity_graph, dists=None, device=None, omni=True, 
+                         smooth=False, normalize=False, n_iter=None, weight=1):
     """Convert ND masks to flows. 
     
     Omnipose find distance field, Cellpose uses diffusion from center of mass.
@@ -467,8 +468,6 @@ def masks_to_flows_torch(masks, dists, affinity_graph, device=None, omni=True,
     dist: float, 2D or 3D array
         scalar field representing temperature distribution (Cellpose)
         or the smooth distance field (Omnipose)
-    bd: bool, 2D or 3D array
-        binary field representing 1-connected boundary 
 
     """
     
@@ -497,7 +496,7 @@ def masks_to_flows_torch(masks, dists, affinity_graph, device=None, omni=True,
                 
         # set number of iterations
         if n_iter is None:
-            if omni and OMNI_INSTALLED:
+            if omni and OMNI_INSTALLED and dists is not None:
                 # omni version requires fewer iterations 
                 n_iter = get_niter(dists) ##### omnipose.core.get_niter
             else:
@@ -507,7 +506,8 @@ def masks_to_flows_torch(masks, dists, affinity_graph, device=None, omni=True,
 
         # run diffusion       
         mu, T = _extend_centers_torch(masks_padded, centers, affinity_graph,
-                                      n_iter=n_iter, device=device, omni=omni, smooth=smooth)
+                                      n_iter=n_iter, device=device, omni=omni, smooth=smooth, 
+                                      weight=weight)
         # normalize
         if normalize:
             mu = utils.normalize_field(mu) ##### transforms.normalize_field(mu,omni) 
@@ -521,11 +521,13 @@ def masks_to_flows_torch(masks, dists, affinity_graph, device=None, omni=True,
         return np.zeros((masks.ndim,)+masks.shape), np.zeros(masks.shape)
 
     
-def get_links(masks,labels,bd,connectivity=1):    
+def get_links(masks,labels,bd,connectivity=1):   
+    # Helper function. Might be unecessary now with the boundary_to_affinity function, which should be better. 
+    # No, I still use it for multilabel data. 
     d = labels.ndim
     coords = np.nonzero(labels)
 
-    steps,inds,idx,fact = utils.kernel_setup(d)
+    steps, inds, idx, fact, sign = utils.kernel_setup(d)
     neighbors = np.array([np.add.outer(coords[i],steps[:,i]) for i in range(d)]).swapaxes(-1,-2)
 
     # determine which pixels are neighbors. Pixels that are within reach (from step list) and the same label
@@ -555,6 +557,7 @@ def get_links(masks,labels,bd,connectivity=1):
 
     return links
 
+import networkx as nx
 def links_to_mask(masks,links):
     """
     Convert linked masks to stictched masks. 
@@ -587,7 +590,7 @@ def masks_to_affinity(masks,links=None,edge_connect=True,debug=False):
     
     masks_padded = np.pad(masks,pad,'edge' if edge_connect else 'empty') 
     
-    steps, inds, idx, fact = utils.kernel_setup(d)
+    steps, inds, idx, fact, sign = utils.kernel_setup(d)
     coords = np.nonzero(masks)
     neighbors = np.array([np.add.outer(coords[i]+pad,steps[:,i]) for i in range(d)]).swapaxes(-1,-2)
     
@@ -667,7 +670,7 @@ def links_to_boundary(masks,links):
     # binary_dilation
     # coords = np.nonzero(binary_dilation(masks_padded>0))
     
-    steps, inds, idx, fact = utils.kernel_setup(d)
+    steps, inds, idx, fact, sign= utils.kernel_setup(d)
     coords = np.nonzero(masks)#bug??
     neighbors = np.array([np.add.outer(coords[i],steps[:,i]) for i in range(d)]).swapaxes(-1,-2)
 
@@ -769,7 +772,7 @@ def mode_filter(masks):
     masks = np.pad(masks,pad).astype(int)
     d = masks.ndim
     coords = np.nonzero(masks)
-    steps, inds, idx, fact = utils.kernel_setup(d)
+    steps, inds, idx, fact, sign = utils.kernel_setup(d)
     
     subinds = np.concatenate(inds[0:2]) # only consider center+cardinal 
     substeps = steps[subinds]
@@ -788,7 +791,7 @@ def mode_filter(masks):
     return mask_filt[unpad]
     
 def _extend_centers_torch(masks, centers, affinity_graph, n_iter=200, 
-                          device=torch.device('cuda'), omni=True, smooth=True, weight=1):
+                          device=torch.device('cuda'), omni=True, smooth=False, weight=1):
     """ runs diffusion on GPU to generate flows for training images or quality control
     PyTorch implementation is faster than jitted CPU implementation, therefore only the 
     GPU optimized code is being used moving forward. 
@@ -820,8 +823,11 @@ def _extend_centers_torch(masks, centers, affinity_graph, n_iter=200,
         binary field representing 1-connected boundary 
          
     """
+    times = []
+    times.append(time.time()) 
+    
     d = masks.ndim
-    steps, inds, idx, fact = utils.kernel_setup(d)
+    steps, inds, idx, fact, sign= utils.kernel_setup(d)
     coords = np.nonzero(masks)
     neighbors = np.array([np.add.outer(coords[i],steps[:,i]) for i in range(d)]).swapaxes(-1,-2)
 
@@ -840,11 +846,17 @@ def _extend_centers_torch(masks, centers, affinity_graph, n_iter=200,
     center_pix = (Ellipsis,)+tuple(meds)
     neigh_pix = (Ellipsis,)+tuple(pt)  
     
-    for t in range(n_iter):
+    T0 = T.clone()
+    eps = 1e-4
+    t=0
+    not_converged = True
+    mse = torch.nn.MSELoss()
+    
+    times.append(time.time())
+    
+    while not_converged:
         if omni and OMNI_INSTALLED:
-            # T[bd_pix] = 1 # helps with numerical stability at boundaries 
             T[mask_pix] = eikonal_update_torch(T,pt,isneigh,d,inds,fact,weight) ##### omnipose.core.eikonal_update_torch
-
         else:
             T[center_pix] += 1
 
@@ -852,65 +864,134 @@ def _extend_centers_torch(masks, centers, affinity_graph, n_iter=200,
             Tneigh = T[neigh_pix] # T is square, but Tneigh is nimg x <3**d> x <number of points in mask>
             Tneigh *= isneigh  #zeros out any elements that do not belong in convolution
             T[mask_pix] = Tneigh.mean(axis=1) # mean along the <3**d>-element column does the box convolution 
-            
         
+        # dT = torch.mean(torch.abs(T-T0))
+        error = mse(T,T0)
+        
+        if omni:
+            not_converged = error>eps
+        else:
+            not_converged = t<n_iter
+            
+        T0 = T.clone()
+        t+=1
+        
+    times.append(time.time())
+    
     # There is still a fade out effect on long cells, not enough iterations to diffuse far enough I think 
     # The log operation does not help much to alleviate it, would need a smaller constant inside. 
     if not omni:
         T = torch.log(1.+ T)
     
-    dist = T.cpu().numpy().squeeze()
-    mu_torch = []
-    # calculate gradient with contributions along cardinal, ordinal, etc. 
-    
-    central_points = (Ellipsis,)+tuple(pt[:,idx]) 
-    cval =  (T[central_points]).cpu().numpy().squeeze()  
-    
-    for idx,f in zip(inds[1:],fact[1:]):
-    # for idx,f in zip(inds[1:2],fact[1:2]):
-    # for idx,f in zip(inds[2:3],fact[2:3]): 
-        # might be an issue with calculating gradient where there are are mostly just boundary points
-        # also am I making sure that the derivative does truly ignore neignbors?
-    
-        # idx = inds[1] # cardinal points
-        mask = isneigh[idx]   # used to be isneigh0?  
-        neigh_points = (Ellipsis,)+tuple(pt[:,idx]) 
-        vals = T[neigh_points].squeeze()  
-        vals[~mask] = torch.nan # mask off contributions from non-neighbors with nanmean...
-        vals = vals.cpu().numpy()  
-        # T[]*mask prevent bleedover / boundary issues, big problem in stock Cellpose that got reverted!
-        
-        forward = [(cval - vals[i]) / f for i in range(0,vals.shape[0]//2)]
-        backward = [(vals[-(i+1)] - cval) / f for i in range(0,vals.shape[0]//2)]
-        center = [(vals[-(i+1)] - vals[i]) / (2*f) for i in range(0,vals.shape[0]//2)]    
-        
-        # really need an operator that checks all cases
-        diff = np.stack([[(a - b) / (2*f) if (~np.isnan(a) and ~np.isnan(b)) else
-                          (a - c) / f if ~np.isnan(a) else
-                          (c - b) / f if ~np.isnan(b) else
-                          0 for a,b,c in zip(vals[-(i+1)],vals[i],cval)]
-                        for i in range(0,vals.shape[0]//2)])
 
-        # unit vectors 
-        vecs = steps[idx]
-        uvecs = [(vecs[-(i+1)] - vecs[i]) / (2*f) for i in range(0,vecs.shape[0]//2)]
+    if 0: # numpy branch, a bit slower than torch branch 
+        dist = T.cpu().numpy().squeeze()
+        mu_torch = []
+        # calculate gradient with contributions along cardinal, ordinal, etc. 
+
+        central_points = (Ellipsis,)+tuple(pt[:,idx]) 
+        cval =  (T[central_points]).cpu().numpy().squeeze()  
+        n_axes = len(fact)-1
+        axi = range(0,n_axes)
+        for i,idx,f in zip(axi,inds[1:],fact[1:]):
+        # for idx,f in zip(inds[1:2],fact[1:2]):
+        # for idx,f in zip(inds[2:3],fact[2:3]): 
+            # might be an issue with calculating gradient where there are are mostly just boundary points
+            # also am I making sure that the derivative does truly ignore neighbors?
+
+            # idx = inds[1] # cardinal points
+            mask = isneigh[idx]   # used to be isneigh0?  
+            neigh_points = (Ellipsis,)+tuple(pt[:,idx]) 
+            vals = T[neigh_points].squeeze()  
+            vals[~mask] = torch.nan # mask off contributions from non-neighbors with nanmean...
+            vals = vals.cpu().numpy()  
+            # T[]*mask prevent bleedover / boundary issues, big problem in stock Cellpose that got reverted!
+            # print('vals',vals.shape)
+
+            # really need an operator that checks all cases
+
+            # unit vectors 
+            vecs = steps[idx]
+            uvecs = [(vecs[-(i+1)] - vecs[i]) / (2*f) for i in axi]
+            
+            diff = np.zeros((n_axes,cval.shape[-1]))
+            for i in axi:
+                reverse = vals[i]
+                forward = vals[-(i+1)]
+                has_forward = 1-np.isnan(forward)
+                has_reverse = 1-np.isnan(reverse)
+                denom = has_reverse + has_forward
+                
+                mask = denom>0
+                num = np.nansum((forward,-cval*has_forward,cval*has_reverse,-reverse),axis=0)
+                diff[i][mask] = num[mask]/(denom[mask]*f)
+
+            # dot products, project differences onto cardinal coorinate system 
+            # diff[0]*uvec[0][0] + diff[1]*uvec[0][1]+...
+            diff_cardinal = np.stack(np.sum([[df*u for u in uvec] for df,uvec in zip(diff,uvecs)],axis=0))
+
+            mu_torch.append(diff_cardinal)
+
+        mu_torch = np.nanmean(mu_torch,axis=0)
+
+        # format from neigh_npix to N_X1_X2_... 
+        mu = np.zeros((d,)+masks.shape)
+        mu[(Ellipsis,)+coords] = mu_torch
+        return mu, dist
+    else:     
+
+        # calculate gradient with contributions along cardinal, ordinal, etc. 
+        # new implementation is 30x faster than an earlier version 
+        central_points = (Ellipsis,)+tuple(pt[:,idx]) 
+        cval =  T[central_points].squeeze()
+        n_axes = len(fact)-1
+        axi = range(0,n_axes)
         
-        # dot products, project differences onto cardinal coorinate system 
-        # diff[0]*uvec[0][0] + diff[1]*uvec[0][1]+...
-        diff_cardinal = np.stack(np.sum([[df*u for u in uvec] for df,uvec in zip(diff,uvecs)],axis=0))
+        finite_differences = torch.zeros((n_axes,d,cval.shape[-1]),device=T.device,dtype=T.dtype)
 
-        mu_torch.append(diff_cardinal)
+        for j,idx,f in zip(axi,inds[1:],fact[1:]):
+        # for idx,f in zip(inds[1:2],fact[1:2]):
+        # for idx,f in zip(inds[2:3],fact[2:3]): 
+            # might be an issue with calculating gradient where there are are mostly just boundary points
+            # also am I making sure that the derivative does truly ignore neighbors?
+            # idx = inds[1] # cardinal points
+            mask = isneigh[idx]   # used to be isneigh0?  
+            neigh_points = (Ellipsis,)+tuple(pt[:,idx]) 
+            vals = T[neigh_points].squeeze()  
+            vals[~mask] = torch.nan # mask off contributions from non-neighbors with nanmean...
+            # T[]*mask prevent bleedover / boundary issues, big problem in stock Cellpose that got reverted!
+
+            # unit vectors 
+            vecs = steps[idx]
+            uvecs = [(vecs[-(i+1)] - vecs[i]) / (2*f) for i in axi]
+
+            # calculate differences along each axis with directional pairs 
+            diff = torch.zeros((n_axes,cval.shape[-1]),device=T.device,dtype=T.dtype)
+            for i in axi:
+                reverse = vals[i]
+                forward = vals[-(i+1)]
+                has_forward = 1-torch.isnan(forward).long()
+                has_reverse = 1-torch.isnan(reverse).long()
+                denom = has_reverse + has_forward
+                mask = denom>0
+                num = torch.nansum(torch.stack((forward,-cval*has_forward,cval*has_reverse,-reverse)),axis=0)
+                
+                diff[i][mask] = num[mask]/(denom[mask]*f)
+
+            # dot products, project differences onto cardinal coorinate system 
+            # diff[0]*uvec[0][0] + diff[1]*uvec[0][1]+...
+            diff_cardinal = torch.sum(torch.stack([torch.stack([df*u for u in uvec],dim=0) for df,uvec in zip(diff,uvecs)],dim=0),dim=0)
+            finite_differences[j] = diff_cardinal
+
+        mu_torch = torch.nanmean(finite_differences,dim=0)
+        # mu_torch = finite_differences
+        # format from neigh_npix to N_X1_X2_... 
+        mu = torch.zeros((d,)+masks.shape,device=T.device,dtype=mu_torch.dtype)
+        mu[(Ellipsis,)+coords] = mu_torch.squeeze()
         
-    mu_torch = np.nanmean(mu_torch,axis=0)
-    
-    # format from neigh_npix to N_X1_X2_... 
-    mu = np.zeros((d,)+masks.shape)
-    mu[(Ellipsis,)+coords] = mu_torch
+        return mu.cpu().numpy().squeeze(), T.cpu().numpy().squeeze()  
 
-    return mu, dist
     
-# [print(inds[i],inds[-(i+1)]) for i in range(len(inds)//2)] # just a check 
-
 def eikonal_update_torch(T,pt,isneigh,d=None,index_list=None,factors=None,weight=1):
     """Update for iterative solution of the eikonal equation on GPU."""
     # Flatten the zero out the non-neighbor elements so that they do not participate in min
@@ -919,28 +1000,46 @@ def eikonal_update_torch(T,pt,isneigh,d=None,index_list=None,factors=None,weight
     Tneigh = T[(Ellipsis,)+tuple(pt)]
     Tneigh *= isneigh
     # preallocate array to multiply into to do the geometric mean
-    # weight = np.sqrt((1/np.sqrt(2)))
-    # weight = 1/np.sqrt(2) # works perfectly gine with contours 
-    # weight = 2**(-1/d)
-    phi_total = torch.ones_like(Tneigh[0,0,:])*weight
+    # Tneigh always has shape 1 x nconnections x npix
+
+    # mellowmax is much better than geometric mean 
+    a = -3**d
+    # a = -2
+    mellowmax = 1
+    # print(a)
+    
+    if mellowmax:
+        phi_total = torch.zeros_like(Tneigh[0,0,:]).double()
+    else:
+        phi_total = torch.ones_like(Tneigh[0,0,:])*weight
+    
     # loop over each index list + weight factor 
+    n = len(factors) - 1
     for inds,fact in zip(index_list[1:],factors[1:]):
         # find the minimum of each hypercube pair along each axis
         mins = [torch.minimum(Tneigh[:,inds[i],:],Tneigh[:,inds[-(i+1)],:]) for i in range(len(inds)//2)] 
-        #apply update rule using the array of mins
-        phi = update_torch(torch.cat(mins),fact)
-        # multipy into storage array
-        phi_total *= phi 
-        # phi_total *= (phi+1)
-        # phi_total+=1
-    # phi_total[phi_total<weight] = weight
-    # phi_total*=weight
-    # phi_total = phi_total**(1/d) #geometric mean of update along each connectivity set 
-    phi_total = torch.pow(phi_total,1/d) #geometric mean of update along each connectivity set 
-    
-    # phi_total /= weight
+        # mins = [mellowmin(Tneigh[:,inds[i],:],Tneigh[:,inds[-(i+1)],:]) for i in range(len(inds)//2)] 
         
-    return phi_total
+        #apply update rule using the array of mins
+        phi = update_torch(torch.cat(mins),fact).double()
+        
+        # put into storage array
+        if mellowmax:
+            phi_total += torch.exp(a*phi.double())
+        else:
+            phi_total *= phi 
+            
+    if mellowmax:
+        phi_total = (1/a)*torch.log(phi_total/n)
+    else:
+        #geometric mean of update along each connectivity set 
+        phi_total = torch.pow(phi_total,1/n) 
+
+    return phi_total.float()
+
+def mellowmin(x,y):
+    a = -9
+    return (1/a)*torch.log((torch.exp(a*x)+torch.exp(a*y)/2))
 
 def update_torch(a,f):
     # Turns out we can just avoid a ton of individual if/else by evaluating the update function
@@ -948,18 +1047,25 @@ def update_torch(a,f):
     # being nonegative sets the upper limit on the sorted pairs, so we simply select the largest 
     # upper limit that works. 
     """Update function for solving the Eikonal equation. """
-    eps = 1e-6
-    
+        
     sum_a = torch.cumsum(a,dim=0)
     sum_a2 = torch.cumsum(a**2,dim=0)
     d = torch.cumsum(torch.ones_like(a),dim=0)
-    radicand = sum_a**2-d*(sum_a2-f**2)
+    radicand = (sum_a**2)-(d*(sum_a2-(f**2)))
     mask = radicand>=0
     d = torch.count_nonzero(mask,dim=0)
     r = torch.arange(0,a.shape[-1])
     ad = sum_a[d-1,r]
     rd = radicand[d-1,r]
-    return (1/(d+eps))*(ad+torch.sqrt(rd))
+    
+    # prefactor = torch.zeros_like(ad)
+    # mask = d!=0
+    # eps = 0.04
+    # prefactor[mask] = 1/(d[mask]+eps)
+    # print(torch.unique(d))
+    # return prefactor*(ad+torch.sqrt(rd))
+    return (ad+torch.sqrt(rd))/d
+    
 
 
 ### Section II: mask recontruction
@@ -1098,12 +1204,20 @@ def compute_masks(dP, dist, bd=None, p=None, inds=None, niter=None, rescale=1.0,
             # the interpolated version of div_rescale is detrimental in 3D
             # the problem is thin sections 
             if 1:#dim==2:
+                # dP_ = div_rescale(dP,iscell) / rescale ##### omnipose.core.div_rescale
+                # print('testing something new')
+                # dP_ = utils.normalize_field(dP)
+                # dP_ *= (1-utils.rescale(dist))
+                
+                # this is the winner I think 
                 dP_ = div_rescale(dP,iscell) / rescale ##### omnipose.core.div_rescale
+                dP_ /= np.clip(dist,1,np.inf)
+                
+
             else:
                 dP_ = utils.normalize_field(dP)
-            # print('rescaling with boundary output')
             # dP_ = bd_rescale(dP,mask, 4*bd) / rescale ##### omnipose.core.div_rescale
-
+                
             # dP_ = dP.copy()
             if dim>2:
                 dP_ *= flow_factor
@@ -1139,8 +1253,10 @@ def compute_masks(dP, dist, bd=None, p=None, inds=None, niter=None, rescale=1.0,
             # requires blobs to be separated by more than 1 pixel 
             # new affinity_seg does not do Euler supression and benefits from moderate point clustering 
             if (cluster or affinity_seg) and niter is None:
-                # niter = int(diameters(iscell,dist)/(1+affinity_seg)) # not needed for well-trained models... could be an option
                 niter = int(diameters(iscell,dist))
+                # dividing by two is sometimes necessary, but it seems like it might be generally more harm than good
+                # niter = int(diameters(iscell,dist)/(1+affinity_seg))
+                
                 
 
             if p is None:
@@ -1239,10 +1355,8 @@ def compute_masks(dP, dist, bd=None, p=None, inds=None, niter=None, rescale=1.0,
             # only small masks would be deleted here, no changes otherwise to boundaries 
             bounds *= masks>0
 
-        # print('warning, temp disable remove small masks')
         fastremap.renumber(masks,in_place=True) #convenient to guarantee non-skipped labels
 
-        # print('maskinfo',mask.shape,len(np.unique(mask)))
         # moving the cleanup to the end helps avoid some bugs arising from scaling...
         # maybe better would be to rescale the min_size and hole_size parameters to do the
         # cleanup at the prediction scale, or switch depending on which one is bigger... 
@@ -1447,15 +1561,12 @@ def get_masks(p, bd, dist, mask, inds, nclasses=4,cluster=False,
             clusterer = DBSCAN(eps=eps, min_samples=5, n_jobs=-1)
         
         clusterer.fit(newinds)
-        # print(dir(clusterer))
-        # print(clusterer.p)
         labels = clusterer.labels_
         
     
         
         # filter out small clusters
         # unique_labels = set(labels) - {-1,0}
-        # print(unique_labels)
         # for l in unique_labels:
         #     hits = labels==l
         #     if np.sum(hits)<9:
@@ -1472,7 +1583,6 @@ def get_masks(p, bd, dist, mask, inds, nclasses=4,cluster=False,
         if snap:
             nearest_neighbors = NearestNeighbors(n_neighbors=50)
             neighbors = nearest_neighbors.fit(newinds)
-            # print(dir(neighbors))
             o_inds= np.where(labels==-1)[0]
             if len(o_inds)>1:
                 outliers = [newinds[i] for i in o_inds]
@@ -1507,7 +1617,6 @@ def get_masks(p, bd, dist, mask, inds, nclasses=4,cluster=False,
                 omnipose_logger.info('Using boundary output to split edge defects.')
         # else: #otherwise do morphological opening to attempt splitting 
         #     # border_px = binary_opening(border_px,border_value=0,iterations=3)
-        #     print('BBBBB')
 
         skelmask[border_mask] = border_px[border_mask]
 
@@ -1591,11 +1700,10 @@ def steps_interp(p, dP, dist, niter, use_gpu=True, device=None, omni=True, suppr
     if calc_trace:
         trace = torch.clone(pt).detach()
         # trace = torch.zeros((niter,)+pt.shape) # slower to preallocate...
-        # print('trace shape',trace.shape)
 
     # init 
     if omni and OMNI_INSTALLED and suppress:
-            dPt0 = torch.nn.functional.grid_sample(flow, pt, mode=mode, align_corners=align_corners)
+        dPt0 = torch.nn.functional.grid_sample(flow, pt, mode=mode, align_corners=align_corners)
 
     #here is where the stepping happens 
     for t in range(niter):
@@ -1623,7 +1731,6 @@ def steps_interp(p, dP, dist, niter, use_gpu=True, device=None, omni=True, suppr
         trace = (trace+1)*0.5
         for k in range(d): 
             trace[...,k] *= shape[k]
-        # print('trace shape',trace.shape)
 
     #pass back to cpu
     if calc_trace:
@@ -1767,7 +1874,7 @@ def follow_flows(dP, dist, inds, niter=None, interp=True, use_gpu=True,
     # added inds for debugging while preserving backwards compatibility 
     
     if inds.ndim < 2 or inds.shape[0] < d:
-        print(inds.shape,d)
+        print('debug',inds.shape,d)
         omnipose_logger.warning('WARNING: no mask pixels found')
         return p, inds, None
 
@@ -1880,7 +1987,9 @@ def flow_error(maski, dP_net, coords=None, affinity_graph=None, use_gpu=False, d
 # Spacetime segmentation: augmentations need to treat time differently 
 # Need to assume a particular axis is the temporal axis; most convenient is tyx. 
 def random_rotate_and_resize(X, Y=None, links=None, scale_range=1., gamma_range=0.5, tyx = (224,224), 
-                             do_flip=True, rescale=None, inds=None, nchan=1, nclasses=4):
+                             do_flip=True, rescale=None, inds=None, nchan=1, nclasses=4, 
+                             smooth=True, normalize=True):
+    
     """ augmentation by random rotation and resizing
 
         X and Y are lists or arrays of length nimg, with channels x Lt x Ly x Lx (channels optional, Lt only in 3D)
@@ -1927,7 +2036,6 @@ def random_rotate_and_resize(X, Y=None, links=None, scale_range=1., gamma_range=
     
     nimg = len(X)
     imgi  = np.zeros((nimg, nchan)+tyx, np.float32)
-    # print(np.array(Y).shape,'C',imgi.shape)
         
     if Y is not None:
         for n in range(nimg):
@@ -1946,27 +2054,25 @@ def random_rotate_and_resize(X, Y=None, links=None, scale_range=1., gamma_range=
     lbl = np.zeros((nimg, nt)+tyx, np.float32)
     scale = np.zeros((nimg,dim), np.float32)
     
-    # print('bbb',lbl.shape,nclasses, nt)
     for n in range(nimg):
         img = X[n].copy()
         y = None if Y is None else Y[n]
         lnk = None if links is None else links[n]
-        # print(y.shape,'B')
         # use recursive function here to pass back single image that was cropped appropriately 
-        # # print(y.shape)
         # skimage.io.imsave('/home/kcutler/DataDrive/debug/img_orig.png',img[0])
         # skimage.io.imsave('/home/kcutler/DataDrive/debug/label_orig.tiff',y[n]) #so at this point the bad label is just fine 
         imgi[n], lbl[n], scale[n] = random_crop_warp(img, y, lnk, nt, tyx, nchan, scale[n], 
                                                      rescale is None if rescale is None else rescale[n], 
                                                      scale_range, gamma_range, do_flip, 
-                                                     inds is None if inds is None else inds[n], dist_bg)
+                                                     inds is None if inds is None else inds[n], dist_bg, 
+                                                     smooth=smooth, normalize=normalize)
         
     return imgi, lbl, np.mean(scale) #for size training, must output scalar size (need to check this again)
 
 # This function allows a more efficient implementation for recursively checking that the random crop includes cell pixels.
 # Now it is rerun on a per-image basis if a crop fails to capture .1 percent cell pixels (minimum). 
 def random_crop_warp(img, Y, links, nt, tyx, nchan, scale, rescale, scale_range, gamma_range, 
-                     do_flip, ind, dist_bg, depth=0):
+                     do_flip, ind, dist_bg, smooth, normalize, depth=0):
     """
     This sub-fuction of `random_rotate_and_resize()` recursively performs random cropping until 
     a minimum number of cell pixels are found, then proceeds with augemntations. 
@@ -2023,7 +2129,8 @@ def random_crop_warp(img, Y, links, nt, tyx, nchan, scale, rescale, scale_range,
         raise ValueError(error_message)
     
     if depth>200:
-        error_message = """Recusion depth exceeded. Check that your images contain cells and background within a typical crop. 
+        error_message = """Recusion depth exceeded. Check that your images contain cells and 
+                           background within a typical crop. 
                            Failed index is: {}.""".format(ind)
         omnipose_logger.critical(error_message)
         raise ValueError(error_message)
@@ -2036,7 +2143,6 @@ def random_crop_warp(img, Y, links, nt, tyx, nchan, scale, rescale, scale_range,
     numpx = np.prod(tyx)
     if Y is not None:
         labels = Y.copy()
-        # print(labels.shape,'A')
         # We want the scale distibution to have a mean of 1
         # There may be a better way to skew the distribution to
         # interpolate the parameter space without skewing the mean 
@@ -2071,45 +2177,46 @@ def random_crop_warp(img, Y, links, nt, tyx, nchan, scale, rescale, scale_range,
     # M = np.vstack((M,offset))
     mode = 'reflect'
     if Y is not None:
-        for k in [0]:#[i for i in range(nt) if i not in range(2,5)]: used to do first two and flows, now just labels 
+        for k in [0]: # used to do first two and flows, now just labels 
             l = labels[k].copy()
             if k==0:
-                # print(l.shape,M,tyx)
                 lbl[k] = do_warp(l, M, tyx, offset=offset, order=0, mode=mode) # order 0 is 'nearest neighbor'
-                lbl[k] = mode_filter(lbl[k])
                 # check to make sure the region contains at enough cell pixels; if not, retry
                 cellpx = np.sum(lbl[k]>0)
                 cutoff = (numpx/10**(dim+1)) # .1 percent of pixels must be cells
-                # print('after warp',len(np.unique(lbl[k])),np.max(lbl[k]),np.min(lbl[k]),cutoff,numpx, cellpx, theta)
                 if cellpx<cutoff:# or cellpx==numpx: # had to disable the overdense feature for cyto2
                                 # may not actually be a problem now anyway
-                    # print('toosmall',nt)
                     # skimage.io.imsave('/home/kcutler/DataDrive/debug/img'+str(depth)+'.png',img[0])
                     # skimage.io.imsave('/home/kcutler/DataDrive/debug/training'+str(depth)+'.png',lbl[0])
                     return random_crop_warp(img, Y, links, nt, tyx, nchan, scale, rescale, scale_range, 
-                                            gamma_range, do_flip, ind, dist_bg, depth=depth+1)
+                                            gamma_range, do_flip, ind, dist_bg, smooth, normalize, depth=depth+1)
+                else:
+                    # continue on, this fitler helps get rid of orphaned pixels 
+                    # not perfect though 
+                    lbl[k] = mode_filter(lbl[k])
+                    
             else:
                 lbl[k] = do_warp(l, M, tyx, offset=offset, mode=mode)
                 
-                # if k==1:
-                #     print('fgd', np.sum(lbl[k]))
         
         # LABELS ARE NOW (masks,mask) for semantic seg with additional (bd,dist,weight,flows) for instance seg
         # semantic seg label transformations taken care of above, those are simple enough. Others
         # must be computed after mask transformations are made. 
         if nt > 2:
             l = lbl[0].astype(np.uint16)
-            l, dist, bd, T, mu = masks_to_flows(l,links=links,omni=True,dim=dim) # should add normalize argument maybe 
+            l, dist, bd, T, mu = masks_to_flows(l, links=links, omni=True, dim=dim,
+                                                smooth=smooth, normalize=normalize) 
+
             lbl[1] = l>0 # used to interpolate the mask, now thinking it is better to stay perfectly consistent 
             lbl[2] = bd # posisiton 2 store boundary, now returned as part of linked flow computation  
             cutoff = diameters(l,T)/2 # used to use dist, but dist does not work for multilabel objects 
             
             smooth_dist = T
-            smooth_dist[dist<=0] = - cutoff#-dist_bg
+            # smooth_dist[dist<=0] = - cutoff #-dist_bg, not sure if this change was good 
+            smooth_dist[dist<=0] = -dist_bg
             lbl[3] = smooth_dist # position 3 stores the smooth distance field 
-            lbl[-dim:] = mu*5.0 # x5 puts this in the same range as boundary logits 
-            
-            # print('dists',np.max(dist),np.max(smooth_dist))
+            lbl[-dim:] = mu*5.0 # 5x puts this in the same range as boundary logits 
+                        
             # the black border arg may not be good in 3D, as it highlights a larger fraction? 
             mask = lbl[1] #binary mask,
             bg_edt = edt.edt(mask==0,black_border=True) #last arg gives weight to the border
@@ -2147,7 +2254,6 @@ def random_crop_warp(img, Y, links, nt, tyx, nchan, scale, rescale, scale_range,
         im = (imgi[k]*(2**16-1)).astype(np.uint16)
         imgi[k] = utils.normalize99(im>>bit_shift)
     
-    # print('aaa',imgi.shape,lbl.shape,nt)
     # Moved to the end because it conflicted with the recursion. 
     # Also, flipping the crop is ultimately equivalent and slightly faster.         
     # We now flip along every axis (randomly); could make do_flip a list to avoid some axes if needed
@@ -2181,7 +2287,6 @@ def do_warp(A,M,tyx,offset=0,order=1,mode='constant',**kwargs):#,mode,method):
     #     return cv2.warpAffine(A, M, rshape, borderMode=mode, flags=method)
     # else:
     #     return np.stack([cv2.warpAffine(A[k], M, rshape, borderMode=mode, flags=method) for k in range(A.shape[0])])
-    # print('debug',A.shape,M.shape,tyx)
     
     return scipy.ndimage.affine_transform(A, np.linalg.inv(M), offset=offset, 
                                           output_shape=tyx, order=order, mode=mode,**kwargs)
@@ -2237,46 +2342,40 @@ def loss(self, lbl, y):
         wt = torch.stack([w]*self.dim,dim=1)
         ct = torch.stack([cellmask]*self.dim,dim=1) 
 
-        #luckily, torch.gradient did exist after all and derivative loss was easy to implement. Could also fix divergenceloss, but I have not been using it. 
-        # the rest seem good to go. 
-
         loss1 = 10.*self.criterion12(flow,veci,wt)  #weighted MSE 
-#         loss2 = self.criterion14(flow,veci,w,cellmask) #ArcCosDotLoss
-#         loss3 = self.criterion11(flow,veci,wt,ct)/a # DerivativeLoss
         loss4 = 2.*self.criterion2(bd,boundary) #BCElogits 
         loss5 = 2.*self.criterion15(flow,veci,w,cellmask) # loss on norm 
         loss6 = 2.*self.criterion12(dt,dist,w) #weighted MSE 
-#         loss7 = self.criterion11(dt.unsqueeze(1),dist.unsqueeze(1),w.unsqueeze(1),cellmask.unsqueeze(1))/a  
-#         loss8 = self.criterion16(flow,veci,cellmask) #divergence loss
+        
+        do_euler_loss = 0
+        if not do_euler_loss:
+            loss2 = self.criterion14(flow,veci,w,cellmask) #ArcCosDotLoss
+            loss3 = self.criterion11(flow,veci,wt,ct)/a # DerivativeLoss
+            loss7 = self.criterion11(dt.unsqueeze(1),dist.unsqueeze(1),w.unsqueeze(1),cellmask.unsqueeze(1))/a  
+            loss8 = self.criterion16(flow,veci,cellmask) #divergence loss
 
-#         # print('loss1',loss1,loss1.type())
-#         # print('loss2',loss2,loss2.type())
-#         # print('loss3',loss3,loss3.type())
-#         # print('loss4',loss4,loss4.type())
-#         # print('loss5',loss5,loss5.type())
-#         # print('loss6',loss6,loss6.type())
-#         # print('loss7',loss7,loss7.type())
-#         return loss1 + loss2 + loss3 + loss4 + loss5 + loss6 + loss7 +loss8
-        
-        # dx is the step size, the flow magnitude is for training, so if we want
-        # pixels to go 1 unit, should have a step size of 1/5. Might consider
-        # doing less than that, but I'm not sure if that will give much benefit.
-        # We care about trajectories for about the first three pixels of movement. 
-        # I may want to rescale by divergence like I do in the real postprocessing, but let's see...
-        # it could also be sped up / refined by tracking just what happens to boundary pixels 
-        dx = 0.2
-        steps = int(3 / dx)
-        euler_loss = ivp_loss.IVPLoss(dx=dx,n_steps=steps,device=self.device)
-        loss9 = euler_loss(flow,veci) 
-        
-        # print('loss1',loss1,loss1.type())
-        # print('loss4',loss4,loss4.type())
-        # print('loss5',loss5,loss5.type())  
-        # print('loss6',loss6,loss6.type())
-        # print('loss9',loss9,loss6.type()) # this is quite a bight higher and more erratic
-        
-        # loss9 = self.ivp_loss(flow,veci)
-        return loss1 + loss4 + loss5 + loss6 + loss9
+            return loss1 + loss2 + loss3 + loss4 + loss5 + loss6 + loss7 + loss8
+        else:
+            # dx is the step size, the flow magnitude is for training, so if we want
+            # pixels to go 1 unit, should have a step size of 1/5. Might consider
+            # doing less than that, but I'm not sure if that will give much benefit.
+            # It is not known yet how many steps are required for this to work...
+            # I was doing 3, but more may be needed. 
+
+            # OR FEWER - was doing effectlvely 15 steps, but pixels follow each other...those paths are kind of redundant 
+            dx = 0.2
+            # steps = int(3 / dx)
+            steps = 2
+            euler_loss = ivp_loss.IVPLoss(dx=dx,n_steps=steps,device=self.device)
+            loss9 = euler_loss(flow,veci) 
+            # print('loss1',loss1,loss1.type())
+            # print('loss4',loss4,loss4.type())
+            # print('loss5',loss5,loss5.type())  
+            # print('loss6',loss6,loss6.type())
+            # print('loss9',loss9,loss6.type()) # this is quite a bit higher and more erratic
+
+            # loss9 = self.ivp_loss(flow,veci)
+            return loss1 + loss4 + loss5 + loss6 + loss9
 
 
 # used to recompute the smooth distance on transformed labels
@@ -2315,7 +2414,7 @@ def smooth_distance(masks, dists=None, device=None):
     masks_padded = np.pad(masks,pad)
     coords = np.nonzero(masks_padded)
     d = len(coords)
-    steps, inds, idx, fact = utils.kernel_setup(d)
+    steps, inds, idx, fact, sign= utils.kernel_setup(d)
     
     neighbors = np.array([np.add.outer(coords[i],steps[:,i]) for i in range(d)]).swapaxes(-1,-2)
 
@@ -2325,8 +2424,6 @@ def smooth_distance(masks, dists=None, device=None):
 
     # set number of iterations
     n_iter = get_niter(dists)
-    # n_iter = 20
-    # print('n_iter',n_iter)
         
     nimg = neighbors.shape[1] // (3**d)
     pt = torch.from_numpy(neighbors).to(device)
@@ -2478,7 +2575,6 @@ def fill_holes_and_remove_small_masks(masks, min_size=15, hole_size=3, scale_fac
     
     """
     # if masks.ndim==2 or dim>2:
-    #     print('here')
         # formatting to integer is critical
         # need to test how it does with 3D
     masks = ncolor.format_labels(masks, min_area=min_size)#, clean=True)
@@ -2534,7 +2630,6 @@ def get_boundary(mu,mask,bd=None,affinity_graph=None,contour=False,use_gpu=False
             sp = utils.get_spruepoints(bd_pad)
             desprue = np.any(sp)
             bd_pad[sp] = False # remove spurs 
-            # print(sprue)
 
         bd_pad = remove_small_objects(bd_pad,min_size=9)
     else:
@@ -2601,7 +2696,6 @@ def _get_bd(steps, lab_pad, mu_pad, bd_pad):
     for s in steps:
         mag_s = np.sqrt(np.sum(s**2,axis=0))
 
-        # print(s,'aa')
         if get_bd:
             # First see if the flow is parallel to the flow OPPOSITE the direction of the step 
             neigh_opp = tuple(coords-s[np.newaxis].T)
@@ -2632,28 +2726,20 @@ def _get_bd(steps, lab_pad, mu_pad, bd_pad):
             B = mu_pad[(Ellipsis,)+neigh_step]
             mag_B = mag_pad[neigh_step]
             dot1 = utils.safe_divide(np.sum(np.multiply(A,B),axis=0),(mag_B * mag_A))
-            # print(np.sum(np.multiply(A,B),axis=0))
-            # print(A==B)
             dot.append(dot1)
             
             dot2 = utils.safe_divide(np.sum([B[a]*(s[a]) for a in axes],axis=0), mag_s * mag_B)#/ (mag_A*mag_s)      
-            # print(dot2[bd_pad[coord]])
-            # print(s)
             # dot.append(np.sum((A.T*(s)).T,axis=0))
-            # print(np.array(coord)==np.array(coords))
             cross.append(np.cross(A,s,axisa=0))
             x = np.ravel_multi_index(neigh_step,bd_pad.shape)
             ind_shift.append(x)
-            # print(dot1.shape,bd_pad[coord_shift].shape)
-            # print(bd_pad[coord].shape,np.sum(bd_pad[coord]))
             step_ok.append(np.logical_and.reduce((bd_pad[neigh_step],
                                                   lab_pad[neigh_step]==lab_pad[neigh_bd],
                                                   # dot1[bd_pad[coord]]>0,
                                                   # dot2[bd_pad[coord]]>np.cos(3*np.pi/4),
                                                      
                                                  )))
-            # print(bd_pad[coord_shift],'aa')
-            # print(coords[:,bd_pad[coord]][:,0])
+
     
     
     if get_bd:
@@ -2725,7 +2811,7 @@ def get_contour(labels,affinity_graph):
     
     """
     dim = labels.ndim
-    steps,inds,idx,fact = utils.kernel_setup(dim)
+    steps,inds,idx,fact,sign = utils.kernel_setup(dim)
     cardinal = np.concatenate(inds[1:2])
     coords = np.nonzero(labels)
     shape = labels.shape
@@ -2736,7 +2822,6 @@ def get_contour(labels,affinity_graph):
     step_ok = np.zeros(affinity_graph.shape,bool)
     
     for s in cardinal:
-        # print(affinity_graph[s].shape,csum[neigh_inds[s]].shape,neigh_inds[s].shape)
         step_ok[s] = np.logical_and.reduce((affinity_graph[s]>0, # must be connected 
                                             csum[neigh_inds[s]]<(3**dim-1), # but the target must also be a boundary ,
                                             neigh_inds[s]>-1 # must not be background, shount NOT have to have this here
@@ -2771,7 +2856,6 @@ def parametrize_contour(steps, labs, unique_L, neigh_inds, step_ok):
     contours = []
     s0 = 4
     for l in unique_L:
-        # print('cell {}'.format(l))
         indices = np.argwhere(labs==l).flatten() # which spots within the inds list etc. are the boundary we want
         # just loop, manually calculate the best step, and proceed
         index = indices[0]
@@ -2807,9 +2891,7 @@ def parametrize_contour(steps, labs, unique_L, neigh_inds, step_ok):
             else:
                 closed = True
                 contours.append(contour)
-        
-        # print('f',n_iter,closed)
-        
+                
     return contours  
 
 def get_neigh_inds(coords,shape,steps):
@@ -2871,7 +2953,7 @@ def _get_affinity(steps, mask_pad, mu_pad, dt_pad, p, p0,
 
     # steps are laid out symmetrically the 0,0,0 in center, but I was getting off results
     d = mask_pad.ndim
-    steps,inds,idx,fact = utils.kernel_setup(d)
+    steps, inds, idx, fact, sign = utils.kernel_setup(d)
     
     if euler_offset is None:
         euler_offset = 2*np.sqrt(d)
@@ -2962,7 +3044,8 @@ def _get_affinity(steps, mask_pad, mu_pad, dt_pad, p, p0,
 # numba will require getting rid of stacking, summation, etc., super annoying... the numebr of pixels to fix is quite
 # small in practice, so may not be worth it 
 # @njit('(bool_[:,:], int64[:,:], int64[:], int64[:], int64[:],  int64[:], int64, bool_)')
-def _despur(connect, neigh_inds, indexes, steps, non_self, cardinal, ordinal, dim, clean_bd_connections):
+def _despur(connect, neigh_inds, indexes, steps, non_self, 
+            cardinal, ordinal, dim, clean_bd_connections):
     """Critical cleanup function to get rid of spurious affinities."""
     count = 0
     delta = True
@@ -3054,7 +3137,6 @@ def _despur(connect, neigh_inds, indexes, steps, non_self, cardinal, ordinal, di
                     # for ax0,ax1 in [[cardinal,ordinal],[ordinal,cardinal]]:
                     for ax0,ax1 in [[cardinal,ordinal]]:
                     
-                        # print(ax0,ax1)
                         neigh = neigh_inds[ax0,idx] # cardinal neighbors of the current pixel 
 
                         for i in ax0:
@@ -3080,7 +3162,6 @@ def _despur(connect, neigh_inds, indexes, steps, non_self, cardinal, ordinal, di
         delta = np.any(before!=after)
         if count>=iter_cutoff-1:
             print('run over iterations',count)
-    # print('completed after ',count,' iterations')
     return connect
 
 
@@ -3160,6 +3241,74 @@ def affinity_to_masks(affinity_graph,neigh_inds,iscell,
         return labels
 
 
+    
+def boundary_to_affinity(masks,boundaries):
+    """
+    This function converts boundary+interior labels to an affinity graph. 
+    Boundaries are taken to have label 1,2,...,N and interior pixels have
+    some value M>N. This format is the best way I have found to annotate 
+    self-contact cells. 
+    
+    """
+    
+#     d = masks.ndim
+#     coords = np.nonzero(masks)
+#     idx = (3**d)//2 # the index of the center pixel is placed here when considering the neighbor kernel 
+
+#     neigh = [[-1,0,1] for i in range(d)]
+#     steps = cartesian(neigh) # all the possible step sequences in ND
+#     neighbors = np.array([np.add.outer(coords[i],steps[:,i]) for i in range(d)]).swapaxes(-1,-2)
+    d = masks.ndim
+    steps, inds, idx, fact, sign = utils.kernel_setup(d)
+    coords = np.nonzero(masks)
+    neighbors = np.array([np.add.outer(coords[i],steps[:,i]) for i in range(d)]).swapaxes(-1,-2)
+    
+    
+#     # get indices of the hupercubes sharing m-faces on the central n-cube
+#     sign = np.sum(np.abs(steps),axis=1) # signature distinguishing each kind of m-face via the number of steps 
+#     uniq = fastremap.unique(sign)
+#     inds = [np.where(sign==i)[0] for i in uniq] # 2D: [4], [1,3,5,7], [0,2,6,8]. 1-7 are y axis, 3-5 are x, etc. 
+#     fact = np.sqrt(uniq) # weighting factor for each hypercube group 
+
+    # Determine Neighbors 
+    # We need to construct an "affinity graph", a matrix if N pixels by M neighbors defined by `steps` above.
+    # Pixels fall into three categories: interior, exterior, and boundary. Boundary points need need to be
+    # connected to interior points, but also be connected to each other along a contour. This code assumes that
+    # a correct boundary has been generated.
+
+    neighbor_masks = masks[tuple(neighbors)] #extract list of label values, 
+
+    coords = np.nonzero(masks)
+    neighbor_bd = boundaries[tuple(neighbors)] #extract list of boundary values 
+    neighbor_int = np.logical_xor(neighbor_masks,neighbor_bd) #internal pixels 
+    isneighbor = np.stack([neighbor_int[idx]]*len(steps)) # initialize with all interla pixels connected 
+
+    subinds = np.concatenate(inds[1:])
+    mags = np.array([np.linalg.norm(s) for s in steps])
+    
+    
+    for i,step,sgn in zip(subinds,steps[subinds],sign[subinds]):
+        # I basically do a bindary hit-miss operator here, defining a set of internal pixels relative to each step.
+        # At least one of these pixels needs to be present in order for the connection in that step to be True.
+        # This allows pixels on one side of a 2-px boundary to be connected while not connecting to pixels on the other side. 
+        # I should do a bit more testing to see if the additonal ORs are necessary. 
+        sm = mags[i]
+        dot = np.array([np.dot(step,s)/(m*sm) if m>0 else 0 for s,m in zip(steps,mags)]) #dot of normalized vectors 
+
+        u = np.sqrt(d)
+        dot_cutoff = sm / np.sqrt( sm**2 + u**2 ) 
+        dottest = np.logical_and(dot-dot_cutoff>=-1e-4,dot<=1)
+        indices =  np.argwhere(np.logical_or(dottest, # either inside the forward cone 
+                                     np.logical_and(sign==1,dot>=0) # or perpendicular in cardinal direction 
+                                    )).flatten()
+        
+        isneighbor[i] = np.logical_or.reduce((np.any(neighbor_int[indices],axis=0), # if a qualifying adjacent pixel is internal
+                                              neighbor_int[i], # target is internal
+                                              isneighbor[i] # or the source is internal
+                                             ))
+    
+    return isneighbor
+    
 from skimage.segmentation import expand_labels 
 
 # hmm so in fact binary internal masks would work too
@@ -3183,3 +3332,20 @@ def boundary_to_masks(boundaries, binary_mask=None, min_size=9, dist=np.sqrt(2),
     outer_bounds = find_boundaries(masks,mode='inner',connectivity=masks.ndim) #ensure that the mask interfaces are d-1-connected 
     bounds = np.logical_or(inner_bounds,outer_bounds) #restore the inner boundaries 
     return masks, bounds, inner_mask
+
+def linker_label_to_links(maski,linker_label_list):
+
+    linker_mask = np.zeros(maski.shape,bool)
+    for l in linker_label_list:
+        mask = maski==l
+        linker_mask[mask] = 1
+
+    link_masks = ncolor.format_labels(maski,clean=True)
+    linker_labels = link_masks.copy()
+    unlink_masks = link_masks.copy()
+    linker_labels[linker_mask==0] = 0
+    unlink_masks[linker_mask] = 0
+
+    dic = fastremap.inverse_component_map(expand_labels(linker_labels,1),unlink_masks)
+    links = {(x,z)  for x,y in dic.items() if x!=0 for z in y if z!=0}
+    return links

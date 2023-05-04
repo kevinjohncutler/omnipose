@@ -338,7 +338,7 @@ def overseg_seeds(msk, bd, mu, T, ks=1.5,
     
     return peaks, image
 
-def turn_overseg(masks,boundaries):
+def turn_overseg(maski,bdi):
     """
     This function works by detecting turns in boundary labels. First, the boundary
     is parametrized. Then, changes in boundary label are detected. For ND compatibility,
@@ -352,13 +352,18 @@ def turn_overseg(masks,boundaries):
     devise an alternative way to ensure that labels from different internal boundaries are still linked. 
     Currently, adjacent boundary labels get the same integer. 
     """
-    T, mu = omnipose.core.masks_to_flows(masks,
-                                           boundaries=boundaries,
-                                           use_gpu=0,omni=1,
-                                           smooth=0,normalize=0)[-2:]
+#     T, mu = masks_to_flows(masks,
+#                            boundaries=boundaries,
+#                            use_gpu=0,omni=1,
+#                            smooth=0,normalize=0)[-2:]
     
-    contour_map,contour_list = omnipose.core.get_boundary(mu,masks,contour=contour,desprue=False)
+#     contour_map,contour_list = get_boundary(mu,masks,contour=contour,desprue=False)
+
+    bdi_label = ncolor.label(bdi)
     
+    agi = boundary_to_affinity(maski,bdi_label>0)
+    contour_map, contour_list = get_contour(maski,agi)
+        
     pad = 1
     pad_bdi_lab = np.pad(bdi_label,1)
     contour_map_pad = np.pad(contour_map,1)
@@ -372,21 +377,30 @@ def turn_overseg(masks,boundaries):
     offset = 0
     turnlabels = []
     links = set()
+    
+    coords = np.nonzero(maski_pad)
+    
     for c,contour in enumerate(contour_list):
 
-        coords_t = np.unravel_index(contour,contour_map_pad.shape)
-        u = pad_bdi_lab[coords_t].astype(int)
-        label = np.unique(maski_pad[coords_t])[0]
+        # coords_t = np.unravel_index(contour,contour_map_pad.shape)
+        coords_unpad = np.nonzero(maski)
+        coords_t = tuple([crd[contour] for crd in coords_unpad])
+        coords_t_pad = tuple([coords_t[i]+pad for i in range(2)])
+        u = bdi_label[coords_t].astype(int)
+        label = np.unique(maski[coords_t])[0]
+        # print(label,coords_t)
         d = np.diff(u,append=u[0])
         turns = np.nonzero(d)[0]
 
-        bd_interior_pad = np.logical_xor(pad_bdi_lab[coords_t],bd_dumb_pad[coords_t]) 
+        bd_interior_pad = np.logical_xor(pad_bdi_lab[coords_t_pad],bd_dumb_pad[coords_t_pad]) 
         bd_interior_pad_cpy = bd_interior_pad.copy()
 
         for turn in turns:
             bd_interior_pad[slice(turn-1,turn+1)] = True
 
         nturn = len(turns)
+        labels = []
+        # print('nturn',nturn)
         if nturn:
             runs = utils.find_nonzero_runs(bd_interior_pad)
 
@@ -396,44 +410,44 @@ def turn_overseg(masks,boundaries):
                 labels[-1][-1] = labels[0][0]
             labels = np.array(labels)+offset
 
-      # keep track of which labels correspond to turns 
-        turnlabels.append(labels[0][1]) 
+            # keep track of which labels correspond to turns 
+            turnlabels.append(labels[0][1]) 
         
-        # create links
-        [links.add((lnk[0],lnk[1])) for lnk in labels]
-        if nturn>2: # make sure it loops around 
-            [links.add((lnk[-1],lnk[1])) for lnk in [labels[-1]]]
-        
-        r = runs.flatten()
-        intervals = [np.abs(r.take(i,mode='wrap')-r.take(i+1,mode='wrap')) for i in range(1,len(r),2)]
-        endpoints = [0]+[r[1] for r in runs[:-1]]+[len(u)]
-        for j,(run,turn,labs) in enumerate(zip(runs,turns,labels)):
-            mid = slice(turn,turn+2)
-            skip = np.sum(bd_interior_pad_cpy[mid])<2 # these are the joins along external boundaries 
-            
-            # replace with cyclic take 
-            pads = [intervals[i%len(intervals)]//2 for i in [j,j+1]]
-            inds = [range(turn-pads[0],turn),range(turn,turn+2),range(turn+2,turn+2+pads[1])]
+            # create links
+            [links.add((lnk[0],lnk[1])) for lnk in labels]
+            if nturn>2: # make sure it loops around 
+                [links.add((lnk[-1],lnk[1])) for lnk in [labels[-1]]]
 
-            for l,i in zip(labs,inds):
-                turn_map[tuple([ct.take(i,mode='wrap') for ct in coords_t])] = labs[1] if skip else l
-                
-            if not skip:  # put in the label to either side
-                repl_map[tuple([ct.take(inds[1],mode='wrap') for ct in coords_t])] = [labs[i] for i in [0,-1]]
-                
-            offset+=3
+            r = runs.flatten()
+            intervals = [np.abs(r.take(i,mode='wrap')-r.take(i+1,mode='wrap')) for i in range(1,len(r),2)]
+            endpoints = [0]+[r[1] for r in runs[:-1]]+[len(u)]
+            for j,(run,turn,labs) in enumerate(zip(runs,turns,labels)):
+                mid = slice(turn,turn+2)
+                skip = np.sum(bd_interior_pad_cpy[mid])<2 # these are the joins along external boundaries 
+
+                # replace with cyclic take 
+                pads = [intervals[i%len(intervals)]//2 for i in [j,j+1]]
+                inds = [range(turn-pads[0],turn),range(turn,turn+2),range(turn+2,turn+2+pads[1])]
+
+                for l,i in zip(labs,inds):
+                    turn_map[tuple([ct.take(i,mode='wrap') for ct in coords_t_pad])] = labs[1] if skip else l
+
+                if not skip:  # put in the label to either side
+                    repl_map[tuple([ct.take(inds[1],mode='wrap') for ct in coords_t_pad])] = [labs[i] for i in [0,-1]]
+
+                offset+=3
 
         else:
-            turn_map[coords_t] = offset+1
+            turn_map[coords_t_pad] = offset+1
             offset += 1
 
-        vals = contour_map_pad[coords_t]
-        # print(vals)
-        p = [[vals[t],vals[t+1]] for t in turns]
+        vals = contour_map_pad[coords_t_pad]
+        # print(len(vals),'vals')
+        p = [[vals[t],vals.take(t+1,mode='wrap')] for t in turns]
         if len(p):
             turnpoints.append([label,p])
-            
-            
+                
+    
     result = np.zeros_like(maski_pad)
     for l in fastremap.unique(maski_pad)[1:]:
         mask = maski_pad==l
@@ -442,7 +456,7 @@ def turn_overseg(masks,boundaries):
 
         if np.any(seeds):
             exp = ncolor.expand_labels(seeds)*mask
-
+        
         result[mask] = exp[mask]
         
         
@@ -457,7 +471,7 @@ def turn_overseg(masks,boundaries):
         seeds = r2*mask
 
         if np.any(seeds):
-            exp = skimage_expand_labels(seeds,1)*mask
+            exp = expand_labels(seeds,1)*mask
 
         r2[mask] = exp[mask] # put in texpanded labels 
         r2[np.logical_and(mask,r2==0)] = result[np.logical_and(mask,r2==0)] # put back linker 
@@ -472,15 +486,18 @@ def turn_overseg(masks,boundaries):
 
 import peakdetect
 
-def split_contour(masks,contour_map,contour_list):
+def split_contour(masks,contour_map,contour_list,bd_label=None):
     """
-    Split contours at turns. 
+    Split contours at turns. Uses my own special metric for "curvature" by default.
+    Can alternately use transitions between boundary labels as split points. 
     
     """
     seed_map = np.zeros(np.array(contour_map.shape),float)
     clabel_map = np.zeros(np.array(contour_map.shape),int)
     peaks = []
-
+    inds = []
+    crds = []
+    
     diam = diameters(masks)
     coords = np.nonzero(masks)
     
@@ -491,50 +508,102 @@ def split_contour(masks,contour_map,contour_list):
         lab = np.zeros(np.array(contour_map.shape),np.uint32)
         lab_ncolor = lab.copy() # preallocate ncolor array
         coords_t = tuple([c[contour] for c in coords])
-
+        crds.append(coords_t)
+        
         L = len(contour)
-
-        coord_array = np.array(coords_t)
-        step = coord_array - np.roll(coord_array,axis=1,shift=-1)
-
-        csum = np.zeros(L,float)
-        for d in range(1,int(diam)):
-            c = 0.5
-            d1 = np.sum((np.roll(coord_array,shift=d,axis=1)-np.roll(coord_array,shift=-d,axis=1))**2,axis=0)**c
-            d2 = np.sum((np.roll(coord_array,shift=(d+1),axis=1)-np.roll(coord_array,shift=-d,axis=1))**2,axis=0)**c
-            d3 = np.sum((np.roll(coord_array,shift=d,axis=1)-np.roll(coord_array,shift=-(d+1),axis=1))**2,axis=0)**c
-
-            csum -= np.mean(np.stack([np.sum(np.roll(step,shift=d,axis=1)*np.roll(step,shift=-d,axis=1),axis=0)/d1,
-                                     np.sum(np.roll(step,shift=(d+1),axis=1)*np.roll(step,shift=-d,axis=1),axis=0)/d2,
-                                     np.sum(np.roll(step,shift=d,axis=1)*np.roll(step,shift=-(d+1),axis=1),axis=0)/d3,
-                                     ])
-                            ,axis=0)
-
-        seed_map[coords_t] = utils.rescale(csum)
-
-        # # Data
         Lpad = L
-        X = np.concatenate([csum[::-1][:Lpad+1],csum,csum[::-1][:Lpad+1]])
-        # pks = peakdetect.peakdetect(X,lookahead=2,delta=1)
-        pks = peakdetect.peakdetect(X,lookahead=int(diam),delta=1)
+        
+        if bd_label is None:
+            coord_array = np.array(coords_t)
+            step = coord_array - np.roll(coord_array,axis=1,shift=-1)
+            csum = np.zeros(L,float)
+            for d in range(1,int(diam)):
+                c = 0.5
+                d1 = np.sum((np.roll(coord_array,shift=d,axis=1)-np.roll(coord_array,shift=-d,axis=1))**2,axis=0)**c
+                d2 = np.sum((np.roll(coord_array,shift=(d+1),axis=1)-np.roll(coord_array,shift=-d,axis=1))**2,axis=0)**c
+                d3 = np.sum((np.roll(coord_array,shift=d,axis=1)-np.roll(coord_array,shift=-(d+1),axis=1))**2,axis=0)**c
+
+                csum -= np.mean(np.stack([np.sum(np.roll(step,shift=d,axis=1)*np.roll(step,shift=-d,axis=1),axis=0)/d1,
+                                         np.sum(np.roll(step,shift=(d+1),axis=1)*np.roll(step,shift=-d,axis=1),axis=0)/d2,
+                                         np.sum(np.roll(step,shift=d,axis=1)*np.roll(step,shift=-(d+1),axis=1),axis=0)/d3,
+                                         ])
+                                ,axis=0)
+
+            seed_map[coords_t] = utils.rescale(csum)
+            X = np.concatenate([csum[::-1][:Lpad+1],csum,csum[::-1][:Lpad+1]])
+            # pks = peakdetect.peakdetect(X,lookahead=2,delta=1)
+            pks = peakdetect.peakdetect(X,lookahead=int(diam),delta=1)
+        
+        else:
+            values = bd_label[coords_t]
+            Y = np.concatenate([values[::-1][:Lpad+1],values,values[::-1][:Lpad+1]])
+            # X = np.logical_or(Y!=np.roll(Y,shift=1),Y!=np.roll(Y,shift=-1))*1.
+            X = Y!=np.roll(Y,shift=-1)
+            pks = [[[p,1] for p in np.nonzero(X)[0]]]
+            # peakdetect gives two sublists, peaks and troughs
+        
 
         indexes = []
+        peak = []
         for peak_list in pks:
             for p in peak_list:
                 idx = p[0]
                 val = p[1]
                 if idx>=Lpad and idx<(L+Lpad) and val>0: # deal with mirroring  
                     indexes.append(idx-Lpad)
-                    peaks.append([c[p[0]-Lpad] for c in coords_t])
+                    peak.append([c[p[0]-Lpad] for c in coords_t])
+                    peak.append([c[p[0]-Lpad+1] for c in coords_t])
+                    
 
-        clabel = np.ones_like(contour)
+
+        
+        ind = []
         I = len(indexes)
+        clabel = np.ones_like(contour)
+        # clabel = np.zeros_like(contour) if I else  np.ones_like(contour)
+        # to change this properly, i should have an option to block splits along the exterior boundary and allow for some interval
+        # Or fill this with the linker label right away 
+        # otherwise default to normal
+        
+        
+        # print(indexes)
         for i in range(I):
             start = indexes[i%I]+1
             stop = indexes[(i+1)%I]+1
+            
+            w =L
+            # if start>stop:
+            #     stop = start+w
+            # else:
+            #     start = stop-w
+            # print(start,stop,'aa')
+            
+            # 
+            
             clabel[start:stop] = (i%I) + 2
+            
+            # clabel[start:stop] = 0
+            
+            # clabel[start:start+w] = (i%I) + 2
+            # clabel[stop-w:stop] = (i%I) + 2
+            
+            # clabel[start+w:start] = 0
+            # clabel[stop:stop-w] = 0
+            
+            ind.append(start)
+            
+        # clabel_map[coords_t] = clabel+clabel_map.max()*(clabel>0)
+        clabel_map[coords_t] = clabel+clabel_map.max()*(clabel>0)
+        
+        
+        inds.append(ind)
+        peaks.append(peak)
+    # peaks = np.stack(peaks) if len(peaks) else None
+    return peaks, inds, crds, clabel_map, seed_map
 
-        clabel_map[coords_t] = clabel+clabel_map.max()
 
-    peaks = np.stack(peaks) if len(peaks) else None
-    return peaks, clabel_map, seed_map
+def channel_overlay(ch0, ch1, axis=1, a=1):
+    rgb = np.stack([ch0]*3,axis=-1)
+    print(rgb.shape)
+    rgb[Ellipsis,axis] = a*ch1+(ch0-a*ch1*ch0)
+    return rgb

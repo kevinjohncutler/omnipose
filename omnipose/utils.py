@@ -1,5 +1,5 @@
 import numpy as np
-from scipy.ndimage import binary_dilation, binary_erosion
+from scipy.ndimage import binary_dilation, binary_erosion, gaussian_filter
 from scipy.ndimage import convolve1d, convolve, affine_transform
 from skimage.morphology import remove_small_holes
 from skimage.registration import phase_cross_correlation
@@ -84,7 +84,6 @@ def cross_reg(imstack,upsample_factor=100,order=1,
         
         # shift = imreg_dft.imreg.translation(ref,im)['tvec']
         
-        # print(shift)
         shifts[i] = shift
         regstack[i] = im_shift(im, shift, order=order, prefilter=prefilter,
                                mode='nearest' if cval is None else 'constant',
@@ -92,14 +91,13 @@ def cross_reg(imstack,upsample_factor=100,order=1,
     if reverse:
         return shifts[::-1], regstack[::-1]
     else:
-        return shifts,restack
+        return shifts,regstack
 
 def shift_stack(imstack, shifts, order=1, cval=None):
     """
     Shift each time slice of imstack according to list of 2D shifts. 
     """
     regstack = np.zeros_like(imstack)
-    print()
     for i in range(len(shifts)):        
         regstack[i] = im_shift(imstack[i],shifts[i],order=order, 
                                mode='nearest' if cval is None else 'constant',
@@ -198,7 +196,6 @@ def mask_outline_overlay(img,masks,outlines,mono=None):
         m,n = ncolor.label(masks,max_depth=20,return_n=True)
         c = sinebow(n)
         colors = np.array(list(c.values()))[1:]
-        print(colors)
     else:
         colors = mono
         m = masks>0
@@ -225,7 +222,7 @@ def rescale(T,floor=None,ceiling=None):
     T = np.interp(T, (floor, ceiling), (0, 1))
     return T
 
-def normalize_stack(vol,mask,bg=0.5,bright_foreground=None):
+def normalize_stack(vol,mask,bg=0.5,bright_foreground=None,subtractive=False,iterations=1):
     """
     Adjust image stacks so that background is 
     (1) consistent in brightness and 
@@ -234,8 +231,10 @@ def normalize_stack(vol,mask,bg=0.5,bright_foreground=None):
     
     # vol = rescale(vol)
     vol = vol.copy()
-    bg_mask = [binary_erosion(m==0) for m in mask] # binarize background mask, recede from foreground, slice-wise to not erode in time
-    bg_real = [np.nanmean(v[m]) for v,m in zip(vol,bg_mask)] # find mean backgroud for each slice
+    # binarize background mask, recede from foreground, slice-wise to not erode in time
+    bg_mask = [binary_erosion(m==0,iterations=iterations) for m in mask] 
+    # find mean backgroud for each slice
+    bg_real = [np.nanmean(v[m]) for v,m in zip(vol,bg_mask)] 
     
     # automatically determine if foreground objects are bright or dark 
     if bright_foreground is None:
@@ -243,10 +242,15 @@ def normalize_stack(vol,mask,bg=0.5,bright_foreground=None):
     
     # if smooth: 
     #     bg_real = moving_average(bg_real,5) 
-    # some weird fluctuations happening with background being close to zero, but just on fluorescnece... might need to invert or go by foreground
+    # some weird fluctuations happening with background being close to zero, but just on fluoresnece... might need to invert or go by foreground
     
-    bg_min = np.min(bg_real) # git the minimum one, want to normalize by lowest one 
-    vol = np.stack([v*safe_divide(bg_min,bg_r) for v,bg_r in zip(vol,bg_real)]) # normalize background
+    bg_min = np.min(bg_real) # get the minimum one, want to normalize by lowest one 
+    
+    # normalize wrt background
+    if subtractive:
+        vol = np.stack([safe_divide(v-bg_r,bg_min) for v,bg_r in zip(vol,bg_real)]) 
+    else:
+        vol = np.stack([v*safe_divide(bg_min,bg_r) for v,bg_r in zip(vol,bg_real)]) 
     
     # equalize foreground signal
     if bright_foreground:
@@ -349,7 +353,7 @@ def crop_bbox(mask, pad=10, iterations=3, im_pad=0, area_cutoff=0, max_dim=np.in
     
     return slices
 
-def sinebow(N,bg_color=[0,0,0,0]):
+def sinebow(N,bg_color=[0,0,0,0], offset=0):
     """ Generate a color dictionary for use in visualizing N-colored labels. Background color 
     defaults to transparent black. 
     
@@ -368,7 +372,8 @@ def sinebow(N,bg_color=[0,0,0,0]):
     """
     colordict = {0:bg_color}
     for j in range(N): 
-        angle = j*2*np.pi / (N)
+        k = j+offset
+        angle = k*2*np.pi / (N) 
         r = ((np.cos(angle)+1)/2)
         g = ((np.cos(angle+2*np.pi/3)+1)/2)
         b = ((np.cos(angle+4*np.pi/3)+1)/2)
@@ -533,7 +538,7 @@ def steps_to_indices(steps):
     
     # weighting factor for each hypercube group (distance from central point)
     fact = np.sqrt(uniq) 
-    return inds, fact
+    return inds, fact, sign
 
 # [steps[:idx],steps[idx+1:]] can give the other steps 
 def kernel_setup(dim):
@@ -557,12 +562,17 @@ def kernel_setup(dim):
     fact: float
         list of face/edge/vertex/... distances 
         see steps_to_indices()
+        
+    sign: 1D array, int
+        signature distinguishing each kind of m-face via the number of steps
+        see steps_to_indices()
+
     
     """
     steps = get_steps(dim)
-    inds, fact = steps_to_indices(steps)
+    inds, fact, sign = steps_to_indices(steps)
     idx = inds[0][0] # the central point is always first 
-    return steps,inds,idx,fact
+    return steps,inds,idx,fact,sign
     
     
     
@@ -613,7 +623,6 @@ def curve_filter(im,filterWidth=1.5):
     """
     shape = [np.floor(7*filterWidth) //2 *2 +1]*2 # minor modification is to make this odd
     
-    # print('shape is',shape,'oldshape',np.floor(7*filterWidth) )
     m,n = [(s-1.)/2. for s in shape]
     y,x = np.ogrid[-m:m+1,-n:n+1]
     v = filterWidth**2
@@ -695,13 +704,11 @@ def get_spruepoints(bw):
     steps = cartesian(neigh) # all the possible step sequences in ND
     sign = np.sum(np.abs(steps),axis=1) # signature distinguishing each kind of m-face via the number of steps 
     
-    # print(steps)
     hits = np.zeros_like(bw)
     mid = tuple([1]*d) # kernel 3 wide in every axis, so middle is 1
     
     # alt
     substeps = np.array(list(set([tuple(s) for s in steps])-set([(0,)*d]))) # remove zero shift element 
-    # print(substeps)
     # substeps = steps.copy()
     for step in substeps:
         oppose = np.array([np.dot(step,s) for s in steps])
@@ -714,33 +721,13 @@ def get_spruepoints(bw):
         for idx in np.argwhere(np.logical_and(oppose>=0,sign!=0)).flatten():
             c = tuple(steps[idx]+1)
             miss[c] = 1
-            
-        # hm = binary_hit_or_miss(bw,
-        #                        structure1=sprue,
-        #                        origin1=step,
-        #                        structure2=miss,
-        #                        origin2=0
-        #                       )
-        # print(sprue.dtype,miss.dtype)
-        # hitmiss = 2*np.ones(sprue.shape,dtype=int)
-        # hitmiss[miss] = 0
-        # hitmiss[sprue] = 1
-        # hitmiss = np.logical_and(sprue,~miss).astype(int)
-        # hitmiss[~np.logical_or(sprue,miss)] = 2
+
         
         hitmiss = 2 - 2*miss - sprue
         
         # mahotas hitmiss is far faster than ndimage 
         hm = mh.morph.hitmiss(bw,hitmiss)
-        # hm = np.zeros_like(bw)
-        # print(step)
-        # print('sprue\n',sprue)
-        # print('miss\n',miss)
-        # print('hitmiss\n',hitmiss)
-        # print()
-        
-        # hits[hm]=True
-        # hits = np.logical_or(hm,hits)
+
         hits = hits+hm
         
     return hits>0
