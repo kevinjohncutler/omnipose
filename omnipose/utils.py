@@ -17,6 +17,23 @@ import re
 import mgen
 import fastremap
 
+from numba import njit
+
+
+# No reason to support anything but pytorch for omnipose
+# I want it to fail here otherwise, much easier to debug 
+import torch
+TORCH_ENABLED = True 
+# the following is duplicated but I cannot import cellpose, circular import issue
+import platform  
+ARM = 'arm' in platform.processor() # the backend chack for apple silicon does not work on intel macs
+try: #backends not available in order versions of torch 
+    ARM = torch.backends.mps.is_available() and ARM
+except:
+    ARM = False
+torch_GPU = torch.device('mps') if ARM else torch.device('cuda')
+torch_CPU = torch.device('cpu')
+
 
 def findbetween(s,string1='[',string2=']'):
     """Find text between string1 and string2."""
@@ -105,7 +122,7 @@ def shift_stack(imstack, shifts, order=1, cval=None):
     return regstack
 
 
-def normalize_field(mu):
+def normalize_field(mu,use_torch=False,cutoff=0):
     """ normalize all nonzero field vectors to magnitude 1
     
     Parameters
@@ -117,18 +134,29 @@ def normalize_field(mu):
     --------------
     normalized component array of identical size. 
     """
-    mag = np.sqrt(np.nansum(mu**2,axis=0))
-    # m = mag>0
-    # mu = np.divide(mu, mag, out=np.zeros_like(mu), where=np.logical_and(mag!=0,~np.isnan(mag)))        
-    # return mu
-    return safe_divide(mu,mag)
+    if use_torch:
+        mag = torch_norm(mu,dim=0)
+        out = torch.zeros_like(mu)
+        sel = mag>cutoff
+        out[:,sel] = torch.div(mu[:,sel],mag[sel])
+        return out
+    else:
+        mag = np.sqrt(np.nansum(mu**2,axis=0))
+        return safe_divide(mu,mag,cutoff)
+    
+def torch_norm(a,dim=0,keepdim=False):
+    if ARM: 
+        #torch.linalg.norm not implemented on MPS yet
+        # this is the fastest I have tested but still slow in comparison 
+        return a.square().sum(dim=dim,keepdim=keepdim).sqrt()
+    else:
+        return torch.linalg.norm(a,dim=dim,keepdim=keepdim)
 
-
-def safe_divide(num,den):
+def safe_divide(num,den,cutoff=0):
     """ Division ignoring zeros and NaNs in the denominator.""" 
     return np.divide(num, den, out=np.zeros_like(num), 
-                     where=np.logical_and(den!=0,~np.isnan(den)))        
-    
+                     where=np.logical_and(den>cutoff,~np.isnan(den)))        
+@njit
 def normalize99(Y,lower=0.01,upper=99.99):
     """ normalize image so 0.0 is 0.01st percentile and 1.0 is 99.99th percentile 
     Upper and lower percentile ranges configurable. 
@@ -148,8 +176,10 @@ def normalize99(Y,lower=0.01,upper=99.99):
     normalized array with a minimum of 0 and maximum of 1
     
     """
-    X = Y.copy()
-    return np.interp(X, (np.percentile(X, lower), np.percentile(X, upper)), (0, 1))
+    # X = Y.copy()
+    # return np.interp(Y, (np.percentile(Y, lower), np.percentile(Y, upper)), (0, 1))
+    return np.interp(Y, np.percentile(Y, [lower,upper]), (0, 1)) # much faster to call both at once 
+    
 
 def normalize_image(im,mask,bg=0.5,dim=2):
     """ Normalize image by rescaling from 0 to 1 and then adjusting gamma to bring 
@@ -421,7 +451,7 @@ def get_boundary(mask):
     """
     return np.logical_xor(mask,mh.morph.erode(mask))
 
-# Kevin's version of remove_edge_masks, need to merge (this one is more flexible)
+# Omnipose version of remove_edge_masks, need to merge (this one is more flexible)
 def clean_boundary(labels, boundary_thickness=3, area_thresh=30, cutoff=0.5):
     """Delete boundary masks below a given size threshold within a certain distance from the boundary. 
     
@@ -496,6 +526,31 @@ def get_edge_masks(labels,dists):
             
     return clean_labels
 
+def get_neighbors(coords,steps,dim,shape,edges=None):
+    if edges is None:
+        edges = [np.array([0,s]) for s in shape]
+    
+    # neighbors = np.array([[coords[k] + s[k] for s in steps] for k in range(dim)]).astype(int)
+    # edges must be a tuple of bin edges, (0,50,100,...) for each dimension, can be an array as well
+    bins = [np.clip(np.digitize(coords[d],edges[d]),0,len(edges[d])-1) for d in range(dim)]
+    a_min = [edges[d][bins[d]-1] for d in range(dim)]
+    a_max = [edges[d][bins[d]]-1 for d in range(dim)]
+             
+    neighbors = np.array([[np.clip(coords[d] + s[d],a_min[d],a_max[d])
+                           for s in steps] 
+                          for d in range(dim)]).astype(int)
+    
+#     # we want to clip these according to edges so that the neighbors do not reference out-of-bounds pixels
+#     # this has the effect of directing neighbors back to the nearest edge, which we can leverage for concatenated images
+#     # the idea is that we will check for coords in each 
+#     dim,nsteps,npix = neighbors.shape # affinity graph is always 2D
+#     for d in range(dim):
+#         for s in range(nsteps):
+#             for p in range(npix):
+#                 neighbors[d,s,p] = 
+    return neighbors
+        
+    # return np.array([[np.clip(coords[k] + s[k],*edges[k]) for s in steps] for k in range(dim)]).astype(int)
 
 def get_steps(dim):
     """
@@ -633,7 +688,6 @@ def curve_filter(im,filterWidth=1.5):
     f_yy = ((y/v)**2-1/v)*gau
     f_xy = y*x*gau/v**2
     
-    
     im_xx = convolve(im, f_xx, mode='nearest')
     im_yy = convolve(im, f_yy, mode='nearest')
     im_xy = convolve(im, f_xy, mode='nearest')
@@ -753,3 +807,51 @@ def find_nonzero_runs(a):
     # Runs start and end where absdiff is 1.
     ranges = np.where(absdiff == 1)[0].reshape(-1, 2)
     return ranges
+
+# @njit
+# def remap_pairs(pairs: set[tuple[int, int]], mapping: dict[int, int]) -> set[tuple[int, int]]:
+#     remapped_pairs = set()
+#     for x, y in pairs:
+#         remapped_x = mapping.get(x, x)
+#         remapped_y = mapping.get(y, y)
+#         remapped_pairs.add((remapped_x, remapped_y))
+#     return remapped_pairs
+
+# from numba import jit
+
+# @jit(nopython=True)
+# def remap_pairs(pairs, mapping):
+#     remapped_pairs = set()
+#     for x, y in pairs:
+#         remapped_x = mapping.get(x, x)
+#         remapped_y = mapping.get(y, y)
+#         remapped_pairs.add((remapped_x, remapped_y))
+#     return remapped_pairs
+
+from numba import njit
+from numba import types
+
+@njit
+def remap_pairs(pairs, replacements):
+    remapped_pairs = set()
+    for x, y in pairs:
+        for a, b in replacements:
+            if x == a:
+                x = b
+            if y == a:
+                y = b
+        remapped_pairs.add((x, y))
+    return remapped_pairs
+
+@njit
+def add_gaussian_noise(image, mean=0, var=0.01):
+    shape = image.shape
+    noise = np.random.normal(mean, var**0.5, shape)
+    noisy_image = image + noise
+    noisy_image = np.clip(noisy_image, 0, 1)  # Clip values to [0, 1] range
+    return noisy_image
+
+def add_poisson_noise(image):
+    noisy_image = np.random.poisson(image)
+    noisy_image = np.clip(noisy_image, 0, 1)  # Clip values to [0, 1] range
+    return noisy_image
