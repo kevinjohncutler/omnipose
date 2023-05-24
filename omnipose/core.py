@@ -1076,9 +1076,6 @@ def _extend_centers_torch(masks, centers, affinity_graph, n_iter=200,
         # (dim,len inds)
         r = torch.arange(0,npix)
 
-        # edge_px =  torch.from_numpy(utils.get_neighbors(np.nonzero(masks==-1),steps,d,edges=[(0,s-1) for s in masks.shape])).to(device)
-        # T[edge_px] = 1
-        # print(n_iter)
         if n_iter is None:
             n_iter = 50
         if verbose:
@@ -1103,7 +1100,6 @@ def _extend_centers_torch(masks, centers, affinity_graph, n_iter=200,
             error = (T-T0)[central_pix].square().mean()
             # error = mse(T[central_pix],T0[central_pix])
             # error = mse(T,T0)
-            
             
             # px_converge = (T-T0)[central_pix]>eps
 
@@ -2508,10 +2504,6 @@ def loss(self, lbl, y):
             loss1 = 0
         else:
             loss1 = self.criterion12(flow,veci,wt)  #weighted MSE, may not be necessary any more
-            
-        loss6 = self.criterion12(dt,dist,w) #weighted MSE 
-        # loss6 = self.criterion(dt,dist) #MSE, very bad 
-        
         
         # experimenting with not having any boundary output 
         if self.nclasses==(self.dim+2):
@@ -2519,19 +2511,22 @@ def loss(self, lbl, y):
             loss4 = self.criterion2(bd,boundary) #BCElogits 
         else:
             loss4 = 0 
+            
+        loss5 = self.criterion15(flow,veci,w,cellmask) # loss on norm 
+        loss6 = self.criterion12(dt,dist,w) #weighted MSE 
+        # loss6 = self.criterion(dt,dist) #MSE, very bad 
         
         if do_euler:
             loss9 = self.criterion0(flow,veci) #euler loss 
-            return loss1+loss4+loss6+loss9
+            return loss1+loss4+loss5+loss6+loss9
         else:
             # all these cause a memory leak on mps 
-            loss5 = 2.*self.criterion15(flow,veci,w,cellmask) # loss on norm 
             loss2 = self.criterion14(flow,veci,w,cellmask) #ArcCosDotLoss
             a = 10.
             loss3 = self.criterion11(flow,veci,wt,ct)/a # DerivativeLoss
             # loss8 = self.criterion16(flow,veci,cellmask) #divergence loss
             loss7 = self.criterion11(dt.unsqueeze(1),dist.unsqueeze(1),w.unsqueeze(1),cellmask.unsqueeze(1))/a  
-            return loss1+loss2+loss3+loss4+loss5+loss6+loss7
+            return loss1+loss2+loss3+loss4+2.*loss5+loss6+loss7
 
 
 

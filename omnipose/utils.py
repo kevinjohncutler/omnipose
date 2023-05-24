@@ -240,6 +240,7 @@ def mono_mask_bd(masks,outlines,color=[1,0,0],a=0.25):
     alpha = (m>0)*a+outlines*(1-a)
     return np.stack([m*c for c in color]+[alpha],axis=-1)
 
+
 def moving_average(x, w):
     return convolve1d(x,np.ones(w)/w,axis=0)
 
@@ -410,8 +411,20 @@ def sinebow(N,bg_color=[0,0,0,0], offset=0):
         colordict.update({j+1:[r,g,b,1]})
     return colordict
 
-import matplotlib as mpl
+@njit
+def colorize(im):
+    N = len(im)
+    angle = np.arange(0,1,1/N)*2*np.pi
+    angles = np.stack((angle,angle+2*np.pi/3,angle+4*np.pi/3),axis=-1)
+    colors = (np.cos(angles)+1)/2
+    rgb = np.zeros((im.shape[1], im.shape[2], 3))
+    for i in range(N):
+        for j in range(3):
+            rgb[..., j] += im[i] * colors[i, j]
+    rgb /= N
+    return rgb
 
+import matplotlib as mpl
 import ncolor
 def apply_ncolor(masks):
     m,n = ncolor.label(masks,max_depth=20,return_n=True,conn=2)
