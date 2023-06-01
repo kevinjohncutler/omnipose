@@ -6,7 +6,7 @@ install_deps = ['numpy>=1.22.4', 'scipy', 'numba',
                 'scikit-learn','torch>=1.10',
                 'mahotas>=1.4.13',
                 'mgen','matplotlib',
-                'peakdetect','igraph','torchvf']
+                'peakdetect','igraph']
 
 doc_deps = ['sphinx-autobuild',
             'sphinx_automodapi',

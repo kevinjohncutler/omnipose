@@ -772,7 +772,6 @@ def masks_to_affinity(masks, coords, steps, inds, idx, fact, sign, dim,
     shape = masks.shape
     if edges is None:
         edges = [np.array([0,s]) for s in shape]
-        print('fdggdff',edges)
     
     # dim x steps x npix array of pixel coordinates 
     neighbors = utils.get_neighbors(coords,steps,dim,shape,edges)
@@ -2161,11 +2160,11 @@ def flow_error(maski, dP_net, coords=None, affinity_graph=None, use_gpu=False, d
 
     # flows predicted from estimated masks and boundaries
     idx = -1 # flows are the last thing returned now
-    dP_masks = masks_to_flows(maski, coords=coords, affinity_graph=affinity_graph, use_gpu=use_gpu, device=device, omni=omni)[idx] ##### dynamics.masks_to_flows
+    dP_masks = masks_to_flows(maski, coords=coords, affinity_graph=affinity_graph, 
+                              use_gpu=use_gpu, device=device, omni=omni)[idx].cpu().numpy() ##### dynamics.masks_to_flows
     # difference between predicted flows vs mask flows
     flow_errors = np.zeros(maski.max())
     
-    print(omni,'flow error',np.mean(np.sum(dP_net**2,axis=0)**0.5),np.mean(np.sum(dP_masks**2,axis=0)**0.5))
     for i in range(dP_masks.shape[0]):
         flow_errors += mean((dP_masks[i] - dP_net[i]/5.)**2, maski, #the /5 is to compensate for the *5 we do for training
                             index=np.arange(1, maski.max()+1))
