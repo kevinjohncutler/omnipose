@@ -26,18 +26,27 @@ from torchvf.losses import ivp_loss
 from typing import Any, Dict, List, Set, Tuple, Union, Callable
 
 
-# define the list of unqiue omnipose models 
-OMNI_MODELS = ['bact_phase_cp',
-               'bact_fluor_cp',
-               'plant_cp', # 2D model
-               'worm_cp',
-               'cyto2_omni',
-               'bact_phase_omni',
-               'bact_fluor_omni',
-               'plant_omni', #3D model 
-               'worm_omni',
-               'worm_bact_omni',
-               'worm_high_res_omni']
+# define the lists of unqiue omnipose models 
+# These partition between those trained on 2 channels...
+# (either on purpose for cyto or by accident due to defaults)
+
+FCLS_OMNI_MODELS = ['bact_phase_omni',
+                    'bact_fluor_omni',
+                    'worm_omni',
+                    'worm_bact_omni',
+                    'worm_high_res_omni',
+                    'plant_omni', #3D model 
+                    ]
+
+MCHN_OMNI_MODELS = ['bact_phase_cp',
+                    'bact_fluor_cp',
+                    'plant_cp', # 2D model
+                    'worm_cp',
+                    'cyto2_omni'] + FCLS_OMNI_MODELS[:-1]
+
+
+# ... and into those trained on single channels (more to come)
+MONO_OMNI_MODELS = [FCLS_OMNI_MODELS[-1],]
 
 import torch
 from .utils import torch_GPU, torch_CPU, ARM
