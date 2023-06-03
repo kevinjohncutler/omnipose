@@ -553,18 +553,55 @@ def get_neighbors(coords,steps,dim,shape,edges=None):
                            for s in steps] 
                           for d in range(dim)]).astype(int)
     
-#     # we want to clip these according to edges so that the neighbors do not reference out-of-bounds pixels
-#     # this has the effect of directing neighbors back to the nearest edge, which we can leverage for concatenated images
-#     # the idea is that we will check for coords in each 
-#     dim,nsteps,npix = neighbors.shape # affinity graph is always 2D
-#     for d in range(dim):
-#         for s in range(nsteps):
-#             for p in range(npix):
-#                 neighbors[d,s,p] = 
     return neighbors
         
     # return np.array([[np.clip(coords[k] + s[k],*edges[k]) for s in steps] for k in range(dim)]).astype(int)
 
+    # this version works without padding, should ultimately replace the other one 
+def get_neigh_inds(neighbors,coords,shape):
+    """
+    For L pixels and S steps, find the neighboring pixel indexes 
+    0,1,...,L for each step. Background index is -1. Returns:
+    
+    
+    Parameters
+    ----------
+    coords: tuple or ND array
+        coordinates of nonzero pixels, <dim>x<npix>
+    
+    shape: tuple or list, int
+        shape of the image array
+        
+    steps: ND array, int
+        list or array of ND steps to neighbors 
+    
+    Returns
+    -------
+    indexes: 1D array
+        list of pixel indexes 0,1,...L-1
+        
+    neigh_inds: 2D array
+        SxL array corresponding to affinity graph
+    
+    ind_matrix: ND array
+        indexes inserted into the ND image volume
+    """
+    npix = neighbors.shape[-1]
+    indexes = np.arange(npix)
+    ind_matrix = -np.ones(shape,int)
+    ind_matrix[tuple(coords)] = indexes
+    # neigh_inds = ind_matrix[*(neighbors,)]
+    # neigh_inds = ind_matrix[np.ix_(*neighbors)]
+    neigh_inds = ind_matrix[tuple(neighbors)]
+    
+    # make self-referencing for out-of-bounds
+    oob = np.argwhere(neigh_inds==-1)
+    idx = neigh_inds.shape[0]//2
+    neigh_inds[tuple(oob.T)] = neigh_inds[idx][oob[:,1]] 
+    
+    return indexes, neigh_inds, ind_matrix
+    
+    
 def get_steps(dim):
     """
     Get a symmetrical list of all 3**N points in a hypercube represented
@@ -856,6 +893,7 @@ def remap_pairs(pairs, replacements):
         remapped_pairs.add((x, y))
     return remapped_pairs
 
+# need to comment out any njit code that I do not use...
 @njit
 def add_gaussian_noise(image, mean=0, var=0.01):
     shape = image.shape

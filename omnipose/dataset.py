@@ -32,8 +32,8 @@ class dataset(torch.utils.data.Dataset):
         self.scale_range = max(0, min(2, float(self.scale_range)))
         self.do_flip = True
         self.dist_bg = 5
-        self.smooth = False
-        self.normalize = False
+        self.smooth = True
+        self.normalize = True
         self.gamma_range = [.5,2.5]
         self.nimg = len(data)
         self.rescale = self.diam_train / self.diam_mean if self.rescale else np.ones(self.nimg, np.float32)
