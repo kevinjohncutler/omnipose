@@ -7,6 +7,8 @@ import ctypes
 import multiprocessing as mp
 
 class dataset(torch.utils.data.Dataset):
+# class dataset(torch.utils.data.IterableDataset):
+
 # class dataset(torch.utils.data.TensorDataset):
 
     def __init__(self, data, labels, links, timing=False, **kwargs):
@@ -32,20 +34,57 @@ class dataset(torch.utils.data.Dataset):
         self.scale_range = max(0, min(2, float(self.scale_range)))
         self.do_flip = True
         self.dist_bg = 5
-        self.smooth = True
-        self.normalize = True
-        self.gamma_range = [.5,2.5]
+        self.smooth = False # smoothing while iterating, much slower to converge 
+        self.normalize = False # barely needs normalizing now... having low mag in the center helps 
+        self.gamma_range = [.75,2.5]
         self.nimg = len(data)
         self.rescale = self.diam_train / self.diam_mean if self.rescale else np.ones(self.nimg, np.float32)
         
         self.v1 = [0]*(self.dim-1)+[1]
         self.v2 = [0]*(self.dim-2)+[1,0]
+        
+
+    def __iter__(self):
+        worker_info = mp.get_worker_info()
+
+        if worker_info is None:  # For single-process training
+            start = 0
+            end = len(self)
+        else:  # For multi-process training
+            total_samples = len(self)
+            num_workers = worker_info.num_workers
+            worker_id = worker_info.id
+            per_worker = int(total_samples / num_workers)
+            leftover = total_samples % num_workers
+            start = worker_id * per_worker
+            end = start + per_worker
+
+            if worker_id == num_workers - 1:
+                end += leftover
+
+        for index in range(start, end):
+            yield self[index]
 
         
-    def collate_fn(self,data):
-        imgs,labels,inds = zip(*data)
-        return torch.cat(imgs,dim=0),torch.cat(labels,dim=0),inds
+    # def collate_fn(self,data):
+    #     imgs,labels,inds = zip(*data)
+    #     return torch.cat(imgs,dim=0),torch.cat(labels,dim=0),inds
     
+    def collate_fn(self,worker_data):
+        # worker_data is a list of batches from each worker
+        # Each batch is a tuple of (imgi, labels, scale)
+
+        # Separate the batches from each worker
+        worker_imgs, worker_labels, worker_inds = zip(*worker_data)
+
+        # Concatenate the worker batches along the batch dimension
+        batch_imgs = torch.cat(worker_imgs, dim=0)
+        batch_labels = torch.cat(worker_labels, dim=0)
+        # batch_inds = torch.cat(worker_inds, dim=0)
+        batch_inds = [item for sublist in worker_inds for item in sublist]
+
+        return batch_imgs, batch_labels, batch_inds
+
     
     def worker_init_fn(self,worker_id):
         worker_seed = torch.initial_seed() % 2**32
@@ -60,6 +99,9 @@ class dataset(torch.utils.data.Dataset):
         if self.timing:
             tic = time.time()
         
+#         print(inds)
+#         if type(inds)!=list:
+#             inds = [inds]
         nimg = len(inds)
         imgi = np.zeros((nimg, self.nchan)+self.tyx, np.float32)
         labels = np.zeros((nimg,)+self.tyx, np.float32)
@@ -101,3 +143,4 @@ class dataset(torch.utils.data.Dataset):
         if self.timing:
             print('single image augmentation time: {:.2f}, Device: {}'.format(time.time()-tic,self.device))
         return imgi, lbl, inds
+

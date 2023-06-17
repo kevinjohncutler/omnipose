@@ -607,3 +607,14 @@ def channel_overlay(ch0, ch1, axis=1, a=1):
     print(rgb.shape)
     rgb[Ellipsis,axis] = a*ch1+(ch0-a*ch1*ch0)
     return rgb
+
+
+import torch
+def divergence(y):
+    axes = [k for k in range(len(y[0]))] #note that this only works when there are at least two images in batch 
+    dim = y.shape[1]
+    # print('divy',y.shape,y[:,0].shape)
+
+    # return torch.stack([torch.gradient(y[:,-k],dim=k)[0] for k in dims]).sum(dim=0)
+    return torch.stack([torch.gradient(y[:,ax],dim=ax-dim)[0] for ax in axes]).sum(dim=0)
+    

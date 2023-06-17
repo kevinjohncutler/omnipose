@@ -121,7 +121,6 @@ def shift_stack(imstack, shifts, order=1, cval=None):
                                cval=np.nanmean(imstack[i]) if cval is None else cval)   
     return regstack
 
-
 def normalize_field(mu,use_torch=False,cutoff=0):
     """ normalize all nonzero field vectors to magnitude 1
     
@@ -136,14 +135,18 @@ def normalize_field(mu,use_torch=False,cutoff=0):
     """
     if use_torch:
         mag = torch_norm(mu,dim=0)
-        out = torch.zeros_like(mu)
-        sel = mag>cutoff
-        out[:,sel] = torch.div(mu[:,sel],mag[sel])
-        return out
+        # out = torch.zeros_like(mu)
+        # sel = mag>cutoff
+        # out[:,sel] = torch.div(mu[:,sel],mag[sel])
+        # return out
+        # return torch.where(mag>cutoff,mu/mag,torch.zeros_like(mu))
+        return torch.where(mag>cutoff,mu/mag,mu)
+        
     else:
         mag = np.sqrt(np.nansum(mu**2,axis=0))
         return safe_divide(mu,mag,cutoff)
     
+# @torch.jit.script
 def torch_norm(a,dim=0,keepdim=False):
     if ARM: 
         #torch.linalg.norm not implemented on MPS yet
@@ -152,6 +155,7 @@ def torch_norm(a,dim=0,keepdim=False):
     else:
         return torch.linalg.norm(a,dim=dim,keepdim=keepdim)
 
+# @njit
 def safe_divide(num,den,cutoff=0):
     """ Division ignoring zeros and NaNs in the denominator.""" 
     return np.divide(num, den, out=np.zeros_like(num), 
@@ -412,9 +416,9 @@ def sinebow(N,bg_color=[0,0,0,0], offset=0):
     return colordict
 
 @njit
-def colorize(im):
+def colorize(im,offset=0):
     N = len(im)
-    angle = np.arange(0,1,1/N)*2*np.pi
+    angle = np.arange(0,1,1/N)*2*np.pi+offset
     angles = np.stack((angle,angle+2*np.pi/3,angle+4*np.pi/3),axis=-1)
     colors = (np.cos(angles)+1)/2
     rgb = np.zeros((im.shape[1], im.shape[2], 3))
@@ -539,25 +543,82 @@ def get_edge_masks(labels,dists):
             
     return clean_labels
 
-def get_neighbors(coords,steps,dim,shape,edges=None):
-    if edges is None:
-        edges = [np.array([0,s]) for s in shape]
+
+
+def border_indices(tyx):
+    """Return flat indices of border values in ND. Use via A.flat[border_indices]."""
+    dim_indices = [np.arange(dim_size) for dim_size in tyx]
+    dim_indices = np.meshgrid(*dim_indices, indexing='ij')
+    dim_indices = [indices.ravel() for indices in dim_indices]
     
-    # neighbors = np.array([[coords[k] + s[k] for s in steps] for k in range(dim)]).astype(int)
-    # edges must be a tuple of bin edges, (0,50,100,...) for each dimension, can be an array as well
-    bins = [np.clip(np.digitize(coords[d],edges[d]),0,len(edges[d])-1) for d in range(dim)]
-    a_min = [edges[d][bins[d]-1] for d in range(dim)]
-    a_max = [edges[d][bins[d]]-1 for d in range(dim)]
-             
-    neighbors = np.array([[np.clip(coords[d] + s[d],a_min[d],a_max[d])
-                           for s in steps] 
-                          for d in range(dim)]).astype(int)
+    indices = []
+    for i in range(len(tyx)):
+        for j in [0, tyx[i] - 1]:
+            mask = (dim_indices[i] == j)
+            indices.append(np.where(mask)[0])
+    return np.concatenate(indices)
+
+
+# @njit this version actually a lot slower than below 
+# def get_neighbors(coords, steps, dim, shape, edges=None):
+#     if edges is None:
+#         edges = [np.array([-1,s]) for s in shape]
+        
+#     npix = coords[0].shape[-1]
+#     neighbors = np.empty((dim, len(steps), npix), dtype=np.int64)
+#     for d in range(dim):
+#         for i, s in enumerate(steps):
+#             for j in range(npix):
+#                 if  ((coords[d][j] + s[d]) in edges[d]) and ((coords[d][j] + 2*s[d]) not in edges[d]):     
+#                     neighbors[d,i,j] = coords[d][j]
+#                 else:
+#                     neighbors[d,i,j] = coords[d][j] + s[d]
+    
+#     return neighbors
+
+
+# much faster 
+# @njit
+# def isin_numba(x, y):
+#     result = np.zeros(x.shape, dtype=np.bool_)
+#     for i in range(x.size):
+#         result[i] = x[i] in y
+#     return result
+
+# @njit
+# def get_neighbors(coords, steps, dim, shape, edges=None):
+#     if edges is None:
+#         edges = [np.array([-1,s]) for s in shape]
+        
+#     npix = coords[0].shape[-1]
+#     neighbors = np.empty((dim, len(steps), npix), dtype=np.int64)
+    
+#     for d in range(dim):
+#         for i, s in enumerate(steps):
+#             X = coords[d] + s[d]
+#             mask = np.logical_and(isin_numba(X, edges[d]), ~isin_numba(X+s[d], edges[d]))
+#             neighbors[d,i] = np.where(mask, coords[d], X)
+#     return neighbors
+
+# slightly faster than the jit code!
+def get_neighbors(coords, steps, dim, shape, edges=None):
+    if edges is None:
+        edges = [np.array([-1,s]) for s in shape]
+        
+    npix = coords[0].shape[-1]
+    neighbors = np.empty((dim, len(steps), npix), dtype=np.int64)
+    
+    for d in range(dim):        
+        S = steps[:,d].reshape(-1, 1)
+        X = coords[d] + S
+        mask = np.logical_and(np.isin(X, edges[d]), ~np.isin(X+S, edges[d]))
+        C = np.broadcast_to(coords[d], X.shape)
+        neighbors[d] = np.where(mask, C, X)
     
     return neighbors
-        
-    # return np.array([[np.clip(coords[k] + s[k],*edges[k]) for s in steps] for k in range(dim)]).astype(int)
 
-    # this version works without padding, should ultimately replace the other one 
+# this version works without padding, should ultimately replace the other one 
+# @njit
 def get_neigh_inds(neighbors,coords,shape):
     """
     For L pixels and S steps, find the neighboring pixel indexes 
@@ -566,15 +627,13 @@ def get_neigh_inds(neighbors,coords,shape):
     
     Parameters
     ----------
-    coords: tuple or ND array
+    coords: tuple, int
         coordinates of nonzero pixels, <dim>x<npix>
     
-    shape: tuple or list, int
-        shape of the image array
-        
-    steps: ND array, int
-        list or array of ND steps to neighbors 
     
+    shape: tuple, int
+        shape of the image array
+
     Returns
     -------
     indexes: 1D array
@@ -586,18 +645,19 @@ def get_neigh_inds(neighbors,coords,shape):
     ind_matrix: ND array
         indexes inserted into the ND image volume
     """
-    npix = neighbors.shape[-1]
+    npix = neighbors[0].shape[-1]
     indexes = np.arange(npix)
     ind_matrix = -np.ones(shape,int)
-    ind_matrix[tuple(coords)] = indexes
-    # neigh_inds = ind_matrix[*(neighbors,)]
-    # neigh_inds = ind_matrix[np.ix_(*neighbors)]
-    neigh_inds = ind_matrix[tuple(neighbors)]
     
-    # make self-referencing for out-of-bounds
-    oob = np.argwhere(neigh_inds==-1)
-    idx = neigh_inds.shape[0]//2
-    neigh_inds[tuple(oob.T)] = neigh_inds[idx][oob[:,1]] 
+    ind_matrix[coords] = indexes
+    neigh_inds = ind_matrix[neighbors]
+
+    oob = np.nonzero(neigh_inds==-1) # 2 x nbad , pos 0 is the 0-step inds and pos 1 is the npix inds 
+    neigh_inds[oob] = indexes[oob[1]] # reflect back to itself 
+    ind_matrix[neighbors] = neigh_inds # update ind matrix as well
+    
+    # not sure if -1 is general enough, probbaly should be since other adjacent masks will be unlinked
+    # can test it by adding some padding to the concatenation...
     
     return indexes, neigh_inds, ind_matrix
     

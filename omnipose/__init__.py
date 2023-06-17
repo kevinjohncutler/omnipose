@@ -1,2 +1,2 @@
-from . import core, utils
+from . import core, utils, loss
 from .dataset import dataset
