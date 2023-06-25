@@ -94,8 +94,8 @@ def cross_reg(imstack,upsample_factor=100,order=1,
         # shift = phase_cross_correlation(np.pad(ref,pad), np.pad(im,pad), 
         shift = phase_cross_correlation(ref,im,
                                         upsample_factor=upsample_factor, 
-                                        return_error = False, 
-                                        normalization=normalization)
+                                        # return_error = False, 
+                                        normalization=normalization)[0]
                                       # reference_mask=reference_mask,
                                       # moving_mask=moving_mask)
         
@@ -602,6 +602,10 @@ def border_indices(tyx):
 
 # slightly faster than the jit code!
 def get_neighbors(coords, steps, dim, shape, edges=None):
+    """
+    Get the coordinates of all neighbor pixels. 
+    Coordinates of pixels that are out-of-bounds get clipped. 
+    """
     if edges is None:
         edges = [np.array([-1,s]) for s in shape]
         
@@ -629,8 +633,7 @@ def get_neigh_inds(neighbors,coords,shape):
     ----------
     coords: tuple, int
         coordinates of nonzero pixels, <dim>x<npix>
-    
-    
+
     shape: tuple, int
         shape of the image array
 
@@ -660,8 +663,38 @@ def get_neigh_inds(neighbors,coords,shape):
     # can test it by adding some padding to the concatenation...
     
     return indexes, neigh_inds, ind_matrix
-    
-    
+
+
+# maybe neighbors and affinity graph should be packaged together...
+def crop_affinity(augmented_affinity,slc):
+    """
+    Helper function to crop affinity graph according to an image crop slice. 
+
+    """
+
+    # From the augmented affinity graph we can extract a lot
+    nstep = augmented_affinity.shape[1]
+    # d = np.emath.logn(3, nstep).astype(int)
+    d = len(slc)
+    neighbors = augmented_affinity[:d]
+    affinity_graph = augmented_affinity[d]
+    idx = nstep//2
+    coords = neighbors[:,idx]
+    in_bounds = np.all(np.vstack([[c<s.stop, c>=s.start] for c,s in zip(coords,slc)]),axis=0)
+    inds_crop = np.nonzero(in_bounds)[0]
+
+    crop_neighbors = neighbors[:,:,inds_crop]
+    crop_affinity = affinity_graph[:,inds_crop]
+
+    # shift coordinates back acording to the lower bound of the slice 
+    for i,s in enumerate(slc):
+        crop_neighbors[i] -= s.start
+
+    # print(crop_neighbors.shape,crop_affinity.shape)
+    #retur augmented affinity 
+    return np.vstack((crop_neighbors,crop_affinity[np.newaxis]))
+
+
 def get_steps(dim):
     """
     Get a symmetrical list of all 3**N points in a hypercube represented
@@ -966,3 +999,54 @@ def add_poisson_noise(image):
     noisy_image = np.random.poisson(image)
     noisy_image = np.clip(noisy_image, 0, 1)  # Clip values to [0, 1] range
     return noisy_image
+
+
+from scipy.ndimage import gaussian_filter, convolve
+
+def extract_skeleton(distance_field):
+    # Smooth the distance field using Gaussian filter
+    smoothed_field = gaussian_filter(distance_field, sigma=1)
+
+    # Compute gradient of the smoothed distance field
+    gradients = np.gradient(smoothed_field)
+
+    # Compute Hessian matrix components
+    hessians = []
+    for i in range(len(distance_field.shape)):
+        hessian = np.gradient(gradients[i])
+        hessians.append(hessian)
+
+    hessians = [gaussian_filter(hessian, sigma=1) for hessian in hessians]
+
+    # Compute the Laplacian of Gaussian (LoG)
+    log = np.sum(hessians, axis=0)
+
+    # Find stationary points (zero-crossings) in the LoG
+    zero_crossings = np.logical_and(log[:-1] * log[1:] < 0, np.abs(log[:-1] - log[1:]) > 0.02)
+
+    # Thin the zero-crossings to get the skeleton
+    skeleton = thin_skeleton(zero_crossings)
+
+    return skeleton
+
+def thin_skeleton(image):
+    # DTS thinning algorithm
+    dimensions = len(image.shape)
+    neighbors = np.ones((3,) * dimensions, dtype=bool)
+    neighbors[tuple([1] * dimensions)] = False
+
+    while True:
+        marker = np.zeros_like(image)
+
+        # Convolve the image with the neighbors template
+        convolution = convolve(image, neighbors, mode='constant')
+
+        # Find the pixels where the convolution equals the number of neighbors
+        marker[np.where(convolution == np.sum(neighbors))] = 1
+
+        if np.sum(marker) == 0:
+            break
+
+        image = np.logical_and(image, np.logical_not(marker))
+
+    return image

@@ -268,7 +268,7 @@ def labels_to_flows(labels, links=None, files=None, use_gpu=False, device=None,
                                      veci[n], 
                                      heat[n][np.newaxis,:,:]), axis=0).astype(np.float32)
                         for n in range(nimg)] 
-            # clean this up to swap heat and flowd and simplify code? would have to rerun all flow generation 
+            # clean this up to swap heat and flows and simplify code? would have to rerun all flow generation 
         else:
             flows = [np.concatenate((labels[n][np.newaxis,:,:], 
                                      labels[n][np.newaxis,:,:]>0.5, 
@@ -286,7 +286,7 @@ def labels_to_flows(labels, links=None, files=None, use_gpu=False, device=None,
 
 # @torch.no_grad() # try to solve memory leak in mps
 def masks_to_flows(masks, affinity_graph=None, dists=None, coords=None, links=None, use_gpu=True, device=None, 
-                   omni=True, dim=2, smooth=False, normalize=False, n_iter=None):
+                   omni=True, dim=2, smooth=False, normalize=False, n_iter=None, verbose=False):
     """Convert masks to flows. 
     
     First, we find the scalar field. In Omnipose, this is the distance field. In Cellpose, 
@@ -346,6 +346,7 @@ def masks_to_flows(masks, affinity_graph=None, dists=None, coords=None, links=No
                                            idx, fact, sign, dim, links=links)
         if case[1]:
             print('Warning: passed affinity does not match mask coordinates. Recomputing.')
+
     boundaries = affinity_to_boundary(masks,affinity_graph,coords)
     
     if dists is None:
@@ -391,9 +392,9 @@ def masks_to_flows(masks, affinity_graph=None, dists=None, coords=None, links=No
         return masks, dists, None, mu #consistency with below
     
     else:
-        
         T, mu = masks_to_flows_torch(masks, affinity_graph, coords, dists, device=device,
-                                     omni=omni, smooth=smooth, normalize=normalize, n_iter=n_iter)
+                                     omni=omni, smooth=smooth, normalize=normalize, n_iter=n_iter, 
+                                     verbose=verbose)
         return masks, dists, boundaries, T, mu
 
 
@@ -433,7 +434,7 @@ def masks_to_flows_batch(batch, links=[None], device=torch.device('cpu'),
 
     affinity_graph = masks_to_affinity(clabels, ccoords, steps, inds, idx, fact, sign, dim, 
                                        links=clinks, edges=edges)#, dists=cdists)
-        
+    
     # find boundary, flows 
     boundaries = affinity_to_boundary(clabels,affinity_graph,ccoords)
     
@@ -589,12 +590,14 @@ def masks_to_flows_torch(masks, affinity_graph, coords=None, dists=None, device=
         out = _extend_centers_torch(masks, centers, affinity_graph, coords,
                                     n_iter=n_iter, device=device, omni=omni, smooth=smooth, 
                                     weight=weight, return_flows=return_flows, affinity_field=affinity_field,
-                                    edges=edges,initialize=initialize, verbose=verbose)
+                                    edges=edges, initialize=initialize, verbose=verbose)
         
         if return_flows:
             T, mu = out
             if normalize:
                 mu = utils.normalize_field(mu,use_torch=True,cutoff=0 if not smooth else 0.15) ##### transforms.normalize_field(mu,omni) 
+                if verbose:
+                    print('normalizing field')
             return T, mu
         else:
             return out
@@ -951,6 +954,7 @@ def _extend_centers_torch(masks, centers, affinity_graph, coords=None, n_iter=20
     centroid_inds = ind_matrix[tuple(centers)] if len(centers) else np.zeros(0)
 
     if verbose:
+        print('affinity_graph',affinity_graph.shape,affinity_graph.dtype)
         print('index shape',indexes.shape)
         print('neighbors shape',neighbors.shape)
         print('neigh_inds shape',neigh_inds.shape)
@@ -973,7 +977,7 @@ def _extend_centers_torch(masks, centers, affinity_graph, coords=None, n_iter=20
     smooth = torch.tensor(smooth)
     verbose = torch.tensor(verbose)
 
-    isneigh = torch.tensor(affinity_graph,device=device) # isneigh is <3**d> x <number of points in mask>
+    isneigh = torch.tensor(affinity_graph,device=device,dtype=torch.bool) # isneigh shape (3**d,npix)
     neigh_inds = torch.tensor(neigh_inds,device=device)
     central_inds = torch.tensor(central_inds,device=device,dtype=torch.long)
     centroid_inds = torch.tensor(centroid_inds,device=device,dtype=torch.long)
@@ -1002,6 +1006,8 @@ def _extend_centers_torch(masks, centers, affinity_graph, coords=None, n_iter=20
         s = [n_axes,d,isneigh.shape[-1]]
         mu_ = torch.zeros((d,)+shape,device=device,dtype=dtype)
         mu_[(Ellipsis,)+coords] = _gradient(T,d,steps,fact,inds,isneigh,neigh_inds,central_inds,s)
+        if verbose:
+            print('mu',mu_.shape)
         ret += [mu_] # .detach() adds a lot of time? 
     
     # put back into ND
@@ -1148,26 +1154,26 @@ def _gradient(T,d,steps,fact,
     finite_differences = torch.zeros(s,device=T.device,dtype=T.dtype)
     cvals = T[central_inds]
     for ax,(ind,f) in enumerate(zip(inds[1:],fact[1:])):
+
         vals = T[neigh_inds[ind]] # maybe go bakc to passing neigh_vals
         vals[~isneigh[ind]] = 0
         # T[]*mask prevent bleedover / boundary issues, big problem in stock Cellpose that got reverted!
 
         mid = len(ind)//2
         r = torch.arange(mid)
-        
         # unit vectors 
         vecs = steps[ind].float()
         uvecs = (vecs[-(r+1)] - vecs[r]).T #/(2*f) #move normalization to end for speed
-        
+
         # calculate differences along each axis with directional pairs  
         diff = (vals[-(r+1)]-vals[r]) # /(2*f)
-        
+
         # dot products, project differences onto cardinal coorinate system 
         finite_differences[ax] = torch.matmul(uvecs.T,diff) / (2*f)**2
-        
 
+        
     mu = torch.mean(finite_differences,dim=0) 
-    
+
     # do some averaging with neighbors, but weighted by dot product so that magnitude does not fall off
     weight = torch.sum(mu[:,neigh_inds]*(mu[:,central_inds].unsqueeze(1)),dim=0).abs() # A.B
     weight[~isneigh] = 0
@@ -1297,7 +1303,8 @@ def compute_masks(dP, dist, bd=None, p=None, inds=None, niter=None, rescale=1.0,
     if np.any(iscell) and nclasses>1: 
 
         iscell_pad = np.pad(iscell,pad)
-        inds = np.array(np.nonzero(iscell_pad)).astype(np.int32)        
+        inds = np.array(np.nonzero(iscell_pad)).astype(np.int32)       
+        shape =  iscell_pad.shape
         
         # for boundary later, also for affinity_seg option
         steps = utils.get_steps(dim)
@@ -1380,7 +1387,7 @@ def compute_masks(dP, dist, bd=None, p=None, inds=None, niter=None, rescale=1.0,
             #calculate masks
             if (omni and OMNI_INSTALLED) or override:
                 if affinity_seg:                    
-                    affinity_graph, neigh_inds, bounds = _get_affinity(steps,iscell_pad,dP_pad,dt_pad,p,inds)
+                    affinity_graph, neighbors, neigh_inds, bounds = _get_affinity(steps,iscell_pad,dP_pad,dt_pad,p,inds)
                     coords = tuple(inds)
                     if cluster:
                         labels = affinity_to_masks(affinity_graph,neigh_inds,iscell_pad,verbose=verbose)
@@ -1448,8 +1455,7 @@ def compute_masks(dP, dist, bd=None, p=None, inds=None, niter=None, rescale=1.0,
 
         # If using default omnipose/cellpose for getting masks, still try to get accurate boundaries 
         if bounds is None:
-            affinity_graph, neigh_inds, bounds = _get_affinity(steps,masks,dP_pad,dt_pad,p,inds)
-            # steps, mask_pad, mu_pad, dt_pad, p, p0, 
+            affinity_graph, neighbors, neigh_inds, bounds = _get_affinity(steps,masks,dP_pad,dt_pad,p,inds)
 
             # boundary finder gets rid of some edge pixels, remove these from the mask 
             gone = neigh_inds[3**dim//2,np.sum(affinity_graph,axis=0)==0]
@@ -1479,9 +1485,12 @@ def compute_masks(dP, dist, bd=None, p=None, inds=None, niter=None, rescale=1.0,
             # Idea here is that I index everything corresponding to the affinity graph first
             # indexes, neigh_inds, ind_matrix = get_neigh_inds(np.argwhere(masks).T,masks.shape,steps)
             # must use iscell_pad here, not masks, as it must correspond to the original set of pixels 
-            indexes, neigh_inds, ind_matrix = get_neigh_inds(np.argwhere(iscell_pad).T,
-                                                             iscell_pad.shape,
-                                                             steps)
+            # indexes, neigh_inds, ind_matrix = get_neigh_inds(np.argwhere(iscell_pad).T,
+            #                                                  iscell_pad.shape,
+            #                                                  steps)
+            
+            indexes, neigh_inds, ind_matrix = utils.get_neigh_inds(tuple(neighbors),coords,shape)
+
 
             # then I figure out which of these columns correspond to pixels that are in the final masks
             # this works by looking at an array of indices the same size as the image, and any pixels not part
@@ -1489,10 +1498,18 @@ def compute_masks(dP, dist, bd=None, p=None, inds=None, niter=None, rescale=1.0,
             coords_remaining = np.nonzero(masks)
             inds_remaining = ind_matrix[coords_remaining]
             affinity_graph_unpad = affinity_graph[:,inds_remaining]
+            neighbors_unpad = neighbors[...,inds_remaining] - pad
+
+            # I also want to package the affinity graph with the pixel coordinates 
+            # then there is no ambiguity and can extract a binary mask
+            # thus the augmented affinity graph would be (d+1,3**d,npix)
+
+            augmented_affinity = np.vstack((neighbors_unpad,affinity_graph_unpad[np.newaxis]))
+
         else:
-            affinity_graph_unpad = []
+            augmented_affinity = []
         
-        ret = [masks_unpad, p, tr, bounds_unpad, affinity_graph_unpad]
+        ret = [masks_unpad, p, tr, bounds_unpad, augmented_affinity]
         
     else: # nothing to compute, just make it compatible
         omnipose_logger.info('No cell pixels found.')
@@ -1788,7 +1805,7 @@ def steps_interp(p, dP, dist, niter, use_gpu=True, device=None, omni=True, suppr
     # for now, looks like grid_sampler_2d is not implemented for mps
     # so it is much faster to just default to CPU instead of allowing for fallback
     # but now that I am realizing that inteprolation is no good... maybe there is a better way 
-    #yes, I should use my torchvf code 
+    # yes, I should use my torchvf code <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<
     if ARM:
         device = torch_CPU
     shape = np.array(shape)[inds]-1.  # dP is d.Ly.Lx, inds flips this to flipped X-1, Y-1, ...
@@ -1799,7 +1816,11 @@ def steps_interp(p, dP, dist, niter, use_gpu=True, device=None, omni=True, suppr
     pt0 = pt.clone() # save first
     for k in range(d):
         pt = pt.unsqueeze(0) # get it in the right shape
-    flow = torch.tensor(dP[inds],device=device).unsqueeze(0) #covert flow numpy array to tensor on GPU, add dimension 
+
+    if isinstance(dP, torch.Tensor):
+        flow = dP[inds].to(device).unsqueeze(0)
+    else:   
+        flow = torch.tensor(dP[inds],device=device).unsqueeze(0) #covert flow numpy array to tensor on GPU, add dimension 
 
     # we want to normalize the coordinates between 0 and 1. To do this, 
     # we divide the coordinates by the shape along that dimension. To symmetrize,
@@ -1995,7 +2016,6 @@ def follow_flows(dP, dist, inds, niter=None, interp=True, use_gpu=True,
 
     cell_px = (Ellipsis,)+tuple(inds)
 
-
     if not interp:
         omnipose_logger.warning('not interp')
         if d==2:
@@ -2008,6 +2028,7 @@ def follow_flows(dP, dist, inds, niter=None, interp=True, use_gpu=True,
             omnipose_logger.warning('No non-interp code available for non-2D or -3D inputs.')
 
     else:
+        # I am not sure why we still use p[cell_px]... instead of just cell_px. 
         p_interp, tr = steps_interp(p[cell_px], dP, dist, niter, use_gpu=use_gpu,
                                     device=device, 
                                     omni=omni, # omni controls the momentum term I have 
@@ -2827,7 +2848,8 @@ def parametrize(steps, labs, unique_L, inds, ind_shift, values, step_ok):
         indices = np.argwhere(labs==l).flatten() # which spots within the inds list etc. are the boundary we want
 
         # just loop, manually calculate the best step, and proceed
-        index = indices[0]
+        index = indices[0] # starting point, this may not be best; should choose one that would be an endpoint of a skel
+
         closed = 0
         contour = []
         n_iter = 0
@@ -2857,7 +2879,7 @@ def parametrize(steps, labs, unique_L, inds, ind_shift, values, step_ok):
     
     return contours  
 
-def get_contour(labels,affinity_graph):
+def get_contour(labels,affinity_graph,cardinal_only=True):
     """Sort 2D boundaries into cyclic paths.
 
     Parameters:
@@ -2872,7 +2894,12 @@ def get_contour(labels,affinity_graph):
     """
     dim = labels.ndim
     steps,inds,idx,fact,sign = utils.kernel_setup(dim)
-    cardinal = np.concatenate(inds[1:2])
+
+    if cardinal_only:
+        allowed_inds = np.concatenate(inds[1:2])
+    else:
+        allowed_inds = np.concatenate(inds[1:])
+
     coords = np.nonzero(labels)
     shape = labels.shape
     indexes, neigh_inds, ind_matrix = get_neigh_inds(coords,shape,steps)
@@ -2881,10 +2908,10 @@ def get_contour(labels,affinity_graph):
     # determine what movements are allowed
     step_ok = np.zeros(affinity_graph.shape,bool)
     
-    for s in cardinal:
+    for s in allowed_inds:
         step_ok[s] = np.logical_and.reduce((affinity_graph[s]>0, # must be connected 
                                             csum[neigh_inds[s]]<(3**dim-1), # but the target must also be a boundary ,
-                                            neigh_inds[s]>-1 # must not be background, shount NOT have to have this here
+                                            neigh_inds[s]>-1 # must not be background, should NOT have to have this here?
                                    ))
         
     # bd_coords = np.array(np.nonzero(bd_pad))
@@ -2893,8 +2920,10 @@ def get_contour(labels,affinity_graph):
     # bd_inds = np.nonzero(csum<(3**dim-1))
     labs = labels[coords]
     unique_L = fastremap.unique(labs)
+
+    np.argmin(csum)
     
-    contours = parametrize_contour(steps,np.int32(labs),np.int32(unique_L),neigh_inds,step_ok)
+    contours = parametrize_contour(steps,np.int32(labs),np.int32(unique_L),neigh_inds,step_ok, csum)
     
     contour_map = np.zeros(shape,dtype=np.int32)
     for contour in contours:
@@ -2907,18 +2936,20 @@ def get_contour(labels,affinity_graph):
     return contour_map, contours
 
 
-
 # @njit('(int64[:,:], int32[:], int32[:], int64[:,:], float64[:,:])', nogil=True)
 @njit
-def parametrize_contour(steps, labs, unique_L, neigh_inds, step_ok):
+def parametrize_contour(steps, labs, unique_L, neigh_inds, step_ok, csum):
     """Helper function to sort 2D contours into cyclic paths. See get_contour()."""
     sign = np.sum(np.abs(steps),axis=1)
     contours = []
     s0 = 4
     for l in unique_L:
-        indices = np.argwhere(labs==l).flatten() # which spots within the inds list etc. are the boundary we want
+        sel = labs==l
+        indices = np.argwhere(sel).flatten() # which spots within the inds list etc. are the boundary we want
         # just loop, manually calculate the best step, and proceed
-        index = indices[0]
+        # index = indices[0] # starting point, this may not be best; should choose one that would be an endpoint of a skel
+        index = indices[np.argmin(csum[sel])]
+
         closed = 0
         contour = []
         n_iter = 0
@@ -3115,18 +3146,18 @@ def _get_affinity(steps, mask_pad, mu_pad, dt_pad, p, p0,
     bd_matrix = np.zeros_like(mask_pad,dtype=int)
     bd_matrix[coord] = boundary
 
-    return connect, neigh_inds, bd_matrix
+    return connect, neighbors, neigh_inds, bd_matrix
 
-# numba will require getting rid of stacking, summation, etc., super annoying... the numebr of pixels to fix is quite
+# numba will require getting rid of stacking, summation, etc., super annoying... the number of pixels to fix is quite
 # small in practice, so may not be worth it 
 # @njit('(bool_[:,:], int64[:,:], int64[:], int64[:], int64[:],  int64[:], int64, bool_)')
 def _despur(connect, neigh_inds, indexes, steps, non_self, 
-            cardinal, ordinal, dim, clean_bd_connections):
+            cardinal, ordinal, dim, clean_bd_connections, 
+            iter_cutoff=100, skeletonize=False):
     """Critical cleanup function to get rid of spurious affinities."""
     count = 0
     delta = True
     s0 = len(non_self)//2 #<<<<<<<<<<<<<< idx 
-    iter_cutoff = 100
     while delta and count<iter_cutoff:    
         count+=1
         before = connect.copy()
@@ -3176,12 +3207,19 @@ def _despur(connect, neigh_inds, indexes, steps, non_self,
         # the remaining problematic pixels come from boundary points that are insufficiently connected 
         bad = np.logical_and(boundary,csum_boundary_cardinal<dim) 
         
-        # Or those that don't form boundaries that are thick enoguh 
-        is_internal_ordinal = np.stack([internal[neigh_inds[s]] for s in ordinal])
-        is_internal_spur_ordinal = np.any(np.logical_and(is_internal_ordinal,is_internal_ordinal[::-1]),axis=0) 
-        
-        bad = np.logical_or(bad,np.logical_and(boundary,is_internal_spur_ordinal) )
-        
+        # decide what kind of pixel removal to do
+        if skeletonize: # skeletonize the graph
+            # we want to remove all non-internal pixels as long as they are connected to internal-ish pixels
+            #unfinished 
+            bad = 0
+        else: # get rid of all boundary spurs
+            # the remaining problematic pixels come from boundary points that are insufficiently connected 
+            bad = np.logical_and(boundary,csum_boundary_cardinal<dim) 
+            is_internal_ordinal = np.stack([internal[neigh_inds[s]] for s in ordinal])
+            is_internal_spur_ordinal = np.any(np.logical_and(is_internal_ordinal,is_internal_ordinal[::-1]),axis=0) 
+            bad = np.logical_or(bad,np.logical_and(boundary,is_internal_spur_ordinal) )
+            
+
         candidate_indexes = indexes[bad] 
             
         # candidate_indexes = []
@@ -3200,7 +3238,6 @@ def _despur(connect, neigh_inds, indexes, steps, non_self,
                         connect_inds_cardinal.append(i)
                 check_inds = [neigh_inds[i,idx] for i in connect_inds] 
                 check_inds_cardinal = [neigh_inds[i,idx] for i in connect_inds_cardinal]
-                
                 
                 boundary_connect = np.sum(np.array([boundary[i] for i in check_inds_cardinal]))
                 internal_connect = np.sum(np.array([internal[i] for i in check_inds]))

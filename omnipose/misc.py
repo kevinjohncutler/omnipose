@@ -602,10 +602,17 @@ def split_contour(masks,contour_map,contour_list,bd_label=None):
     return peaks, inds, crds, clabel_map, seed_map
 
 
-def channel_overlay(ch0, ch1, axis=1, a=1):
-    rgb = np.stack([ch0]*3,axis=-1)
-    print(rgb.shape)
-    rgb[Ellipsis,axis] = a*ch1+(ch0-a*ch1*ch0)
+# def channel_overlay(ch0, ch1, axis=1, a=1):
+#     rgb = np.stack([ch0]*3,axis=-1)
+#     print(rgb.shape)
+#     rgb[Ellipsis,axis] = a*ch1+(ch0-a*ch1*ch0)
+#     return rgb
+
+def channel_overlay(ch0, ch1, color=(1, 1, 0), a=1):
+    rgb = np.stack([ch0] * 3, axis=-1)
+    overlay = a * ch1 + (ch0 - a * ch1 * ch0)
+    for i in range(3):
+        rgb[..., i] = (1 - color[i]) * ch0 + color[i] * overlay
     return rgb
 
 
@@ -618,3 +625,41 @@ def divergence(y):
     # return torch.stack([torch.gradient(y[:,-k],dim=k)[0] for k in dims]).sum(dim=0)
     return torch.stack([torch.gradient(y[:,ax],dim=ax-dim)[0] for ax in axes]).sum(dim=0)
     
+from sklearn.neighbors import NearestNeighbors
+def project_points(source, target):
+    source_count = source.shape[1]
+    target_count = target.shape[1]
+    result = np.empty(source_count, dtype=np.int64)
+    
+    # Create a k-d tree from the target points
+    nbrs = NearestNeighbors(n_neighbors=1, algorithm='kd_tree').fit(target.T)
+    
+    # Query the k-d tree for the closest target point for each source point
+    _, indices = nbrs.kneighbors(source.T)
+    
+    # Assign the indices of the closest target points to the result array
+    result = np.squeeze(indices)
+    
+    return result
+
+
+# @njit(parallel=True)
+# def project_points(source, target):
+#     source_count = source.shape[1]
+#     target_count = target.shape[1]
+#     result = np.empty(source_count, dtype=np.int64)
+    
+#     for i in prange(source_count):
+#         min_distance = np.inf
+#         closest_point = -1
+        
+#         for j in range(target_count):
+#             distance = np.sum((source[:, i] - target[:, j]) ** 2)
+            
+#             if distance < min_distance:
+#                 min_distance = distance
+#                 closest_point = j
+        
+#         result[i] = closest_point
+    
+#     return result
