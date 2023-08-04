@@ -1,3 +1,4 @@
+@import url("custom.css");
 /* @import url("default.css");
 span.caption-text {
   color: red;
@@ -14,6 +15,13 @@ span.caption-text {
 
 /* @import 'sphinx_rtd_theme.css'; */
 
+/* :root {
+  --color-background-secondary: rgba(255, 0, 0, 0.1);
+} */
+
+body {
+  background-color: var(--color-background-primary);
+}
 
 
 /* text-color */
@@ -45,20 +53,53 @@ a:hover {
   color: transparent;
 } */
 
-.header-2 { 
+.header-2,.header-3 { 
 	/* color: var(--h2-color); */
   color: var(--color-foreground-primary)
 } 
 
+table.docutils th {
+  font-weight: normal;
+}
+
+table.docutils caption {
+  font-weight: bold;
+  font-size: 1.2em;
+}
+
+/**/
+.inline.highlight,
+.inline.highlight pre {
+  /* display: inline; */
+  /* background-color: var(--color-background-secondary); */
+  /* background-color: red; */
+
+  border-radius: 3px;
+  white-space: nowrap;
+}
+
+
+.highlight,
+.highlight *,
+.code.highlight.python,
+div.highlight,
+div.highlight pre {
+  /* background-color: var(--color-background-secondary); */
+  /* background-color: red; works */
+  color: none !important;
+  background: none !important;
+  background-color: var(--color-background-secondary) !important; 
+  /* background-color: #0000 !important; */
+  margin: 0em !important;
+  border: none !important;
+  border-radius: 3px;
+
+}
+
+
 /* finally a way to define the background color of the pygments theme 
 though unfortunately this only 'covers up' the default
 */
-.highlight pre {
-  background-color: var(--color-background-secondary);
-  border-radius: 3px;
-  /* color: transparent; */
-
-}
 
 
 /* Input cells */
@@ -67,19 +108,41 @@ div.cell div.cell_input {
   padding-right: 0em; */
   margin: 0em !important;
   border: none !important;
-  /* background: var(--color-background-secondary); */
-  /* background-color: red; */
+  border-radius: 3px;
+
+  /* background: rgba(var(--color-background-secondary),0.5); */
+  /* background-color: rgba(var(--color-background-secondary),0.5); */
+  /* background-color: green; does not work */
   background: none !important;
+  background-color: transparent !important;
+
+  /* background: green !important; does not work to color code cells */
+
   /* border-color: transparent; */
   /* border-left-width: medium; */
 }
-
 
 div.cell_input > div, div.cell_output div.output > div.highlight {
   margin: 0em !important;
   border: none !important;
   /* background-color: var(--color-background-secondary); */
+  /* background: none !important; */
+  /* background-color: red; does not work */
+
 }
+
+/* code cells */
+div.cell div.cell_input, div.cell details.above-input>summary {
+  padding-left: 0em;
+  padding-right: 0em;
+  /* border-left-color:none;
+  border-left-width: 0; */
+  margin: 0em !important;
+  border: none !important;
+  background: none !important;
+}
+
+
 
 /* All cell outputs */
 .cell_output {
@@ -131,9 +194,10 @@ a[href^="examples/multi_channel_cyto.html"] {color: var(--sinebow7) !important;}
 a[href^="command.html"] {color: var(--sinebow18) !important;}
 a[href^="api/index.html"] {color: var(--sinebow19) !important;}
 
-a[href^="ncolor.html"] {color: var(--sinebow20) !important;}
-a[href^="diameter.html"] {color: var(--sinebow21) !important;}
-a[href^="gamma.html"] {color: var(--sinebow22) !important;}
+a[href^="affinity.html"] {color: var(--sinebow20) !important;}
+a[href^="ncolor.html"] {color: var(--sinebow21) !important;}
+a[href^="diameter.html"] {color: var(--sinebow22) !important;}
+a[href^="gamma.html"] {color: var(--sinebow23) !important;}
 
 a[href^="index.html"] {color: var(--sinebow10) !important;}
 
@@ -149,7 +213,49 @@ a[href^="index.html"] {color: var(--sinebow10) !important;}
   margin-bottom:12px
 }
 
+
 .sidebar-tree ul {color:none}
+
+/* no code wrapping */
+code, .rst-content code {
+  white-space: nowrap;
+}
+
+/* indentations for header 3 */
+h3 {
+  margin-left: 10px;
+}
+
+h3 ~ * {
+  margin-left: 30px;
+}
+
+h3 ~ div.note,
+h3 ~ div.tip,
+h3 ~ div.warning,
+h3 ~ pre.code {
+  margin-left: 30px !important;
+  
+}
+
+div.h3.highlight-text,
+div.h3.highlight-python {
+  margin-left: 30px;
+}
+
+
+/* admonition backgrounds */
+div.admonition.note,
+div.admonition.warning,
+div.admonition.tip {
+  /* background-color: red; works */
+    background-color: var(--color-background-secondary);
+}
+
+/* centered table */
+table.docutils td:not(:first-child) {
+  text-align: center;
+}
 
 
 /* This keeps link colors on the sidebar persistent */
@@ -177,4 +283,11 @@ a[href^="index.html"] {color: var(--sinebow10) !important;}
 .sinebow21 {color: var(--sinebow21) !important;}
 .sinebow22 {color: var(--sinebow22) !important;}
 .sinebow23 {color: var(--sinebow23) !important;}
+.sinebow24 {color: var(--sinebow24) !important;}
+
+/* Make highlight fade out */
+:target {
+  animation: fadeout 3s forwards;
+}
+
 

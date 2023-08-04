@@ -3,7 +3,7 @@
 :sinebow13:`Inputs`
 ===================
 
-Omnipose automatically detects TIFs, PNGs, or JPEGs. :mod:`cellpose_omni.io` uses tifffile 
+Omnipose automatically detects TIFs, PNGs, or JPEGs. Under the hood, :mod:`cellpose_omni.io` uses ``tifffile``
 for loading TIFs and cv2 for PNG and JPEG. We are considering adding direct support for 
 other bioformats types such as ND2, but for now all input must be exported to the above
 image formats prior to running Omnipose. 
@@ -11,10 +11,11 @@ image formats prior to running Omnipose.
 
 :header-2:`Channel formatting`
 ------------------------------
-Single-plane images can be formatted as ``nY`` x ``nX`` x ``channels`` or ``channels`` x ``nY`` x ``nX``. 
+Single-plane, multichannel images can be formatted as :py:`(nY,nX,nChan)` or :py:`(nChan,nY,nX)`, 
+the latter being more conventional and easier to work with (*e.g.*, in Napari). 
 The `channels <settings.html#channels>`__ settings will take care of reshaping 
 the input appropriately for the network if we can safely assume that the smallest axis is the channel axis. 
-For example, a ``2`` x ``2048`` x ``2048`` image will automatically have axis ``0`` set to be the channel axis. The `channel_axis` parameter
+For example, a :py:`(2,2048,2048)` image will automatically have axis :py:`0` set to be the channel axis. The `channel_axis` parameter
 allows you to override this when necessary.
 
 Note that Omnipose also rescales the input for 
@@ -44,35 +45,35 @@ the command line for progress. It is recommended to use a GPU to speed up proces
 
 If drag-and-drop doesn't work because of the shape of your TIF, 
 you need to transpose the TIF and re-save to use the GUI, or 
-use the napari plugin for cellpose, or run CLI/notebook and 
+use the Napari plugin for Cellpose, or run CLI/notebook and 
 specify the ``channel_axis`` and/or ``z_axis``
 parameters:
 
     ``channel_axis`` and ``z_axis`` can be used to specify the axis (0-based) 
     of the image which corresponds to the image channels and to the z axis. 
-    For example. a 105-plane z-stack image with 2 channels of shape (1024,1024,2,105,1) can be 
-    specified with ``channel_axis=2`` and ``z_axis=3``. If ``channel_axis=None``, 
+    For example. a 105-plane z-stack image with 2 channels of shape :py:`(1024,1024,2,105,1)` can be 
+    specified with :py:`channel_axis=2` and :py:`z_axis=3`. If :py:`channel_axis=None`, 
     cellpose will try to automatically determine the channel axis by choosing 
-    the dimension with the minimal size after squeezing. If ``z_axis=None`` 
+    the dimension with the minimal size after squeezing. If :py:`z_axis=None` 
     cellpose will automatically select the first non-channel axis of the image 
     to be the Z axis (ZYX ordering). These parameters can be specified using the command line 
-    with ``--channel_axis`` or ``--z_axis`` or as inputs to ``model.eval`` for 
+    with :bash:`--channel_axis` or :bash:`--z_axis` or as inputs to ``model.eval`` for 
     the ``Cellpose`` or ``CellposeModel`` model.
 
 There are two distinct modes of 3D image processing. The first is Cellpose3D, which uses a 2D model on
 orthogonal slices of the volume to estimate 3D predicitons from 2D network output. To use this in a notebook, 
-set ``do_3D=True``. You can give a list of 3D inputs, or a single 3D/4D stack.
-When running on the command line, add the flag ``--do_3D`` (it will run all TIFs 
+set :bash:`do_3D=True`. You can give a list of 3D inputs, or a single 3D/4D stack.
+When running on the command line, add the flag :bash:`--do_3D` (it will run all TIFs 
 in the folder as 3D TIFs if possible). 
 
 If Cellpose3D segmentation is not working well and there is inhomogeneity in Z, try stitching 
-masks in Z instead of running ``do_3D=True``. See details for this option here: 
+masks in Z instead of running :py:`do_3D=True`. See details for this option here: 
 `stitch_threshold <settings.html#d-settings>`__.
 
 The second approach, implemented in Omnipose, is to directly predict 3D flows etc. by training 
-models on 3D datasets. We offer one pretrained model: ``plant_omni``. The ``--dim`` argument allows users to
-specify the dimensionality of their data/model for training and evaluation, so ``dim=2`` 
-corresponds to 2D processing (even in Cellpose3D) and ``dim=3`` corresponds to 3D processing. 
+models on 3D datasets. We offer one pretrained model: ``plant_omni``. The :bash:`--dim` argument allows users to
+specify the dimensionality of their data/model for training and evaluation, so :py:`dim=2` corresponds to 2D 
+processing (even in Cellpose3D) and :py:`dim=3` corresponds to 3D processing. 
 More work is needed to validate functionality of true 3D segmentation in the GUI. 
 
 

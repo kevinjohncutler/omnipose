@@ -13,7 +13,11 @@ Cellpose users need only select an Omnipose model and use ``omni=True`` to updat
 
     from cellpose_omni import models
     import skimage.io
-    model = models.Cellpose(gpu=False, model_type='bact_phase_omni')
+    model = models.Cellpose(gpu=False, 
+                            model_type='bact_phase_omni', 
+                            nclasses=4, 
+                            nchan=2, 
+                            dim=2)
 
     files = ['img0.tif', 'img1.tif']
     imgs = [skimage.io.imread(f) for f in files]
@@ -27,7 +31,8 @@ This example shows the same settings used for each image, but you can also pass 
 for a solid introduction and figure notebooks for more advanced examples. 
 
 .. tip::
-    Use ``pretrained_model=<path to model>`` in place of ``model_type=<model name>`` when you want to use a model that is not bulit-in. 
+    Use :py:`pretrained_model=<path to model>` in place of :py:`model_type=<model name>` when you want to use a model that is not built-in. 
+    Specify :py:`nclasses` and :py:`nchan` if you encounter any issues in the model initialization (see :ref:`pretrained-models`). 
 
 
 :header-2:`Channels`
@@ -38,8 +43,8 @@ Use ``channels = [0,0]`` for mono-channel images or multi-channel images that yo
 If you do want to run segmentation on a specific channel of multi-channel images, use `1-based-indexing` ``[i,0]`` with ``i = 1,2,3,...`` for red, green, blue, ..., respectively. 
 For example, you might have blue nuclei that look a lot like fluorescent bacteria, so could use the ``bact_fluor_omni`` model with ``channels = [2,0]``. 
 
-You can also use two channels for segmentation: a cystoplasm channel and a nuclear channel. 
-The ``cyto2_omni`` model was trained with image channels re-ordered to have red cystoplasm and green nucleus 
+You can also use two channels for segmentation: a cytoplasm channel and a nuclear channel. 
+The ``cyto2_omni`` model was trained with image channels re-ordered to have red cytoplasm and green nucleus 
 (where applicable in the dataset) using ``--chan 1 --chan2 2`` and therefore was evaluated using ``channels = [1,2]``.
 
 See :doc:`mono_channel_bact.ipynb <../examples/mono_channel_bact>` for a monochannel segmentation on bacterial phase contrast images 

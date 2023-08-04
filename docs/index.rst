@@ -65,9 +65,10 @@ For support, submit an `issue`_ on the Omnipose repo. For more on the workings o
             .. grid-item-card::
 
                 .. toctree::
-                    :caption: nerd out
+                    :caption: More
                     :maxdepth: 2
 
+                    affinity
                     ncolor
                     diameter
                     gamma

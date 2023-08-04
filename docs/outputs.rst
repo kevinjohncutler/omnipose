@@ -69,7 +69,7 @@ You can save masks to PNG in the GUI. Be aware that the GUI will save the masks 
 which defaults to the N-color representation for easier visualization and editing (4 or 5 repeating colors). Toggle off ``ncolor`` before 
 saving masks to put them in standard 1,...,N format. 
 
-To save masks (and other plots in PNG) using the command line, add the flag ``--save_png``. If you want the N-color versions saved, use ``--save_ncolor``. 
+To save masks (and other plots in PNG) using the command line, add the flag :bash:`--save_png`. If you want the N-color versions saved, use :bash:`--save_ncolor`. 
 
 In a notebook, use:
 
@@ -84,7 +84,7 @@ In a notebook, use:
 You can save the outlines of masks in a text file that is compatible with ImageJ 
 ROI Manager from the GUI File menu.
 
-To save using the command line, add the flag ``--save_txt``.
+To save using the command line, add the flag :bash:`--save_txt`.
 
 Use the function below if running in a notebook:
 

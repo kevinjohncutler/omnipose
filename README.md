@@ -36,7 +36,9 @@ Standalone versions of this GUI for Windows, macOS, and Linux are available on t
 3. To create a new environment, run
     ```
     conda create --name omnipose 'python>=3.8.5' pytorch
+    
     ```
+    It is good practice to choose a version of python different from your base python. That way, there is no crosstalk between pip-installed packages inside and outside your environment. So if you have 3.x.y installed via pyenv etc., install your environment with 3.x.z instead. 
 4. To activate this new environment, run 
     ```
     conda activate omnipose
@@ -57,7 +59,7 @@ We have tested Omnipose extensively on Python version 3.8.5 and have encountered
 
 Omnipose runs on CPU on macOS, Windows, and Linux. PyTorch only supports NVIDIA GPUs and, more recently, Apple Silicon GPUs. Windows and Linux installs are straightforward:
 
-Your PyTorch version (>=1.6) needs to be compatible with your CUDA toolkit version and your NVIDIA driver. See [here](https://docs.nvidia.com/cuda/cuda-toolkit-release-notes/index.html) for compatibility chart of CUDA and diver versions. Also see the official documentation on installing both the [most recent](https://pytorch.org/get-started/locally/) and [previous](https://pytorch.org/get-started/previous-versions/) combinations of CUDA and PyTorch to suit your needs. Accordingly, you can get started with CUDA 11.3 by making the following environment:
+Your PyTorch version (>=1.6) needs to be compatible with your NVIDIA driver. Older cards may not be supported by the latest drivers and thus not supported by the latest PyTorch version. See the official documentation on installing both the [most recent](https://pytorch.org/get-started/locally/) and [previous](https://pytorch.org/get-started/previous-versions/) combinations of CUDA and PyTorch to suit your needs. Accordingly, you can get started with CUDA 11.3 by making the following environment:
 ```
 conda create -n omnipose pytorch cudatoolkit=11.3 -c pytorch 
 ```
@@ -66,8 +68,14 @@ To get started with CUDA 10.2, instead run:
 conda create -n omnipose pytorch=1.8.2 cudatoolkit=10.2 -c pytorch-lts
 ```
 
-Apple Silicon installs are possible with PyTorch>=13.0 (and work really well), but I will need to make a environment file to make the dependency installations reasonable. 
+For Apple Silicon, download [omnipose_mac_environment.yml](omnipose_mac_environment.yml) and install the environment:
 
+```
+conda env create -f <path_to_environment_file>
+conda activate omnipose
+```
+
+You may edit this yml to change the name or python version etc. For more notes on Apple Silicon development, see [this thread](https://github.com/kevinjohncutler/omnipose/issues/14). On all systems, remember that you may need to use ipykernel to use the omnipose environment in a notebook. 
 
 ## How to use Omnipose
 I have a couple Jupyter notebooks in the [docs/examples](docs/examples/) directory that demonstrate how to use built-in models. You can also find all the scripts I used for generating our figures in the [scripts](scripts/) directory. These cover specific settings for all of the images found in our paper. 
@@ -87,7 +95,7 @@ On bacterial phase contrast data, I found that Cellpose does not benefit much fr
 
 ## 3D Omnipose
 
-To train a 3D model on image volumes, specify the dimension argument: `--dim 3`. You may have run out of VRAM on your GPU. In that case, you can specify a smaller crop size, *e.g.*, `--tyx 50,50,50`. The command I used in the paper on the *Arabidopsis thaliana* lateral root primordia dataset was:
+To train a 3D model on image volumes, specify the dimension argument: `--dim 3`. You may run out of VRAM on your GPU. In that case, you can specify a smaller crop size, *e.g.*, `--tyx 50,50,50`. The command I used in the paper on the *Arabidopsis thaliana* lateral root primordia dataset was:
 ```
 python -m omnipose --train --use_gpu --dir ./plantseg/traintest/LateralRootPrimordia/export_small/train --mask_filter _masks --n_epochs 4000 --pretrained_model None  --learning_rate 0.1 --save_every 50 --save_each  --verbose --look_one_level_down --all_channels --dim 3 --RAdam --batch_size 4 --diameter 0
 ```

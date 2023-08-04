@@ -1,4 +1,13 @@
 .. role:: header-2
+.. role:: header-3
+
+.. role:: py(code)
+    :language: python
+    :class: highlight
+
+.. role:: bash(code)
+    :language: python
+    :class: highlight
     
 .. role:: sinebow0
 .. role:: sinebow1

@@ -1455,6 +1455,8 @@ def compute_masks(dP, dist, bd=None, p=None, inds=None, niter=None, rescale=1.0,
 
         # If using default omnipose/cellpose for getting masks, still try to get accurate boundaries 
         if bounds is None:
+            if verbose:
+                print('Default clustering on, finding boundaries via affinity.')
             affinity_graph, neighbors, neigh_inds, bounds = _get_affinity(steps,masks,dP_pad,dt_pad,p,inds)
 
             # boundary finder gets rid of some edge pixels, remove these from the mask 
@@ -1505,7 +1507,11 @@ def compute_masks(dP, dist, bd=None, p=None, inds=None, niter=None, rescale=1.0,
             # thus the augmented affinity graph would be (d+1,3**d,npix)
 
             augmented_affinity = np.vstack((neighbors_unpad,affinity_graph_unpad[np.newaxis]))
-
+            
+            # this also applied to the traced pixels
+            if calc_trace:
+                tr = tr[:,inds_remaining]-pad
+                
         else:
             augmented_affinity = []
         
@@ -1842,11 +1848,12 @@ def steps_interp(p, dP, dist, niter, use_gpu=True, device=None, omni=True, suppr
 
     #here is where the stepping happens 
     for t in range(niter):
-        if calc_trace:
+        if calc_trace and t>0:
             trace = torch.cat((trace,pt))
             # trace[t] = pt.detach()
         # align_corners default is False, just added to suppress warning
-        dPt = torch.nn.functional.grid_sample(flow, pt, mode=mode, align_corners=align_corners)#see how nearest changes things 
+        dPt = torch.nn.functional.grid_sample(flow, pt, mode=mode, 
+                                              align_corners=align_corners)#see how nearest changes things 
 
         if omni and OMNI_INSTALLED and suppress:
                 dPt = (dPt+dPt0) / 2. # average with previous flow 
@@ -1998,8 +2005,12 @@ def follow_flows(dP, dist, inds, niter=None, interp=True, use_gpu=True,
     d = dP.shape[0] # dimension is the number of flow components 
     shape = np.array(dP.shape[1:]).astype(np.int32) # shape of masks is the shape of the component field
     
+    if verbose:
+        omnipose_logger.info('niter is {}'.format(niter))
+    
     if niter is None:
         niter = 200
+    
     niter = np.uint32(niter) 
     
     grid = [np.arange(shape[i]) for i in range(d)]
@@ -2879,7 +2890,7 @@ def parametrize(steps, labs, unique_L, inds, ind_shift, values, step_ok):
     
     return contours  
 
-def get_contour(labels,affinity_graph,cardinal_only=True):
+def get_contour(labels,affinity_graph,coords=None,cardinal_only=True):
     """Sort 2D boundaries into cyclic paths.
 
     Parameters:
@@ -2900,7 +2911,7 @@ def get_contour(labels,affinity_graph,cardinal_only=True):
     else:
         allowed_inds = np.concatenate(inds[1:])
 
-    coords = np.nonzero(labels)
+    coords = np.nonzero(labels) if coords is None else coords
     shape = labels.shape
     indexes, neigh_inds, ind_matrix = get_neigh_inds(coords,shape,steps)
     csum = np.sum(affinity_graph,axis=0)
@@ -3054,7 +3065,6 @@ def _get_affinity(steps, mask_pad, mu_pad, dt_pad, p, p0,
     shape = mask_pad.shape
     neighbors = utils.get_neighbors(coord,steps,d,shape) # shape (d,3**d,npix)   
     indexes, neigh_inds, ind_matrix = utils.get_neigh_inds(tuple(neighbors),coord,shape)
-
     
     mag_S = [np.sqrt(np.sum(s**2,axis=0)) for s in steps]
     S,L = neigh_inds.shape
@@ -3279,7 +3289,7 @@ def _despur(connect, neigh_inds, indexes, steps, non_self,
 
 
 #5x speedup using njit
-@njit()
+# @njit()
 def affinity_to_edges(affinity_graph,neigh_inds,step_inds,px_inds):
     """Convert affinity graph to list of edge tuples for connected components labeling."""
     edge_list = []

@@ -4,6 +4,9 @@ from scipy.ndimage import convolve1d, convolve, affine_transform
 from skimage.morphology import remove_small_holes
 from skimage.registration import phase_cross_correlation
 from scipy.ndimage import shift as im_shift
+from skimage import color
+
+from .plot import sinebow
 
 from skimage import measure 
 import fastremap
@@ -185,7 +188,7 @@ def normalize99(Y,lower=0.01,upper=99.99):
     return np.interp(Y, np.percentile(Y, [lower,upper]), (0, 1)) # much faster to call both at once 
     
 
-def normalize_image(im,mask,bg=0.5,dim=2):
+def normalize_image(im,mask,bg=0.5,dim=2,iterations=1,scale=1):
     """ Normalize image by rescaling from 0 to 1 and then adjusting gamma to bring 
     average background to specified value (0.5 by default).
     
@@ -198,7 +201,7 @@ def normalize_image(im,mask,bg=0.5,dim=2):
         input labels or foreground mask
     
     bg: float
-        background value in the range 0-1
+        target background value in the range 0-1
     
     dim: int
         dimension of image or volume
@@ -209,7 +212,7 @@ def normalize_image(im,mask,bg=0.5,dim=2):
     gamma-normalized array with a minimum of 0 and maximum of 1
     
     """
-    im = rescale(im)
+    im = rescale(im)*scale
     if im.ndim>dim:#assume first axis is channel axis
         im = [chan for chan in im] # break into a list of channels
     else:
@@ -219,12 +222,12 @@ def normalize_image(im,mask,bg=0.5,dim=2):
         mask = [mask]*len(im)
 
     for k in range(len(mask)):
-        im[k] = im[k]**(np.log(bg)/np.log(np.mean(im[k][binary_erosion(mask[k]==0)])))
+        source_bg = np.mean(im[k][binary_erosion(mask[k]==0,iterations=iterations)])
+        im[k] = im[k]**(np.log(bg)/np.log(source_bg))
         
     return np.stack(im,axis=0).squeeze()
 
 
-from skimage import color
 def mask_outline_overlay(img,masks,outlines,mono=None):
     if mono is None:
         m,n = ncolor.label(masks,max_depth=20,return_n=True)
@@ -388,70 +391,7 @@ def crop_bbox(mask, pad=10, iterations=3, im_pad=0, area_cutoff=0, max_dim=np.in
     
     return slices
 
-def sinebow(N,bg_color=[0,0,0,0], offset=0):
-    """ Generate a color dictionary for use in visualizing N-colored labels. Background color 
-    defaults to transparent black. 
-    
-    Parameters
-    ----------
-    N: int
-        number of distinct colors to generate (excluding background)
-        
-    bg_color: ndarray, list, or tuple of length 4
-        RGBA values specifying the background color at the front of the  dictionary.
-    
-    Returns
-    --------------
-    Dictionary with entries {int:RGBA array} to map integer labels to RGBA colors. 
-    
-    """
-    colordict = {0:bg_color}
-    for j in range(N): 
-        k = j+offset
-        angle = k*2*np.pi / (N) 
-        r = ((np.cos(angle)+1)/2)
-        g = ((np.cos(angle+2*np.pi/3)+1)/2)
-        b = ((np.cos(angle+4*np.pi/3)+1)/2)
-        colordict.update({j+1:[r,g,b,1]})
-    return colordict
 
-@njit
-def colorize(im,offset=0):
-    N = len(im)
-    angle = np.arange(0,1,1/N)*2*np.pi+offset
-    angles = np.stack((angle,angle+2*np.pi/3,angle+4*np.pi/3),axis=-1)
-    colors = (np.cos(angles)+1)/2
-    rgb = np.zeros((im.shape[1], im.shape[2], 3))
-    for i in range(N):
-        for j in range(3):
-            rgb[..., j] += im[i] * colors[i, j]
-    rgb /= N
-    return rgb
-
-import matplotlib as mpl
-import ncolor
-def apply_ncolor(masks):
-    m,n = ncolor.label(masks,max_depth=20,return_n=True,conn=2)
-    c = sinebow(n)
-    colors = np.array(list(c.values()))
-    cmap = mpl.colors.ListedColormap(colors)
-    return cmap(m)
-
-import matplotlib.pyplot as plt
-def imshow(img,figsize=2,**kwargs):
-    if type(figsize) is not (list or tuple):
-        figsize = (figsize,figsize)
-    plt.figure(frameon=False,figsize=figsize)
-    plt.imshow(img,**kwargs)
-    plt.axis("off")
-    plt.show()
-
-# def get_cmap(masks):
-#     lut = ncolor.get_lut(masks)
-#     c = sinebow(lut.max())
-#     colors = [c[l] for l in lut]
-#     cmap = mpl.colors.ListedColormap(colors)
-#     return cmap
     
 def get_boundary(mask):
     """ND binary mask boundary using mahotas.
@@ -659,6 +599,9 @@ def get_neigh_inds(neighbors,coords,shape):
     neigh_inds[oob] = indexes[oob[1]] # reflect back to itself 
     ind_matrix[neighbors] = neigh_inds # update ind matrix as well
     
+    # should I also update neighbor coordinate array? No, that's more fixed. 
+    # index points to the correct coordinate. 
+    
     # not sure if -1 is general enough, probbaly should be since other adjacent masks will be unlinked
     # can test it by adding some padding to the concatenation...
     
@@ -684,15 +627,15 @@ def crop_affinity(augmented_affinity,slc):
     inds_crop = np.nonzero(in_bounds)[0]
 
     crop_neighbors = neighbors[:,:,inds_crop]
-    crop_affinity = affinity_graph[:,inds_crop]
+    affinity_crop = affinity_graph[:,inds_crop]
 
     # shift coordinates back acording to the lower bound of the slice 
     for i,s in enumerate(slc):
         crop_neighbors[i] -= s.start
 
-    # print(crop_neighbors.shape,crop_affinity.shape)
+    # print(crop_neighbors.shape,affinity_crop.shape)
     #retur augmented affinity 
-    return np.vstack((crop_neighbors,crop_affinity[np.newaxis]))
+    return np.vstack((crop_neighbors,affinity_crop[np.newaxis]))
 
 
 def get_steps(dim):
@@ -1050,3 +993,15 @@ def thin_skeleton(image):
         image = np.logical_and(image, np.logical_not(marker))
 
     return image
+
+def save_nested_list(file_path, nested_list):
+    """Helper function to save affinity graphs."""
+    np.savez_compressed(file_path, *nested_list)
+
+def load_nested_list(file_path):
+    """Helper function to load affinity graphs."""
+    loaded_data = np.load(file_path,allow_pickle=True)
+    loaded_nested_list = []
+    for key in loaded_data.keys():
+        loaded_nested_list.append(loaded_data[key])
+    return loaded_nested_list

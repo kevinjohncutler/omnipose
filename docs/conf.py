@@ -18,6 +18,39 @@ sys.path.insert(0, os.path.abspath('.'))
 from sphinx_automodapi import automodsumm
 from sphinx_automodapi.utils import find_mod_objs
 
+# from docutils import nodes
+# from docutils.parsers.rst import roles
+# from pygments import highlight
+# from pygments.lexers import get_lexer_by_name
+# from pygments.formatters import HtmlFormatter
+
+# def code_role(language):
+#     def role(name, rawtext, text, lineno, inliner, options={}, content=[]):
+#         lexer = get_lexer_by_name(language)
+#         formatter = HtmlFormatter(nowrap=True)
+#         code = highlight(text, lexer, formatter)
+#         node = nodes.inline(rawtext, '', nodes.raw('', code, format='html'), **options)
+#         return [node], []
+#     return role
+
+# roles.register_local_role('code', code_role('python'))
+# roles.register_local_role('py', code_role('python'))
+# roles.register_local_role('bash', code_role('bash'))
+
+
+# rst_prolog = """
+# .. role:: py(code)
+#     :language: python
+#     :class: highlight
+
+# .. role:: bash(code)
+#     :language: bash
+#     :class: highlight
+# """
+
+
+
+
 def find_mod_objs_patched(*args, **kwargs):
     return find_mod_objs(args[0], onlylocals=True)
 
@@ -26,12 +59,14 @@ def patch_automodapi(app):
     automodsumm.find_mod_objs = find_mod_objs_patched
 
 def setup(app):
+    app.add_css_file("custom.css")
+    # app.add_js_file('custom.js')
+
     app.connect("builder-inited", patch_automodapi)
     # gen_color()
     # app.add_css_file('tablefix.css')
     # app.add_css_file('_static/sinebow.css')
     # app.add_css_file('_static/custom.css')
-    app.add_css_file("custom.css")
 
     
 
@@ -67,6 +102,8 @@ extensions = [
     'myst_nb',
 ]
 
+
+
 autoapi_dirs = ['../omnipose']
 # autosectionlabel_prefix_document = True
 # source_suffix=['.rst','.md']
@@ -76,6 +113,10 @@ autoapi_dirs = ['../omnipose']
 # }
 
 # html_js_files = ["https://cdnjs.cloudflare.com/ajax/libs/require.js/2.3.4/require.min.js"] #plotly
+html_js_files = [
+    'custom.js',
+]
+
 nb_execution_mode = 'off'
 render_figure_options = {'align':'center'}
 nb_render_image_options = {'align':'center'}#,'width':'100%'}
@@ -142,11 +183,13 @@ html_css_files = [
 ]
 
 
+
+
 from omnipose.utils import sinebow
-import colour
+from matplotlib.colors import rgb2hex
 N = 42
 c = sinebow(N)
-colors = [colour.rgb2hex(c[i]) for i in range(1,N+1)]
+colors = [rgb2hex(c[i]) for i in range(1,N+1)]
 colordict = {}
 for i in range(N):
     colordict['sinebow'+'%0d'%i] = colors[i]
@@ -156,13 +199,14 @@ shared = {"color-problematic": "#818181",
           # "color-background-hover":"#8f0ae5",
           "color-api-name": "#f0147a",
           "color-api-pre-name": "#8f0ae5",
+
           # "color-api-paren":"#04a3d8",
           "color-api-keyword": "#04a3d8",
 
           #Highlighted text
-          "color-highlight-on-target": "#1a1a1a", #only to suppress coloring when jumping to new page 
+          "color-highlight-on-target": "#0000", #only to suppress coloring when jumping to new page 
           # "color-link": "#888", # defaults to the brand color, that is fine
-          "color-link--hover": "#f0147a",
+          "color-link--hover": "#f0147acc",
           "color-link-underline": "#0000",
           "color-link-underline--hover": "#0000",        
         }
@@ -184,8 +228,11 @@ dark = {
         "color-foreground-muted": "#818181", # for muted text
         "color-foreground-border": "#666666", # for content borders
 
-        "color-background-primary": "#131313", # for content
-        "color-background-secondary": "#191919", # for navigation + ToC, also the default for code block
+        "color-background-primary": "#121212", # for content
+        # "color-background-secondary": "#191919", # for navigation + ToC, also the default for code block
+        # "color-background-secondary": "#19191940", # for navigation + ToC, also the default for code block
+        "color-background-secondary": "#30303030", # for navigation + ToC, also the default for code block
+
         
         "color-background-hover": "#202020ff", # for navigation-item hover
         "color-background-hover--transparent": "#20202000",
@@ -212,16 +259,15 @@ dark = {
 
         # Cards
         # "color-card-border: var(--color-background-secondary);
-        "color-card-background": "#181818",
+        # "color-card-background": "#181818",
+        "color-card-background": "#30303030",
+
         # "color-card-marginals-background": var(--color-background-hover);
-
-
 
 
         # "color-sidebar-link-text": "#fff", 
         # "color-sidebar-link-text--top-level": "#f0147a", #arrow?  defaults to primary brand 
         
-
         # "color-card-marginals-background": "red",
         # 'color-sidebar-link-text--top-level': '#0000',
         # 'text-color': '#0000',
@@ -247,12 +293,12 @@ light = {
         "color-foreground-muted": "#646464", # for muted text
         "color-foreground-border": "#878787", # for content borders
 
-        "color-background-primary": "white", # for content
-        "color-background-secondary": "#f9f9f9", # for navigation + ToC, also ALMOST default for code block
+        "color-background-primary": "#ffff", # for content
+        "color-background-secondary": "#efefefef", # for navigation + ToC, also ALMOST default for code block
         
-        "color-background-hover": "#efefefff", # for navigation-item hover
+        "color-background-hover": "#efefefef", # for navigation-item hover
         "color-background-hover--transparent": "#efefef00",
-        "color-background-border": "#eee", # for UI borders
+        "color-background-border": "#efefefef", # for UI borders
         "color-background-item": "#ccc", # for "background" items (eg: copybutton)
 
         # Announcements
@@ -281,6 +327,10 @@ html_theme_options = {
             },
         ],
         
+}
+
+js_vars = {
+    "highlight_on_scroll": False,
 }
 
 
@@ -312,8 +362,54 @@ copybutton_prompt_is_regexp = True
 copybutton_only_copy_prompt_lines = True
 copybutton_remove_prompts = True
 
+# import types
+# from pygments.style import Style
+# from pygments.token import Keyword, Name, Comment, String, Error, \
+#      Number, Operator, Generic
+
+# class CustomStyle(Style):
+#     default_style = ""
+#     styles = {
+#         Comment:                'italic #888',
+#         Keyword:                'bold #005',
+#         Name:                   '#f00',
+#         Name.Function:          '#0f0',
+#         Name.Class:             'bold #0f0',
+#         String:                 'bg:#eee #111'
+#     }
+
+# from pygments.styles import get_all_styles, STYLE_MAP
+
+# def register_custom_style(name, style_class):
+#     mod_name = f'pygments.styles.{name}'
+#     STYLE_MAP[name] = f'{mod_name}::{style_class.__name__}'
+#     sys.modules[mod_name] = types.ModuleType(mod_name)
+#     setattr(sys.modules[mod_name], style_class.__name__, style_class)
+
+# register_custom_style('custom', CustomStyle)
+
+# from pygments.style import Style
+# from pygments.token import Keyword, Name, Comment, String, Error, Number, Operator, Generic
+
+# class YourStyle(Style):
+#     default_style = ""
+#     styles = {
+#         Comment:                'italic #888',
+#         Keyword:                'bold #005',
+#         Name:                   '#f00',
+#         Name.Function:          '#0f0',
+#         Name.Class:             'bold #0f0',
+#         String:                 'bg:#eee #111'
+#     }
+
+# pygments_style = YourStyle
+
 # The name of the Pygments (syntax highlighting) style to use.
 pygments_dark_style = "monokai"
+# pygments_style = 'custom'
+
+
+highlight_language = 'python'
 
 # If true, "Created using Sphinx" is shown in the HTML footer. Default is True.
 html_show_sphinx = False
