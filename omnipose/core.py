@@ -22,7 +22,6 @@ from numba.core.errors import NumbaDeprecationWarning, NumbaPendingDeprecationWa
 import warnings
 warnings.simplefilter('ignore', category=NumbaPendingDeprecationWarning)
 
-from torchvf.losses import ivp_loss
 from typing import Any, Dict, List, Set, Tuple, Union, Callable
 
 
