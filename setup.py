@@ -6,7 +6,11 @@ install_deps = ['numpy>=1.22.4', 'scipy', 'numba',
                 'scikit-learn','torch>=1.10',
                 'mahotas>=1.4.13',
                 'mgen','matplotlib',
-                'peakdetect','igraph']
+                'peakdetect','igraph',
+                'torchvf',
+
+                # 'torchvf@git+https://github.com/kevinjohncutler/torchvf.git'
+                ]
 
 doc_deps = ['sphinx-autobuild',
             'sphinx_automodapi',
@@ -19,9 +23,9 @@ import os
 #     extra = 'omni'
 # else:
 #     extra = 'all'
-extra = 'omni'
-cp_ver = '0.9.1'
-cp_deps = ['cellpose-omni[{}]>={}'.format(extra,cp_ver),]
+# extra = 'omni'
+# cp_ver = '0.9.1'
+# cp_deps = ['cellpose-omni[{}]>={}'.format(extra,cp_ver),]
     
 with open("README.md", "r") as fh:
     long_description = fh.read() 
@@ -40,7 +44,9 @@ setup(
     ],
     packages=setuptools.find_packages(exclude=("omnipose.scripts",)),
     use_scm_version=True,
-    install_requires = install_deps+cp_deps,
+    # install_requires = install_deps+cp_deps,
+    install_requires = install_deps,
+
     tests_require=[
       'pytest'
     ],
