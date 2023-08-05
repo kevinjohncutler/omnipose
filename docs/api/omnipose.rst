@@ -15,3 +15,12 @@
 .. automodsumm:: omnipose.utils
     :functions-only:
     :toctree: api
+
+:header-2:`omnipose.plot`
+--------------------------
+.. automodule:: omnipose.plot
+
+.. automodsumm:: omnipose.plot
+    :functions-only:
+    :toctree: api
+

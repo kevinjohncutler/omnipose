@@ -1,14 +1,21 @@
 import setuptools
 from setuptools import setup
 
+
+# Get the absolute path to the directory containing setup.py
+base_dir = os.path.abspath(os.path.dirname(__file__))
+
+# Construct the absolute path to the cellpose-omni subpackage
+cellpose_omni_path = os.path.join(base_dir, 'cellpose-omni')
+
 install_deps = ['numpy>=1.22.4', 'scipy', 'numba', 
                 'edt','scikit-image','ncolor>=1.2.1',
                 'scikit-learn','torch>=1.10',
                 'mahotas>=1.4.13',
                 'mgen','matplotlib',
                 'peakdetect','igraph',
-                'torchvf',
-
+                'torchvf','tqdm',
+                'cellpose-omni @ file://{}'.format(cellpose_omni_path) # local version
                 # 'torchvf@git+https://github.com/kevinjohncutler/torchvf.git'
                 ]
 

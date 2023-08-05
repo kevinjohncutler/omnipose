@@ -66,7 +66,7 @@ setup(
     url="https://github.com/kevinjohncutler/cellpose",
     setup_requires=[
       'pytest-runner',
-      'setuptools_scm',
+      # 'setuptools_scm',
     ],
     packages=setuptools.find_packages(),
     use_scm_version=True,
