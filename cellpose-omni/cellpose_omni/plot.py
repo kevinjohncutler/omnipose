@@ -4,6 +4,8 @@ import cv2
 from scipy.ndimage import gaussian_filter
 from . import utils, io, transforms
 from omnipose.utils import rescale
+from omnipose.plot import colorize
+
 try:
     import matplotlib
     MATPLOTLIB_ENABLED = True 
@@ -69,7 +71,8 @@ def dx_to_circ(dP,transparency=False,mask=None,sinebow=True,norm=True):
     return im
 
 def show_segmentation(fig, img, maski, flowi, bdi=None, channels=None, file_name=None, omni=False, 
-                      seg_norm=False, bg_color=None, outline_color=[1,0,0], channel_axis=-1, 
+                      seg_norm=False, bg_color=None, outline_color=[1,0,0], img_colors=None,
+                      channel_axis=-1, 
                       display=True, interpolation='bilinear'):
     """ plot segmentation results (like on website)
     
@@ -106,6 +109,9 @@ def show_segmentation(fig, img, maski, flowi, bdi=None, channels=None, file_name
     bg_color: float (Optional, default none)
         background color to draw behind flow (visible if flow transparency is on)
         
+    img_colors: NDarray, float (Optional, default none)
+        colors to which each image channel will be mapped (multichannel defaults to sinebow)
+        
 
     """
     if channels is None:
@@ -115,11 +121,17 @@ def show_segmentation(fig, img, maski, flowi, bdi=None, channels=None, file_name
     # this line really screws with the colors
     # img0 = transforms.reshape(img0,channels=channels) # this makes sure channel axis is last 
     
-    if img0.shape[0] ==3 and channel_axis!=-1:
+    if img0.shape[0]==3 and channel_axis!=-1:
+        # this branch catches cases where RGB image is CYX, converts to YXC
         img0 = np.transpose(img0, (1,2,0))
         
-    if img0.shape[-1] < 3 or img0.ndim < 3:
+    if img0.ndim == 2:
+        # this catches grayscale, converts to standard RGB YXC format 
         img0 = image_to_rgb(img0, channels=channels, omni=omni)
+        
+    if img0.shape[channel_axis]!=3:
+        # for anything else
+        img0 = colorize(img0,colors=img_colors)
 
     img0 = (transforms.normalize99(img0,omni=omni)*(2**8-1)).astype(np.uint8)
     
@@ -138,13 +150,12 @@ def show_segmentation(fig, img, maski, flowi, bdi=None, channels=None, file_name
     
     # the mask_overlay function changes colors (preserves only hue I think). The label2rgb function from
     # skimage.color works really well. 
-    
     if omni and SKIMAGE_ENABLED and OMNI_INSTALLED:
         m,n = ncolor.label(maski,max_depth=20,return_n=True)
         c = sinebow(n)
-        colors = np.array(list(c.values()))[1:]
+        clrs = np.array(list(c.values()))[1:]
         img1 = rescale(color.rgb2gray(img1))
-        overlay = color.label2rgb(m,img1,colors,
+        overlay = color.label2rgb(m,img1,clrs,
                                   bg_label=0,
                                   alpha=np.stack([((m>0)*1.+outlines*0.75)/3]*3,axis=-1))
     

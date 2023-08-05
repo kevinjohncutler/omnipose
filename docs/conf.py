@@ -49,8 +49,6 @@ from sphinx_automodapi.utils import find_mod_objs
 # """
 
 
-
-
 def find_mod_objs_patched(*args, **kwargs):
     return find_mod_objs(args[0], onlylocals=True)
 
@@ -60,7 +58,7 @@ def patch_automodapi(app):
 
 def setup(app):
     app.add_css_file("custom.css")
-    # app.add_js_file('custom.js')
+    app.add_js_file('custom.js')
 
     app.connect("builder-inited", patch_automodapi)
     # gen_color()
@@ -200,6 +198,18 @@ shared = {"color-problematic": "#818181",
           "color-api-name": "#f0147a",
           "color-api-pre-name": "#8f0ae5",
 
+#             // API documentation
+#   --color-api-background: var(--color-background-secondary);
+#   --color-api-background-hover: var(--color-background-hover);
+#   --color-api-overall: var(--color-foreground-secondary);
+#   --color-api-name: var(--color-problematic);
+#   --color-api-pre-name: var(--color-problematic);
+#   --color-api-paren: var(--color-foreground-secondary);
+#   --color-api-keyword: var(--color-foreground-primary);
+#   --color-highlight-on-target: #ffffcc;
+
+
+
           # "color-api-paren":"#04a3d8",
           "color-api-keyword": "#04a3d8",
 
@@ -209,6 +219,9 @@ shared = {"color-problematic": "#818181",
           "color-link--hover": "#f0147acc",
           "color-link-underline": "#0000",
           "color-link-underline--hover": "#0000",        
+          # discovering a lot more by inspecting the css 
+        #   "color-code-background": "#ff0000",      # not sure what this does 
+        #   "color-code-foreground":"#0000ff", # text color saying "copied!"
         }
 
 dark = {
@@ -237,7 +250,7 @@ dark = {
         "color-background-hover": "#202020ff", # for navigation-item hover
         "color-background-hover--transparent": "#20202000",
         "color-background-border": "#333", # for UI borders
-        "color-background-item": "#444", # for "background" items (eg: copybutton)
+        "color-background-item": "#444", # foreground for "background" items (eg: copybutton)
 
         # Announcements
         "color-announcement-background": "#000000dd",
@@ -271,6 +284,7 @@ dark = {
         # "color-card-marginals-background": "red",
         # 'color-sidebar-link-text--top-level': '#0000',
         # 'text-color': '#0000',
+        "mystnb-source-bg-color":"#ff0000",
     }
 
 light = {
@@ -299,7 +313,7 @@ light = {
         "color-background-hover": "#efefefef", # for navigation-item hover
         "color-background-hover--transparent": "#efefef00",
         "color-background-border": "#efefefef", # for UI borders
-        "color-background-item": "#ccc", # for "background" items (eg: copybutton)
+        "color-background-item": "#ccc", # foreground for "background" items (eg: copybutton)
 
         # Announcements
         "color-announcement-background": "#000000dd",

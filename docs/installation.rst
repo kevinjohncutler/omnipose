@@ -89,39 +89,34 @@ Ubuntu 18.04, and less well tested on macOS. Please post an issue if
 you have installation problems.
 
 
-:header-2:`Dependencies`
-------------------------
+.. :header-2:`Dependencies`
+.. ------------------------
 
-Omnipose relies on the following packages (which are
-automatically installed with conda/pip if missing):
+.. Omnipose relies on the following packages (which are
+.. automatically installed with conda/pip if missing):
 
--  `mxnet_mkl`_
--  `pyqtgraph`_
--  `PyQt5`_
--  `numpy`_ (>=1.22.4)
--  `numba`_
--  `scipy`_
--  `scikit-image`_
--  `natsort`_
--  `matplotlib`_
--  sklearn_
+.. -  `pytorch`_
+.. -  `pyqtgraph`_
+.. -  `PyQt6`_
+.. -  `numpy`_ (>=1.22.4)
+.. -  `numba`_
+.. -  `scipy`_
+.. -  `scikit-image`_
+.. -  `natsort`_
+.. -  `matplotlib`_
+.. -  sklearn_
 
 
 
-.. _Anaconda: https://www.anaconda.com/download/
-.. _environment.yml: https://github.com/MouseLand/cellpose/blob/master/environment.yml?raw=true
-.. _here: https://pypi.org/project/cellpose/
-
-.. _mxnet_mkl: https://mxnet.apache.org/
-.. _pyqtgraph: http://pyqtgraph.org/
-.. _PyQt5: http://pyqt.sourceforge.net/Docs/PyQt5/
-.. _numpy: http://www.numpy.org/
-.. _numba: http://numba.pydata.org/numba-doc/latest/user/5minguide.html
-.. _scipy: https://www.scipy.org/
-.. _scikit-image: https://scikit-image.org/
-.. _natsort: https://natsort.readthedocs.io/en/master/
-.. _matplotlib: https://matplotlib.org/
-.. _sklearn: https://scikit-learn.org/stable/
+.. .. _pyqtgraph: http://pyqtgraph.org/
+.. .. _PyQt6: http://pyqt.sourceforge.net/Docs/PyQt6/
+.. .. _numpy: http://www.numpy.org/
+.. .. _numba: http://numba.pydata.org/numba-doc/latest/user/5minguide.html
+.. .. _scipy: https://www.scipy.org/
+.. .. _scikit-image: https://scikit-image.org/
+.. .. _natsort: https://natsort.readthedocs.io/en/master/
+.. .. _matplotlib: https://matplotlib.org/
+.. .. _sklearn: https://scikit-learn.org/stable/
 
 
 

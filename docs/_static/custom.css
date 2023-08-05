@@ -23,6 +23,24 @@ body {
   background-color: var(--color-background-primary);
 }
 
+/* clear formatting so the rest will apply for code blocks  */
+body .highlight {
+  background: transparent  !important;
+  margin: 0em !important;
+  border: none !important;
+  border-radius: 3px;
+  box-shadow: none !important;
+}
+
+pre,
+code {
+    /* background: transparent !important; */
+    background-color: var(--color-background-secondary) !important;
+
+    border: none;
+    padding: 0;
+}
+
 
 /* text-color */
 
@@ -74,26 +92,39 @@ table.docutils caption {
   /* background-color: var(--color-background-secondary); */
   /* background-color: red; */
 
-  border-radius: 3px;
+  border-radius: 0px;
   white-space: nowrap;
+  /* background-color: none !important; */
+  /* background: none !important; */
+  background-color: var(--color-background-secondary);
+
+  border: none;
+  padding: 0;
+  color:none !important;
 }
 
 
 .highlight,
-.highlight *,
-.code.highlight.python,
-div.highlight,
-div.highlight pre {
+.highlight *
+/* .code.highlight.python, */
+/* div.highlight, */
+/* div.highlight pre  */
+{
   /* background-color: var(--color-background-secondary); */
-  /* background-color: red; works */
-  color: none !important;
-  background: none !important;
-  background-color: var(--color-background-secondary) !important; 
+  /* background-color works to color the entire code block*/
+  /* background-color: #5555; */
+  /* background: transparent !important; */
+  /* background-color: var(--color-background-secondary) !important; */
+  /* color: transparent !important; */
+  /* background: none !important; */
+
+  /* background-color: var(--color-background-secondary) !important;  */
   /* background-color: #0000 !important; */
-  margin: 0em !important;
+  /* margin: 0em !important; */
+  
   border: none !important;
   border-radius: 3px;
-
+  box-shadow: none !important;
 }
 
 
@@ -109,12 +140,15 @@ div.cell div.cell_input {
   margin: 0em !important;
   border: none !important;
   border-radius: 3px;
+  box-shadow: none !important;
 
   /* background: rgba(var(--color-background-secondary),0.5); */
   /* background-color: rgba(var(--color-background-secondary),0.5); */
   /* background-color: green; does not work */
-  background: none !important;
-  background-color: transparent !important;
+  /* background-color: transparent !important; */
+  /* background: transparent !important; */
+  /* background-color: var(--color-background-secondary); */
+  color: none !important;
 
   /* background: green !important; does not work to color code cells */
 
@@ -122,11 +156,19 @@ div.cell div.cell_input {
   /* border-left-width: medium; */
 }
 
-div.cell_input > div, div.cell_output div.output > div.highlight {
+div.cell_input > div, 
+div.cell_output > div, 
+div.cell_input div.input > div.highlight,
+div.cell_output div.output > div.highlight {
   margin: 0em !important;
   border: none !important;
-  /* background-color: var(--color-background-secondary); */
-  /* background: none !important; */
+  box-shadow: none !important;
+  color: none !important;
+  /* background-color: none !important; */
+
+  background-color: var(--color-background-secondary);
+  border-radius: 3px;
+  /* background: transparent !important; */
   /* background-color: red; does not work */
 
 }
@@ -139,14 +181,35 @@ div.cell div.cell_input, div.cell details.above-input>summary {
   border-left-width: 0; */
   margin: 0em !important;
   border: none !important;
+  /* background: none !important; */
+  box-shadow: none;
+  /* background-color: transparent !important; */
+  background-color: var(--color-background-secondary);
+
+  color: none !important;
+} 
+
+
+/* line numbers */
+.highlight span.linenos {
+  box-shadow: none;
+  display: inline-block;
+  background-color: none !important;
   background: none !important;
-}
+  border: none;
+  padding: 0;
+  color: none !important;
+  /* margin-right: .875rem; */
+  /* padding-left: 0;
+  padding-right: .875rem; */
+  }
 
 
 
 /* All cell outputs */
 .cell_output {
   /* background: var(--color-background-secondary); */
+  background-color: var(--color-background-secondary);
   /* background-color: var(--color-background-secondary); this works */
   background: none !important;
   padding-left: 0em;
@@ -159,10 +222,10 @@ div.cell div.cell_input, div.cell details.above-input>summary {
 .cell_output .output.traceback,
 .cell_output .output.stream,
 .cell_output .output.stderr {
-  /* background: var(--color-background-secondary); */
-  /* background: red; */
+  background-color: var(--color-background-secondary);
+    /* background: red; */
 
-  background: transparent !important;
+  /* background: transparent !important; */
   /* border: 1px var(--color-foreground-border); */
   border: none;
   margin-top: 1em;
@@ -290,4 +353,21 @@ table.docutils td:not(:first-child) {
   animation: fadeout 3s forwards;
 }
 
+@keyframes fadeout {
+  from { background-color: var(--color-link--hover); }
+  to { background-color: transparent; }
+}
 
+/* get rid of copy button backgrounds */
+button.copybtn,
+button.copybtn svg {
+  background: none !important;
+  border: none;
+  padding: 0;
+  color: none !important;
+}
+
+/* hide output for these */
+div.nboutput .copybtn {
+  display: none;
+}
