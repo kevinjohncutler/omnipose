@@ -11,9 +11,14 @@
 # add these directories to sys.path here. If the directory is relative to the
 # documentation root, use os.path.abspath to make it absolute, like shown here.
 #
-import os
-import sys
+import sys, os
 sys.path.insert(0, os.path.abspath('.'))
+
+# pygments
+sys.path.append(os.path.abspath("./_pygments"))
+pygments_style = 'style.CustomStyle'
+pygments_dark_style = 'style.CustomStyle'
+
 
 from sphinx_automodapi import automodsumm
 from sphinx_automodapi.utils import find_mod_objs
@@ -57,8 +62,8 @@ def patch_automodapi(app):
     automodsumm.find_mod_objs = find_mod_objs_patched
 
 def setup(app):
-    app.add_css_file("custom.css")
-    app.add_js_file('custom.js')
+    # app.add_css_file("custom.css") loaded above
+    # app.add_js_file('custom.js') loaded above 
 
     app.connect("builder-inited", patch_automodapi)
     # gen_color()
@@ -98,6 +103,7 @@ extensions = [
     'sphinx_automodapi.automodapi',
     'sphinx_design',
     'myst_nb',
+    # 'sphinxcontrib.fulltoc'
 ]
 
 
@@ -147,7 +153,7 @@ with open('links.rst') as f:
 # html_logo = '_static/favicon.ico'
 # html_favicon = '_static/favicon.ico'
 # html_logo = '_static/logo3.png'
-html_logo = '_static/logo.png'
+html_logo = '_static/logo.png' 
 html_favicon = '_static/icon.ico'
 
 
@@ -170,7 +176,7 @@ html_static_path = ['_static']
 # furo
 html_css_files = [
 #     '/_static/sinebow.css',
-#     '/_static/custom.css',
+    '/_static/custom.css',
     
     "https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/fontawesome.min.css",
     "https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/solid.min.css",
@@ -179,8 +185,6 @@ html_css_files = [
 
 
 ]
-
-
 
 
 from omnipose.utils import sinebow
@@ -222,6 +226,11 @@ shared = {"color-problematic": "#818181",
           # discovering a lot more by inspecting the css 
         #   "color-code-background": "#ff0000",      # not sure what this does 
         #   "color-code-foreground":"#0000ff", # text color saying "copied!"
+
+            "color-toc-background": "#0000",
+            # --color-toc-item-text--active, --color-toc-item-text
+
+            
         }
 
 dark = {
@@ -239,7 +248,7 @@ dark = {
         "color-foreground-primary": "#ffffffcc", # for main text and headings
         "color-foreground-secondary": "#a0a0a0", # for secondary text
         "color-foreground-muted": "#818181", # for muted text
-        "color-foreground-border": "#666666", # for content borders
+        "color-foreground-border": "#333", # for content borders
 
         "color-background-primary": "#121212", # for content
         # "color-background-secondary": "#191919", # for navigation + ToC, also the default for code block
@@ -284,7 +293,7 @@ dark = {
         # "color-card-marginals-background": "red",
         # 'color-sidebar-link-text--top-level': '#0000',
         # 'text-color': '#0000',
-        "mystnb-source-bg-color":"#ff0000",
+        "mystnb-source-bg-color":"#30303030", # works when iv.cell div.cell_input, div.cell details.above-input>summary { has background-color none
     }
 
 light = {
@@ -354,7 +363,7 @@ add_function_parentheses = True
 
 # Generate stub pages whenever ::autosummary directive encountered
 # This way don't have to call sphinx-autogen manually
-# autosummary_generate = True
+autosummary_generate = True
 
 # Use automodapi tool, created by astropy people. See:
 # https://sphinx-automodapi.readthedocs.io/en/latest/automodapi.html#overview
@@ -376,50 +385,12 @@ copybutton_prompt_is_regexp = True
 copybutton_only_copy_prompt_lines = True
 copybutton_remove_prompts = True
 
-# import types
-# from pygments.style import Style
-# from pygments.token import Keyword, Name, Comment, String, Error, \
-#      Number, Operator, Generic
 
-# class CustomStyle(Style):
-#     default_style = ""
-#     styles = {
-#         Comment:                'italic #888',
-#         Keyword:                'bold #005',
-#         Name:                   '#f00',
-#         Name.Function:          '#0f0',
-#         Name.Class:             'bold #0f0',
-#         String:                 'bg:#eee #111'
-#     }
-
-# from pygments.styles import get_all_styles, STYLE_MAP
-
-# def register_custom_style(name, style_class):
-#     mod_name = f'pygments.styles.{name}'
-#     STYLE_MAP[name] = f'{mod_name}::{style_class.__name__}'
-#     sys.modules[mod_name] = types.ModuleType(mod_name)
-#     setattr(sys.modules[mod_name], style_class.__name__, style_class)
-
-# register_custom_style('custom', CustomStyle)
-
-# from pygments.style import Style
-# from pygments.token import Keyword, Name, Comment, String, Error, Number, Operator, Generic
-
-# class YourStyle(Style):
-#     default_style = ""
-#     styles = {
-#         Comment:                'italic #888',
-#         Keyword:                'bold #005',
-#         Name:                   '#f00',
-#         Name.Function:          '#0f0',
-#         Name.Class:             'bold #0f0',
-#         String:                 'bg:#eee #111'
-#     }
-
-# pygments_style = YourStyle
 
 # The name of the Pygments (syntax highlighting) style to use.
-pygments_dark_style = "monokai"
+# pygments_dark_style = "monokai"
+# pygments_dark_style = "friendly_grayscale"
+
 # pygments_style = 'custom'
 
 

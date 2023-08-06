@@ -22,6 +22,7 @@ from numba.core.errors import NumbaDeprecationWarning, NumbaPendingDeprecationWa
 import warnings
 warnings.simplefilter('ignore', category=NumbaPendingDeprecationWarning)
 
+from torchvf.losses import ivp_loss
 from typing import Any, Dict, List, Set, Tuple, Union, Callable
 
 
@@ -3288,7 +3289,7 @@ def _despur(connect, neigh_inds, indexes, steps, non_self,
 
 
 #5x speedup using njit
-# @njit()
+@njit()
 def affinity_to_edges(affinity_graph,neigh_inds,step_inds,px_inds):
     """Convert affinity graph to list of edge tuples for connected components labeling."""
     edge_list = []

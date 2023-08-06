@@ -3,6 +3,7 @@
 |
 
 .. image:: ../logo3.png
+    :class: no-lightbox
     :align: right
     :height: 300
 

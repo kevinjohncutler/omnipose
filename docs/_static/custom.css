@@ -21,24 +21,27 @@ span.caption-text {
 
 body {
   background-color: var(--color-background-primary);
+  border-radius: 3px !important;
+
 }
 
 /* clear formatting so the rest will apply for code blocks  */
 body .highlight {
-  background: transparent  !important;
+  background: transparent !important;
   margin: 0em !important;
   border: none !important;
-  border-radius: 3px;
+  border-radius: 3px !important;
   box-shadow: none !important;
 }
 
 pre,
 code {
     /* background: transparent !important; */
-    background-color: var(--color-background-secondary) !important;
+    /* background-color: var(--color-background-secondary) !important; */
+  border: none;
+  border-radius: 3px !important;
 
-    border: none;
-    padding: 0;
+    /* padding: 0; */
 }
 
 
@@ -99,7 +102,8 @@ table.docutils caption {
   background-color: var(--color-background-secondary);
 
   border: none;
-  padding: 0;
+  border-radius: 3px !important;
+  /* padding: 0; */
   color:none !important;
 }
 
@@ -123,15 +127,9 @@ table.docutils caption {
   /* margin: 0em !important; */
   
   border: none !important;
-  border-radius: 3px;
+  border-radius: 3px !important;
   box-shadow: none !important;
 }
-
-
-/* finally a way to define the background color of the pygments theme 
-though unfortunately this only 'covers up' the default
-*/
-
 
 /* Input cells */
 div.cell div.cell_input {
@@ -139,7 +137,7 @@ div.cell div.cell_input {
   padding-right: 0em; */
   margin: 0em !important;
   border: none !important;
-  border-radius: 3px;
+  border-radius: 3px !important;
   box-shadow: none !important;
 
   /* background: rgba(var(--color-background-secondary),0.5); */
@@ -164,11 +162,11 @@ div.cell_output div.output > div.highlight {
   border: none !important;
   box-shadow: none !important;
   color: none !important;
-  /* background-color: none !important; */
+  background-color: transparent !important;
 
   background-color: var(--color-background-secondary);
   border-radius: 3px;
-  /* background: transparent !important; */
+  background: transparent !important;
   /* background-color: red; does not work */
 
 }
@@ -181,13 +179,24 @@ div.cell div.cell_input, div.cell details.above-input>summary {
   border-left-width: 0; */
   margin: 0em !important;
   border: none !important;
+  border-radius: 3px;
   /* background: none !important; */
   box-shadow: none;
   /* background-color: transparent !important; */
-  background-color: var(--color-background-secondary);
+  /* background-color: var(--color-background-secondary); */
+  background-color: none;
 
   color: none !important;
 } 
+
+/* only indent the hide source  */
+div.cell details.above-input>summary,
+div.cell details.below-input>summary {
+  /* padding-left: 10px; */
+  background-color: transparent;
+  border: none;
+
+}
 
 
 /* line numbers */
@@ -197,11 +206,12 @@ div.cell div.cell_input, div.cell details.above-input>summary {
   background-color: none !important;
   background: none !important;
   border: none;
-  padding: 0;
+  /* padding: 0; */
   color: none !important;
   /* margin-right: .875rem; */
   /* padding-left: 0;
   padding-right: .875rem; */
+  padding-left: -1em;
   }
 
 
@@ -209,9 +219,9 @@ div.cell div.cell_input, div.cell details.above-input>summary {
 /* All cell outputs */
 .cell_output {
   /* background: var(--color-background-secondary); */
-  background-color: var(--color-background-secondary);
+  /* background-color: var(--color-background-secondary); works but oclors image backgrounds too */
   /* background-color: var(--color-background-secondary); this works */
-  background: none !important;
+  /* background: none !important; */
   padding-left: 0em;
   padding-right: 0em;
   margin-top: 1em;
@@ -222,7 +232,8 @@ div.cell div.cell_input, div.cell details.above-input>summary {
 .cell_output .output.traceback,
 .cell_output .output.stream,
 .cell_output .output.stderr {
-  background-color: var(--color-background-secondary);
+  /* background: var(--color-background-secondary);
+  background-color: var(--color-background-secondary); these do not apply */
     /* background: red; */
 
   /* background: transparent !important; */
@@ -234,8 +245,60 @@ div.cell div.cell_input, div.cell details.above-input>summary {
 }
 
 .sidebar-tree .reference {color: none  !important}
-.sidebar-tree .toctree-l1 > .reference {color: None !important}
-.sidebar-tree .toctree-l1 > label .icon {color: var(--color-foreground-muted)}
+.sidebar-tree .toctree-l1 > .reference,
+.sidebar-tree .toctree-l2 > .reference,
+.sidebar-tree .toctree-l3 > .reference {
+  color: none !important; 
+  background: transparent !important;
+} 
+.sidebar-tree .toctree-l1 > label .icon {
+  color: var(--color-foreground-muted);
+  background: transparent !important;
+}
+
+/* Add underline to active TOC element */
+/* .sidebar-tree .toctree-l1.current > .reference,
+.sidebar-tree .toctree-l2.current > .reference {
+    text-decoration: underline;
+    border-bottom-color: red;
+}
+
+.current-page > .reference {
+  text-decoration: underline;
+  border-bottom-color: green;
+
+}
+
+.toctree-l1.current > a {
+  text-decoration: underline;
+  border-bottom-color: blue;
+
+} */
+
+.toc-tree li.scroll-current > .reference {
+  /* color: var(--color-toc-item-text--active); */
+  font-weight: 800;
+  text-decoration: underline;
+}
+
+/* .sidebar-tree .toctree-l1.current {background: transparent !important;}
+li.toctree-l1.current {background: transparent !important;} */
+
+/* li.toctree-l1:hover { */
+  /* background-color: #f5f5f5;
+  color: #333; */
+  /* font-size: 1.2em; */
+  /* color: var(--color-foreground-primary) !important; */
+  /* text-decoration: underline !important; */
+/* } */
+
+/* li.toctree-l1:active {
+  background-color: transparent !important;
+} */
+
+/* li.toctree-l1.current,li.toctree-l1.current.current-page {
+  background-color: transparent !important;
+} */
 
 a {
   color: none !important;
@@ -277,7 +340,9 @@ a[href^="index.html"] {color: var(--sinebow10) !important;}
 }
 
 
-.sidebar-tree ul {color:none}
+/* .sidebar-tree ul {color:none} */
+.sidebar-tree ul {color:red}
+
 
 /* no code wrapping */
 code, .rst-content code {
@@ -368,6 +433,24 @@ button.copybtn svg {
 }
 
 /* hide output for these */
-div.nboutput .copybtn {
+div.cell_output .copybtn {
   display: none;
 }
+
+/* drop down the logo a bit */
+.sidebar-logo-container {
+  margin-top: 25px;
+}
+/* 
+details {
+  background-color: transparent;
+} */
+
+/* some of these do apply, but not all for some reason */
+/* .highlight pre { background-color: var(--color-background-secondary); } */
+/* .highlight .hll { background-color: var(--color-background-secondary); } */
+.highlight .c { color: var(--color-foreground-secondary)} /* Comment */
+.highlight .cm { color: var(--color-foreground-secondary) } /* Comment.Multiline */
+.highlight .cp { color: var(--color-foreground-secondary) } /* Comment.Preproc */
+.highlight .c1 { color: var(--color-foreground-secondary) } /* Comment.Single */
+.highlight .cs { color: var(--color-foreground-secondary) } /* Comment.Special */
