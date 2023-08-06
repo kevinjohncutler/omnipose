@@ -716,8 +716,12 @@ def reshape_and_normalize_data(train_data, test_data=None, channels=None, channe
         # print('reshape_and_normalize_data',nimg,channels,data[0].shape)
         for i in range(nimg):
             if channels is None:
-                # data[i] = move_min_dim(data[i], force=True) ## consider changign this to just use the channel_axis, not min dim 
-                data[i] = move_axis_new(data[i], axis=channel_axis, pos=0) 
+                if channel_axis is not None:
+                    data[i] = move_axis_new(data[i], axis=channel_axis, pos=0) 
+                else:
+                    data[i] = move_min_dim(data[i], force=True) ## going to try avoiding this branch  
+                
+            
             if channels is not None:
                 data[i] = reshape(data[i], channels=channels, chan_first=True, channel_axis=channel_axis) # the cuplrit with 3D
                 # print('fgddgfgdfg',data[i].shape)

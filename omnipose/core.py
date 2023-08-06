@@ -943,6 +943,7 @@ def _extend_centers_torch(masks, centers, affinity_graph, coords=None, n_iter=20
     shape = masks.shape
     npix = affinity_graph.shape[-1]
     steps, inds, idx, fact, sign = utils.kernel_setup(d)
+    print()
     if coords is None:
         coords = np.nonzero(masks>0) # >0 to handle -1 labels at edge; do I use that anymore? check...
 
@@ -1021,7 +1022,7 @@ def _extend_centers_torch(masks, centers, affinity_graph, coords=None, n_iter=20
 
 
 @torch.jit.script # saves maybe 10%
-def update_torch(a,f,fsq,d,r):
+def update_torch(a,f,fsq):
     # Turns out we can just avoid a ton of individual if/else by evaluating the update function
     # for every upper limit on the sorted pairs. I do this by pieces using cumsum. The radicand
     # being nonegative sets the upper limit on the sorted pairs, so we simply select the largest 
@@ -1031,10 +1032,15 @@ def update_torch(a,f,fsq,d,r):
     am = a*((a-a[-1])<f)
     sum_a = am.sum(dim=0)
     sum_a2 = (am**2).sum(dim=0)
-    return (1/d)*(sum_a+torch.sqrt(torch.clamp((sum_a**2)-d*(sum_a2-fsq),min=0)))
+    # return (1/d)*(sum_a+torch.sqrt(torch.clamp((sum_a**2)-d*(sum_a2-fsq),min=0)))
     # return (1/d)*(sum_a+torch.clamp((sum_a**2)-d*(sum_a2-fsq),min=0)**0.5)
     # return (1/d)*(am.sum(dim=0)+torch.clamp((am.sum(dim=0)**2)-d*((am**2).sum(dim=0)-fsq),min=0)**0.5)
     # return (1/d)*(sum_a+torch.sqrt(torch.clamp((sum_a**2)-d*(sum_a2-fsq),min=0)))
+    
+    d = a.shape[0] # d acutally needed to be the number of elements being compared, not dimension 
+    return (1/d)*(sum_a+torch.sqrt(torch.clamp((sum_a**2)-d*(sum_a2-fsq),min=0)))
+    
+    
 
 @torch.jit.script
 def eikonal_update_torch(Tneigh: torch.Tensor,
@@ -1050,15 +1056,18 @@ def eikonal_update_torch(Tneigh: torch.Tensor,
     
     # loop over each index list + weight factor 
     n = len(factors) - 1
+    w = 0.
 
     for inds,f,fsq in zip(index_list[1:],factors[1:],factors[1:]**2):    
+    
         # find the minimum of each hypercube pair along each axis
         npair = len(inds)//2
+        
         # mins = torch.stack([torch.fmin(Tneigh[inds[i],:],Tneigh[inds[-(i+1)],:]) for i in range(npair)])
         mins = torch.stack([torch.minimum(Tneigh[inds[i],:],Tneigh[inds[-(i+1)],:]) for i in range(npair)])
         
         # apply update rule using the array of mins, 
-        update = update_torch(mins,f,fsq,d,r)
+        update = update_torch(mins,f,fsq)
         
         # put into storage array
         if geometric:
@@ -1087,10 +1096,12 @@ def _iterate(T: torch.Tensor, # 1D tensor of scalar values at each pixel
              verbose: torch.Tensor):
     
     T0 = T.clone()
-    # eps = 1e-3 if not smooth else 1e-8
-    eps = 1e-3
+    eps = 1e-3 if not smooth else 1e-8
+    # eps = 1e-5
+    
+    # n_iter = 200
     if verbose:
-        print('eps is ', eps)
+        print('eps is ', eps, 'n_iter is', n_iter)
     
     # I wonder if it is possible to reduce the update grid after points converge 
     t = torch.tensor(0)
@@ -1169,7 +1180,8 @@ def _gradient(T,d,steps,fact,
         diff = (vals[-(r+1)]-vals[r]) # /(2*f)
 
         # dot products, project differences onto cardinal coorinate system 
-        finite_differences[ax] = torch.matmul(uvecs.T,diff) / (2*f)**2
+        finite_differences[ax] = torch.matmul(uvecs,diff) / (2*f)**2
+        # finite_differences[ax] = torch.einsum('ij,jk->ik', uvecs, diff)  / (2*f)**2
 
         
     mu = torch.mean(finite_differences,dim=0) 

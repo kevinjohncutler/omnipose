@@ -440,28 +440,29 @@ def main(omni_CLI=False):
                                              args.unet, args.look_one_level_down, args.omni, args.links)
             images, labels, links, image_names, test_images, test_labels, test_links, image_names_test = output
 
+            
+            # I see no reason to keep the 2-channel default of cellpose
+            # onnipose will just support training on homogeneous image shapes, which is handled by setting channels=None
+            channels = None        
+            
+            img = images[0]  
+            dim = img.ndim 
+            shape = img.shape
+            print('YYY', dim, shape)
             # training with all channels
-            if args.all_channels:
-                img = images[0] # but doesn't this only give the first channel?
-                dim = img.ndim 
-               
-                shape = img.shape
-                if args.dim != dim: # user dim allows us to detect 3D images with or without channel axis
-                    if args.channel_axis is not None:
-                        nchan = shape[args.channel_axis]
-                    else:
-                        nchan = min(shape) # This assumes that the channel axis is the smallest 
-                        args.channel_axis = np.argwhere([s==nchan for s in shape])[0][0]
-                        logger.info('channel axis detected at position %s, manually specify if incorrect'%args.channel_axis)
+            # if args.all_channels:
+            if args.channel_axis is None:
+                if args.dim != dim: # user dim allows us to discern ND from (N-1)D+C
+                    nchan = min(shape) # This assumes that the channel axis is the smallest 
+                    args.channel_axis = np.argwhere([s==nchan for s in shape])[0][0]
+                    logger.info('channel axis detected at position %s, manually specify if incorrect'%args.channel_axis)
+                    nchan = shape[args.channel_axis]
                 else: 
                     nchan = 1
                     args.channel_axis = 0 
-                channels = None 
-            else: 
-                # defaulting to 2 channels is a strange choice
-                # perhaps a vestige of cyto2 with nuclei+membrane as a subset    
-                nchan = 2
-
+                             
+            print('XXXXXXXX', args.channel_axis, nchan, args.dim)
+            
             rstr = 'Be sure to use --nchan {} when running the model.'.format(nchan)
             if args.nchan is None:
                 logger.info('setting nchan to {}. '.format(nchan) + rstr)
