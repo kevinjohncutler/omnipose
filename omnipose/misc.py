@@ -609,6 +609,7 @@ def split_contour(masks,contour_map,contour_list,bd_label=None):
 #     return rgb
 
 def channel_overlay(ch0, ch1, color=(1, 1, 0), a=1):
+    """Overlay ch1 as a color onto ch0 as grayscale."""
     rgb = np.stack([ch0] * 3, axis=-1)
     overlay = a * ch1 + (ch0 - a * ch1 * ch0)
     for i in range(3):

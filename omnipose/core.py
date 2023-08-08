@@ -1201,7 +1201,7 @@ def compute_masks(dP, dist, bd=None, p=None, inds=None, niter=None, rescale=1.0,
                   mask_threshold=0.0, diam_threshold=12.,flow_threshold=0.4, 
                   interp=True, cluster=False, boundary_seg=False, affinity_seg=False, do_3D=False, 
                   min_size=None, hole_size=None, omni=True, 
-                  calc_trace=False, verbose=False, use_gpu=False, device=None, nclasses=3, 
+                  calc_trace=False, verbose=False, use_gpu=False, device=None, nclasses=2, 
                   dim=2, eps=None, hdbscan=False, flow_factor=6, debug=False, override=False):
     """
     Compute masks using dynamics from dP, dist, and boundary outputs.
@@ -1249,7 +1249,7 @@ def compute_masks(dP, dist, bd=None, p=None, inds=None, niter=None, rescale=1.0,
     device: torch device
         what compute hardware to use to run the code (GPU VS CPU)
     nclasses:
-        number of output classes of the network (Omnipose=4,Cellpose=3)
+        number of output classes of the network (Omnipose=3,Cellpose=2)
     dim: int
         dimensionality of data / model output
     eps: float
@@ -1276,6 +1276,8 @@ def compute_masks(dP, dist, bd=None, p=None, inds=None, niter=None, rescale=1.0,
     """
     # do everything in padded arrays for boundary/affinity functions 
     pad = 1
+    if do_3D:
+        dim = 3 
     pad_seq = [(0,)*2]+[(pad,)*2]*dim
     unpad = tuple([slice(pad,-pad)]*dim) 
 
@@ -1353,7 +1355,7 @@ def compute_masks(dP, dist, bd=None, p=None, inds=None, niter=None, rescale=1.0,
 
         else:
             dP_ = dP * iscell / 5.
-            
+        
         dP_pad = np.pad(dP_,pad_seq)
         dt_pad = np.pad(dist,pad)
         bd_pad = np.pad(bd,pad)
@@ -1616,7 +1618,7 @@ def divergence(f,sp=None):
     return np.ufunc.reduce(np.add, [np.gradient(f[i], axis=i) for i in range(num_dims)])
 
 
-def get_masks(p, bd, dist, mask, inds, nclasses=4,cluster=False,
+def get_masks(p, bd, dist, mask, inds, nclasses=2,cluster=False,
               diam_threshold=12., eps=None, hdbscan=False, verbose=False):
     """Omnipose mask recontruction algorithm.
     

@@ -145,13 +145,17 @@ def apply_ncolor(masks,offset=0,cmap=None):
     else:
         return cmap(utils.rescale(m))
 
-def imshow(img,figsize=2,**kwargs):
+def imshow(img,figsize=2,ax=None,hold=False,**kwargs):
     if type(figsize) is not (list or tuple):
         figsize = (figsize,figsize)
-    plt.figure(frameon=False,figsize=figsize)
-    plt.imshow(img,**kwargs)
-    plt.axis("off")
-    plt.show()
+    if ax is None:
+        fig,ax = plt.subplots(frameon=False,figsize=figsize)
+    else:
+        hold=True
+    ax.imshow(img,**kwargs)
+    ax.axis("off")
+    if not hold:
+        plt.show()
 
 # def get_cmap(masks):
 #     lut = ncolor.get_lut(masks)

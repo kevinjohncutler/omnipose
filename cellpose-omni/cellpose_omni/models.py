@@ -386,7 +386,7 @@ class CellposeModel(UnetModel):
                  model_type=None, net_avg=True, use_torch=True,
                  diam_mean=30., device=None,
                  residual_on=True, style_on=True, concatenation=False,
-                 nchan=2, nclasses=3, dim=2, omni=False, 
+                 nchan=2, nclasses=2, dim=2, omni=False, 
                  checkpoint=False, dropout=False, kernel_size=2):
         if not torch:
             if not MXNET_ENABLED:
@@ -429,7 +429,7 @@ class CellposeModel(UnetModel):
             
             # original omni models had the boundary field 
             if model_type in ['bact_phase_omni','bact_fluor_omni','cyto2_omni','plant_omni']:
-                nclasses = 4 
+                nclasses = 3
 
             # set omni flag to true if the name contains it
             self.omni = 'omni' in os.path.splitext(Path(pretrained_model_string).name)[0]
@@ -450,12 +450,14 @@ class CellposeModel(UnetModel):
                     residual_on, style_on, concatenation = params 
                 self.omni = 'omni' in os.path.splitext(Path(pretrained_model_string).name)[0]
         
-        
-        if self.omni:
-            if nclasses == 4: # do boundary field
-                self.nclasses = self.dim + 2          
-            if nclasses == 3: # no boundary field
-                self.nclasses = self.dim + 1 
+        # if self.omni:
+        # need to overwrite nclasses with the explicit number of prediciton outputs
+        # because the flow field dounts for dim, not 1, different predictions 
+        if nclasses == 3: # flow, distance, and boundary 
+            self.nclasses = self.dim + 2    
+        if nclasses == 2: # no boundary field, just and flow (dim components) and distance (1 component)
+            self.nclasses = self.dim + 1 
+
 
         # initialize network
         super().__init__(gpu=gpu, pretrained_model=False,
@@ -716,11 +718,11 @@ class CellposeModel(UnetModel):
 
                 # whether or not we are using dataparallel 
                 if self.torch and self.gpu:
-                    print('using dataparallel')
+                    models_logger.info('using dataparallel')
                     net = self.net.module
                 else:
                     net = self.net
-                    print('not using dataparallel')
+                    models_logger.info('not using dataparallel')
                     
                 
                 net.load_model(self.pretrained_model[0], cpu=(not self.gpu))
@@ -815,7 +817,7 @@ class CellposeModel(UnetModel):
             # yf = yf[unpad+(Ellipsis,)]
             
             cellprob = np.sum([yf[k][2] for k in range(3)],axis=0)/3 if omni else np.sum([yf[k][2] for k in range(3)],axis=0)
-            bd = np.sum([yf[k][3] for k in range(3)],axis=0)/3 if self.nclasses==4 else np.zeros_like(cellprob)
+            bd = np.sum([yf[k][3] for k in range(3)],axis=0)/3 if self.nclasses==(self.dim+2) else np.zeros_like(cellprob)
             dP = np.stack((yf[1][0] + yf[2][0], yf[0][0] + yf[2][1], yf[0][1] + yf[1][1]), axis=0) # (dZ, dY, dX)
             if omni:
                 dP = np.stack([gaussian_filter(dP[a],sigma=1.5) for a in range(3)]) # remove some artifacts
@@ -864,7 +866,6 @@ class CellposeModel(UnetModel):
                 # unpadding 
                 yf = yf[unpad+(Ellipsis,)]
                 
-                
                 # resample interpolates the network output to native resolution prior to running Euler integration
                 # this means the masks will have no scaling artifacts. We could *upsample* by some factor to make
                 # the clustering etc. work even better, but that is not implemented yet 
@@ -882,7 +883,7 @@ class CellposeModel(UnetModel):
                     cellprob[i] = yf[...,0]
                     # dP[i] =  np.zeros(cellprob)
                     
-                if self.nclasses>=4:
+                if self.nclasses>=self.dim+2:
                     if i==0:
                         bd = np.zeros_like(cellprob)
                     bd[i] = yf[...,self.dim+1]
@@ -1014,7 +1015,7 @@ class CellposeModel(UnetModel):
                 models_logger.info('masks created in %2.2fs'%(flow_time))
             
             ret = [masks, styles, dP, cellprob, p, bd, tr, affinity, bounds]
-            ret = [r.squeeze() if r is not None else r for r in ret]
+            ret = [r.squeeze() if isinstance(r,np.ndarray) else r for r in ret]
             
         else:
             #pass back zeros if not compute_masks 
