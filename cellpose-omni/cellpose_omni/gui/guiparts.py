@@ -499,35 +499,66 @@ class ImageDraw(pg.ImageItem):
         self.parent.current_stroke = []
         self.parent.in_stroke = False
 
-    def mouseClickEvent(self, ev):
-        if self.parent.masksOn or self.parent.outlinesOn:
-            if  self.parent.loaded and (ev.button()==QtCore.Qt.RightButton or 
-                    ev.modifiers() == QtCore.Qt.ShiftModifier and not ev.double()):
-                if not self.parent.in_stroke:
-                    ev.accept()
-                    self.create_start(ev.pos())
-                    self.parent.stroke_appended = False
-                    self.parent.in_stroke = True
-                    self.drawAt(ev.pos(), ev)
-                else:
-                    ev.accept()
-                    self.end_stroke()
-                    self.parent.in_stroke = False
-            elif not self.parent.in_stroke:
-                y,x = int(ev.pos().y()), int(ev.pos().x())
-                if y>=0 and y<self.parent.Ly and x>=0 and x<self.parent.Lx:
-                    if ev.button()==QtCore.Qt.LeftButton and not ev.double():
-                        idx = self.parent.cellpix[self.parent.currentZ][y,x]
-                        if idx > 0:
-                            if ev.modifiers()==QtCore.Qt.ControlModifier:
-                                # delete mask selected
-                                self.parent.remove_cell(idx)
-                            elif ev.modifiers()==QtCore.Qt.AltModifier:
-                                self.parent.merge_cells(idx)
-                            elif self.parent.masksOn:
-                                self.parent.unselect_cell()
-                                self.parent.select_cell(idx)
-                        elif self.parent.masksOn:
+    # def mouseClickEvent(self, ev):
+    #     if self.parent.masksOn or self.parent.outlinesOn:
+    #         if  self.parent.loaded and (ev.button()==QtCore.Qt.RightButton or 
+    #                 ev.modifiers() == QtCore.Qt.ShiftModifier and not ev.double()):
+    #             if not self.parent.in_stroke:
+    #                 ev.accept()
+    #                 self.create_start(ev.pos())
+    #                 self.parent.stroke_appended = False
+    #                 self.parent.in_stroke = True
+    #                 self.drawAt(ev.pos(), ev)
+    #             else:
+    #                 ev.accept()
+    #                 self.end_stroke()
+    #                 self.parent.in_stroke = False
+    #         elif not self.parent.in_stroke:
+    #             y,x = int(ev.pos().y()), int(ev.pos().x())
+    #             if y>=0 and y<self.parent.Ly and x>=0 and x<self.parent.Lx:
+    #                 if ev.button()==QtCore.Qt.LeftButton and not ev.double():
+    #                     idx = self.parent.cellpix[self.parent.currentZ][y,x]
+    #                     if idx > 0:
+    #                         if ev.modifiers()==QtCore.Qt.ControlModifier:
+    #                             # delete mask selected
+    #                             self.parent.remove_cell(idx)
+    #                         elif ev.modifiers()==QtCore.Qt.AltModifier:
+    #                             self.parent.merge_cells(idx)
+    #                         elif self.parent.masksOn:
+    #                             self.parent.unselect_cell()
+    #                             self.parent.select_cell(idx)
+    #                     elif self.parent.masksOn:
+    #                         self.parent.unselect_cell()
+
+    def mouseClickEvent(self, ev):	
+        if self.parent.masksOn or self.parent.outlinesOn:	
+            if  self.parent.loaded and (ev.button() == QtCore.Qt.RightButton or 	
+                    ev.modifiers() & QtCore.Qt.ShiftModifier and not ev.double()):	
+                if not self.parent.in_stroke:	
+                    ev.accept()	
+                    self.create_start(ev.pos())	
+                    self.parent.stroke_appended = False	
+                    self.parent.in_stroke = True	
+                    self.drawAt(ev.pos(), ev)	
+                else:	
+                    ev.accept()	
+                    self.end_stroke()	
+                    self.parent.in_stroke = False	
+            elif not self.parent.in_stroke:	
+                y,x = int(ev.pos().y()), int(ev.pos().x())	
+                if y>=0 and y<self.parent.Ly and x>=0 and x<self.parent.Lx:	
+                    if ev.button() == QtCore.Qt.LeftButton and not ev.double():	
+                        idx = self.parent.cellpix[self.parent.currentZ][y,x]	
+                        if idx > 0:	
+                            if ev.modifiers() & QtCore.Qt.ControlModifier:	
+                                # delete mask selected	
+                                self.parent.remove_cell(idx)	
+                            elif ev.modifiers() & QtCore.Qt.AltModifier:	
+                                self.parent.merge_cells(idx)	
+                            elif self.parent.masksOn:	
+                                self.parent.unselect_cell()	
+                                self.parent.select_cell(idx)	
+                        elif self.parent.masksOn:	
                             self.parent.unselect_cell()
 
     def mouseDragEvent(self, ev):
@@ -542,7 +573,8 @@ class ImageDraw(pg.ImageItem):
                 self.drawAt(ev.pos())
                 if self.is_at_start(ev.pos()):
                     self.end_stroke()
-                    self.parent.in_stroke = False
+                    # self.parent.in_stroke = False
+                    
         else:
             ev.acceptClicks(QtCore.Qt.RightButton)
             #ev.acceptClicks(QtCore.Qt.LeftButton)
@@ -586,6 +618,8 @@ class ImageDraw(pg.ImageItem):
                 self.parent.add_set()
         if len(self.parent.current_point_set) > 0 and self.parent.autosave:
             self.parent.add_set()
+        self.parent.in_stroke = False
+    
 
     def tabletEvent(self, ev):
         pass
