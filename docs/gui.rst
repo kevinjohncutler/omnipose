@@ -2,25 +2,20 @@
 
 :sinebow12:`GUI`
 ================
-The Omnipose GUI is an expansion and refinement of that from cellpose_omni. It defaults to the ``bact_phase_omni`` model and corresponding model parameters. 
+The Omnipose GUI is an expansion and refinement of that from Cellpose. It defaults to the ``bact_phase_omni`` model and corresponding model parameters. 
 Additionally, we pre-load a small bacterial phase contrast image for demonstration purposes. Masks are also represented in :doc:`ncolor` format by default, 
 which is handy for visualizing and editing. Be sure to untick the ``ncolor`` box to switch to standard label format before saving your masks if that format is 
 what you need (what you see is what you get). 
 
 The GUI serves two main functions:
 
-1. Running the segmentation algorithm.
-
+.. note::
     The GUI only segments one image at a time, so it is really only intended for users to try out Omnipose and find the best model and optimal segmentation parameters
-    with minimal setup. If you want to segment multiple images in a directory, use Omnipose 
-    in the `command line <command.html#command>`__ or a `jupyter notebook <notebook.html#notebook>`__.
+    with minimal setup. If you want to segment multiple images in a directory or train a model, use Omnipose 
+    in the `command line <command.html#command>`__ or a `jupyter notebook <notebook.html#notebook>`__. 
 
-2. Manually labelling data.
-   
-    The GUI is built for mouse input. As described in our `paper`_, *pen* input allows for higher-quality masks to be made much faster. One way to make new ground-truth data is to segment 
-    using Omnipose and then manually correct the errors. This is fine so long as the errors are 
-
-
+.. tip::
+    If you need a GUI for ground-truth annotation, use Napari. This GUI isn't really optimized for that (yet). 
 
 
 :header-2:`Starting the GUI`
@@ -31,11 +26,11 @@ The quickest way to start is to open the GUI from a command line terminal. You m
 
     python -m omnipose
 
-The first time Omnipose runs, it downloads the latest available trained model weights from the website.
+The first time Omnipose runs, it will ask you to download the GUI dependencies. When it finishes, run the launch command again. The terminal will remain open and you can see model download progress, error messages, etc.  as you interact with the GUI. 
 
-You can **drag and drop** images (.tif, .png, .jpg, .gif) into the GUI and run Cellpose, and/or manually segment them. When the GUI is processing, you will see the progress bar fill up and during this time you cannot click on anything in the GUI. For more information about what the GUI is doing you can look at the terminal/prompt you opened the GUI with. For example data, See http://www.cellpose.org/omnipose. For best accuracy and runtime performance, resize images so cells are less than 100 pixels across. 
+You can **drag and drop** images (.tif, .png, .jpg, .gif) into the GUI and run Cellpose, and/or manually segment them. Omnipose waits to download a model until the first time you use it. When the GUI is processing, you will see the progress bar fill up and during this time you cannot click on anything in the GUI. For more information about what the GUI is doing you can look at the terminal/prompt with which you launched the GUI. For best accuracy and runtime performance, resize images so cells are less than 100 pixels across. 
 
-For multi-channel, multi-Z tiffs, the expected format is Z x channels x Ly x Lx.
+For multi-channel, multi-Z tiffs, the expected format is ZCYX.
 
 :header-2:`Using the GUI`
 -------------------------
@@ -57,7 +52,7 @@ in 2D should be single strokes (if *single_stroke* is checked).
 
 If you want to draw masks in 3D, then you can turn *single_stroke*
 option off and draw a stroke on each plane with the cell and then press
-ENTER. 3D labelling will fill in unlabelled z-planes so that you do not
+ENTER. 3D labeling will fill in unlabelled z-planes so that you do not
 have to as densely label.
 
 .. note::

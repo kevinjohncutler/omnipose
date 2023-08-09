@@ -3,7 +3,7 @@ from numba import njit, prange
 import numba
 import cv2
 import edt
-from scipy.ndimage import affine_transform, binary_dilation, binary_opening, binary_closing, label, shift # I need to test against skimage labelling
+from scipy.ndimage import affine_transform, binary_dilation, binary_opening, binary_closing, label, shift # I need to test against skimage labeling
 from skimage.morphology import remove_small_objects
 from sklearn.utils.extmath import cartesian
 from skimage.segmentation import find_boundaries
@@ -1623,8 +1623,8 @@ def get_masks(p, bd, dist, mask, inds, nclasses=2,cluster=False,
     """Omnipose mask recontruction algorithm.
     
     This function is called after dynamics are run. The final pixel coordinates are provided, 
-    and cell labels are assigned to clusters found by labelling the pixel clusters after rounding
-    the coordinates (snapping each pixel to the grid and labelling the resulting binary mask) or 
+    and cell labels are assigned to clusters found by labeling the pixel clusters after rounding
+    the coordinates (snapping each pixel to the grid and labeling the resulting binary mask) or 
     by using DBSCAN or HDBSCAN for sub-pixel clustering. 
     
     Parameters

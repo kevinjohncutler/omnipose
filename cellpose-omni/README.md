@@ -152,7 +152,7 @@ We are very excited about receiving community contributions to the training data
 2. If there are relatively few mistakes, it won't help much to contribute labelled data. 
 3. If there are consistent mistakes, your data is likely very different from anything in the training set, and you should expect major improvements from contributing even just a few manually segmented images.
 4. For images that you contribute, the cells should be at least 10 pixels in diameter, and there should be **at least** several dozens of cells per image, ideally ~100. If your images are too small, consider combining multiple images into a single big one and then manually segmenting that. If they are too big, consider splitting them into smaller crops. 
-5. For the manual segmentation, please try to outline the boundaries of the cell, so that everything (membrane, cytoplasm, nucleus) is inside the boundaries. Do not just outline the cytoplasm and exclude the membrane, because that would be inconsistent with our own labelling and we wouldn't be able to use that. 
+5. For the manual segmentation, please try to outline the boundaries of the cell, so that everything (membrane, cytoplasm, nucleus) is inside the boundaries. Do not just outline the cytoplasm and exclude the membrane, because that would be inconsistent with our own labeling and we wouldn't be able to use that. 
 6. Do not use the results of the algorithm in any way to do contributed manual segmentations. This can reinforce a vicious circle of mistakes, and compromise the dataset for further algorithm development. 
 
 If you are having problems with the nucleus model, please open an issue before contributing data. Nucleus images are generally much less diverse, and we think the current training dataset already covers a very large set of modalities. 
@@ -163,7 +163,7 @@ If you are having problems with the nucleus model, please open an issue before c
 The GUI serves two main functions:
 
 1. Running the segmentation algorithm.
-2. Manually labelling data.
+2. Manually labeling data.
 
 There is a help window in the GUI that provides more instructions and 
 a page in the documentation [here](http://cellpose.readthedocs.io/en/latest/gui.html).

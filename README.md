@@ -22,6 +22,7 @@ New users can check out the [ZeroCostDL4Mic][ZeroCostDL4Mic] Cellpose notebook o
 ## Use the GUI
 
 Launch the Omnipose-optimized version of the Cellpose GUI from terminal: `python -m omnipose`. Version 0.4.0 and onward will *not* install the GUI dependencies by default. When you first run the GUI command, you will be prompted to install the GUI dependencies. On Ubuntu 2022.04 (and possibly earlier), we found it necessary to run the following to install a missing system package: 
+
 ```
 sudo apt install libxcb-xinerama0
 ```
@@ -33,12 +34,18 @@ Standalone versions of this GUI for Windows, macOS, and Linux are available on t
 
 1. Install an [Anaconda](https://www.anaconda.com/download/) distribution of Python. Note you might need to use an anaconda prompt if you did not add anaconda to the path. Alternatives like miniconda also work just as well. 
 2. Open an anaconda prompt / command prompt with `conda` for **python 3** in the path.
-3. To create a new environment, run
+3. To create a new environment for CPU only, run
     ```
-    conda create --name omnipose 'python>=3.8.5' pytorch
+    conda create -n omnipose 'python==3.10' pytorch
     
     ```
-    It is good practice to choose a version of python different from your base python. That way, there is no crosstalk between pip-installed packages inside and outside your environment. So if you have 3.x.y installed via pyenv etc., install your environment with 3.x.z instead. 
+    For users with NVIDIA GPUs, add these additional arguments:
+    ```
+    torchvision pytorch-cuda=11.8 -c pytorch -c nvidia 
+
+    ```
+    [See GPU support](#gpu-support) for more details. Python 3.10 is not a strict requirement; see [Python compatibility](#python-compatibility) for more about choosing your python version.
+    
 4. To activate this new environment, run 
     ```
     conda activate omnipose
@@ -50,24 +57,30 @@ Standalone versions of this GUI for Windows, macOS, and Linux are available on t
     or, for the most up-to-date development version,
     ```
     pip install git+https://github.com/kevinjohncutler/omnipose.git
-    pip install git+https://github.com/kevinjohncutler/cellpose-omni.git
+    
     ```
+    Note: if you previously installed Omnipose, please run `pip uninstall cellpose_omni` to prevent version conflicts. See [project structure](#project-structure) for more details. 
+    
+### Python compatibility 
+We have tested Omnipose extensively on Python version 3.8.5 and have encountered issues on some lower versions. Versions up to 3.10.11 have been confirmed compatible, but we have encountered bugs with the GUI dependencies on 3.11+. For those users with system or global pyenv python3 installations, check your python version by running `python -V` before making your conda environment and choose a different version. That way, there is no crosstalk between pip-installed packages inside and outside your environment. So if you have 3.x.y installed via pyenv etc., install your environment with 3.x.z instead. 
 
-We have tested Omnipose extensively on Python version 3.8.5 and have encountered issues on some lower versions. Versions up to 3.10.8 have been confirmed compatible. Check your python version by running `python -V`. If your version is too low (this happens if your default/base environment python is a lower version), make a new environment and specify the python version, e.g. `conda create --name omnipose python==3.8.5`
+### Pyenv versus Conda
+
+Pyenv also works great for creating an environment for installing Omnipose (and it also works a lot better for installing Napari alongside it, in my experience). Simply set your global version anywhere from 3.8.5-3.10.11 and run `pip install omnipose`. I've had no problems with GPU compatibility with this method on Linux, as pip collects all the required packages. Conda is much more reproducible, but often finicky. You can use pyenv on Windows and macOS too, but you will need a conda environment for Apple Silicon GPU support (PyPi still lacks many package versions built for Apple Silicon). 
 
 ### GPU support 
 
-Omnipose runs on CPU on macOS, Windows, and Linux. PyTorch only supports NVIDIA GPUs and, more recently, Apple Silicon GPUs. Windows and Linux installs are straightforward:
+Omnipose runs on CPU on macOS, Windows, and Linux. PyTorch has historically only supported NVIDIA GPUs, but has more more recently begun supporting Apple Silicon GPUs. It looks AMD support may be avaiable these days (ROCm), but I have not tested that out. Windows and Linux installs are straightforward:
 
-Your PyTorch version (>=1.6) needs to be compatible with your NVIDIA driver. Older cards may not be supported by the latest drivers and thus not supported by the latest PyTorch version. See the official documentation on installing both the [most recent](https://pytorch.org/get-started/locally/) and [previous](https://pytorch.org/get-started/previous-versions/) combinations of CUDA and PyTorch to suit your needs. Accordingly, you can get started with CUDA 11.3 by making the following environment:
+Your PyTorch version (>=1.6) needs to be compatible with your NVIDIA driver. Older cards may not be supported by the latest drivers and thus not supported by the latest PyTorch version. See the official documentation on installing both the [most recent](https://pytorch.org/get-started/locally/) and [previous](https://pytorch.org/get-started/previous-versions/) combinations of CUDA and PyTorch to suit your needs. Accordingly, you can get started with CUDA 11.8 by making the following environment:
 ```
-conda create -n omnipose pytorch cudatoolkit=11.3 -c pytorch 
+conda create -n omnipose 'python==3.10' pytorch torchaudio pytorch-cuda=11.8 -c pytorch -c nvidia 
+
 ```
-To get started with CUDA 10.2, instead run:
+Note that the official PyTorch command includes torchaudio, but that is not needed for Omnipose. (*torchvision appears to be necessary these days*). If you are on older drivers, you can get started with an older version of CUDA, *e.g.* 10.2:
 ```
 conda create -n omnipose pytorch=1.8.2 cudatoolkit=10.2 -c pytorch-lts
 ```
-
 For Apple Silicon, download [omnipose_mac_environment.yml](omnipose_mac_environment.yml) and install the environment:
 
 ```
@@ -78,7 +91,7 @@ conda activate omnipose
 You may edit this yml to change the name or python version etc. For more notes on Apple Silicon development, see [this thread](https://github.com/kevinjohncutler/omnipose/issues/14). On all systems, remember that you may need to use ipykernel to use the omnipose environment in a notebook. 
 
 ## How to use Omnipose
-I have a couple Jupyter notebooks in the [docs/examples](docs/examples/) directory that demonstrate how to use built-in models. You can also find all the scripts I used for generating our figures in the [scripts](scripts/) directory. These cover specific settings for all of the images found in our paper. 
+I have a few Jupyter notebooks in the [docs/examples](docs/examples/) directory that demonstrate how to use built-in models. You can also find all the scripts I used for generating our figures in the [scripts](scripts/) directory. These cover specific settings for all of the images found in our paper. 
 
 To use Omnipose on bacterial cells, use `model_type=bact_omni`. For other cell types, try `model_type=cyto2_omni`. You can also choose Cellpose models with `omni=True` to engage the Omnipose mask reconstruction algorithm to alleviate over-segmentation. 
 
@@ -107,10 +120,11 @@ To evaluate Omnipose models on 3D data, see the [examples](docs/examples/). If y
 Cell size remains the only practical limitation of Omnipose. On the low end, cells need to be at least 3 pixels wide in each dimension. On the high end, 60px appears to work well, with 150px being too large. The current workaround is to first downscale your images so that cells are within an appropriate size range (3-60px). This can be done automatically during training with `--diameter <X>`. The mean cell diameter `D` is calculated from the ground truth masks and images are rescaled by `X/D`. 
 
 
-## Issues and feature requests
-As Omnipose is built on [Cellpose][cp], this repo serves mostly to contain new Omnipose-specific functions (like the smooth distance field and the mean cell diameter metric) and our versions of key Cellpose functions (like mask reconstruction). The main Cellpose code base imports these functions and uses them with `omni=True`. This approach was not feasible for my more recent work with ND volume processing, which required extensive rewrites to the file handling and network architecture that could not be so easily separated from the original code base (and arguably should not, as these changes are the same ideas just expressed in a dimension-agnostic way). For the foreseeable future, my [fork](https://github.com/kevinjohncutler/cellpose-omni) of Cellpose will be the only version compatible with new development of Omnipose after 0.2.1, and it is installed automatically when you install Omnipose. 
+## Project structure, feature requests, and issues 
+Omnipose is built on [Cellpose][cp], and functionally that means Cellpose actually imports Omnipose to replace many of its operations with the Omnipose versions with `omni=True`. Omnipose was first packaged into the Cellpose repo before I began making too many ND-generalizations (full rewrites) for the authors to maintain. Thus was birthed my `cellpose_omni` fork, which I published to PyPi separately from Omnipose for some time. I later decided that maintaining two packages for one project was overcomplicated for me and users (especially for installations from the repo), so the latest version of `cellpose_omni` now lives here. `cellpose_omni` still gets installed as its own subpackage when you install Omnipose, and its version should show up as 0.0.0. If you have issues migrating to the new version, make sure to `pip uninstall omnipose cellpose_omni` before re-installing Omnipose. 
 
-This means that if you encounter bugs with Omnipose, you can check the [main Cellpose repo][cp] for related issues and also post them here. Our Cellpose fork will continue to be updated with bug fixes and features from the main branch. If there are any features or pull requests that you want to see in Omnipose ASAP, please let me know. 
+If you encounter bugs with Omnipose, you can check the [main Cellpose repo][cp] for related issues and also post them here. I do my best to keep up with with bug fixes and features from the main branch, but it helps me out a lot if users bring them to my attention. If there are any features or pull requests in Cellpose that you want to see in Omnipose ASAP, please let me know. 
+
 
 ## Building the GUI app
 

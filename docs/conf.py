@@ -76,11 +76,11 @@ def setup(app):
 # -- Project information -----------------------------------------------------
 
 project = 'omnipose'
-copyright = '2022, Kevin Cutler, University of Washington'
+copyright = '2023, Kevin Cutler, University of Washington'
 author = 'Kevin Cutler'
 
 # The full version, including alpha/beta/rc tags
-release = '0.4.0'
+release = '0.5.0'
 
 
 # -- General configuration ---------------------------------------------------
