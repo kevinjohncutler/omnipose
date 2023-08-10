@@ -4,11 +4,13 @@ from natsort import natsorted
 from tqdm import tqdm, trange
 
 from PyQt6 import QtGui, QtCore, QtWidgets, QtSvgWidgets
-from PyQt6.QtCore import Qt, QTimer, pyqtSlot
-from PyQt6.QtWidgets import QMainWindow, QApplication, QWidget, QScrollBar, QSlider, QComboBox, QGridLayout, QPushButton, QFrame, QCheckBox, QLabel, QProgressBar, QLineEdit, QMessageBox, QGroupBox, QDoubleSpinBox, QPlainTextEdit, QScrollArea
+from PyQt6.QtCore import Qt, QTimer, pyqtSlot, QCoreApplication
+from PyQt6.QtWidgets import QMainWindow, QApplication, QSizePolicy, QWidget, QScrollBar, QSlider, QComboBox, QGridLayout, QPushButton, QFrame, QCheckBox, QLabel, QProgressBar, QLineEdit, QMessageBox, QGroupBox, QDoubleSpinBox, QPlainTextEdit, QScrollArea
 from PyQt6.QtGui import QColor, QPalette
 import pyqtgraph as pg
 # from pyqtgraph import GraphicsScene
+
+os.environ['QT_AUTO_SCREEN_SCALE_FACTOR'] = '1'
 
 import numpy as np
 from scipy.stats import mode
@@ -19,8 +21,9 @@ from . import guiparts, menus, io
 from .. import models, core, dynamics
 from ..utils import download_url_to_file, masks_to_outlines, diameters 
 from ..io import save_server, get_image_files, imsave, imread, check_dir #OMNI_INSTALLED
-from ..transforms import resize_image, normalize99 #fixed import
+from ..transforms import resize_image #fixed import
 from ..plot import disk
+from omnipose.utils import normalize99, to_8_bit
 
 from .guiparts import TOOLBAR_WIDTH, SPACING, WIDTH_0
 
@@ -177,10 +180,12 @@ def run(image=PRELOAD_IMAGE):
     logger, log_file = logger_setup()
     # Always start by initializing Qt (only once per application)
     warnings.filterwarnings("ignore")
-
+    QCoreApplication.setApplicationName('Omnipose')
     app = QApplication(sys.argv)
-    
+
     screen = app.primaryScreen()
+    dpi = screen.logicalDotsPerInch()
+    pxr = screen.devicePixelRatio()
     size = screen.availableGeometry()
     clipboard = app.clipboard()
 
@@ -205,34 +210,30 @@ def run(image=PRELOAD_IMAGE):
     icon_path = str(ICON_PATH.resolve())
     for i in [16,24,32,48,64,256]:
         app_icon.addFile(icon_path, QtCore.QSize(i,i)) 
-    app.setWindowIcon(app_icon) # self.
+    app.setWindowIcon(app_icon) 
     
     # models.download_model_weights() # does not exist
-    win = MainW(size, clipboard, image=image)
+    win = MainW(size, dpi, pxr, clipboard, image=image)
+
     # the below code block will automatically toggle the theme with the system,
-    # but the manual color definitions (everytwhere I set a style sheet) mess that up
-    sync = 1
-    if sync:        
-        @pyqtSlot()
-        def sync_theme_with_system() -> None:
-            theme = str(darkdetect.theme()).lower()
-            theme = theme if theme in ALLOWED_THEMES else 'dark' #default to dark theme 
-            stylesheet = qdarktheme.load_stylesheet(theme)
-            QApplication.instance().setStyleSheet(stylesheet)
-            win.darkmode = theme=='dark'
-            win.accent = win.palette().brush(QPalette.ColorRole.Highlight).color()
-            if hasattr(win,'win'):
-                win.win.setBackground("k" if win.darkmode else '#f0f0f0') #pull out real colors from theme here from example
-            win.set_hist_colors()
-            win.set_button_color()
-            win.set_crosshair_colors()
-            # win.update_plot()
-        app.paletteChanged.connect(sync_theme_with_system)             
-        sync_theme_with_system()
-    else:
-        # app.setStyleSheet(qdarktheme.load_stylesheet())
-        print('ff')
-    
+    # but the manual color definitions (everywhere I set a style sheet) can mess that up
+    @pyqtSlot()
+    def sync_theme_with_system() -> None:
+        theme = str(darkdetect.theme()).lower()
+        theme = theme if theme in ALLOWED_THEMES else 'dark' #default to dark theme 
+        stylesheet = qdarktheme.load_stylesheet(theme)
+        QApplication.instance().setStyleSheet(stylesheet)
+        win.darkmode = theme=='dark'
+        win.accent = win.palette().brush(QPalette.ColorRole.Highlight).color()
+        if hasattr(win,'win'):
+            win.win.setBackground("k" if win.darkmode else '#f0f0f0') #pull out real colors from theme here from example
+        win.set_hist_colors()
+        win.set_button_color()
+        win.set_crosshair_colors()
+        # win.update_plot()
+    app.paletteChanged.connect(sync_theme_with_system)             
+    sync_theme_with_system()
+
     ret = app.exec()
     sys.exit(ret)
 
@@ -247,7 +248,7 @@ def get_unique_points(set):
 
 
 class MainW(QMainWindow):
-    def __init__(self, size, clipboard, image=None):
+    def __init__(self, size, dpi, pxr, clipboard, image=None):
         super(MainW, self).__init__()
             # palette = app.palette()
             # palette.setColor(QPalette.ColorRole.ColorRole.Link, dark_palette.link().color())
@@ -258,7 +259,9 @@ class MainW(QMainWindow):
 
         pg.setConfigOptions(imageAxisOrder="row-major")
         self.clipboard = clipboard
-        self.setGeometry(100, 100, min(1200,size.width()),  min(800,size.height())) 
+        # geometry that works on mac and ubuntu at least 
+        Y = int(925 - (25*dpi*pxr)/24)
+        self.setGeometry(100, 100, min(1200,size.width()),  min(Y,size.height())) 
 
         # self.showMaximized()
         self.setWindowTitle("Omnipose GUI")
@@ -271,7 +274,6 @@ class MainW(QMainWindow):
         menus.omnimenu(self)
 
         self.model_strings = models.MODEL_NAMES.copy()
-
         
         # self.setStyleSheet("QMainWindow {background:'black';}")
         # self.stylePressed = ''.join(["QPushButton {Text-align: middle; ",
@@ -320,6 +322,8 @@ class MainW(QMainWindow):
             self.cwidget.setLayout(self.l0) 
             self.scrollArea.setWidget(self.cwidget)
 
+            self.scrollArea.setMinimumSize(self.cwidget.sizeHint())
+
             self.setCentralWidget(self.scrollArea)
         else:
             self.cwidget = QWidget(self)
@@ -327,8 +331,10 @@ class MainW(QMainWindow):
             self.cwidget.setLayout(self.l0)
             self.setCentralWidget(self.cwidget)
         
-        self.l0.setVerticalSpacing(SPACING)
-        self.l0.setHorizontalSpacing(SPACING)
+        # s = int(SPACING/pxr)
+        s = int(SPACING)
+        self.l0.setVerticalSpacing(s)
+        self.l0.setHorizontalSpacing(s)
         # self.l0.setRetainSizeWhenHidden(True)
         self.l0.setContentsMargins(10,10,10,10)
         
@@ -376,7 +382,10 @@ class MainW(QMainWindow):
                                 'model_name':'CP' + d.strftime("_%Y%m%d_%H%M%S")
                                }
         
+
+
         self.setAcceptDrops(True)
+
         self.win.show()
         self.show()
         
@@ -400,11 +409,23 @@ class MainW(QMainWindow):
     def make_buttons(self):
         label_style = ''
         COLORS[0] = '#545454'
-        self.boldfont = QtGui.QFont("Arial", 16, QtGui.QFont.Weight.Bold)
-        self.boldfont_button = QtGui.QFont("Arial", 12, QtGui.QFont.Weight.Bold)
+        print( self.height(), self.width())
+        ftwt1 = self.height()//50
+        ftwt2 = self.height()//100
+        ftwt3 = self.height()//200
+        self.boldfont = QtGui.QFont("Arial")
+        self.boldfont.setPixelSize(18)
+        self.boldfont.setWeight(QtGui.QFont.Weight.Bold)
+
+        self.boldfont_button = QtGui.QFont("Arial")
+        self.boldfont_button.setPixelSize(14)
+        self.boldfont_button.setWeight(QtGui.QFont.Weight.Bold)
         
-        self.medfont = QtGui.QFont("Arial", 12)
-        self.smallfont = QtGui.QFont("Arial", 10)
+        self.medfont = QtGui.QFont("Arial")
+        self.medfont.setPixelSize(13)
+        self.smallfont = QtGui.QFont("Arial")
+        self.smallfont.setPixelSize(12)
+
         self.headings = ''
         # self.dropdowns = ("QComboBox QAbstractItemView { color: white;"
         #                   "background-color: #303030;"
@@ -440,40 +461,15 @@ class MainW(QMainWindow):
         label.setStyleSheet(label_style)
         label.setFont(self.medfont)
         self.l0.addWidget(label, b, c-1,1,2)
-        # self.l0.addWidget(label, b, 0,1,1)
-        
-        
-#                 b+=1
-#         c = TOOLBAR_WIDTH//2
-#         label = QLabel('pen size:')
-#         label.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
-#         label.setStyleSheet(label_style)
-#         label.setFont(self.medfont)
-#         self.l0.addWidget(label, b, c-1, 1,2)
-#         c+=1
-#         self.brush_size = 1
-#         self.BrushChoose = QComboBox()
-#         self.BrushChoose.addItems(["1","3","5","7","9"])
-#         self.BrushChoose.currentIndexChanged.connect(self.brush_choose)
-#         # self.BrushChoose.setFixedWidth(60)
-#         self.BrushChoose.setStyleSheet(self.dropdowns())
-#         self.BrushChoose.setFont(self.medfont)
-#         self.BrushChoose.setFixedWidth(WIDTH_3)
 
-#         self.l0.addWidget(self.BrushChoose, b, c,1, TOOLBAR_WIDTH-c)
-        
-
-
-        # self.RGBDropDown.addItems(["RGB","red=R","green=G","blue=B","gray","spectral"])
-     
                 
         # One way of ordering the cmaps I want and including all the rest
         builtin = pg.graphicsItems.GradientEditorItem.Gradients.keys()
-        self.default_cmaps = ['grey','greyclip','magma','viridis']
+        self.default_cmaps = ['grey','cyclic','magma','viridis']
         self.cmaps = self.default_cmaps+list(set(builtin) - set(self.default_cmaps))
         self.RGBDropDown = QComboBox()
         self.RGBDropDown.addItems(self.cmaps)
-        self.RGBDropDown.setFont(self.medfont)
+        self.RGBDropDown.setFont(self.smallfont)
         self.RGBDropDown.currentIndexChanged.connect(self.color_choose)
         self.RGBDropDown.setFixedWidth(WIDTH_3)
         self.RGBDropDown.setStyleSheet(self.dropdowns(width=WIDTH_3))
@@ -619,11 +615,11 @@ class MainW(QMainWindow):
         self.l0.addWidget(self.invert, b,0,1,1)
         self.invert.toggled.connect(self.update_plot)
         
+
+        # IMAGE RESCALING slider
         b-=1
         c = 1
-
         self.slider = superqt.QLabeledDoubleRangeSlider(QtCore.Qt.Orientation.Horizontal)
-        
         self.slider.setDecimals(2) 
         # self.slider.label_shift_x = -10
         
@@ -637,15 +633,19 @@ class MainW(QMainWindow):
         self.slider.setMinimum(0.0)
         self.slider.setMaximum(100.0)
         self.slider.setValue((0.1,99.9))  
+        self.slider._max_label.setFont(self.medfont)
+        self.slider._min_label.setFont(self.medfont)
         self.l0.addWidget(self.slider, b,c+1,1,TOOLBAR_WIDTH-(c+1))
-        
-        
-        
-        # b+=1
-        label = QLabel('\u2702')
+
+        label = QLabel('\u2702') #scissors icon
         label.setAlignment(Qt.AlignmentFlag.AlignCenter | Qt.AlignmentFlag.AlignVCenter)
         label.setStyleSheet('color: #888888')
-        label.setFont(QtGui.QFont("Arial", 18, QtGui.QFont.Weight.Bold))
+        # self.iconfont = QtGui.QFont("Arial")
+        # self.iconfont.setPixelSize(18)
+        # self.iconfont.setWeight(QtGui.QFont.Weight.Bold)
+        # label.setFont(self.iconfont)
+        label.setFont(self.boldfont)
+
         self.l0.addWidget(label, b,c,1,1)
         
         
@@ -670,6 +670,7 @@ class MainW(QMainWindow):
         self.gamma_slider.setMinimum(0)
         self.gamma_slider.setMaximum(2)
         self.gamma_slider.setValue(self.gamma) 
+        self.gamma_slider._label.setFont(self.medfont)
         self.l0.addWidget(self.gamma_slider, b,c+1,1,TOOLBAR_WIDTH-(c+1))
         
         
@@ -695,7 +696,7 @@ class MainW(QMainWindow):
 
         b+=1
         c = TOOLBAR_WIDTH//2
-        label = QLabel('pen size:')
+        label = QLabel('pen:')
         label.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
         label.setStyleSheet(label_style)
         label.setFont(self.medfont)
@@ -703,13 +704,13 @@ class MainW(QMainWindow):
         c+=1
         self.brush_size = 1
         self.BrushChoose = QComboBox()
-        self.BrushChoose.addItems(["1","3","5","7","9"])
+        self.BrushChoose.addItems(["off","1px","3px","5px","7px","9px"])
         self.BrushChoose.currentIndexChanged.connect(self.brush_choose)
         # self.BrushChoose.setFixedWidth(60)
         self.BrushChoose.setStyleSheet(self.dropdowns())
         self.BrushChoose.setFont(self.medfont)
         self.BrushChoose.setFixedWidth(WIDTH_3)
-
+        self.BrushChoose.setCurrentIndex(0)
         self.l0.addWidget(self.BrushChoose, b, c,1, TOOLBAR_WIDTH-c)
 
 
@@ -792,17 +793,27 @@ class MainW(QMainWindow):
 
 #### The segmentation section is where a lot of rearrangement happened 
 
-    # I actually don't think the calibrate diameter makes much sense, 
-    # it is way faster just to use the scale disk to estimate 
+        # I got rid of calibrate diameter, manual is far faster
 
-        # b+=1
-        # self.SizeButton = QPushButton('calibrate diameter')
-        # self.SizeButton.clicked.connect(self.calibrate_size)
-        # self.l0.addWidget(self.SizeButton, b,0,1,TOOLBAR_WIDTH//2)
-        # self.SizeButton.setEnabled(False)
-        # self.SizeButton.setStyleSheet(self.styleInactive)
-        # self.SizeButton.setFont(self.boldfont_button)
+        #DIMENSION text field 
+        b+=1
+        c = TOOLBAR_WIDTH//2
+        label = QLabel('dimension:')
+        label.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+        label.setStyleSheet(label_style)
+        label.setFont(self.medfont)
+        self.l0.addWidget(label, b, c-1, 1,2)
+        c+=1
+        self.dim = 2
+        self.Dimension = QComboBox()
+        self.Dimension.addItems(["2","3","4"])
+        self.Dimension.currentIndexChanged.connect(self.brush_choose)
+        self.Dimension.setStyleSheet(self.dropdowns())
+        self.Dimension.setFont(self.medfont)
+        self.Dimension.setFixedWidth(WIDTH_3)
+        self.l0.addWidget(self.Dimension, b, c,1, TOOLBAR_WIDTH-c)
         
+        # CELL DIAMETER text field
         b+=1
         self.diameter = 30
         label = QLabel('cell diameter:')
@@ -816,31 +827,59 @@ class MainW(QMainWindow):
         label.setToolTip(text)
         self.Diameter = QLineEdit()
         self.Diameter.setAlignment(Qt.AlignmentFlag.AlignCenter | Qt.AlignmentFlag.AlignVCenter)
-        
-        # self.Diameter.setStyleSheet(self.textbox_style)
         self.Diameter.setToolTip(text)
         self.Diameter.setText(str(self.diameter))
         self.Diameter.setFont(self.medfont)
         self.Diameter.returnPressed.connect(self.compute_scale)
-        # self.Diameter.setFixedWidth(100)
-        # b+=1
         c = TOOLBAR_WIDTH//2
-        self.l0.addWidget(label, b, c, 1,2)
+        # self.l0.addWidget(label, b, c, 1,2)
+        self.l0.addWidget(label, b, c-1, 1,3)
+
         c+=1
         self.Diameter.setFixedWidth(INPUT_WIDTH) # twice width plus spacing
         self.Diameter.setFixedHeight(WIDTH_0)
         self.l0.addWidget(self.Diameter, b, TOOLBAR_WIDTH-2,1,2)
-
-
-
-        
                 
-        
-        # recompute model
 
+        # NCHAN text field
+        b+=1
+        self.nchan = 1
+        label = QLabel('nchan:')
+        label.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+        label.setStyleSheet(label_style)
+        label.setFont(self.medfont)
+        text = ('Custom models need the number of image channels to be specified. '
+                  '\nFor newer Omnipose models: the actual number of channels of your images.  '
+                  '\nFor Cellpose or older Omnipose: always 2. '
+                  )
+        label.setToolTip(text)
+        self.ChanNumber = QLineEdit()
+        self.ChanNumber.setAlignment(Qt.AlignmentFlag.AlignCenter | Qt.AlignmentFlag.AlignVCenter)
+        self.ChanNumber.setToolTip(text)
+        self.ChanNumber.setText(str(self.nchan))
+        self.ChanNumber.setFont(self.medfont)
+        self.ChanNumber.returnPressed.connect(self.set_nchan)        
+        c = TOOLBAR_WIDTH//2
+        # self.l0.addWidget(label, b, c, 1,2)
+        self.l0.addWidget(label, b, c-1, 1,3)
 
-        # scale toggle
-        # b+=1
+        c+=1
+        self.ChanNumber.setFixedWidth(INPUT_WIDTH) # twice width plus spacing
+        self.ChanNumber.setFixedHeight(WIDTH_0)
+        self.l0.addWidget(self.ChanNumber, b, TOOLBAR_WIDTH-2,1,2)
+
+        # AFFINITY seg 
+        b-=2
+        self.affinity = QCheckBox('affinity graph reconstruction')
+        self.affinity.setStyleSheet(self.checkstyle)
+        self.affinity.setFont(self.medfont)
+        self.affinity.setChecked(False)
+        self.affinity.setToolTip('sets whether or not to use affinity graph mask reconstruction')
+        self.affinity.toggled.connect(self.toggle_affinity)
+        self.l0.addWidget(self.affinity, b,0,1,2)
+
+        # SCALE DISK toggle
+        b+=1
         self.scale_on = True
         self.ScaleOn = QCheckBox('scale disk visible')
         self.ScaleOn.setStyleSheet(self.checkstyle)
@@ -853,7 +892,7 @@ class MainW(QMainWindow):
         self.l0.addWidget(self.ScaleOn, b,0,1,2)
         # self.toggle_scale() # toggle (off) 
         
-        # size model
+        # SIZE MODEL
         b+=1
         self.SizeModel = QCheckBox('SizeModel rescaling')
         self.SizeModel.setStyleSheet(self.checkstyle)
@@ -863,27 +902,28 @@ class MainW(QMainWindow):
         self.l0.addWidget(self.SizeModel, b,0,1,2)
 
 
+        # BOUNDARY FIELD CHECKBOX (sets nclasses to 3 instead of 2)
+        b+=1
+        self.boundary = QCheckBox('boundary field output')
+        self.boundary.setStyleSheet(self.checkstyle)
+        self.boundary.setFont(self.medfont)
+        self.boundary.setChecked(False)
+        self.boundary.setToolTip('sets whether or not the model was trained with a boundary field \n(older Omnpose models)')
+        self.l0.addWidget(self.boundary, b,0,1,2)
         
-        
-        # toggle omnipose mask recontruction 
-        # b+=1
-        # self.manual_omni = QCheckBox('omni mask recontruction')
-        # self.manual_omni.setStyleSheet(self.checkstyle)
-        # self.manual_omni.setFont(self.medfont)
-        # self.manual_omni.setToolTip((''))
-        # self.l0.addWidget(self.manual_omni, b,0,1,4)
 
-        # fast mode
+        # Disabling this for now, always do fast
+        # b+=1
         self.NetAvg = QComboBox()
         self.NetAvg.setStyleSheet(self.dropdowns(width=WIDTH_5))
         self.NetAvg.setFixedWidth(WIDTH_5)
         self.NetAvg.addItems(['average 4 nets', 'run 1 net', '1 net + no resample'])
-        self.NetAvg.setFont(self.medfont)
+        self.NetAvg.setFont(self.smallfont)
         self.NetAvg.setToolTip('average 4 different fit networks (default); run 1 network (faster); or run 1 net + turn off resample (fast)')
         self.l0.addWidget(self.NetAvg, b,TOOLBAR_WIDTH//2,1,TOOLBAR_WIDTH-TOOLBAR_WIDTH//2)
 
+        # MODEL DROPDOWN
         b+=1
-        # choose models
         self.ModelChoose = QComboBox()
         if len(self.model_strings) > len(models.MODEL_NAMES):
             current_index = len(models.MODEL_NAMES)
@@ -891,12 +931,12 @@ class MainW(QMainWindow):
         else:
             current_index = models.MODEL_NAMES.index(DEFAULT_MODEL)
         self.ModelChoose.addItems(self.model_strings) #added omnipose model names
-        # self.ModelChoose.setFixedWidth(175)
         self.ModelChoose.setStyleSheet(self.dropdowns(width=WIDTH_5))
-        self.ModelChoose.setFont(self.medfont)
+        self.ModelChoose.setFont(self.smallfont)
         self.ModelChoose.setCurrentIndex(current_index)
-        # print('debug',current_index,len(models.MODEL_NAMES),models.MODEL_NAMES,models.MODEL_NAMES.index(DEFAULT_MODEL))
         self.l0.addWidget(self.ModelChoose, b, TOOLBAR_WIDTH//2,1,TOOLBAR_WIDTH-TOOLBAR_WIDTH//2)
+
+
         label = QLabel('model:')
         label.setStyleSheet(label_style)
         label.setFont(self.medfont)
@@ -914,11 +954,14 @@ class MainW(QMainWindow):
         label.setToolTip(tipstr)
         self.ModelChoose.setToolTip(tipstr)
         self.ModelChoose.setFixedWidth(WIDTH_5)
-        
         self.l0.addWidget(label, b, 0,1,TOOLBAR_WIDTH//2)
 
+   
+
+
+
+        # CHANNELS DROPDOWN
         b+=1
-        # choose channel
         self.ChannelChoose = [QComboBox(), QComboBox()]
         self.ChannelChoose[0].addItems(['gray','red','green','blue'])
         self.ChannelChoose[1].addItems(['none','red','green','blue'])
@@ -926,7 +969,7 @@ class MainW(QMainWindow):
         for i in range(2):
             self.ChannelChoose[i].setFixedWidth(WIDTH_5)
             self.ChannelChoose[i].setStyleSheet(self.dropdowns(width=WIDTH_5))
-            self.ChannelChoose[i].setFont(self.medfont)
+            self.ChannelChoose[i].setFont(self.smallfont)
             label = QLabel(cstr[i])
             label.setStyleSheet(label_style)
             label.setFont(self.medfont)
@@ -943,11 +986,14 @@ class MainW(QMainWindow):
 
             b+=1
         
-        # post-hoc paramater tuning
+
+
+
+        # THRESHOLDS
         b+=1
         c = TOOLBAR_WIDTH//2 
 
-        label = QLabel('mask threshold:')
+        label = QLabel('mask:')
         label.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
         
         label.setToolTip('threshold on scalar output field to seed cell masks \n'
@@ -959,16 +1005,23 @@ class MainW(QMainWindow):
         # b+=1
         self.cellprob = 0.0
         self.probslider = superqt.QLabeledDoubleSlider(QtCore.Qt.Horizontal)
+        self.probslider._label.setFont(self.smallfont)
         self.probslider.setRange(-6,6)
         self.probslider.setValue(self.cellprob)
+        self.probslider._label.setFont(self.medfont)
+
+
+        # self.probslider.setFont(self.medfont)
+        # font = QtGui.QFont("Arial")
+        # font.setPixelSize(1)   
+        # self.probslider.setFont(font)
         self.l0.addWidget(self.probslider, b, c,1,TOOLBAR_WIDTH-c)
         self.probslider.setEnabled(False)
-        self.probslider.valueChanged.connect(self.compute_cprob)
-        
+        self.probslider.valueChanged.connect(self.run_mask_reconstruction)
         
 
         b+=1
-        label = QLabel('flow threshold:')
+        label = QLabel('flow:')
         label.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
         
         label.setToolTip(('threshold on flow match to accept a mask \n(Set higher to remove poor predictions.'
@@ -982,9 +1035,10 @@ class MainW(QMainWindow):
         self.threshslider = superqt.QLabeledDoubleSlider(QtCore.Qt.Horizontal)
         self.threshslider.setRange(0,5)
         self.threshslider.setValue(self.threshold)
+        self.threshslider._label.setFont(self.medfont)
         self.l0.addWidget(self.threshslider, b, c,1,TOOLBAR_WIDTH-c)
         self.threshslider.setEnabled(False)
-        self.threshslider.valueChanged.connect(self.compute_cprob)
+        self.threshslider.valueChanged.connect(self.run_mask_reconstruction)
         
 
         
@@ -1018,7 +1072,6 @@ class MainW(QMainWindow):
         c = 1
         label = QLabel('Click to copy segmentation parameters:')
         label.setAlignment(Qt.AlignmentFlag.AlignCenter | Qt.AlignmentFlag.AlignVCenter)
-        
         label.setStyleSheet(label_style)
         label.setFont(self.medfont)
         self.l0.addWidget(label, b,c,1,TOOLBAR_WIDTH-c)
@@ -1028,23 +1081,16 @@ class MainW(QMainWindow):
         h = 95
         self.runstring = TextField(self)
         self.runstring.setFixedHeight(h)
-
+        self.runstring.setFont(self.medfont)
         self.l0.addWidget(self.runstring, b,c,1,TOOLBAR_WIDTH-c)
         self.runstring.clicked.connect(self.copy_runstring)
 
-        self.ModelButton = QPushButton('run \nsegmentation')
+        self.ModelButton = QPushButton('Segment \nimage')
         
         self.ModelButton.clicked.connect(self.compute_model)
         self.l0.addWidget(self.ModelButton, b,0,1,c)
         self.ModelButton.setEnabled(False)
-        
-        # self.ModelButton.setStyleSheet('QPushButton {border-color: white; background-color: #484848; }')
-        # 'QComboBox QAbstractItemView { color: white;',
-        #                 'background-color: #303030;',
-        #                 'selection-color: white; ',
-        #                 'min-width: {};'.format(width),
-        #                 '}'
-        
+
         self.ModelButton.setFont(self.boldfont_button)
         self.ModelButton.setSizePolicy(QtWidgets.QSizePolicy.Preferred, QtWidgets.QSizePolicy.Expanding)
         self.ModelButton.setFixedHeight(h)
@@ -1142,7 +1188,7 @@ class MainW(QMainWindow):
         # self.l0.addWidget(label, b, 0,1,5)
         # self.flow_threshold = QLineEdit()
         # self.flow_threshold.setText('0.4')
-        # self.flow_threshold.returnPressed.connect(self.compute_cprob)
+        # self.flow_threshold.returnPressed.connect(self.run_mask_reconstruction)
         # self.flow_threshold.setFixedWidth(70)
         # self.l0.addWidget(self.flow_threshold, b,5,1,4)
 
@@ -1154,7 +1200,7 @@ class MainW(QMainWindow):
         # self.l0.addWidget(label, b, 0,1,5)
         # self.cellprob_threshold = QLineEdit()
         # self.cellprob_threshold.setText('0.0')
-        # self.cellprob_threshold.returnPressed.connect(self.compute_cprob)
+        # self.cellprob_threshold.returnPressed.connect(self.run_mask_reconstruction)
         # self.cellprob_threshold.setFixedWidth(70)
         # self.l0.addWidget(self.cellprob_threshold, b,5,1,4)
 
@@ -1166,7 +1212,7 @@ class MainW(QMainWindow):
         # self.l0.addWidget(label, b, 0,1,5)
         # self.stitch_threshold = QLineEdit()
         # self.stitch_threshold.setText('0.0')
-        # #self.cellprob_threshold.returnPressed.connect(self.compute_cprob)
+        # #self.cellprob_threshold.returnPressed.connect(self.run_mask_reconstruction)
         # self.stitch_threshold.setFixedWidth(70)
         # self.l0.addWidget(self.stitch_threshold, b,5,1,4)
 
@@ -1462,6 +1508,9 @@ class MainW(QMainWindow):
         channels = [self.ChannelChoose[0].currentIndex(), self.ChannelChoose[1].currentIndex()]
         if self.current_model=='nuclei':
             channels[1] = 0
+
+        if self.nchan==1:
+            channels = None
         return channels
 
     def model_choose(self, index):
@@ -1494,6 +1543,10 @@ class MainW(QMainWindow):
             self.p0.addItem(self.scale)
             self.scale_on = True
         self.recenter()    
+
+    def toggle_affinity(self):
+        self.recomoute_masks = True
+        self.run_mask_reconstruction()
         
     def toggle_removals(self):
         if self.ncells>0:
@@ -1622,7 +1675,7 @@ class MainW(QMainWindow):
         
         
         self.p0.setCursor(QtCore.Qt.CrossCursor)
-        self.brush_size=3
+        self.brush_size=1
         self.win.addItem(self.p0, 0, 0, rowspan=1, colspan=1)
         self.p0.setMenuEnabled(False)
         self.p0.setMouseEnabled(x=True, y=True)
@@ -1632,9 +1685,15 @@ class MainW(QMainWindow):
         # self.hist = pg.HistogramLUTItem(image=self.img,orientation='horizontal',gradientPosition='bottom')
         self.hist = guiparts.HistLUT(image=self.img,orientation='horizontal',gradientPosition='bottom')
 
+        self.opacity_effect = QtWidgets.QGraphicsOpacityEffect()
+        self.hist.setGraphicsEffect(self.opacity_effect)
+
         # self.set_hist_colors() #called elsewhere. no need
         # print(self.hist.__dict__)
-        self.win.addItem(self.hist,col=0,row=2)
+        # self.win.addItem(self.hist,col=0,row=2)
+        self.win.addItem(self.hist,col=0,row=1)
+
+
         self.layer = guiparts.ImageDraw(viewbox=self.p0, parent=self)
         self.scale = pg.ImageItem(viewbox=self.p0, parent=self,levels=(0,255))
 
@@ -1644,6 +1703,7 @@ class MainW(QMainWindow):
         self.p0.addItem(self.img)
         self.p0.addItem(self.layer)
         self.p0.addItem(self.scale)
+
         
         # policy = QtWidgets.QSizePolicy()
         # policy.setRetainSizeWhenHidden(True)
@@ -1890,7 +1950,10 @@ class MainW(QMainWindow):
 
 
     def brush_choose(self):
-        self.brush_size = self.BrushChoose.currentIndex()*2 + 1
+        if self.BrushChoose.currentIndex() > 0:
+            self.brush_size = (self.BrushChoose.currentIndex()-1)*2 + 1
+        else:
+            self.brush_size = 0
         if self.loaded:
             self.layer.setDrawKernel(kernel_size=self.brush_size)
             self.update_layer()
@@ -2100,7 +2163,6 @@ class MainW(QMainWindow):
         # self.RGBChoose.button(self.view).setChecked(True)
         
         #new version allows users to select any color map and save it
-        
         # state = self.state[self.view]
         
         self.hist.gradient.loadPreset(self.cmaps[self.RGBDropDown.currentIndex()])
@@ -2123,10 +2185,20 @@ class MainW(QMainWindow):
         
         # toggle off histogram for flow field 
         if self.view==1:
-            self.hist.hide()
+            self.opacity_effect.setOpacity(0.0)  # Hide the histogram
+            # self.hist.gradient.setEnabled(False)
+            # self.hist.region.setEnabled(False)
+            # self.hist.background = None
+            self.hist.show_histogram = False
+            # self.hist.fillLevel = None
+
+
         else:
-            self.hist.show()
-            
+            self.opacity_effect.setOpacity(1.0)  # Show the histogram
+            # self.hist.gradient.setEnabled(True)
+            # self.hist.region.setEnabled(True)
+            self.hist.show_histogram = True
+
         if self.NZ < 2:
             self.scroll.hide()
         else:
@@ -2418,6 +2490,9 @@ class MainW(QMainWindow):
         self.win.show()
         self.show()
 
+    def set_nchan(self):
+        self.nchan = int(self.ChanNumber.text())
+
     def redraw_masks(self, masks=True, outlines=True, draw=True):
         self.draw_layer()
 
@@ -2516,22 +2591,40 @@ class MainW(QMainWindow):
     # I guess most doing that will not be using the GUI, but still an important feature 
     def initialize_model(self):
         self.get_model_path()
+
+
         if self.current_model in models.MODEL_NAMES:
+
+            # make sure 2-channel models are initialized correctly
+            if self.current_model in models.C2_MODEL_NAMES:
+                self.nchan = 2
+                self.ChanNumber.setText(str(self.nchan))
+
+            # ensure that the boundary/nclasses is set correctly
+            self.boundary.setChecked(self.current_model in models.BD_MODEL_NAMES)
+            self.nclasses = 2 + self.boundary.isChecked()
+
+            logger.info(f'Initializing model: nchan set to {self.nchan}, nclasses set to {self.nclasses}, dim set to {self.dim}')        
+
             if self.SizeModel.isChecked():
                 self.model = models.Cellpose(gpu=self.useGPU.isChecked(),
                                              use_torch=self.torch,
-                                             model_type=self.current_model)
+                                             model_type=self.current_model,
+                                             nchan=self.nchan,
+                                             nclasses=self.nclasses)
             else:
                 self.model = models.CellposeModel(gpu=self.useGPU.isChecked(),
                                                   use_torch=self.torch,
-                                                  model_type=self.current_model)
-            # self.SizeButton.setEnabled(self.SizeModel.isChecked()) #disabled
+                                                  model_type=self.current_model,                                             
+                                                  nchan=self.nchan,
+                                                  nclasses=self.nclasses)
         else:
-
+            self.nclasses = 2 + self.boundary.isChecked()
             self.model = models.CellposeModel(gpu=self.useGPU.isChecked(), 
                                               use_torch=True,
-                                              pretrained_model=self.current_model_path)
-            # self.SizeButton.setEnabled(False) #disabled 
+                                              pretrained_model=self.current_model_path,                                             
+                                              nchan=self.nchan,
+                                              nclasses=self.nclasses)
 
             
     def add_model(self):
@@ -2559,7 +2652,7 @@ class MainW(QMainWindow):
         else:
             print('GUI_INFO: training cancelled')
 
-    
+    # this probably needs an overhaul 
     def train_model(self):
         if self.training_params['model_index'] < len(models.MODEL_NAMES):
             model_type = models.MODEL_NAMES[self.training_params['model_index']]
@@ -2574,7 +2667,7 @@ class MainW(QMainWindow):
             
         self.model = models.CellposeModel(gpu=self.useGPU.isChecked(), 
                                           model_type=model_type)
-        # self.SizeButton.setEnabled(False)
+
         save_path = os.path.dirname(self.filename)
         
         print('GUI_INFO: name of new model:' + self.training_params['model_name'])
@@ -2627,7 +2720,7 @@ class MainW(QMainWindow):
             return 0.4, 0.0
         
     # The CP2 GUI uses a text box instead of a slider... I prefer the slider  
-#     def compute_cprob(self):
+#     def run_mask_reconstruction(self):
 #         if self.recompute_masks:
 #             flow_threshold, cellprob_threshold = self.get_thresholds()
 #             if flow_threshold is None:
@@ -2653,21 +2746,22 @@ class MainW(QMainWindow):
 #             io._masks_to_gui(self, maski, outlines=None)
 #             self.show()
 
-    def compute_cprob(self):
+    def run_mask_reconstruction(self):
         # use_omni = 'omni' in self.current_model
         
         # needed to be replaced with recompute_masks
-        rerun = False
-        more_px = self.probslider.value() < self.cellprob # slider moves down
-        if self.cellprob != self.probslider.value():
-            rerun = True
-            self.cellprob = self.probslider.value()
+        # rerun = False
+        have_enough_px = self.probslider.value() < self.cellprob # slider moves down
+        # if self.cellprob != self.probslider.value():
+        #     rerun = True
+        #     self.cellprob = self.probslider.value()
             
-        if self.threshold != self.threshslider.value():
-            rerun = True
-            self.threshold = self.threshslider.value()
-    
-        if not rerun:
+        # if self.threshold != self.threshslider.value():
+        #     rerun = True
+        #     self.threshold = self.threshslider.value()
+
+
+        if not self.recompute_masks:
             return
         
         if self.threshold==3.0 or self.NZ>1:
@@ -2711,7 +2805,7 @@ class MainW(QMainWindow):
             # must recompute flows if we add pixels, because p does not contain them
             # an alternate approach would be to compute p for the lowest allowed threshold
             # and then never ecompute (the threshold prodces a mask that selects from existing trajectories, see get_masks)
-            p = self.flows[-2].copy() if more_px else None 
+            p = self.flows[-2].copy() if have_enough_px else None 
             
             dP = self.flows[-1][:-self.model.dim]
             dist = self.flows[-1][self.model.dim]
@@ -2725,6 +2819,7 @@ class MainW(QMainWindow):
                                                 cluster=self.cluster.isChecked(),
                                                 verbose=self.verbose.isChecked(),
                                                 nclasses=self.model.nclasses,
+                                                affinity_seg=self.affinity.isChecked(),
                                                 omni=omni)[0]
 
         
@@ -2735,7 +2830,7 @@ class MainW(QMainWindow):
         if maski.ndim<3:
             maski = maski[np.newaxis,...]
         logger.info('%d cells found'%(len(np.unique(maski)[1:])))
-        io._masks_to_gui(self, maski, outlines=None)
+        io._masks_to_gui(self, maski, outlines=None) # replace this to show boundary emphasized masks
         self.show()
 
 
@@ -2796,11 +2891,9 @@ class MainW(QMainWindow):
                 if bacterial:
                     self.diameter = 0.
                     self.Diameter.setText('%0.1f'%self.diameter)
-                
+
                 # allow omni to be togged manually or forced by model
                 if OMNI_INSTALLED:
-                    # self.omni.setChecked(self.omni.isChecked() or omni_model)
-                    # self.cluster.setChecked(self.cluster.isChecked() or omni_model)
                     if omni_model:
                         print('GUI_INFO: turning on Omnipose mask recontruction version for Omnipose models (see menu)')
                         if not self.omni.isChecked():
@@ -2830,6 +2923,7 @@ class MainW(QMainWindow):
                              omni)
                 self.runstring.setPlainText(s)
                 self.progress.setValue(30)
+                print
                 masks, flows = self.model.eval(data, channels=channels,
                                                mask_threshold=self.cellprob,
                                                flow_threshold=self.threshold,
@@ -2842,6 +2936,7 @@ class MainW(QMainWindow):
                                                progress=self.progress,
                                                verbose=self.verbose.isChecked(),
                                                omni=omni, 
+                                               affinity_seg=self.affinity.isChecked(),
                                                cluster = self.cluster.isChecked(),
                                                transparency=True)[:2]
                 
@@ -2856,12 +2951,14 @@ class MainW(QMainWindow):
             #    masks = masks[0][np.newaxis,:,:]
             #    flows = flows[0]
             
-            # flows are [RGB, dP, cellprob, p, bd, tr]
+            # flows here are [RGB, dP, cellprob, p, bd, tr]
+            self.flows[0] = to_8_bit(flows[0]) #RGB flow for plotting
+            self.flows[1] = to_8_bit(flows[2]) #dist/prob for plotting
+            if self.boundary.isChecked():
+                self.flows[2] = to_8_bit(flows[4]) #boundary for plotting
+            else:
+                self.flows[2] = np.zeros_like(self.flows[1])
 
-            self.flows[0] = (normalize99(flows[0].copy()) * 255).astype(np.uint8) #RGB flow for plotting
-            self.flows[1] = (normalize99(flows[2].copy()) * 255).astype(np.uint8) #dist/prob for plotting
-            self.flows[2] = (normalize99(flows[4].copy()) * 255).astype(np.uint8) #boundary for plotting
-                            
             if not do_3D:
                 masks = masks[np.newaxis,...]
                 for i in range(3):
@@ -2878,12 +2975,18 @@ class MainW(QMainWindow):
             # else:
             #     self.flows[2] = (flows[1][0]/10 * 127 + 127).astype(np.uint8)
                 
+
+            # this stores the original flow components for recomputing masks
             if len(flows)>2: 
                 self.flows.append(flows[3].squeeze()) #p put in position -2
-                self.flows.append(np.concatenate((flows[1], #self.flows[-1][:self.dim] is dP
-                                                  flows[2][np.newaxis,...], #self.flows[-1][self.dim] is dist/prob
-                                                  flows[4][np.newaxis,...]), axis=0)) #self.flows[-1][self.dim+1] is bd
-            
+                flws = [flows[1], #self.flows[-1][:self.dim] is dP
+                        flows[2][np.newaxis,...]] #self.flows[-1][self.dim] is dist/prob
+                if self.boundary.isChecked():
+                    flws.append(flows[4][np.newaxis,...]) #self.flows[-1][self.dim+1] is bd
+                else:
+                    flws.append(np.zeros_like(flws[-1]))
+                
+                self.flows.append(np.concatenate(flws))
 
             logger.info('%d cells found with model in %0.3f sec'%(len(np.unique(masks)[1:]), time.time()-tic))
             self.progress.setValue(80)

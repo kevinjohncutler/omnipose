@@ -26,29 +26,26 @@ from torchvf.losses import ivp_loss
 from typing import Any, Dict, List, Set, Tuple, Union, Callable
 
 
-# define the lists of unqiue omnipose models 
-# These partition between those trained on 2 channels...
-# (either on purpose for cyto or by accident due to defaults)
+# define the lists of unique omnipose models 
+# Some were trained with 2 channel input (C2)
+# some were trained with a boundary field (BD)
 
-FCLS_OMNI_MODELS = ['bact_phase_omni',
-                    'bact_fluor_omni',
-                    'worm_omni',
-                    'worm_bact_omni',
-                    'worm_high_res_omni',
-                    'plant_omni', #3D model 
-                    ]
+C2_BD_MODELS = ['bact_phase_omni',
+                'bact_fluor_omni',
+                'worm_omni',
+                'worm_bact_omni',
+                'worm_high_res_omni',                    
+                'cyto2_omni']          
 
-MCHN_OMNI_MODELS = ['bact_phase_cp',
-                    'bact_fluor_cp',
-                    'plant_cp', # 2D model
-                    'worm_cp',
-                    'cyto2_omni'] + FCLS_OMNI_MODELS[:-1]
+C2_MODELS = ['bact_phase_cp',
+            'bact_fluor_cp',
+            'plant_cp', # 2D model for do_3D
+            'worm_cp']    
 
+C1_BD_MODELS = ['plant_omni']
 
-# ... and into those trained on single channels (more to come)
-MONO_OMNI_MODELS = [FCLS_OMNI_MODELS[-1],]
-
-
+# This will be the affinity seg models 
+C1_MODELS = []
 
 import torch
 mse = torch.nn.MSELoss()
@@ -668,7 +665,7 @@ def get_link_matrix(links, piece_masks, inds, idx, is_link):
                 is_link[i, j] = True
     return is_link
 
-# @njit()
+@njit()
 def masks_to_affinity(masks, coords, steps, inds, idx, fact, sign, dim,
                       links=None, edges=None, dists=None, cutoff=np.sqrt(2)):
     """
@@ -727,7 +724,7 @@ def masks_to_affinity(masks, coords, steps, inds, idx, fact, sign, dim,
     
     return affinity_graph
 
-# @njit()
+@njit()
 def affinity_to_boundary(masks,affinity_graph,coords):
     """Convert affinity graph to boundary map.
     

@@ -897,8 +897,16 @@ class HistLUT(pg.HistogramLUTItem):
         
         # self.gradient = GradientEditorItem(orientation=self.gradientPosition)
         # self.gradient = GradEditor(orientation=self.gradientPosition) #overwrite with mine
+        show_histogram = True
         
-        
+    def mousePressEvent(self, event):
+        if self.show_histogram:
+            super().mousePressEvent(event)
+
+    def mouseMoveEvent(self, event):
+        if self.show_histogram:
+            super().mouseMoveEvent(event)
+
     def paint(self, p, *args):
         # paint the bounding edges of the region item and gradient item with lines
         # connecting them

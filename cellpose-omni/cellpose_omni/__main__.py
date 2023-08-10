@@ -6,7 +6,7 @@ from natsort import natsorted
 from tqdm import tqdm
 from cellpose_omni import utils, models, io
 
-from .models import MODEL_NAMES, MCHN_MODEL_NAMES, FCLS_OMNI_MODELS
+from .models import MODEL_NAMES, C2_MODEL_NAMES, BD_MODEL_NAMES
 
 import torch
 
@@ -244,10 +244,15 @@ def main(omni_CLI=False):
         bacterial = ('bact' in args.pretrained_model) or ('worm' in args.pretrained_model) 
 
         # set nchan for builtin models
-        if args.pretrained_model in MCHN_MODEL_NAMES:
+        if args.pretrained_model in C2_MODEL_NAMES:
             if args.nchan is not None:
                 logger.info('This pretrained model uses 2 channels, setting nchan=2')
             args.nchan = 2
+        
+        # Pretrained omni models originally had 3 prediction classes 
+        if args.pretrained_model in BD_MODEL_NAMES:
+            logger.info('This model uses boundary field, setting nclasses=3.')
+            args.nclasses = 3
 
         # Handle channel assignemnt for 2 vs 1 channels
         # For >2 channels, use None. 
@@ -255,11 +260,7 @@ def main(omni_CLI=False):
             channels = [args.chan, args.chan2]
         else:
             channels = None
-        
-        # Pretrained omni models originally had four prediciton classes 
-        if args.pretrained_model in FCLS_OMNI_MODELS:
-            logger.info('This model uses boundary field, setting nclasses=4.')
-            args.nclasses = 4
+
         
         # force omni on for those models, but don't toggle it off if manually specified via --omni or by invoking python -m omnipose
         if 'omni' in args.pretrained_model or omni_CLI:

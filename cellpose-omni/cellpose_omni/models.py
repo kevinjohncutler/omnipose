@@ -30,12 +30,14 @@ MODEL_DIR = pathlib.Path(_MODEL_DIR_ENV) if _MODEL_DIR_ENV else _MODEL_DIR_DEFAU
 
 if OMNI_INSTALLED:
     import omnipose
-    from omnipose.core import MCHN_OMNI_MODELS, MONO_OMNI_MODELS, FCLS_OMNI_MODELS
+    from omnipose.core import C2_BD_MODELS, C1_BD_MODELS, C2_MODELS, C1_MODELS 
 else:
-    MCHN_OMNI_MODELS, MONO_OMNI_MODELS, FCLS_OMNI_MODELS = [],[],[]
-    
-MCHN_MODEL_NAMES = ['cyto','nuclei','cyto2'] + MCHN_OMNI_MODELS
-MODEL_NAMES = MCHN_MODEL_NAMES + MONO_OMNI_MODELS
+    C2_BD_MODELS, C1_BD_MODELS, C2_MODELS, C1_MODELS = [],[],[],[]
+
+CP_MODELS = ['cyto','nuclei','cyto2']
+C2_MODEL_NAMES = C2_BD_MODELS + C2_MODELS + CP_MODELS
+BD_MODEL_NAMES = C2_BD_MODELS + C1_BD_MODELS
+MODEL_NAMES = C1_MODELS + C2_BD_MODELS + C1_BD_MODELS + C2_MODELS + CP_MODELS
 
 def model_path(model_type, model_index, use_torch):
     torch_str = 'torch' if use_torch else ''
@@ -386,7 +388,7 @@ class CellposeModel(UnetModel):
                  model_type=None, net_avg=True, use_torch=True,
                  diam_mean=30., device=None,
                  residual_on=True, style_on=True, concatenation=False,
-                 nchan=2, nclasses=2, dim=2, omni=False, 
+                 nchan=1, nclasses=2, dim=2, omni=False, 
                  checkpoint=False, dropout=False, kernel_size=2):
         if not torch:
             if not MXNET_ENABLED:
@@ -399,7 +401,7 @@ class CellposeModel(UnetModel):
             pretrained_model = [pretrained_model]
     
         # initialize according to arguments 
-        # these are overwritten if a model requires it (bact_omni the most rectrictive)
+        # these are overwritten if a model requires it (bact_omni the most restrictive)
         self.omni = omni
         self.nclasses = nclasses 
         self.diam_mean = diam_mean
@@ -428,8 +430,13 @@ class CellposeModel(UnetModel):
                 net_avg = False # No bacterial, plant, or omni models have additional models
             
             # original omni models had the boundary field 
-            if model_type in ['bact_phase_omni','bact_fluor_omni','cyto2_omni','plant_omni']:
+            if model_type in BD_MODEL_NAMES:
                 nclasses = 3
+
+            # most original cellpose/omnipose models also were trained with 2 channels
+            # (even though most or all images were single-channel)
+            if model_type in C2_MODEL_NAMES:
+                self.nchan = 2
 
             # set omni flag to true if the name contains it
             self.omni = 'omni' in os.path.splitext(Path(pretrained_model_string).name)[0]
@@ -450,14 +457,9 @@ class CellposeModel(UnetModel):
                     residual_on, style_on, concatenation = params 
                 self.omni = 'omni' in os.path.splitext(Path(pretrained_model_string).name)[0]
         
-        # if self.omni:
-        # need to overwrite nclasses with the explicit number of prediciton outputs
-        # because the flow field dounts for dim, not 1, different predictions 
-        if nclasses == 3: # flow, distance, and boundary 
-            self.nclasses = self.dim + 2    
-        if nclasses == 2: # no boundary field, just and flow (dim components) and distance (1 component)
-            self.nclasses = self.dim + 1 
-
+        # convert abstract prediction classes number to actual count
+        # flow field components increase this by dim-1
+        self.nclasses = nclasses + (self.dim-1)
 
         # initialize network
         super().__init__(gpu=gpu, pretrained_model=False,
