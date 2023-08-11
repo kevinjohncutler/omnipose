@@ -665,7 +665,7 @@ def get_link_matrix(links, piece_masks, inds, idx, is_link):
                 is_link[i, j] = True
     return is_link
 
-@njit()
+# @njit() cannot compute fingerprint of empty set
 def masks_to_affinity(masks, coords, steps, inds, idx, fact, sign, dim,
                       links=None, edges=None, dists=None, cutoff=np.sqrt(2)):
     """
@@ -724,7 +724,7 @@ def masks_to_affinity(masks, coords, steps, inds, idx, fact, sign, dim,
     
     return affinity_graph
 
-@njit()
+# @njit() error 
 def affinity_to_boundary(masks,affinity_graph,coords):
     """Convert affinity graph to boundary map.
     

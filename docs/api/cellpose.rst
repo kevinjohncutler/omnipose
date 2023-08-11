@@ -2,7 +2,7 @@
 
 
 :header-2:`cellpose_omni.models`
----------------------------
+--------------------------------
 
 .. automodule:: cellpose_omni.models
 
@@ -10,7 +10,7 @@
     :toctree: api
 
 :header-2:`cellpose_omni.io`
-------------------------
+----------------------------
 .. automodule:: cellpose_omni.io
 
 .. automodsumm:: cellpose_omni.io
@@ -18,7 +18,7 @@
     :toctree: api
 
 :header-2:`cellpose_omni.plot`
--------------------------
+------------------------------
 .. automodule:: cellpose_omni.plot
 
 .. automodsumm:: cellpose_omni.plot
@@ -26,7 +26,7 @@
     :toctree: api
 
 :header-2:`cellpose_omni.metrics`
-----------------------------
+---------------------------------
 .. automodule:: cellpose_omni.metrics
 
 .. automodsumm:: cellpose_omni.metrics
@@ -34,7 +34,7 @@
     :toctree: api
 
 :header-2:`cellpose_omni.dynamics`
------------------------------
+----------------------------------
 .. automodule:: cellpose_omni.dynamics
 
 .. automodsumm:: cellpose_omni.dynamics
@@ -42,7 +42,7 @@
     :toctree: api
 
 :header-2:`cellpose_omni.transforms`
--------------------------------
+------------------------------------
 .. automodule:: cellpose_omni.transforms
 
 .. automodsumm:: cellpose_omni.transforms

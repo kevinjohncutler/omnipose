@@ -20,7 +20,7 @@ The main commands here are:
 
 - :bash:`--diameter` is used only if your images need to be rescaled, and :py:`0` disables it. See `Diameter and the Size Model`_. 
 
-- :bash:`--nchan` and :bash:`--nclasses` should ALWAYS be specified. See `Transfer learning`_ for details.
+- :bash:`--nchan` and :bash:`--nclasses` should ALWAYS be specified. See :ref:`transfer-learning` for details.
 
 - :bash:`--all_channels` uses all ``nchan`` channels be used for segmentation. The relatively complicated :bash:`--chan` and :bash:`--chan2` settings from Cellpose are still available, but I never use them. I highly recommend preprocessing your training set to have the channels you want to use (and for evaluation, do the same preprocessing in a script/notebook). 
 
@@ -41,7 +41,7 @@ It is best for reproducibility to explicitly choose hyperparameters at runtime r
 
 - :bash:`--batch_size` controls the number of images the network sees for each step (with the last batch being smaller if the number of images is not evenly divisible by :py:`batch_size`). A random crop is selected from each image (see :bash:`--tyx`). This means that only a portion of each image is seen during a given epoch. Smaller batches can sometimes lead to better generalization. Larger batches can lead to better stability. I have found that it does not make a very large difference in model performance, but larger batches can train faster (see :bash:`--dataparallel`). 
 
-- :bash:`--tyx` controls the crop size for selecting a sample from each training image (see `Image dimensions`_). 
+- :bash:`--tyx` controls the crop size for selecting a sample from each training image (see :ref:`image-dimensions`). 
 
 - :bash:`--n_epochs` controls how many times the network is shown the full dataset. 
 
@@ -98,7 +98,8 @@ If you use the :bash:`--img_filter` option (:bash:`--img_filter img` in this cas
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^
 Microscopy images should generally be saved in a lossless format like PNG or TIF. Instance label matrices may likewise be stored as images in either PNG or TIF. Note that TIF supports up to 32 bits per channel whereas PNG only supports 16. That said, if you have more than :math:`2^{16}-1 = 65535` labels in one image, you should definitely be cropping your images into several smaller images. 
 
-.. _Image dimensions:
+.. _image-dimensions:
+
 :header-3:`Image dimensions`
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 You should aim to make training images of roughly size :py:`(512,512)`. During training, the :py:`tyx` parameter (set to :py:`224,224` by default) controls the size of warped image crops in each batch shown to the network. Although the true rectangular patch selected from each image in a batch has randomly expanded or contracted dimensions (within a range :py:`0.5-1.5`), you should aim to have the `tyx` dimensions roughly half that of the images in the training set. If much smaller, then each image will not be sufficiently covered during an epoch (requiring more epochs to converge). Larger ``tyx`` will just slow down training and possibly hurt generalizability. 
@@ -130,60 +131,12 @@ You will probably spend 10x more time annotating ground truth images than acquir
 .. tip:: 
     If using a transmissive modality like phase contrast or brightfield or DIC, use the same filter cube as your fluorescence channel. This usually removes any offset between the channels. Otherwise, be sure to do multimodal registration between the channels. 
 
-.. _Transfer learning:
+.. _transfer-learning:
+
 :header-2:`Transfer learning`
 -----------------------------
 
-You can use :bash:`--pretrained_model None` to train from scratch or :bash:`--pretrained_model <model path>` to start from an existing model. Once a model is initialized and trained, you cannot change its structure. This is defined by :py:`nchan` (the number of channels used for segmentation),  :py:`nclasses` (the number of prediction classes), and :py:`dim` (the dimension of the images). **You must use precisely the same** :py:`nchan`\ **,** :py:`nclasses`\ **, and** :py:`dim` **that were used to train the existing model.**
-
-ALl 2D models originally published in the Cellpose and Omnipose papers use ``nchan = 2``. This is because Cellpose defaults are set to train models that use two channels fpr segmentation (usually cytoplasm and nucleus). Images without a second channel are just padded with :py:`0`\s. I think most users will train Omnipose on mono-channel images, so now ``nchan = 1`` by default.
-
-.. tip:: 
-    Always specify ``nchan`` and ``nclasses`` when training and evaluating models. 
-
-
-Omnipose used to have a boundary prediction, so :py:`nclasses = 4` (2 gradient components, distance field, and boundary field in 2D). The current version of Omnipose no longer needs a boundary prediction, so :py:`nclasses = 3` is the default. 
-
-See the table below for named models and their corresponding ``nchan``, ``nclasses``. 
-
-.. _pretrained-models:
-
-:header-3:`Pretrained models`
------------------------------
-.. list-table:: 
-    :header-rows: 1
-
-    *   - model
-        - ``nchan``
-        - ``nclasses``
-        - ``dim``
-    *   - ``bact_phase_omni``
-        - 2
-        - 4
-        - 2
-    *   - ``bact_fluor_omni``
-        - 2
-        - 4
-        - 2
-    *   - ``cyto2_omni``
-        - 2
-        - 4
-        - 2
-    *   - ``worm_omni``
-        - 2
-        - 4
-        - 2
-    *   - ``plant_omni``
-        - 2
-        - 4
-        - 3
-    *   - ``bact_phase_omni_2``
-        - 1
-        - 3
-        - 2
-
-
-Cellpose models all have ``nchan = 2``, ``nclasses = 3``, and ``dim=2`` (3D Cellpose uses 2D models to approximate 3D output). If you are curious, you could train an Omnipose model based on a cellpose model using these hyperparameters. 
+You can use :bash:`--pretrained_model None` to train from scratch or :bash:`--pretrained_model <model path>` to start from an existing model. Once a model is initialized and trained, you **cannot** change its structure. This is defined by :py:`nchan` (the number of channels used for segmentation),  :py:`nclasses` (the number of prediction classes), and :py:`dim` (the dimension of the images). **You must use precisely the same** :py:`nchan`\ **,** :py:`nclasses`\ **, and** :py:`dim` **that were used to train the existing model.**
 
 
 .. _Diameter and the Size Model:

@@ -74,7 +74,7 @@ Omnipose runs on CPU on macOS, Windows, and Linux. PyTorch has historically only
 
 Your PyTorch version (>=1.6) needs to be compatible with your NVIDIA driver. Older cards may not be supported by the latest drivers and thus not supported by the latest PyTorch version. See the official documentation on installing both the [most recent](https://pytorch.org/get-started/locally/) and [previous](https://pytorch.org/get-started/previous-versions/) combinations of CUDA and PyTorch to suit your needs. Accordingly, you can get started with CUDA 11.8 by making the following environment:
 ```
-conda create -n omnipose 'python==3.10' pytorch torchaudio pytorch-cuda=11.8 -c pytorch -c nvidia 
+conda create -n omnipose 'python==3.10' pytorch torchvision pytorch-cuda=11.8 -c pytorch -c nvidia 
 
 ```
 Note that the official PyTorch command includes torchaudio, but that is not needed for Omnipose. (*torchvision appears to be necessary these days*). If you are on older drivers, you can get started with an older version of CUDA, *e.g.* 10.2:

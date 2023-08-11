@@ -1,3 +1,2 @@
-from . import core
-from . import utils
+from . import core, utils
 from .__main__ import main

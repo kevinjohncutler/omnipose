@@ -431,7 +431,9 @@ class CellposeModel(UnetModel):
             
             # original omni models had the boundary field 
             if model_type in BD_MODEL_NAMES:
-                nclasses = 3
+                self.nclasses = 3
+            else:
+                self.nclasses = 2
 
             # most original cellpose/omnipose models also were trained with 2 channels
             # (even though most or all images were single-channel)
@@ -459,7 +461,7 @@ class CellposeModel(UnetModel):
         
         # convert abstract prediction classes number to actual count
         # flow field components increase this by dim-1
-        self.nclasses = nclasses + (self.dim-1)
+        self.nclasses = self.nclasses + (self.dim-1)
 
         # initialize network
         super().__init__(gpu=gpu, pretrained_model=False,

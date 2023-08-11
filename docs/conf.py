@@ -11,7 +11,7 @@
 # add these directories to sys.path here. If the directory is relative to the
 # documentation root, use os.path.abspath to make it absolute, like shown here.
 #
-import sys, os
+import sys, os, re
 sys.path.insert(0, os.path.abspath('.'))
 
 # pygments
@@ -74,13 +74,18 @@ def setup(app):
     
 
 # -- Project information -----------------------------------------------------
+import datetime
+current_year = datetime.datetime.now().year
 
+# Set the copyright string
 project = 'omnipose'
-copyright = '2023, Kevin Cutler, University of Washington'
+copyright = f'{current_year}, Kevin Cutler, University of Washington'
 author = 'Kevin Cutler'
 
 # The full version, including alpha/beta/rc tags
-release = '0.5.0'
+release = re.sub('^v', '', os.popen('git describe --tags').read().strip())
+# The short X.Y version.
+version = release
 
 
 # -- General configuration ---------------------------------------------------
@@ -103,13 +108,17 @@ extensions = [
     'sphinx_automodapi.automodapi',
     'sphinx_design',
     'myst_nb',
+    'sphinxarg.ext',
+    # 'sphinxcontrib.autoprogram',
+    # 'sphinxcontrib.programoutput',
+
     # 'sphinxcontrib.fulltoc'
 ]
 
 
 
 autoapi_dirs = ['../omnipose']
-# autosectionlabel_prefix_document = True
+autosectionlabel_prefix_document = True
 # source_suffix=['.rst','.md']
 
 # nb_custom_formats = {

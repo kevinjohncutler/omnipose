@@ -19,6 +19,9 @@ span.caption-text {
   --color-background-secondary: rgba(255, 0, 0, 0.1);
 } */
 
+
+
+
 body {
   background-color: var(--color-background-primary);
   border-radius: 3px !important;
@@ -88,24 +91,7 @@ table.docutils caption {
   font-size: 1.2em;
 }
 
-/**/
-.inline.highlight,
-.inline.highlight pre {
-  /* display: inline; */
-  /* background-color: var(--color-background-secondary); */
-  /* background-color: red; */
 
-  border-radius: 0px;
-  white-space: nowrap;
-  /* background-color: none !important; */
-  /* background: none !important; */
-  background-color: var(--color-background-secondary);
-
-  border: none;
-  border-radius: 3px !important;
-  /* padding: 0; */
-  color:none !important;
-}
 
 
 .highlight,
@@ -312,18 +298,20 @@ a[href^="inputs.html"] {color: var(--sinebow13) !important;}
 a[href^="settings.html"] {color: var(--sinebow14) !important;}
 a[href^="outputs.html"] {color: var(--sinebow15) !important;}
 a[href^="training.html"] {color: var(--sinebow16) !important;}
-a[href^="notebook.html"] {color: var(--sinebow17) !important;}
+a[href^="models.html"] {color: var(--sinebow17) !important;}
 
-/* a[href^="examples/mono_channel_bact.html"] {color: var(--sinebow6) !important;}
-a[href^="examples/multi_channel_cyto.html"] {color: var(--sinebow7) !important;} */
+a[href^="notebook.html"] {color: var(--sinebow18) !important;}
+a[href^="command.html"] {color: var(--sinebow19) !important;}
 
-a[href^="command.html"] {color: var(--sinebow18) !important;}
-a[href^="api/index.html"] {color: var(--sinebow19) !important;}
+a[href^="api/index.html"] {color: var(--sinebow20) !important;}
+a[href^="cli.html"] {color: var(--sinebow21) !important;}
 
-a[href^="affinity.html"] {color: var(--sinebow20) !important;}
-a[href^="ncolor.html"] {color: var(--sinebow21) !important;}
-a[href^="diameter.html"] {color: var(--sinebow22) !important;}
-a[href^="gamma.html"] {color: var(--sinebow23) !important;}
+a[href^="affinity.html"] {color: var(--sinebow22) !important;}
+a[href^="ncolor.html"] {color: var(--sinebow23) !important;}
+a[href^="diameter.html"] {color: var(--sinebow24) !important;}
+a[href^="gamma.html"] {color: var(--sinebow25) !important;}
+a[href^="logo.html"] {color: var(--sinebow26) !important;}
+
 
 a[href^="index.html"] {color: var(--sinebow10) !important;}
 
@@ -412,6 +400,10 @@ table.docutils td:not(:first-child) {
 .sinebow22 {color: var(--sinebow22) !important;}
 .sinebow23 {color: var(--sinebow23) !important;}
 .sinebow24 {color: var(--sinebow24) !important;}
+.sinebow25 {color: var(--sinebow25) !important;}
+.sinebow26 {color: var(--sinebow26) !important;}
+
+
 
 /* Make highlight fade out */
 :target {
@@ -454,3 +446,11 @@ details {
 .highlight .cp { color: var(--color-foreground-secondary) } /* Comment.Preproc */
 .highlight .c1 { color: var(--color-foreground-secondary) } /* Comment.Single */
 .highlight .cs { color: var(--color-foreground-secondary) } /* Comment.Special */
+
+
+
+/* Override color for header 2 fields in table of contents */
+#toc .toctree-l2 > a {
+    color: var(--color-foreground-secondary);
+}
+

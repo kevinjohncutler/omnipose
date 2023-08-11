@@ -27,7 +27,8 @@ Cellpose users need only select an Omnipose model and use ``omni=True`` to updat
                                              threshold=0.4, 
                                              omni=True)
 
-This example shows the same settings used for each image, but you can also pass in a list for ``channels`` and ``diameter`` that specifies unique values to apply to each image. See our `example notebooks <notebook.html>`__ 
+This example shows the same settings used for each image, but you can also pass in a list for ``channels`` and ``diameter`` that specifies unique values to apply to each image. 
+See our :doc:`example notebooks <notebook>`
 for a solid introduction and figure notebooks for more advanced examples. 
 
 .. tip::
