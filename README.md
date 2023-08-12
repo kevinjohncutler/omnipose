@@ -21,7 +21,7 @@ New users can check out the [ZeroCostDL4Mic][ZeroCostDL4Mic] Cellpose notebook o
 
 ## Use the GUI
 
-Launch the Omnipose-optimized version of the Cellpose GUI from terminal: `python -m omnipose`. Version 0.4.0 and onward will *not* install the GUI dependencies by default. When you first run the GUI command, you will be prompted to install the GUI dependencies. On Ubuntu 2022.04 (and possibly earlier), we found it necessary to run the following to install a missing system package: 
+Launch the Omnipose-optimized version of the Cellpose GUI from terminal: `omnipose`. Version 0.4.0 and onward will *not* install the GUI dependencies by default. When you first run the GUI command, you will be prompted to install the GUI dependencies. On Ubuntu 2022.04 (and possibly earlier), we found it necessary to run the following to install a missing system package: 
 
 ```
 sudo apt install libxcb-xinerama0
@@ -36,7 +36,7 @@ Standalone versions of this GUI for Windows, macOS, and Linux are available on t
 2. Open an anaconda prompt / command prompt with `conda` for **python 3** in the path.
 3. To create a new environment for CPU only, run
     ```
-    conda create -n omnipose 'python==3.10' pytorch
+    conda create -n omnipose 'python==3.10.12' pytorch
     
     ```
     For users with NVIDIA GPUs, add these additional arguments:
@@ -74,7 +74,7 @@ Omnipose runs on CPU on macOS, Windows, and Linux. PyTorch has historically only
 
 Your PyTorch version (>=1.6) needs to be compatible with your NVIDIA driver. Older cards may not be supported by the latest drivers and thus not supported by the latest PyTorch version. See the official documentation on installing both the [most recent](https://pytorch.org/get-started/locally/) and [previous](https://pytorch.org/get-started/previous-versions/) combinations of CUDA and PyTorch to suit your needs. Accordingly, you can get started with CUDA 11.8 by making the following environment:
 ```
-conda create -n omnipose 'python==3.10' pytorch torchvision pytorch-cuda=11.8 -c pytorch -c nvidia 
+conda create -n omnipose 'python==3.10.12' pytorch torchvision pytorch-cuda=11.8 -c pytorch -c nvidia 
 
 ```
 Note that the official PyTorch command includes torchaudio, but that is not needed for Omnipose. (*torchvision appears to be necessary these days*). If you are on older drivers, you can get started with an older version of CUDA, *e.g.* 10.2:
@@ -110,7 +110,10 @@ On bacterial phase contrast data, I found that Cellpose does not benefit much fr
 
 To train a 3D model on image volumes, specify the dimension argument: `--dim 3`. You may run out of VRAM on your GPU. In that case, you can specify a smaller crop size, *e.g.*, `--tyx 50,50,50`. The command I used in the paper on the *Arabidopsis thaliana* lateral root primordia dataset was:
 ```
-python -m omnipose --train --use_gpu --dir ./plantseg/traintest/LateralRootPrimordia/export_small/train --mask_filter _masks --n_epochs 4000 --pretrained_model None  --learning_rate 0.1 --save_every 50 --save_each  --verbose --look_one_level_down --all_channels --dim 3 --RAdam --batch_size 4 --diameter 0
+python -m omnipose --use_gpu --train --dir <path> --mask_filter _masks \
+--n_epochs 4000 --pretrained_model None --learning_rate 0.1 --save_every 50 \
+--save_each  --verbose --look_one_level_down --all_channels --dim 3 \
+--RAdam --batch_size 4 --diameter 0 
 ```
 
 To evaluate Omnipose models on 3D data, see the [examples](docs/examples/). If you run out of GPU memory, consider (a) evaluating on CPU or (b) using `tile=True`. 

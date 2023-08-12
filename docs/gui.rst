@@ -3,28 +3,17 @@
 :sinebow12:`GUI`
 ================
 The Omnipose GUI is an expansion and refinement of that from Cellpose. It defaults to the ``bact_phase_omni`` model and corresponding model parameters. 
-Additionally, we pre-load a small bacterial phase contrast image for demonstration purposes. Masks are also represented in :doc:`ncolor` format by default, 
-which is handy for visualizing and editing. Be sure to untick the ``ncolor`` box to switch to standard label format before saving your masks if that format is 
+Additionally, we pre-load a small bacterial phase contrast image for demonstration purposes. Masks are also represented in :doc:`ncolor` format by default, which is handy for visualizing and editing. Be sure to untick the ``ncolor`` box to switch to standard label format before saving your masks if that format is 
 what you need (what you see is what you get). 
 
-The GUI serves two main functions:
-
 .. note::
-    The GUI only segments one image at a time, so it is really only intended for users to try out Omnipose and find the best model and optimal segmentation parameters
-    with minimal setup. If you want to segment multiple images in a directory or train a model, use Omnipose 
-    in the `command line <command.html#command>`__ or a `jupyter notebook <notebook.html#notebook>`__. 
-
-.. tip::
-    If you need a GUI for ground-truth annotation, use Napari. This GUI isn't really optimized for that (yet). 
+    The GUI only segments one image at a time, so it is really only intended for users to try out Omnipose and find the best model and optimal segmentation parameters with minimal setup. If you want to segment multiple images in a directory or train a model, use Omnipose in the :doc:`command line <command>` or a :doc:`jupyter notebook <notebook>`. The GUI prints out the current parameters for you in the bottom left. 
 
 
 :header-2:`Starting the GUI`
 ----------------------------
 
-The quickest way to start is to open the GUI from a command line terminal. You might need to open an anaconda prompt if you did not add anaconda to the path. Activate your omnipose conda environment and run:
-::
-
-    python -m omnipose
+The quickest way to start is to open the GUI from a command line terminal. You might need to open an anaconda prompt if you did not add anaconda to the path. Activate your omnipose conda environment and run ``omnipose`` (or ``python -m omnipose``). 
 
 The first time Omnipose runs, it will ask you to download the GUI dependencies. When it finishes, run the launch command again. The terminal will remain open and you can see model download progress, error messages, etc.  as you interact with the GUI. 
 

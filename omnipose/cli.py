@@ -26,7 +26,7 @@ class CustomHelpFormatter(argparse.HelpFormatter):
 
     
 def get_arg_parser():
-    """ Parses command line arguments for cellpose main function
+    """ Parses command line arguments for cellpose_omni main function
     Note: this function has to be in a separate file to allow autodoc to work for CLI.
     The autodoc_mock_imports in conf.py does not work for sphinx-argparse sometimes,
     see https://github.com/ashb/sphinx-argparse/issues/9#issue-1097057823
@@ -79,8 +79,8 @@ def get_arg_parser():
     algorithm_args.add_argument('--no_net_avg', action='store_true', help='make code run faster by only running 1 network')
     algorithm_args.add_argument('--no_interp', action='store_true', help='do not interpolate when running dynamics (was default)')
     algorithm_args.add_argument('--do_3D', action='store_true', help='process images as 3D stacks of images (nplanes x nchan x Ly x Lx')
-    algorithm_args.add_argument('--diameter', required=False, default=30., type=float, 
-                                help='cell diameter, if 0 cellpose will estimate for each image')
+    algorithm_args.add_argument('--diameter', required=False, default=0., type=float, 
+                                help='cell diameter, 0 disables unless sizemodel is present. Default: %(default)s')
     algorithm_args.add_argument('--rescale', required=False, default=None, type=float, 
                                 help='image rescaling factor (r = diameter / model diameter)')
     algorithm_args.add_argument('--stitch_threshold', required=False, default=0.0, type=float, help='compute masks in 2D then stitch together masks with IoU>0.9 across planes')

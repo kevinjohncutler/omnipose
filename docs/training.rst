@@ -7,24 +7,36 @@ Begin a training round in a terminal using the following command template:
 
 .. code-block:: 
 
-    python -m omnipose --train --use_gpu --dir <training image directory> --img_filter <img_filter> --mask_filter <mask_filter> --n_epochs <n_epochs> --pretrained_model None --nchan <nchan> --learning_rate 0.1 --diameter 0 --batch_size 16  --RAdam --all_channels --channel_axis <channel_axis>
-
+    omnipose --train --use_gpu --dir <training image directory> \
+    --img_filter <img_filter> --mask_filter <mask_filter> \
+    --nchan <nchan> --all_channels --channel_axis <channel_axis> \
+    --pretrained_model None --diameter 0 --nclasses 2 \
+    --learning_rate 0.1 --RAdam --batch_size 16 --n_epochs <n_epochs>
+ 
 
 .. note:: 
     Training should be done only via CLI. If image preprocessing is required, I highly suggest doing that in a script and saving to a new folder (as opposed to attempting preprocessing + training in one script/notebook). 
 
 
 The main commands here are:
-- :bash:`python -m omnipose` calls ``__main__.py`` in ``cellpose-omni``, which first loads the images in :bash:`--dir` and formats them. Then :bash:`--train` toggles on the training branch (versus evaluation). 
-- :bash:`--dir` should point to a folder of image and label pairs. With :bash:`--look_one_level_down`, you can let :bash:`--dir` point to a folder with subfolders. This can be very useful when training on distinct subsets of ground truth data. 
 
-- :bash:`--diameter` is used only if your images need to be rescaled, and :py:`0` disables it. See `Diameter and the Size Model`_. 
+:bash:`omnipose` 
+    calls ``__main__.py`` in ``cellpose-omni``, which first loads the images in :bash:`--dir` and formats them. Then :bash:`--train` toggles on the training branch (versus evaluation). 
+:bash:`--dir` 
+    points to a folder of image and label pairs. With :bash:`--look_one_level_down`, you can let :bash:`--dir` point to a folder with subfolders. This can be very useful when training on several distinct subsets of ground truth data. 
 
-- :bash:`--nchan` and :bash:`--nclasses` should ALWAYS be specified. See :ref:`transfer-learning` for details.
+:bash:`--diameter` 
+    should be set to :py:`0` (and is now :py:`0` by default) to disable rescaling. Anything else will rescale your images relative to a mean diameter of 30 (see :doc:`diameter`), such that :bash:`--diameter 15` will **upscale** your image by a factor of 2 along each axis and :bash:`--diameter 60` will likewise **downscale** by a factor of 2. If you need automatic diameter estimation, see `Diameter and the Size Model`_. 
 
-- :bash:`--all_channels` uses all ``nchan`` channels be used for segmentation. The relatively complicated :bash:`--chan` and :bash:`--chan2` settings from Cellpose are still available, but I never use them. I highly recommend preprocessing your training set to have the channels you want to use (and for evaluation, do the same preprocessing in a script/notebook). 
+:bash:`--nchan`, :bash:`--nclasses` 
+    define the number of image channels and the number of prediction classes. These should always be specified for **custom** models, as the defaults are `--nchan 1` (mono-channel images) and ``--nclasses 2`` (flow and distance field predictions). If you train a model with ``--nclasses 3`` (add the boundary field) or have multichannel images these will be in the model file name. Use these when running the model, too, both in CLI and in :mod:`cellpose_omni.models.CellposeModel()`. 
 
-- :bash:`--channel_axis` lets you specify where your channels are in your arrays. Conventional ordering is CYX for multichannel 2D images, so :bash:`--channel_axis` defaults to :py:`0`. RGB images will have :bash:`--channel_axis 2`. 
+:bash:`--all_channels` 
+    tells Omnipose to use all ``nchan`` channels for segmentation. The relatively complicated :bash:`--chan` and :bash:`--chan2` settings from Cellpose are still available, but I never use them. I highly recommend preprocessing your training set to have the channels you want to use (and for evaluation, do the same preprocessing in a script/notebook). 
+
+:bash:`--channel_axis` 
+    lets you specify where your channels are in your arrays. Conventional ordering is CYX for multichannel 2D images, 
+    so :bash:`--channel_axis` defaults to :py:`0`. RGB images will have :bash:`--channel_axis 2`. 
 
 .. warning:: 
     Paths given to :bash:`--dir` or :bash:`--test_dir` must absolute paths.
@@ -35,23 +47,32 @@ The main commands here are:
 
 It is best for reproducibility to explicitly choose hyperparameters at runtime rather than relying on defaults. 
 
-- :bash:`--RAdam` selects the RAdam optimizer (versus the default SGD). I found RAdam to be a bit faster and more stable compared to SGD and other optimizers. 
+:bash:`--RAdam` 
+    selects the RAdam optimizer (versus the default SGD). I found RAdam to be a bit faster and more stable compared to SGD and other optimizers. 
 
-- :bash:`--learning_rate` controls the optimizer step size. 
+:bash:`--learning_rate` 
+    controls the optimizer step size. 
 
-- :bash:`--batch_size` controls the number of images the network sees for each step (with the last batch being smaller if the number of images is not evenly divisible by :py:`batch_size`). A random crop is selected from each image (see :bash:`--tyx`). This means that only a portion of each image is seen during a given epoch. Smaller batches can sometimes lead to better generalization. Larger batches can lead to better stability. I have found that it does not make a very large difference in model performance, but larger batches can train faster (see :bash:`--dataparallel`). 
+:bash:`--batch_size` 
+    controls the number of images the network sees for each step (with the last batch being smaller if the number of images is not evenly divisible by :py:`batch_size`). A random crop is selected from each image (see :bash:`--tyx`). This means that only a portion of each image is seen during a given epoch. Smaller batches can sometimes lead to better generalization. Larger batches can lead to better stability. I have found that it does not make a very large difference in model performance, but larger batches can train faster (see :bash:`--dataparallel`). 
 
-- :bash:`--tyx` controls the crop size for selecting a sample from each training image (see :ref:`image-dimensions`). 
+:bash:`--tyx` 
+    controls the crop size for selecting a sample from each training image (see :ref:`image-dimensions`). 
 
-- :bash:`--n_epochs` controls how many times the network is shown the full dataset. 
+:bash:`--n_epochs` 
+    controls how many times the network is shown the full dataset. I usually do 4000. 
 
-- :bash:`--dataparallel` toggles on parallel dataloading. Preprocessing batches for training is a CPU bottleneck, but the DataParallel library helps a lot with that. Use :bash:`--num_workers` to control how many cores will participate. This is only a benefit when you have more images in your training set than cores on your machine. 
+:bash:`--dataparallel` 
+    toggles on parallel dataloading. Preprocessing batches for training is a CPU bottleneck, but the DataParallel library helps a lot with that. Use :bash:`--num_workers` to control how many cores will participate. This is only a benefit when you have more images in your training set than cores on your machine. 
 
+:header-2:`Model saving`
+---------------------------
+You can choose how often to save your models with ``--save_every <n>``. This overwrites the model every time. To save a new model each ``n`` epochs, you can use ``save_each`` (useful for debugging / comparing across epochs). 
 
     
 :header-2:`Training data`
 -------------------------
-Your training set should consist of at least two tuples of images, labels, and (optionally) link files. 
+Your training set should consist of at least two tuples of images, labels, and (optionally) label link files. 
 
 :header-3:`File naming conventions`
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
@@ -112,7 +133,7 @@ If your image dimensions are substantially smaller than 512 px, you can instead 
     The `tyx` tuple elements must be evenly divisible by 8 (for U-net downsampling).  
 
 :header-3:`Object density`
-^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+^^^^^^^^^^^^^^^^^^^^^^^^^^^
 As a general rule, you want to train on images with densely packed objects. This is to balance the foreground class to the background class. In other words, we want Omnipose to focus on predicting good output in foreground regions rather than zero output in background regions. If your images have a lot of useless background, *crop out* just the denser regions. This can be done automatically if you can segment clusters/microcolonies of cells. You can use functions in :mod:`omnipose.utils` for processing a binary image into crops that you can then join into an ensemble image using a rectangle packing algorithm. Training on these images allows Omnipose to see the same number of cells but a lot faster, as it does not waste time looking at too much background. 
 
 
@@ -136,7 +157,7 @@ You will probably spend 10x more time annotating ground truth images than acquir
 :header-2:`Transfer learning`
 -----------------------------
 
-You can use :bash:`--pretrained_model None` to train from scratch or :bash:`--pretrained_model <model path>` to start from an existing model. Once a model is initialized and trained, you **cannot** change its structure. This is defined by :py:`nchan` (the number of channels used for segmentation),  :py:`nclasses` (the number of prediction classes), and :py:`dim` (the dimension of the images). **You must use precisely the same** :py:`nchan`\ **,** :py:`nclasses`\ **, and** :py:`dim` **that were used to train the existing model.**
+You can use :bash:`--pretrained_model None` to train from scratch or :bash:`--pretrained_model <model path>` to start from an existing model. Once a model is initialized and trained, you **cannot** change its structure. This is defined by :py:`nchan` (the number of channels used for segmentation), :py:`nclasses` (the number of prediction classes), and :py:`dim` (the dimension of the images). **You must use precisely the same** :py:`nchan`\ **,** :py:`nclasses`\ **, and** :py:`dim` **that were used to train the existing model.** See :doc:`models` for a table of the pretrained model parameters. 
 
 
 .. _Diameter and the Size Model:
@@ -148,8 +169,8 @@ If you choose to use a pretrained model, then this fixed median diameter is used
 
 If you choose to train from scratch, you can set the median diameter you want to use for rescaling with the :bash:`--diameter` flag, or set it to :py:`0` to disable rescaling. The ``cyto``, ``cyto2``, and ``cyto2_omni`` models were trained with a diameter of 30 pixels and the `nuclei` model was trained with a diameter of 17 pixels.
 
-If your target image set varies a lot in cell diameter (i.e., the images you want to segment vary unpredictably in size), you may also want to learn a :mod:`~cellpose_omni.models.SizeModel` that predicts the diameter from the network style vectors. Add the flag :bash:`--train_size` and this model will be trained and saved as an 
-``*.npy`` file. **Omnipose models generally do not come with a** :mod:`~cellpose_omni.models.SizeModel`, with the exception of ``cyto2_omni``.
+If your target image set varies a lot in cell diameter (i.e., the images you want to segment vary unpredictably in size), you may also want to learn a :mod:`~cellpose_omni.models.SizeModel()` that predicts the diameter from the network style vectors. Add the flag :bash:`--train_size` and this model will be trained and saved as an 
+``*.npy`` file. **Omnipose models generally do not come with a** :mod:`~cellpose_omni.models.SizeModel()`, with the exception of ``cyto2_omni``.
 
 
 :header-2:`Examples`
@@ -159,27 +180,29 @@ To train on cytoplasmic images (green cyto and red nuclei) starting with a pretr
 
 ::
     
-    python -m omnipose --train --dir ~/images_cyto/train/ --test_dir ~/images_cyto/test/ --pretrained_model cyto --chan 2 --chan2 1
+    omnipose --train --dir <train_path> --pretrained_model cyto --chan 2 --chan2 1
 
 You can train from scratch as well:
 
 ::
 
-    python -m omnipose --train --dir ~/images_nuclei/train/ --pretrained_model None
+    omnipose --train --dir <train_path> --pretrained_model None
 
 
 You can also specify the full path to a pretrained model to use:
 
 ::
 
-    python -m omnipose --dir ~/images_cyto/test/ --pretrained_model ~/images_cyto/test/model/cellpose_35_0 --save_png
+    omnipose --dir <train_path> --pretrained_model <model_path> --save_png
 
 
 To train the ``bact_phase_omni`` model from scratch using the same parameters from the Omnipose paper, download the dataset and run
 
 ::
 
-    python -m omnipose --train --use_gpu --dir <bacterial dataset directory> --mask_filter _masks --n_epochs 4000 --pretrained_model None --learning_rate 0.1 --diameter 0 --batch_size 16  --RAdam
+    omnipose --train --use_gpu --dir <bacterial_dataset_directory> --mask_filter _masks \ 
+    --n_epochs 4000 --pretrained_model None --learning_rate 0.1 --diameter 0 \ 
+    --batch_size 16  --RAdam --nclasses 3
 
 :header-2:`Training 3D models`
 ------------------------------

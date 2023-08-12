@@ -4,7 +4,7 @@
 =====================
 
 The most important settings are described on this page. 
-See :mod:`cellpose_omni.models` for all options. 
+See :mod:`cellpose_omni.models()` for all options. 
 
 This is a typical example of using an Omnipose model to segment a list of images in a notebook. 
 Cellpose users need only select an Omnipose model and use ``omni=True`` to update their existing code. 
