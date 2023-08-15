@@ -135,8 +135,12 @@ def colorize(im,colors=None,offset=0):
     return rgb
 
 import ncolor
-def apply_ncolor(masks,offset=0,cmap=None):
-    m,n = ncolor.label(masks,max_depth=20,return_n=True,conn=2)
+def apply_ncolor(masks,offset=0,cmap=None,max_depth=20,expand=True):
+    m,n = ncolor.label(masks,
+                       max_depth=max_depth,
+                       return_n=True,
+                       conn=2, 
+                       expand=expand)
     if cmap is None:
         c = sinebow(n,offset=offset)
         colors = np.array(list(c.values()))

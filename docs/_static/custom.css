@@ -261,11 +261,11 @@ div.cell details.below-input>summary {
 
 } */
 
-.toc-tree li.scroll-current > .reference {
+/* .toc-tree li.scroll-current > .reference { */
   /* color: var(--color-toc-item-text--active); */
-  font-weight: 800;
+  /* font-weight: 800;
   text-decoration: underline;
-}
+} */
 
 /* .sidebar-tree .toctree-l1.current {background: transparent !important;}
 li.toctree-l1.current {background: transparent !important;} */
@@ -454,3 +454,15 @@ details {
     color: var(--color-foreground-secondary);
 }
 
+/* toc scroll bar - from furo*/
+.sidebar-scroll::-webkit-scrollbar, .toc-scroll::-webkit-scrollbar, article[role=main] ::-webkit-scrollbar {
+    height: .25rem;
+    width:.25rem
+}
+
+.sidebar-scroll::-webkit-scrollbar-thumb, .toc-scroll::-webkit-scrollbar-thumb, article[role=main] ::-webkit-scrollbar-thumb {
+    background-color: var(--color-foreground-border);
+    /* background-color: green; */
+    
+    border-radius:.125rem
+}

@@ -4,18 +4,18 @@
 ===================
 
 Omnipose automatically detects TIFs, PNGs, or JPEGs. Under the hood, :mod:`cellpose_omni.io` uses ``tifffile``
-for loading TIFs and ``cv2`` for PNG and JPEG. We are considering adding direct support for 
+for loading TIFs and cv2 for PNG and JPEG. We are considering adding direct support for 
 other bioformats types such as ND2, but for now all input must be exported to the above
 image formats prior to running Omnipose. 
 
 
 :header-2:`Channel formatting`
 ------------------------------
-Single-plane, multichannel images can be formatted as YXC or CYX, 
-the latter being more conventional and easier to work with (*e.g.*, in Napari). 
-The `channels <settings.html#channels>`__ settings will take care of reshaping 
+Single-plane, multichannel images can be formatted as :py:`(nY,nX,nChan)` or :py:`(nChan,nY,nX)`, 
+the latter CYX formatting being more conventional and easier to work with (*e.g.*, in Napari). 
+The :ref:`channels <channels>` settings will take care of reshaping 
 the input appropriately for the network if we can safely assume that the smallest axis is the channel axis. 
-For example, a :py:`(2,2048,2048)` CYX image will automatically have axis :py:`0` set to be the channel axis. The `channel_axis` parameter
+For example, a :py:`(2,2048,2048)` image will automatically have axis :py:`0` set to be the channel axis. The `channel_axis` parameter
 allows you to override this when necessary.
 
 Note that Omnipose also rescales the input for 
@@ -28,8 +28,7 @@ These are not yet user-tunable parameters, but they will be in a future release.
 
 Multiple-plane and multiple-channel TIFs are supported in the GUI (can 
 drag-and-drop) and are supported when running in a notebook.
-Multiplane images should be of shape ZCYX or as 
-ZYX. You can test this by running in python:
+Multiplane images should be of shape ZCYX or ZYX. You can test this by running in python:
 
 ::
 
@@ -49,13 +48,13 @@ use the Napari plugin for Cellpose, or run CLI/notebook and
 specify the ``channel_axis`` and/or ``z_axis``
 parameters:
 
-    ``channel_axis`` and ``z_axis`` can be used to specify which axis 
-    of the image corresponds to the image channels and which axis corresponds to the z axis (0-based). 
+    ``channel_axis`` and ``z_axis`` can be used to specify the axis (0-based) 
+    of the image which corresponds to the image channels and to the z axis. 
     For example. a 105-plane z-stack image with 2 channels of shape :py:`(1024,1024,2,105,1)` can be 
     specified with :py:`channel_axis=2` and :py:`z_axis=3`. If :py:`channel_axis=None`, 
-    omnipose will try to automatically determine the channel axis by choosing 
+    cellpose will try to automatically determine the channel axis by choosing 
     the dimension with the minimal size after squeezing. If :py:`z_axis=None` 
-    omnipose will automatically select the first non-channel axis of the image 
+    cellpose will automatically select the first non-channel axis of the image 
     to be the Z axis (ZYX ordering). These parameters can be specified using the command line 
     with :bash:`--channel_axis` or :bash:`--z_axis` or as inputs to ``model.eval`` for 
     the ``Cellpose`` or ``CellposeModel`` model.
@@ -73,7 +72,7 @@ masks in Z instead of running :py:`do_3D=True`. See details for this option here
 The second approach, implemented in Omnipose, is to directly predict 3D flows etc. by training 
 models on 3D datasets. We offer one pretrained model: ``plant_omni``. The :bash:`--dim` argument allows users to
 specify the dimensionality of their data/model for training and evaluation, so :py:`dim=2` corresponds to 2D 
-processing (used in Cellpose3D) and :py:`dim=3` corresponds to 3D processing. 
+processing (even in Cellpose3D) and :py:`dim=3` corresponds to 3D processing. 
 More work is needed to validate functionality of true 3D segmentation in the GUI. 
 
 

@@ -3,19 +3,23 @@
 :sinebow15:`Outputs`
 ====================
 Omnipose uses a generalized version of the Cellpose U-net to predict several output "images" based on an input image. 
-You can use a Cellpose model with Omnipose (``omni=True`` just turns on the Omnipose mask reconstruction algorithm), 
-but keep in mind that the output will be different. 
+You can use a Cellpose model with Omnipose (:py:`omni=True`), which just turns on the Omnipose mask reconstruction algorithm to fix the over-segmentation errors that may result form your Cellpose network outputs. 
 
-Cellpose models predict 3 (or 4) outputs in 2D (or 3D): 
-(flows in Z), flows in Y, flows in X, and cell probability (cellprob). 
+Cellpose models predict 2 outputs: flows and cell probability (cellprob). 
 The predictions the network makes of cellprob are the inputs to a sigmoid 
-centered at zero (1 / (1 + e^-x)), so they vary from around -6 to +6.
+centered at zero (:math:`\sigma(x) = \frac{1}{1 + e^{-x}}`), so they vary from around :math:`-6` to :math:`+6`. 
+The flow field is a vector field and is therefore comprised of :math:`N` distinct outputs in :math:`N` dimensions. 
 
-Omnipose models predict 4 (or 5) outputs in 2D (or 3D):
-(flows in Z), flows in Y, flows in X, distance, and boundary probability.
-The distance field has a background of -5 in older models and ``-<mean cell diameter>`` in newer models. This
-helps balance the asymmetry in output range, as the flow components range from -5 to +5 and the boundary field 
-ranges from roughly -6 to +6 (same sigmoid input described above). 
+The original Omnipose models predict 3 outputs: distance field, flow field, and boundary. 
+The distance field  is modified during training to have a background of :math:`-5` instead of :math:`0`. This helps balance the asymmetry in output range, as the flow components range from :math:`-5` to :math:`-5` and the boundary field 
+ranges from roughly :math:`-6` to :math:`+6`. (same sigmoid input described above). 
+
+New Omnipose models no longer require the boundary field to achieve the same accuracy, and thus by default train with just distance and flow (:py:`nclasses=2`). 
+
+.. warning::
+    If you trained a custom model with Omnipose <= version 0.4.0, your defaults were :py:`nclasses=3` and :py:`nchan=2`. Use these settings when initializing you model. Moving forward, Omnipose will use :py:`nclasses=2` and :py:`nchan=1` by default. See :ref:`pretrained-models` for a table of models and the number of outputs. 
+
+
 
 :header-2:`_seg.npy output`
 ---------------------------
@@ -23,7 +27,7 @@ ranges from roughly -6 to +6 (same sigmoid input described above).
 ``*_seg.npy`` files have the following fields:
 
 - *filename* : filename of image
-- *img* : image with chosen channels (nchan x Ly x Lx) (if not multiplane)
+- *img* : image with chosen channels (CYX) (if not multiplane)
 - *masks* : masks (0 = NO masks; 1,2,... = mask labels)
 - *colors* : colors for masks
 - *outlines* : outlines of masks (0 = NO outline; 1,2,... = outline labels)
@@ -60,7 +64,7 @@ If you run in a notebook and want to save to a `*_seg.npy` file, run
     from cellpose_omni import io
     io.masks_flows_to_seg(images, masks, flows, diams, file_name, channels)
 
-where each of these inputs is a list (as the output of `model.eval` is)
+where each of these inputs is a list (as is the output of `model.eval`)
 
 :header-2:`PNG output`
 ----------------------
@@ -112,7 +116,7 @@ file. Input that and the ROIs will appear in the ROI manager.
 :header-2:`Plotting functions`
 ------------------------------
 
-In ``plot.py`` there are functions, like ``show_segmentation``:
+In ``plot.py`` there are functions, like :mod:`show_segmentation`:
 
 ::
 

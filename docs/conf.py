@@ -260,13 +260,13 @@ dark = {
         "color-foreground-border": "#333", # for content borders
 
         "color-background-primary": "#121212", # for content
-        # "color-background-secondary": "#191919", # for navigation + ToC, also the default for code block
-        # "color-background-secondary": "#19191940", # for navigation + ToC, also the default for code block
         "color-background-secondary": "#30303030", # for navigation + ToC, also the default for code block
 
+        "mystnb-source-bg-color":"#30303030", # works when iv.cell div.cell_input, div.cell details.above-input>summary { has background-color none
         
-        "color-background-hover": "#202020ff", # for navigation-item hover
-        "color-background-hover--transparent": "#20202000",
+        "color-background-hover": "#30303030", # for navigation-item hover
+        "color-background-hover--transparent": "#30303000",
+        # "color-card-background": "#30303030", # cards
         "color-background-border": "#333", # for UI borders
         "color-background-item": "#444", # foreground for "background" items (eg: copybutton)
 
@@ -288,10 +288,6 @@ dark = {
         # Admonitions
         "color-admonition-background": "#181818",
 
-        # Cards
-        # "color-card-border: var(--color-background-secondary);
-        # "color-card-background": "#181818",
-        "color-card-background": "#30303030",
 
         # "color-card-marginals-background": var(--color-background-hover);
 
@@ -302,7 +298,7 @@ dark = {
         # "color-card-marginals-background": "red",
         # 'color-sidebar-link-text--top-level': '#0000',
         # 'text-color': '#0000',
-        "mystnb-source-bg-color":"#30303030", # works when iv.cell div.cell_input, div.cell details.above-input>summary { has background-color none
+
     }
 
 light = {
@@ -323,19 +319,23 @@ light = {
         "color-foreground-primary": "black", # for main text and headings
         "color-foreground-secondary": "#5a5a5a", # for secondary text
         "color-foreground-muted": "#646464", # for muted text
-        "color-foreground-border": "#878787", # for content borders
+        "color-foreground-border": "#efefefef", # for content borders
 
         "color-background-primary": "#ffff", # for content
-        "color-background-secondary": "#efefefef", # for navigation + ToC, also ALMOST default for code block
-        
+        "color-background-secondary": "#efefefef", # for navigation + ToC, 
         "color-background-hover": "#efefefef", # for navigation-item hover
         "color-background-hover--transparent": "#efefef00",
-        "color-background-border": "#efefefef", # for UI borders
+        "mystnb-source-bg-color":"#efefefef",     # code input 
+        "color-card-background": "#efefefef", # cards
+    
+        "color-background-border": "#ddd", # for UI borders
         "color-background-item": "#ccc", # foreground for "background" items (eg: copybutton)
 
         # Announcements
         "color-announcement-background": "#000000dd",
         "color-announcement-text": "#eee",
+
+
 
     }
 

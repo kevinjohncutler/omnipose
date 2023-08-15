@@ -74,7 +74,8 @@ Omnipose runs on CPU on macOS, Windows, and Linux. PyTorch has historically only
 
 Your PyTorch version (>=1.6) needs to be compatible with your NVIDIA driver. Older cards may not be supported by the latest drivers and thus not supported by the latest PyTorch version. See the official documentation on installing both the [most recent](https://pytorch.org/get-started/locally/) and [previous](https://pytorch.org/get-started/previous-versions/) combinations of CUDA and PyTorch to suit your needs. Accordingly, you can get started with CUDA 11.8 by making the following environment:
 ```
-conda create -n omnipose 'python==3.10.12' pytorch torchvision pytorch-cuda=11.8 -c pytorch -c nvidia 
+conda create -n omnipose 'python==3.10.12' pytorch torchvision pytorch-cuda=11.8 \
+-c pytorch -c nvidia 
 
 ```
 Note that the official PyTorch command includes torchaudio, but that is not needed for Omnipose. (*torchvision appears to be necessary these days*). If you are on older drivers, you can get started with an older version of CUDA, *e.g.* 10.2:
@@ -97,10 +98,12 @@ To use Omnipose on bacterial cells, use `model_type=bact_omni`. For other cell t
 
 
 ## How to train Omnipose
-Training is best done on CLI. I trained the `bact_omni` model using the following command, and you can train custom Omnipose models similarly:
+Training is best done on CLI. I trained the `bact_phase_omni` model using the following command, and you can train custom Omnipose models similarly:
 
 ```
-python -m omnipose --train --use_gpu --dir <bacterial dataset directory> --mask_filter _masks --n_epochs 4000 --pretrained_model None --learning_rate 0.1 --diameter 0 --batch_size 16 --RAdam --img_filter _img
+omnipose --train --use_gpu --dir <bacterial dataset directory> --mask_filter _masks \
+         --n_epochs 4000 --pretrained_model None --learning_rate 0.1 --diameter 0 \
+         --batch_size 16 --RAdam --img_filter _img --nclasses 3
 ```
 
 On bacterial phase contrast data, I found that Cellpose does not benefit much from more than 500 epochs but Omnipose continues to improve until around 4000 epochs. Omnipose outperforms Cellpose at 500 epochs but is significantly better at 4000. You can use `--save_every <n>` and `--save_each` to store intermediate model training states to explore this behavior. 
@@ -110,10 +113,10 @@ On bacterial phase contrast data, I found that Cellpose does not benefit much fr
 
 To train a 3D model on image volumes, specify the dimension argument: `--dim 3`. You may run out of VRAM on your GPU. In that case, you can specify a smaller crop size, *e.g.*, `--tyx 50,50,50`. The command I used in the paper on the *Arabidopsis thaliana* lateral root primordia dataset was:
 ```
-python -m omnipose --use_gpu --train --dir <path> --mask_filter _masks \
---n_epochs 4000 --pretrained_model None --learning_rate 0.1 --save_every 50 \
---save_each  --verbose --look_one_level_down --all_channels --dim 3 \
---RAdam --batch_size 4 --diameter 0 
+omnipose --use_gpu --train --dir <path> --mask_filter _masks \
+         --n_epochs 4000 --pretrained_model None --learning_rate 0.1 --save_every 50 \
+         --save_each  --verbose --look_one_level_down --all_channels --dim 3 \
+         --RAdam --batch_size 4 --diameter 0 --nclasses 3
 ```
 
 To evaluate Omnipose models on 3D data, see the [examples](docs/examples/). If you run out of GPU memory, consider (a) evaluating on CPU or (b) using `tile=True`. 

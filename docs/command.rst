@@ -10,8 +10,8 @@ downstream analysis pipelines like SuperSegger, Morphometrics, MicrobeJ,
 CellTool, and many others (any program that takes images and labels in
 directories). See :doc:`settings` for an introduction to the
 settings. The command line interface accepts parameters from
-:mod:`cellpose.models` for evaluation and from
-:mod:`cellpose.io` for finding files and saving output.
+:mod:`cellpose_omni.models` for evaluation and from
+:mod:`cellpose_omni.io` for finding files and saving output.
 
 :header-2:`How to segment images using CLI`
 -------------------------------------------
@@ -29,7 +29,7 @@ nucleus is blue and save the output as a png (using default diameter
 
 .. code-block:: 
 
-    omnipose --dir ~/images_cyto/test/ --pretrained_model cyto –-chan 2 --chan2 3 --save_png
+    omnipose --dir <img_dir> --pretrained_model cyto –-chan 2 --chan2 3 --save_png
 
 
 To do the same segmentation as in
@@ -39,8 +39,8 @@ flows and outlines, run:
 
 .. code-block:: 
 
-    omnipose --dir ~/test_files –-use_gpu --pretrained_model bact_phase_omni \ 
-    –-save_flows  –-save_outlines --save_tif –-in_folders 
+    omnipose --dir <img_dir> –-use_gpu --pretrained_model bact_phase_omni \ 
+             –-save_flows  –-save_outlines --save_tif –-in_folders 
 
 
 Rescaling for the ``*bact*`` models is disabled by default, but setting
@@ -101,7 +101,3 @@ relevant. See
 `SuperSegger-Omnipose <https://github.com/tlo-bot/supersegger-omnipose>`__
 for an example of how to use these options to integrate Omnipose as a
 segmentation backend.
-
-python -m omnipose --train --dir /home/kcutler/DataDrive/small/train --mask_filter _masks \
---n_epochs 4000 --pretrained_model None  --learning_rate 0.1 --diameter 0  \
---img_filter _img --use_gpu --batch_size 5 \

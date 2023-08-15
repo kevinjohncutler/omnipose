@@ -7,7 +7,21 @@
 .. include:: ../README.md
    :parser: myst_parser.sphinx_
    :start-after: ## How to install Omnipose
-   :end-before: ### GPU support
+   :end-before: ### Python compatibility 
+
+:header-2:`Python compatibility`
+--------------------------------
+.. include:: ../README.md
+   :parser: myst_parser.sphinx_
+   :start-after: ### Python compatibility 
+   :end-before: ### Pyenv versus Conda
+
+:header-2:`Pyenv versus Conda`
+------------------------------
+.. include:: ../README.md
+   :parser: myst_parser.sphinx_
+   :start-after: ### Pyenv versus Conda
+   :end-before: ### GPU support 
 
 :header-2:`GPU Support`
 -----------------------

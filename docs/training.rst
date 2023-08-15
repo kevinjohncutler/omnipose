@@ -8,10 +8,10 @@ Begin a training round in a terminal using the following command template:
 .. code-block:: 
 
     omnipose --train --use_gpu --dir <training image directory> \
-    --img_filter <img_filter> --mask_filter <mask_filter> \
-    --nchan <nchan> --all_channels --channel_axis <channel_axis> \
-    --pretrained_model None --diameter 0 --nclasses 2 \
-    --learning_rate 0.1 --RAdam --batch_size 16 --n_epochs <n_epochs>
+             --img_filter <img_filter> --mask_filter <mask_filter> \
+             --nchan <nchan> --all_channels --channel_axis <channel_axis> \
+             --pretrained_model None --diameter 0 --nclasses 2 \
+             --learning_rate 0.1 --RAdam --batch_size 16 --n_epochs <n_epochs>
  
 
 .. note:: 
@@ -138,7 +138,7 @@ As a general rule, you want to train on images with densely packed objects. This
 
 
 :header-3:`Ground truth quality`
-^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 *Garbage in, garbage out.* It is better to have fewer images with meticulously crafted, consistent labels than many images with sloppy labels. Your labels should...
 
 #. be based on supplemental channels wherever the primary channel is ambiguous
@@ -201,8 +201,8 @@ To train the ``bact_phase_omni`` model from scratch using the same parameters fr
 ::
 
     omnipose --train --use_gpu --dir <bacterial_dataset_directory> --mask_filter _masks \ 
-    --n_epochs 4000 --pretrained_model None --learning_rate 0.1 --diameter 0 \ 
-    --batch_size 16  --RAdam --nclasses 3
+             --n_epochs 4000 --pretrained_model None --learning_rate 0.1 --diameter 0 \ 
+             --batch_size 16  --RAdam --nclasses 3
 
 :header-2:`Training 3D models`
 ------------------------------
