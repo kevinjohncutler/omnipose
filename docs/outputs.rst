@@ -32,7 +32,7 @@ New Omnipose models no longer require the boundary field to achieve the same acc
 - *colors* : colors for masks
 - *outlines* : outlines of masks (0 = NO outline; 1,2,... = outline labels)
 - *chan_choose* : channels that you chose in GUI (0=gray/none, 1=red, 2=green, 3=blue)
-- *ismanual* : element *k* = whether or not mask *k* was manually drawn or computed by the cellpose algorithm
+- *ismanual* : element *k* = whether or not mask *k* was manually drawn or computed by Omnipose/Cellpose
 - *flows* : flows[0] is XY flow in RGB, flows[1] is the cell probability in range 0-255 instead of 0.0 to 1.0, flows[2] is Z flow in range 0-255 (if it exists, otherwise zeros), 
             flows[3] is [dY, dX, cellprob] (or [dZ, dY, dX, cellprob] for 3D), flows[4] is pixel destinations (for internal use)
 - *est_diam* : estimated diameter (if run on command line)

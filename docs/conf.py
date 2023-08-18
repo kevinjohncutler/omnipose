@@ -111,7 +111,6 @@ extensions = [
     'sphinxarg.ext',
     # 'sphinxcontrib.autoprogram',
     # 'sphinxcontrib.programoutput',
-
     # 'sphinxcontrib.fulltoc'
 ]
 

@@ -339,10 +339,13 @@ def bbox_to_slice(bbox,shape,pad=0,im_pad=0):
     if type(im_pad) is int:
         im_pad = [im_pad]*dim
     # return tuple([slice(int(max(0,bbox[n]-pad[n])),int(min(bbox[n+dim]+pad[n],shape[n]))) for n in range(len(bbox)//2)])
-    return tuple([slice(int(max(im_pad[n],bbox[n]-pad[n])),int(min(bbox[n+dim]+pad[n],shape[n]-im_pad[n]))) for n in range(len(bbox)//2)])
+    # added a +1 to stop, might be a necessary fix but not sure yet 
+    return tuple([slice(int(max(im_pad[n],bbox[n]-pad[n])),int(min(bbox[n+dim]+pad[n]+1,shape[n]-im_pad[n]))) 
+                  for n in range(len(bbox)//2)])
     
 
-def crop_bbox(mask, pad=10, iterations=3, im_pad=0, area_cutoff=0, max_dim=np.inf, get_biggest=False, binary=False):
+def crop_bbox(mask, pad=10, iterations=3, im_pad=0, area_cutoff=0, 
+              max_dim=np.inf, get_biggest=False, binary=False):
     """Take a label matrix and return a list of bounding boxes identifying clusters of labels.
     
     Parameters
@@ -608,34 +611,74 @@ def get_neigh_inds(neighbors,coords,shape):
     return indexes, neigh_inds, ind_matrix
 
 
-# maybe neighbors and affinity graph should be packaged together...
-def crop_affinity(augmented_affinity,slc):
+# This might need some reflection added in for it to work
+# also might need generalization to include cleaned mask pixels getting dropped  
+def subsample_affinity(augmented_affinity,slc,mask):
     """
-    Helper function to crop affinity graph according to an image crop slice. 
+    Helper function to subsample an affinity graph according to an image crop slice 
+    and a foreground selection mask. 
 
+    Parameters
+    ----------
+    augmented_affinity: NDarray, int64
+        Stacked neighbor coordinate array and affinity graph. For dimension d, 
+        augmented_affinity[:d] are the neighbor coordinates of shape (d,3**d,npix)
+        and augmented_affinity[d] is the affinity graph of shape (3**d,npix). 
+
+    slc: tuple, slice
+        tuple of slices along each dimension defining the crop window
+        
+    mask: NDarray, bool
+        foreground selection mask
+
+    Returns
+    --------
+    Augmented affinity graph corresponding to the cropped/masked region. 
+    
     """
 
     # From the augmented affinity graph we can extract a lot
     nstep = augmented_affinity.shape[1]
-    # d = np.emath.logn(3, nstep).astype(int)
-    d = len(slc)
-    neighbors = augmented_affinity[:d]
-    affinity_graph = augmented_affinity[d]
+    dim = len(slc) # dimension 
+    neighbors = augmented_affinity[:dim]
+    affinity_graph = augmented_affinity[dim]
     idx = nstep//2
     coords = neighbors[:,idx]
     in_bounds = np.all(np.vstack([[c<s.stop, c>=s.start] for c,s in zip(coords,slc)]),axis=0)
-    inds_crop = np.nonzero(in_bounds)[0]
+    in_mask = mask[tuple(coords)]>0
+    
+    in_mask_and_bounds =np.logical_and(in_bounds,in_mask)
 
-    crop_neighbors = neighbors[:,:,inds_crop]
-    affinity_crop = affinity_graph[:,inds_crop]
+    inds_crop = np.nonzero(in_mask_and_bounds)[0]
+    
+    # print(np.any(in_bounds),np.any(in_mask),coords.shape,coords)
+    # if np.any(in_mask_and_bounds):
+    if len(inds_crop):
+        # inds_crop = np.nonzero(in_mask_and_bounds)[0]
+    
+        crop_neighbors = neighbors[:,:,inds_crop]
+        affinity_crop = affinity_graph[:,inds_crop]
+    
+        # shift coordinates back acording to the lower bound of the slice 
+    
+        #also refect at edges of the new bounding box
+        edges = [np.array([-1,s.stop-s.start]) for s in slc]
+        steps = get_steps(dim)
+        
+        for d in range(dim):        
+            crop_coords = coords[d,inds_crop] - slc[d].start
+            S = steps[:,d].reshape(-1, 1)
+            X = crop_coords + S # cropped coordinates 
+            
+            edgemask = np.logical_and(np.isin(X, edges[d]), ~np.isin(X+S, edges[d]))
+            C = np.broadcast_to(crop_coords, X.shape)
+            crop_neighbors[d] = np.where(edgemask, C, X)
 
-    # shift coordinates back acording to the lower bound of the slice 
-    for i,s in enumerate(slc):
-        crop_neighbors[i] -= s.start
-
-    # print(crop_neighbors.shape,affinity_crop.shape)
-    #retur augmented affinity 
-    return np.vstack((crop_neighbors,affinity_crop[np.newaxis]))
+        #return augmented affinity 
+        return np.vstack((crop_neighbors,affinity_crop[np.newaxis]))
+    else:
+        e = np.empty((dim+1,nstep,0),dtype=augmented_affinity.dtype)
+        return e
 
 
 def get_steps(dim):
@@ -685,9 +728,16 @@ def steps_to_indices(steps):
 def kernel_setup(dim):
     """
     Get relevant kernel information for the hypercube of interest. 
-    Calls get_steps(), steps_to_indices(). Input is the dimesion.
-    Returns:
+    Calls get_steps(), steps_to_indices(). 
     
+    Parameters
+    ----------
+
+    dim: int
+        dimension (usually 2 or 3, but can be any positive integer)
+    
+    Returns
+    -------
     steps: ndarray, int 
         list of steps to each kernal point
         see get_steps()
@@ -728,7 +778,7 @@ def cubestats(n):
         dimension of hypercube
     
     Returns
-    --------------
+    -------
     List whose length tells us how many hypercube types there are (point/edge/pixel/voxel...) 
     connected to the central hypercube and whose entries denote many there in each group. 
     E.g., a square would be n=2, so cubestats returns [4, 4, 1] for four points (m=0), 

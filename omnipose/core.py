@@ -2929,6 +2929,11 @@ def get_contour(labels,affinity_graph,coords=None,cardinal_only=True):
     
     # determine what movements are allowed
     step_ok = np.zeros(affinity_graph.shape,bool)
+
+
+    # print('AA',affinity_graph.dtype,csum.dtype,neigh_inds.dtype)
+    # s = allowed_inds[0]
+    # print('BB',affinity_graph[s].shape, csum[neigh_inds[s]].shape,neigh_inds[s].shape)
     
     for s in allowed_inds:
         step_ok[s] = np.logical_and.reduce((affinity_graph[s]>0, # must be connected 
@@ -2955,7 +2960,7 @@ def get_contour(labels,affinity_graph,coords=None,cardinal_only=True):
         # contour_map[coords_t] = contour
             
             
-    return contour_map, contours
+    return contour_map, contours, unique_L
 
 
 # @njit('(int64[:,:], int32[:], int32[:], int64[:,:], float64[:,:])', nogil=True)

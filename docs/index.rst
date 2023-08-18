@@ -39,6 +39,7 @@ For support, submit an `issue`_ on the Omnipose repo. For more on the workings o
                     settings
                     outputs
                     training
+                    models
 
 
     .. grid-item::
