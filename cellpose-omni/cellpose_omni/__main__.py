@@ -5,7 +5,7 @@ from natsort import natsorted
 from tqdm import tqdm
 from cellpose_omni import utils, models, io
 
-from .models import MODEL_NAMES, C2_MODEL_NAMES, BD_MODEL_NAMES
+from .models import MODEL_NAMES, C2_MODEL_NAMES, BD_MODEL_NAMES, CP_MODELS
 
 import torch
 
@@ -113,6 +113,7 @@ def main(args):
         
         #define available model names, right now we have three broad categories 
         builtin_model = np.any([args.pretrained_model==s for s in MODEL_NAMES])
+        cellpose_model = np.any([args.pretrained_model==s for s in CP_MODELS])
         cytoplasmic = 'cyto' in args.pretrained_model
         nuclear = 'nuclei' in args.pretrained_model
         #inelegant but necessary workaround for models that I provide without multiple models
@@ -195,7 +196,7 @@ def main(args):
                                              look_one_level_down=args.look_one_level_down)
             nimg = len(image_names)
                 
-            logger.info('running cellpose on {} image(s) using {} channel(s).'.format(nimg, args.nchan))
+            logger.info('running omnipose on {} image(s) using {} channel(s).'.format(nimg, args.nchan))
             if channels is not None:
                 cstr0 = ['MONO', 'RED', 'GREEN', 'BLUE']
                 cstr1 = ['NONE', 'RED', 'GREEN', 'BLUE']
@@ -213,7 +214,7 @@ def main(args):
                     if args.pretrained_model in OMNI_MODELS:
                         logger.warning('omnipose models not available in mxnet, using pytorch')
                         args.mxnet = False
-                if not bacterial:                
+                if cellpose_model: # ones with a size model, also never true 3d etc.                 
                     model = models.Cellpose(gpu=gpu, device=device, model_type=args.pretrained_model, 
                                             use_torch=(not args.mxnet), omni=args.omni, 
                                             net_avg=(not args.fast_mode and not args.no_net_avg))
@@ -242,7 +243,8 @@ def main(args):
 
             # handle diameters
             if args.diameter==0:
-                if builtin_model:
+                # if builtin_model:
+                if cellpose_model:
                     diameter = None
                     logger.info('estimating diameter for each image')
                 else:

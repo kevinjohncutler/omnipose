@@ -712,7 +712,8 @@ def masks_to_affinity(masks, coords, steps, inds, idx, fact, sign, dim,
         is_link = np.zeros(piece_masks.shape, dtype=np.bool_)
         is_link = get_link_matrix(links, piece_masks, np.concatenate(inds), idx, is_link)
         conditions.append(is_link)
-    
+        print('CCC',is_link.shape)
+
     affinity_graph = np.logical_or.reduce(conditions) 
     affinity_graph[idx] = 0 # no self connections
     
@@ -2127,7 +2128,8 @@ def flow_error(maski, dP_net, coords=None, affinity_graph=None, use_gpu=False, d
 
     # flows predicted from estimated masks and boundaries
     idx = -1 # flows are the last thing returned now
-    dP_masks = masks_to_flows(maski, coords=coords, affinity_graph=affinity_graph, 
+    dim = maski.ndim
+    dP_masks = masks_to_flows(maski, dim=dim, coords=coords, affinity_graph=affinity_graph, 
                               use_gpu=use_gpu, device=device, omni=omni)[idx].cpu().numpy() ##### dynamics.masks_to_flows
     # difference between predicted flows vs mask flows
     flow_errors = np.zeros(maski.max())
@@ -2950,7 +2952,7 @@ def get_contour(labels,affinity_graph,coords=None,cardinal_only=True):
 
     np.argmin(csum)
     
-    contours = parametrize_contour(steps,np.int32(labs),np.int32(unique_L),neigh_inds,step_ok, csum)
+    contours = parametrize_contours(steps,np.int32(labs),np.int32(unique_L),neigh_inds,step_ok, csum)
     
     contour_map = np.zeros(shape,dtype=np.int32)
     for contour in contours:
@@ -2965,7 +2967,7 @@ def get_contour(labels,affinity_graph,coords=None,cardinal_only=True):
 
 # @njit('(int64[:,:], int32[:], int32[:], int64[:,:], float64[:,:])', nogil=True)
 @njit
-def parametrize_contour(steps, labs, unique_L, neigh_inds, step_ok, csum):
+def parametrize_contours(steps, labs, unique_L, neigh_inds, step_ok, csum):
     """Helper function to sort 2D contours into cyclic paths. See get_contour()."""
     sign = np.sum(np.abs(steps),axis=1)
     contours = []

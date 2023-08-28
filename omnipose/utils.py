@@ -85,10 +85,11 @@ def cross_reg(imstack,upsample_factor=100,order=1,
     """
     Find the transformation matrices for all images in a time series to align to the beginning frame. 
     """
-    s = np.zeros(2)
-    shape = imstack.shape[-2:]
+    dim = imstack.ndim - 1 # dim is spatial, assume fisrt dimension is t
+    s = np.zeros(dim)
+    shape = imstack.shape[-dim:]
     regstack = np.zeros_like(imstack)
-    shifts = np.zeros((len(imstack),2))
+    shifts = np.zeros((len(imstack),dim))
     for i,im in enumerate(imstack[::-1] if reverse else imstack):
         ref = regstack[i-1] if i>0 else im 
         # reference_mask=~np.isnan(ref)
@@ -660,7 +661,6 @@ def subsample_affinity(augmented_affinity,slc,mask):
         affinity_crop = affinity_graph[:,inds_crop]
     
         # shift coordinates back acording to the lower bound of the slice 
-    
         #also refect at edges of the new bounding box
         edges = [np.array([-1,s.stop-s.start]) for s in slc]
         steps = get_steps(dim)
@@ -767,7 +767,7 @@ def kernel_setup(dim):
     
     
     
-# not acutally used in the code, typically use  steps_to_indices etc. 
+# not acutally used in the code, typically use steps_to_indices etc. 
 def cubestats(n):
     """
     Gets the number of m-dimensional hypercubes connected to the n-cube, including itself. 

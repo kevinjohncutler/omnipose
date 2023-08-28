@@ -462,6 +462,7 @@ class CellposeModel(UnetModel):
         # convert abstract prediction classes number to actual count
         # flow field components increase this by dim-1
         self.nclasses = self.nclasses + (self.dim-1)
+        # print('BBB', self.nclasses, self.nchan, self.dim)
 
         # initialize network
         super().__init__(gpu=gpu, pretrained_model=False,
@@ -875,7 +876,7 @@ class CellposeModel(UnetModel):
                 # the clustering etc. work even better, but that is not implemented yet 
                 if resample:
                     # ND version actually gives better results than CV2 in some places. 
-                    yf = np.stack([zoom(yf[...,k], shape[1:1+self.dim]/np.array(yf.shape[:2]), order=1) 
+                    yf = np.stack([zoom(yf[...,k], shape[1:1+self.dim]/np.array(yf.shape[:-1]), order=1) 
                                    for k in range(yf.shape[-1])],axis=-1)
                     # scipy.ndimage.affine_transform(A, np.linalg.inv(M), output_shape=tyx,
                 

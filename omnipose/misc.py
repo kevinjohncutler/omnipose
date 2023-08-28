@@ -4,9 +4,11 @@ from .utils import *
 # a bunch of development functions 
 
 from skimage.morphology import skeletonize
+from scipy.interpolate import splprep, splev
 
 
-def project_to_skeletons(images,labels,augmented_affinity, device, interp, use_gpu, omni):
+def project_to_skeletons(images,labels,augmented_affinity, device, interp, 
+                         use_gpu, omni, reference, interp_skel=0, n_step=None,log=True):
 
     shape = labels.shape
     d = labels.ndim
@@ -61,8 +63,8 @@ def project_to_skeletons(images,labels,augmented_affinity, device, interp, use_g
     
     # parametrize the skeletons 
     contour_map, contour_list, unique_L = get_contour(skel_labels,
-                                                    skel_affinity,
-                                                    cardinal_only=0)
+                                                      skel_affinity,
+                                                      cardinal_only=0)
 
     
     # generate mapping from pixel clusters to skeleton 
@@ -71,13 +73,44 @@ def project_to_skeletons(images,labels,augmented_affinity, device, interp, use_g
     
     images += [dt] # add distance field as a channel
     nchan = len(images)
-    projections = [np.zeros((nchan,len(c))) for c in contour_list] # 
+
+    N = []
+    for c in contour_list:
+        if log and n_step is not None:
+            n = int(np.ceil(np.log(np.count_nonzero(len(c)))*n_step/np.log(n_step)))+1
+        else:
+            n = len(c) if n_step is None else n_step
+        N.append(n)
+    
+    projections = [np.zeros((nchan,n)) for c,n in zip(contour_list,N)] # 
 
 
     print('c0',len(contour_list),unique_L)
     for contour, L, proj in zip(contour_list, unique_L, projections):
+        N = proj.shape[-1]
+        print('ggg',N)
         # target = np.nonzero(skel_labels==L)
-        target = tuple([c[contour] for c in skel_coords])
+        target = np.array([c[contour] for c in skel_coords])
+
+        # alt: make intermp
+        # pts = np.stack([c[contour] for c in skel_coords]).T #<<< using skel coords here
+        if interp_skel:
+            pts = target.T
+            tck, u = splprep(pts.T, u=None, s=len(pts)/6, per=0) # per=1 would be cyclic, not the case here 
+            u_new = np.linspace(u.min(), u.max(), N)
+            new_pts = splev(u_new, tck, der=0)
+            target = np.stack(new_pts)
+    
+        
+        # fix orientation by tracking a pole... 
+        # this could break with fast pole movement
+        start = target[:,0]
+        stop = target[:,-1]
+        if reference is not None:
+            if np.sum((start-reference)**2,axis=0) > np.sum((stop-reference)**2,axis=0):
+                target = target[:,::-1]
+                start = stop
+        
         # mask_coords = np.nonzero(np.logical_and(labels==L,inner))
         # mask_coords = np.nonzero(labels==L)
         # source_inds = ind_matrix[mask_coords]
@@ -93,7 +126,6 @@ def project_to_skeletons(images,labels,augmented_affinity, device, interp, use_g
 
         
         # print(source.shape,mapping.shape)
-        N = len(contour)
         print('cc',target[0].shape,N)
         
         for c in range(nchan):
@@ -109,7 +141,7 @@ def project_to_skeletons(images,labels,augmented_affinity, device, interp, use_g
             # proj[c] = counts[contour]
     
             
-    return projections
+    return projections, contour_map, contour_list, skel_coords, start
     
 
 from sklearn.neighbors import NearestNeighbors

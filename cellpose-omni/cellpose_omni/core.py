@@ -183,6 +183,7 @@ class UnetModel():
             self.net.initialize(ctx = self.device)
 
         if pretrained_model is not None and isinstance(pretrained_model, str):
+            print('>>>>>> yoyo self.nclasses, slef.dim, self.nchan')
             self.net.load_model(pretrained_model, cpu=(not self.gpu))
 
     def eval(self, x, batch_size=8, channels=None, channels_last=False, invert=False, normalize=True,
