@@ -183,7 +183,6 @@ class UnetModel():
             self.net.initialize(ctx = self.device)
 
         if pretrained_model is not None and isinstance(pretrained_model, str):
-            print('>>>>>> yoyo self.nclasses, slef.dim, self.nchan')
             self.net.load_model(pretrained_model, cpu=(not self.gpu))
 
     def eval(self, x, batch_size=8, channels=None, channels_last=False, invert=False, normalize=True,
@@ -1232,7 +1231,7 @@ class UnetModel():
             tic = time.time()
             epochtime[iepoch] = tic
             if iepoch % de == 0:
-                print(
+                core_logger.info(
                     ("Train epoch: {} | "
                     "Time: {:.2f}min | "
                     "last epoch: {:.2f}s | "
@@ -1240,7 +1239,8 @@ class UnetModel():
                     "<sec/epoch>: {:.2f}s | "
                     "<sec/batch>: {:.2f}s | "
                     "<Batch Loss>: {:.6f} | "
-                    "<Epoch Loss>: {:.6f} ").
+                    "<Epoch Loss>: {:.6f}").
+                    strip().
                     format(iepoch, # epoch index 
                            (tic-t0) / 60, # absolute time spent in minutes 
                            0 if iepoch==iepoch0 else (tic-toc) / (iepoch-iepoch0), # time spent in this epoch 

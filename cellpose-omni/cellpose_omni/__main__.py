@@ -92,7 +92,6 @@ def main(args):
 
         use_gpu = False
 
-
         # find images
         if len(args.img_filter)>0:
             img_filter = args.img_filter
@@ -121,6 +120,8 @@ def main(args):
         bacterial = ('bact' in args.pretrained_model) or ('worm' in args.pretrained_model) 
 
         # set nchan for builtin models
+        # print('hey',args.pretrained_model,args.pretrained_model in C2_MODEL_NAMES, args.chan, args.chan2,args.nchan)
+        
         if args.pretrained_model in C2_MODEL_NAMES:
             if args.nchan is not None:
                 logger.info('This pretrained model uses 2 channels, setting nchan=2')
@@ -138,7 +139,8 @@ def main(args):
         else:
             channels = None
 
-        
+        # print('ddd', args.nchan, channels)
+
         # force omni on for those models, but don't toggle it off if manually specified via --omni or by invoking python -m omnipose
         if 'omni' in args.pretrained_model:
             args.omni = True
@@ -153,9 +155,6 @@ def main(args):
                 print('scikit-learn not installed. DBSCAN clustering will be automatically disabled.')
                           
         omni = check_omni(args.omni) # repeat the above check but factor it for use elsewhere
-        if args.omni:
-            print('Omnipose enabled. See Omnipose repo for licencing details.')
-        
 
         # omni changes not implemented for mxnet. Full parity for cpu/gpu in pytorch. 
         if args.omni and args.mxnet:
@@ -170,7 +169,7 @@ def main(args):
         if args.omni and args.train:
             # assume instance segmentation unless otherwise specified 
             if args.nclasses is None:
-                args.nclasses = 2 # now do not do boundary by default 
+                args.nclasses = 2 # now do *not* use boundary prediction by default 
                 
             # args.dropout = True
             # args.RAdam = True
@@ -322,22 +321,28 @@ def main(args):
             
             # I see no reason to keep the 2-channel default of cellpose
             # omnipose will just support training on homogeneous image shapes, which is handled by setting channels=None
-            channels = None        
+            # channels = None        
             
             img = images[0]  
             dim = img.ndim 
             shape = img.shape
             # training with all channels
             # if args.all_channels:
+            # print('AA',args.nchan,args.channel_axis)
             if args.channel_axis is None:
                 if args.dim != dim: # user dim allows us to discern ND from (N-1)D+C
                     nchan = min(shape) # This assumes that the channel axis is the smallest 
                     args.channel_axis = np.argwhere([s==nchan for s in shape])[0][0]
                     logger.info('channel axis detected at position %s, manually specify if incorrect'%args.channel_axis)
                     nchan = shape[args.channel_axis]
-                else: 
+                elif args.nchan is None:
                     nchan = 1
                     args.channel_axis = 0 
+                else:
+                    nchan = args.nchan
+        
+
+                
                                          
             rstr = 'Be sure to use --nchan {} when running the model.'.format(nchan)
             if args.nchan is None:
@@ -347,6 +352,8 @@ def main(args):
             
             args.nchan = nchan
             
+            # print('BB',args.nchan,args.channel_axis)
+
             # model path
             if not os.path.exists(cpmodel_path):
                 if not args.train:
@@ -391,7 +398,7 @@ def main(args):
                                         nchan=args.nchan)
             else:
                 model = models.CellposeModel(device=device,
-                                             gpu=gpu, # why was this not being passed in befrore?
+                                             gpu=gpu, # why was this not being passed in before?
                                              use_torch=(not args.mxnet),
                                              pretrained_model=cpmodel_path,
                                              diam_mean=szmean,

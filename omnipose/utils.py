@@ -630,7 +630,8 @@ def subsample_affinity(augmented_affinity,slc,mask):
         tuple of slices along each dimension defining the crop window
         
     mask: NDarray, bool
-        foreground selection mask
+        foreground selection mask, in the image space of the original graph
+        (i.e., not already sliced)
 
     Returns
     --------

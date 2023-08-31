@@ -712,7 +712,7 @@ def masks_to_affinity(masks, coords, steps, inds, idx, fact, sign, dim,
         is_link = np.zeros(piece_masks.shape, dtype=np.bool_)
         is_link = get_link_matrix(links, piece_masks, np.concatenate(inds), idx, is_link)
         conditions.append(is_link)
-        print('CCC',is_link.shape)
+        # print('CCC',is_link.shape) 
 
     affinity_graph = np.logical_or.reduce(conditions) 
     affinity_graph[idx] = 0 # no self connections
@@ -941,7 +941,7 @@ def _extend_centers_torch(masks, centers, affinity_graph, coords=None, n_iter=20
     shape = masks.shape
     npix = affinity_graph.shape[-1]
     steps, inds, idx, fact, sign = utils.kernel_setup(d)
-    print()
+    
     if coords is None:
         coords = np.nonzero(masks>0) # >0 to handle -1 labels at edge; do I use that anymore? check...
 
@@ -1492,33 +1492,38 @@ def compute_masks(dP, dist, bd=None, p=None, inds=None, niter=None, rescale=1.0,
         bounds_unpad = bounds[unpad]
         
         if affinity_seg:
-            # I also want to return the raw affinity graph
-            # the problem there is that it is computed on the padded array
-            # besides unpadding, I need to delete columns for missing pixels 
+            # # I also want to return the raw affinity graph
+            # # the problem there is that it is computed on the padded array
+            # # besides unpadding, I need to delete columns for missing pixels 
 
-            # Idea here is that I index everything corresponding to the affinity graph first
-            # indexes, neigh_inds, ind_matrix = get_neigh_inds(np.argwhere(masks).T,masks.shape,steps)
-            # must use iscell_pad here, not masks, as it must correspond to the original set of pixels 
-            # indexes, neigh_inds, ind_matrix = get_neigh_inds(np.argwhere(iscell_pad).T,
-            #                                                  iscell_pad.shape,
-            #                                                  steps)
+            # # Idea here is that I index everything corresponding to the affinity graph first
+            # # indexes, neigh_inds, ind_matrix = get_neigh_inds(np.argwhere(masks).T,masks.shape,steps)
+            # # must use iscell_pad here, not masks, as it must correspond to the original set of pixels 
+            # # indexes, neigh_inds, ind_matrix = get_neigh_inds(np.argwhere(iscell_pad).T,
+            # #                                                  iscell_pad.shape,
+            # #                                                  steps)
             
-            indexes, neigh_inds, ind_matrix = utils.get_neigh_inds(tuple(neighbors),coords,shape)
+            # indexes, neigh_inds, ind_matrix = utils.get_neigh_inds(tuple(neighbors),coords,shape)
 
 
-            # then I figure out which of these columns correspond to pixels that are in the final masks
-            # this works by looking at an array of indices the same size as the image, and any pixels not part
-            # of the original affinity graph do not participate, i.e. hole filling does not work 
-            coords_remaining = np.nonzero(masks)
-            inds_remaining = ind_matrix[coords_remaining]
-            affinity_graph_unpad = affinity_graph[:,inds_remaining]
-            neighbors_unpad = neighbors[...,inds_remaining] - pad
+            # # then I figure out which of these columns correspond to pixels that are in the final masks
+            # # this works by looking at an array of indices the same size as the image, and any pixels not part
+            # # of the original affinity graph do not participate, i.e. hole filling does not work 
+            # coords_remaining = np.nonzero(masks)
+            # inds_remaining = ind_matrix[coords_remaining]
+            # affinity_graph_unpad = affinity_graph[:,inds_remaining]
+            # neighbors_unpad = neighbors[...,inds_remaining] - pad
 
-            # I also want to package the affinity graph with the pixel coordinates 
-            # then there is no ambiguity and can extract a binary mask
-            # thus the augmented affinity graph would be (d+1,3**d,npix)
+            # # I also want to package the affinity graph with the pixel coordinates 
+            # # then there is no ambiguity and can extract a binary mask
+            # # thus the augmented affinity graph would be (d+1,3**d,npix)
 
-            augmented_affinity = np.vstack((neighbors_unpad,affinity_graph_unpad[np.newaxis]))
+            # augmented_affinity = np.vstack((neighbors_unpad,affinity_graph_unpad[np.newaxis]))
+
+            # newer version that takes care of mask cleanup as well
+            slc = tuple([slice(pad,shape[d]-pad) for d in range(dim)])
+            augmented_affinity = utils.subsample_affinity(np.vstack((neighbors,affinity_graph[np.newaxis])),slc,masks)
+
             
             # this also applied to the traced pixels
             if calc_trace:
@@ -3307,15 +3312,26 @@ def _despur(connect, neigh_inds, indexes, steps, non_self,
 
 
 #5x speedup using njit
+# @njit()
+# def affinity_to_edges(affinity_graph,neigh_inds,step_inds,px_inds):
+#     """Convert affinity graph to list of edge tuples for connected components labeling."""
+#     edge_list = []
+#     for s in step_inds:
+#         for p in px_inds:
+#             if affinity_graph[s,p]: 
+#                 edge_list.append((p,neigh_inds[s][p]))
+#     return edge_list
+
 @njit()
 def affinity_to_edges(affinity_graph,neigh_inds,step_inds,px_inds):
-    """Convert affinity graph to list of edge tuples for connected components labeling."""
+    """Convert symmetric affinity graph to list of edge tuples for connected components labeling."""
     edge_list = []
     for s in step_inds:
         for p in px_inds:
-            if affinity_graph[s,p]: 
+            if p <= neigh_inds[s][p] and affinity_graph[s,p]:  # upper triangular 
                 edge_list.append((p,neigh_inds[s][p]))
     return edge_list
+
 
 def affinity_to_masks(affinity_graph,neigh_inds,iscell, 
                       cardinal=True,

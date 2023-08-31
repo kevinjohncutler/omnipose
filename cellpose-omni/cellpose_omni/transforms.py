@@ -424,7 +424,7 @@ def move_axis_new(a, axis, pos):
 # transposed to (x,y) if x<y, making the labels no longer correspond to the data. 
 def move_min_dim(img, force=False):
     """ move minimum dimension last as channels if < 10, or force==True """
-    if len(img.shape) > 2: #only makese sense to do this if channel axis is already present, not best for 3D though! 
+    if len(img.shape) > 2: #only makes sense to do this if channel axis is already present, not best for 3D though! 
         min_dim = min(img.shape)
         if min_dim < 10 or force:
             if img.shape[-1]==min_dim:

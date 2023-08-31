@@ -461,6 +461,7 @@ class CellposeModel(UnetModel):
         
         # convert abstract prediction classes number to actual count
         # flow field components increase this by dim-1
+        # print('AAA', self.nclasses, self.nchan, self.dim)
         self.nclasses = self.nclasses + (self.dim-1)
         # print('BBB', self.nclasses, self.nchan, self.dim)
 
@@ -1155,6 +1156,9 @@ class CellposeModel(UnetModel):
                                                                                                    channels, channel_axis,
                                                                                                    normalize, 
                                                                                                    self.dim, self.omni)
+        
+        # print('shape', train_data[0].shape, channels)
+        
         # check if train_labels have flows
         # if not, flows computed, returned with labels as train_flows[i][0]
         labels_to_flows = dynamics.labels_to_flows if not (self.omni and OMNI_INSTALLED) else omnipose.core.labels_to_flows
