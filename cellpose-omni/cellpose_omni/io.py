@@ -457,7 +457,7 @@ def save_to_png(images, masks, flows, file_names):
 def save_masks(images, masks, flows, file_names, png=True, tif=False,
                suffix='',save_flows=False, save_outlines=False, outline_col=[1,0,0],
                save_ncolor=False, dir_above=False, in_folders=False, savedir=None, 
-               save_txt=True, save_plot=True, omni=True):
+               save_txt=True, save_plot=True, omni=True, channel_axis=None):
     """ save masks + nicely plotted segmentation image to png and/or tiff
 
     if png, masks[k] for images[k] are saved to file_names[k]+'_cp_masks.png'
@@ -498,9 +498,9 @@ def save_masks(images, masks, flows, file_names, png=True, tif=False,
             save_masks(image, mask, flow, file_name, png=png, tif=tif, suffix=suffix, dir_above=dir_above,
                        save_flows=save_flows,save_outlines=save_outlines, outline_col=outline_col,
                        save_ncolor=save_ncolor, savedir=savedir, save_txt=save_txt, save_plot=save_plot,
-                       in_folders=in_folders, omni=omni)
+                       in_folders=in_folders, omni=omni, channel_axis=channel_axis)
         return
-    
+
     # make sure there is a leading underscore if any suffix was supplied
     if len(suffix):
         if suffix[0]!='_':
@@ -566,13 +566,13 @@ def save_masks(images, masks, flows, file_names, png=True, tif=False,
     
     if png and MATPLOTLIB and criterion3 and save_plot:
         img = images.copy()
-        if img.ndim<3:
-            img = img[:,:,np.newaxis]
-        elif img.shape[0]<8:
-            np.transpose(img, (1,2,0))
+        # if img.ndim<3:
+        #     img = img[:,:,np.newaxis]
+        # elif img.shape[0]<8:
+        #     np.transpose(img, (1,2,0))
         
         fig = plt.figure(figsize=(12,3))
-        plot.show_segmentation(fig, img, masks, flows[0], omni=omni)
+        plot.show_segmentation(fig, img, masks, flows[0], omni=omni, channel_axis=channel_axis)
         check_dir(cpdir) 
         fig.savefig(os.path.join(cpdir,basename + '_cp_output' + suffix + '.png'), dpi=300)
         plt.close(fig)

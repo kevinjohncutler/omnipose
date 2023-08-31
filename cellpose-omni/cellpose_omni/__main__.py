@@ -293,7 +293,7 @@ def main(args):
                     io.save_masks(image, masks, flows, image_name, png=args.save_png, tif=args.save_tif,
                                   save_flows=args.save_flows,save_outlines=args.save_outlines,
                                   save_ncolor=args.save_ncolor,dir_above=args.dir_above,savedir=args.savedir,
-                                  save_txt=args.save_txt,in_folders=args.in_folders)
+                                  save_txt=args.save_txt,in_folders=args.in_folders, omni=args.omni, channel_axis=args.channel_axis)
             logger.info('completed in %0.3f sec'%(time.time()-tic))
             
         # TRAINING BRANCH    
@@ -340,6 +340,7 @@ def main(args):
                     args.channel_axis = 0 
                 else:
                     nchan = args.nchan
+                    args.channel_axis = 0
         
 
                 

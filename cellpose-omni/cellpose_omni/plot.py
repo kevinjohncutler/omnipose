@@ -114,25 +114,31 @@ def show_segmentation(fig, img, maski, flowi, bdi=None, channels=None, file_name
         
 
     """
+
     if channels is None:
         channels = [0,0]
     img0 = img.copy()
     
-    # this line really screws with the colors
-    # img0 = transforms.reshape(img0,channels=channels) # this makes sure channel axis is last 
-    
-    if img0.shape[0]==3 and channel_axis!=-1:
-        # this branch catches cases where RGB image is CYX, converts to YXC
-        img0 = np.transpose(img0, (1,2,0))
-        
-    if img0.ndim == 2:
+    if img0.ndim==2:
         # this catches grayscale, converts to standard RGB YXC format 
         img0 = image_to_rgb(img0, channels=channels, omni=omni)
+    else:
+        # otherwise it must actually have some channels
         
-    if img0.shape[channel_axis]!=3:
-        # for anything else
-        img0 = colorize(img0,colors=img_colors)
+        # no channel axis specified means we shoudl assume it is CYX format
+        if channel_axis is None:
+            channel_axis = 0 
 
+        # this branch catches cases where RGB image is CYX, converts to YXC
+        if img0.shape[0]==3 and channel_axis!=-1:
+            img0 = np.transpose(img0, (1,2,0))
+
+        # for anything else
+        if img0.shape[channel_axis]!=3:
+            # need to convert the image to CYX first 
+            img0 = transforms.move_axis_new(img0,channel_axis,0)
+            img0 = colorize(img0,colors=img_colors)
+    
     img0 = (transforms.normalize99(img0,omni=omni)*(2**8-1)).astype(np.uint8)
     
     if bdi is None:
@@ -161,8 +167,6 @@ def show_segmentation(fig, img, maski, flowi, bdi=None, channels=None, file_name
     
     else:
         overlay = mask_overlay(img0, maski)
-
-        
 
     if file_name is not None:
         save_path = os.path.splitext(file_name)[0]
