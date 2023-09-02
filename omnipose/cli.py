@@ -92,7 +92,9 @@ def get_arg_parser():
     algorithm_args.add_argument('--diam_threshold', required=False, default=12.0, type=float, 
                                 help='cell diameter threshold for upscaling before mask rescontruction, default 12')
     algorithm_args.add_argument('--exclude_on_edges', action='store_true', help='discard masks which touch edges of image')
-    algorithm_args.add_argument('--min_size', default=15, type=float, help='minimum size for masks, helps with debris')
+    algorithm_args.add_argument('--min_size', default=15, type=float, help='minimum size for masks, helps if small debris is labeled')
+    algorithm_args.add_argument('--max_size', default=None, type=float, help='maximum size for masks, helps if background patches are labeled')
+
 
     # output settings
     output_args = parser.add_argument_group("output arguments")

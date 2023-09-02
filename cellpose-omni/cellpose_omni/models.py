@@ -150,7 +150,7 @@ class Cellpose():
              net_avg=True, augment=False, tile=True, tile_overlap=0.1, resample=True, 
              interp=True, cluster=False, boundary_seg=False, affinity_seg=False, 
              flow_threshold=0.4, mask_threshold=0.0, 
-             cellprob_threshold=None, dist_threshold=None, diam_threshold=12., min_size=15,
+             cellprob_threshold=None, dist_threshold=None, diam_threshold=12., min_size=15, max_size=None,
              stitch_threshold=0.0, rescale=None, progress=None, omni=False, verbose=False,
              transparency=False, model_loaded=False):
         """ run cellpose and get masks
@@ -334,6 +334,7 @@ class Cellpose():
                                             boundary_seg=boundary_seg, 
                                             affinity_seg=affinity_seg, 
                                             min_size=min_size, 
+                                            max_size=max_size,
                                             stitch_threshold=stitch_threshold,
                                             omni=omni,
                                             verbose=verbose,
@@ -388,7 +389,7 @@ class CellposeModel(UnetModel):
                  model_type=None, net_avg=True, use_torch=True,
                  diam_mean=30., device=None,
                  residual_on=True, style_on=True, concatenation=False,
-                 nchan=1, nclasses=2, dim=2, omni=False, 
+                 nchan=1, nclasses=2, dim=2, omni=True, 
                  checkpoint=False, dropout=False, kernel_size=2):
         if not torch:
             if not MXNET_ENABLED:
@@ -527,7 +528,7 @@ class CellposeModel(UnetModel):
              resample=True, interp=True, cluster=False, boundary_seg=False, affinity_seg=False,
              flow_threshold=0.4, mask_threshold=0.0, diam_threshold=12., niter=None,
              cellprob_threshold=None, dist_threshold=None, flow_factor=5.0,
-             compute_masks=True, min_size=15, stitch_threshold=0.0, progress=None, omni=False, 
+             compute_masks=True, min_size=15, max_size=None, stitch_threshold=0.0, progress=None, omni=False, 
              calc_trace=False, verbose=False, transparency=False, loop_run=False, model_loaded=False):
         """
             segment list of images x, or 4D array - Z x nchan x Y x X
@@ -706,6 +707,7 @@ class CellposeModel(UnetModel):
                                                  flow_factor=flow_factor,
                                                  compute_masks=compute_masks, 
                                                  min_size=min_size, 
+                                                 max_size=max_size,
                                                  stitch_threshold=stitch_threshold, 
                                                  progress=progress,
                                                  omni=omni,
@@ -766,6 +768,7 @@ class CellposeModel(UnetModel):
                                                                                       boundary_seg=boundary_seg,  
                                                                                       affinity_seg=affinity_seg,
                                                                                       min_size=min_size, 
+                                                                                      max_size=max_size,
                                                                                       do_3D=do_3D, 
                                                                                       anisotropy=anisotropy,
                                                                                       stitch_threshold=stitch_threshold,
@@ -794,7 +797,8 @@ class CellposeModel(UnetModel):
     def _run_cp(self, x, compute_masks=True, normalize=True, invert=False,
                 rescale=1.0, net_avg=True, resample=True,
                 augment=False, tile=True, tile_overlap=0.1, bsize=224,
-                mask_threshold=0.0, diam_threshold=12., flow_threshold=0.4, niter=None, flow_factor=5.0, min_size=15,
+                mask_threshold=0.0, diam_threshold=12., flow_threshold=0.4, niter=None, flow_factor=5.0, 
+                min_size=15, max_size=None,
                 interp=True, cluster=False, boundary_seg=False, affinity_seg=False,
                 anisotropy=1.0, do_3D=False, stitch_threshold=0.0,
                 omni=False, calc_trace=False, verbose=False, pad=0):
@@ -933,24 +937,25 @@ class CellposeModel(UnetModel):
                 else:
                     # run omnipose compute_masks
                     masks, bounds, p, tr, affinity = omnipose.core.compute_masks(dP, cellprob, bd,
-                                                                               do_3D=do_3D,
-                                                                               niter=niter,
-                                                                               resize=None,
-                                                                               min_size=min_size, 
-                                                                               mask_threshold=mask_threshold,  
-                                                                               diam_threshold=diam_threshold,
-                                                                               flow_threshold=flow_threshold, 
-                                                                               flow_factor=flow_factor,      
-                                                                               interp=interp, 
-                                                                               cluster=cluster,
-                                                                               boundary_seg=boundary_seg,
-                                                                               affinity_seg=affinity_seg,
-                                                                               calc_trace=calc_trace, 
-                                                                               verbose=verbose,
-                                                                               use_gpu=self.gpu, 
-                                                                               device=self.device, 
-                                                                               nclasses=self.nclasses, 
-                                                                               dim=self.dim)
+                                                                                do_3D=do_3D,
+                                                                                niter=niter,
+                                                                                resize=None,
+                                                                                min_size=min_size, 
+                                                                                max_size=max_size,
+                                                                                mask_threshold=mask_threshold,  
+                                                                                diam_threshold=diam_threshold,
+                                                                                flow_threshold=flow_threshold, 
+                                                                                flow_factor=flow_factor,      
+                                                                                interp=interp, 
+                                                                                cluster=cluster,
+                                                                                boundary_seg=boundary_seg,
+                                                                                affinity_seg=affinity_seg,
+                                                                                calc_trace=calc_trace, 
+                                                                                verbose=verbose,
+                                                                                use_gpu=self.gpu, 
+                                                                                device=self.device, 
+                                                                                nclasses=self.nclasses, 
+                                                                                dim=self.dim)
             else:
                 masks, bounds, p, tr, affinity = [], [], [], [], []
                 resize = shape[-(self.dim+1):-1] if not resample else None 
@@ -986,6 +991,7 @@ class CellposeModel(UnetModel):
                                                               rescale=rescale, 
                                                               resize=resize,
                                                               min_size=min_size, 
+                                                              max_size=max_size,
                                                               mask_threshold=mask_threshold,   
                                                               diam_threshold=diam_threshold,
                                                               flow_threshold=flow_threshold, 
@@ -1158,11 +1164,11 @@ class CellposeModel(UnetModel):
                                                                                                    self.dim, self.omni)
         
         # print('shape', train_data[0].shape, channels)
-        
+
         # check if train_labels have flows
         # if not, flows computed, returned with labels as train_flows[i][0]
         labels_to_flows = dynamics.labels_to_flows if not (self.omni and OMNI_INSTALLED) else omnipose.core.labels_to_flows
-        
+
         # Omnipose needs to recompute labels on-the-fly after image warping
         if self.omni and OMNI_INSTALLED:
             models_logger.info('No precomuting flows with Omnipose. Computed during training.')

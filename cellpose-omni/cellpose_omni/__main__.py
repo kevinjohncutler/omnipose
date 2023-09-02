@@ -278,6 +278,7 @@ def main(args):
                                 anisotropy=args.anisotropy,
                                 verbose=args.verbose,
                                 min_size=args.min_size,
+                                max_size=args.max_size,
                                 transparency=args.transparency, # RGB flows made in the eval step
                                 model_loaded=True)
                 masks, flows = out[:2]
@@ -340,11 +341,7 @@ def main(args):
                     args.channel_axis = 0 
                 else:
                     nchan = args.nchan
-                    args.channel_axis = 0
-        
-
-                
-                                         
+            
             rstr = 'Be sure to use --nchan {} when running the model.'.format(nchan)
             if args.nchan is None:
                 logger.info('setting nchan to {}. '.format(nchan) + rstr)

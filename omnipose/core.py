@@ -941,7 +941,7 @@ def _extend_centers_torch(masks, centers, affinity_graph, coords=None, n_iter=20
     shape = masks.shape
     npix = affinity_graph.shape[-1]
     steps, inds, idx, fact, sign = utils.kernel_setup(d)
-    
+
     if coords is None:
         coords = np.nonzero(masks>0) # >0 to handle -1 labels at edge; do I use that anymore? check...
 
@@ -1198,7 +1198,7 @@ def _gradient(T,d,steps,fact,
 def compute_masks(dP, dist, bd=None, p=None, inds=None, niter=None, rescale=1.0, resize=None, 
                   mask_threshold=0.0, diam_threshold=12.,flow_threshold=0.4, 
                   interp=True, cluster=False, boundary_seg=False, affinity_seg=False, do_3D=False, 
-                  min_size=None, hole_size=None, omni=True, 
+                  min_size=None, max_size=None, hole_size=None, omni=True, 
                   calc_trace=False, verbose=False, use_gpu=False, device=None, nclasses=2, 
                   dim=2, eps=None, hdbscan=False, flow_factor=6, debug=False, override=False):
     """
@@ -1280,9 +1280,7 @@ def compute_masks(dP, dist, bd=None, p=None, inds=None, niter=None, rescale=1.0,
     unpad = tuple([slice(pad,-pad)]*dim) 
 
     
-    # Min size taken to be 9px or 27 voxels etc. if not specified 
-    if min_size is None:
-        min_size = 3**dim # N cube 
+
     
     if hole_size is None:
         hole_size = 3**(dim//2) # just a guess
@@ -1441,7 +1439,7 @@ def compute_masks(dP, dist, bd=None, p=None, inds=None, niter=None, rescale=1.0,
         
         
         # need to reconsider this for self-contact... ended up just disabling with hole size 0
-        masks = fill_holes_and_remove_small_masks(labels, min_size=min_size, ##### utils.fill_holes_and_remove_small_masks
+        masks = fill_holes_and_remove_small_masks(labels, min_size=min_size, max_size=max_size, ##### utils.fill_holes_and_remove_small_masks
                                                  hole_size=hole_size, dim=dim)*iscell_pad 
         # masks = labels
         # Resize mask, semantic or instance 
@@ -2661,8 +2659,7 @@ def get_masks_cp(p, iscell=None, rpad=20, flows=None, use_gpu=False, device=None
     return M0
 
 
-# duplicated from cellpose_omni temporarily, need to pass through spacetime before re-inserting 
-def fill_holes_and_remove_small_masks(masks, min_size=15, hole_size=3, scale_factor=1, dim=2):
+def fill_holes_and_remove_small_masks(masks, min_size=None, max_size=None, hole_size=3, dim=2):
     """ fill holes in masks (2D/3D) and discard masks smaller than min_size (2D)
     
     fill holes in each mask using scipy.ndimage.morphology.binary_fill_holes
@@ -2672,8 +2669,14 @@ def fill_holes_and_remove_small_masks(masks, min_size=15, hole_size=3, scale_fac
     masks: int, 2D or 3D array
         labelled masks, 0=NO masks; 1,2,...=mask labels,
         size [Ly x Lx] or [Lz x Ly x Lx]
-    min_size: int (optional, default 15)
-        minimum number of pixels per mask, can turn off with -1
+    min_size: int (optional, default 3**dim)
+        minimum number of pixels per mask (exclusive), can turn off with -1
+    max_size: int (optional, default None)
+        maximum number of pixels per mask (exclusive)
+    hole_size: int (optional, default 3)
+        holes bigger than this are NOT filled
+    dim: int (optional, default 2)
+        dimension of the masks
 
     Returns
     ---------------
@@ -2683,12 +2686,15 @@ def fill_holes_and_remove_small_masks(masks, min_size=15, hole_size=3, scale_fac
         size [Ly x Lx] or [Lz x Ly x Lx]
     
     """
+    # Min size taken to be an N-cube in ND (9 pixels, 27 voxels, ...) if not specified 
+    if min_size is None:
+        min_size = 3**dim # N cube 
+
     # if masks.ndim==2 or dim>2:
         # formatting to integer is critical
         # need to test how it does with 3D
     masks = ncolor.format_labels(masks, min_area=min_size)#, clean=True)
-    hole_size *= scale_factor
-    fill_holes = hole_size>0 # toggle off hole filling by setting hole zie to 0
+    fill_holes = hole_size>0 # toggle off hole filling by setting hole size to 0
     
     slices = find_objects(masks)
     j = 0
@@ -2696,7 +2702,11 @@ def fill_holes_and_remove_small_masks(masks, min_size=15, hole_size=3, scale_fac
         if slc is not None:
             msk = masks[slc] == (i+1)
             npix = msk.sum()
-            if min_size > 0 and npix < min_size:
+
+            too_small = npix < min_size
+            too_big = False if max_size is None else npix > max_size
+
+            if (min_size > 0) and (too_small or too_big):
                 masks[slc][msk] = 0
             elif fill_holes:   
                 hsz = np.count_nonzero(msk)*hole_size/100 #turn hole size into percentage
@@ -2704,7 +2714,7 @@ def fill_holes_and_remove_small_masks(masks, min_size=15, hole_size=3, scale_fac
                 # for not I just toggle it off 
                 if SKIMAGE_ENABLED: # Omnipose version (passes 2D tests)
                     pad = 1
-                    unpad = tuple([slice(pad,-pad)]*msk.ndim) 
+                    unpad = tuple([slice(pad,-pad)]*dim) 
                     padmsk = remove_small_holes(np.pad(msk,pad,mode='constant'),area_threshold=hsz)
                     msk = padmsk[unpad]
                 else: #Cellpose version
