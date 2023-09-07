@@ -252,11 +252,11 @@ def main(args):
             else:
                 diameter = args.diameter
                 logger.info('using diameter %0.2f for all images'%diameter)
-
-            
             
             tqdm_out = utils.TqdmToLogger(logger,level=logging.INFO)
             
+            # currently, CLI eval forces the network to run on just one image at a time
+            # We can change this if images are all the same size by 
             for image_name in tqdm(image_names, file=tqdm_out):
                 image = io.imread(image_name)
                 out = model.eval(image, channels=channels, diameter=diameter, rescale = args.rescale,

@@ -1054,7 +1054,7 @@ class UnetModel():
                       'collate_fn': training_set.collate_fn,
                       'worker_init_fn': training_set.worker_init_fn,
                       'pin_memory': False, # only useful for CPU tensors
-                      'num_workers': num_workers, # this probably makes sense only for large batches 
+                      'num_workers': num_workers, 
                       'sampler': sampler,
                       'persistent_workers': True if num_workers>0 else False,
                       'multiprocessing_context': 'spawn',

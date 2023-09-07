@@ -903,9 +903,9 @@ def random_rotate_and_resize(X, Y=None, scale_range=1., gamma_range=[.5,4], tyx=
         # [Y[i][1:] for i in inds] is necessary because the original transform function does not use masks (entry 0). 
         # This used to be done in the original function call. 
         if tyx is None:
-            xy = (224,)*dim
+            tyx = (224,)*dim
         return original_random_rotate_and_resize(X, Y=[y[1:] for y in Y] if Y is not None else None, 
-                                                 scale_range=scale_range, xy=xy,
+                                                 scale_range=scale_range, xy=tyx,
                                                  do_flip=do_flip, rescale=rescale, unet=unet)
 
 

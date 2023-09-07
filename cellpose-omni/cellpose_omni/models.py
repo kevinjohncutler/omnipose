@@ -1188,7 +1188,7 @@ class CellposeModel(UnetModel):
             nmasks = np.array([label.max() for label in train_labels])
 
         else:
-            train_labels = labels_to_flows(train_labels, train_links, files=train_files, 
+            train_labels = labels_to_flows(labels=train_labels, links=train_links, files=train_files, 
                                            use_gpu=self.gpu, device=self.device, dim=self.dim)
             nmasks = np.array([label[0].max() for label in train_labels])
 
