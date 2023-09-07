@@ -271,6 +271,7 @@ def main(args):
                                 batch_size=args.batch_size,
                                 interp=(not args.no_interp),
                                 cluster=args.cluster,
+                                suppress=(not args.no_suppress),
                                 channel_axis=args.channel_axis,
                                 z_axis=args.z_axis,
                                 omni=args.omni,

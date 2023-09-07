@@ -14,6 +14,7 @@ class EulerLoss(ivp_loss.IVPLoss):
                          # mode='bilinear_batched'
                         )
 
+
 class WeightedMSELoss(torch.nn.Module):
     def __init__(self):
         super().__init__()

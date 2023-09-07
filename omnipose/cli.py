@@ -73,6 +73,7 @@ def get_arg_parser():
     algorithm_args.add_argument('--omni', action='store_true', help='Omnipose algorithm (disabled by default)')
     algorithm_args.add_argument('--affinity_seg',action='store_true', help='use new affinity segmentation algorithm (disabled by default)')
     algorithm_args.add_argument('--cluster', action='store_true', help='DBSCAN clustering. Reduces oversegmentation of thin features (disabled by default)')
+    algorithm_args.add_argument('--no_suppress', action='store_true', help='Euler integration 1/t suppression reduces oversegmentation but can give undersegmentation in 3D; this flag disables it.')
     algorithm_args.add_argument('--fast_mode', action='store_true', help='make code run faster by turning off 4 network averaging and resampling')
     algorithm_args.add_argument('--no_resample', action='store_true', 
                                 help="disable dynamics on full image (makes algorithm faster for images with large diameters)")

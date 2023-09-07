@@ -1200,7 +1200,7 @@ def compute_masks(dP, dist, bd=None, p=None, inds=None, niter=None, rescale=1.0,
                   interp=True, cluster=False, boundary_seg=False, affinity_seg=False, do_3D=False, 
                   min_size=None, max_size=None, hole_size=None, omni=True, 
                   calc_trace=False, verbose=False, use_gpu=False, device=None, nclasses=2, 
-                  dim=2, eps=None, hdbscan=False, flow_factor=6, debug=False, override=False):
+                  dim=2, eps=None, hdbscan=False, flow_factor=6, debug=False, override=False, suppress=None):
     """
     Compute masks using dynamics from dP, dist, and boundary outputs.
     Called in cellpose.models(). 
@@ -1279,9 +1279,7 @@ def compute_masks(dP, dist, bd=None, p=None, inds=None, niter=None, rescale=1.0,
     pad_seq = [(0,)*2]+[(pad,)*2]*dim
     unpad = tuple([slice(pad,-pad)]*dim) 
 
-    
 
-    
     if hole_size is None:
         hole_size = 3**(dim//2) # just a guess
 
@@ -1373,19 +1371,25 @@ def compute_masks(dP, dist, bd=None, p=None, inds=None, niter=None, rescale=1.0,
             
         else: # do the ol' Euler-integration + clustering 
 
+            if suppress is None:
+                suppress = omni and not affinity_seg # Euler suppression ON with omni unless affinity seg 
+
             # the clustering algorithm requires far fewer iterations because it 
             # can handle subpixel separation to define blobs, whereas the thresholding method
             # requires blobs to be separated by more than 1 pixel 
             # new affinity_seg does not do Euler supression and benefits from moderate point clustering 
-            if (cluster or affinity_seg) and niter is None:
+            if (cluster or affinity_seg or not suppress) and niter is None:
                 # niter = int(diameters(iscell,dist))
                 # dividing by two is sometimes necessary, but it seems like it might be generally more harm than good
                 niter = int(diameters(iscell,dist)/(1+affinity_seg))
+
+                # if verbose:
+                #     omnipose_logger.info('niter is now {}'.format(niter))
                 
             if p is None:
                 p, inds, tr = follow_flows(dP_pad, dt_pad, inds, niter=niter, interp=interp,
                                            use_gpu=use_gpu, device=device, omni=omni, 
-                                           suppress=omni and not affinity_seg, # Euler suppression ON with omni unless affinity seg 
+                                           suppress= suppress,
                                            calc_trace=calc_trace, verbose=verbose)
                 
             else:
@@ -1544,7 +1548,7 @@ def compute_masks(dP, dist, bd=None, p=None, inds=None, niter=None, rescale=1.0,
         executionTime0 = (time.time() - startTime0)
         omnipose_logger.info('compute_masks() execution time: {:.3g} sec'.format(executionTime0))
         omnipose_logger.info('\texecution time per pixel: {:.6g} sec/px'.format(executionTime0/np.prod(labels.shape)))
-        omnipose_logger.info('\texecution time per cell pixel: {:.6g} sec/px'.format(executionTime0/np.count_nonzero(labels)))
+        omnipose_logger.info('\texecution time per cell pixel: {:.6g} sec/px'.format(np.nan if not np.count_nonzero(labels) else executionTime0/np.count_nonzero(labels)))
 
     return (*ret,)
 
