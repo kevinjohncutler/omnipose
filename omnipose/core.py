@@ -17,6 +17,8 @@ import mgen #ND rotation matrix
 from . import utils
 from ncolor.format_labels import delete_spurs
 
+from .gpu import empty_cache # for clearing memory after follow_flows
+
 # Use of sets...
 from numba.core.errors import NumbaDeprecationWarning, NumbaPendingDeprecationWarning
 import warnings
@@ -1195,7 +1197,7 @@ def _gradient(T,d,steps,fact,
 
 # ## Section II: mask recontruction
 
-def compute_masks(dP, dist, bd=None, p=None, inds=None, niter=None, rescale=1.0, resize=None, 
+def compute_masks(dP, dist, bd=None, p=None, inds=None, iscell=None, niter=None, rescale=1.0, resize=None, 
                   mask_threshold=0.0, diam_threshold=12.,flow_threshold=0.4, 
                   interp=True, cluster=False, boundary_seg=False, affinity_seg=False, do_3D=False, 
                   min_size=None, max_size=None, hole_size=None, omni=True, 
@@ -1279,7 +1281,6 @@ def compute_masks(dP, dist, bd=None, p=None, inds=None, niter=None, rescale=1.0,
     pad_seq = [(0,)*2]+[(pad,)*2]*dim
     unpad = tuple([slice(pad,-pad)]*dim) 
 
-
     if hole_size is None:
         hole_size = 3**(dim//2) # just a guess
 
@@ -1292,20 +1293,21 @@ def compute_masks(dP, dist, bd=None, p=None, inds=None, niter=None, rescale=1.0,
              omnipose_logger.warning('Omni enabled but skimage not enabled')
     
     # inds very useful for debugging and figures; allows us to easily specify specific indices for Euler integration
-    if inds is not None:
-        iscell = np.zeros_like(dist,dtype=np.int32)
-        iscell[tuple(inds)] = 1
-    else:
-        if (omni and SKIMAGE_ENABLED) or override:
-            if verbose:
-                omnipose_logger.info('Using hysteresis threshold.')
-            iscell = filters.apply_hysteresis_threshold(dist, mask_threshold-1, mask_threshold) # good for thin features
-            # mag = np.sqrt(np.nansum(dP**2,axis=0))
-            # mask = np.logical_and(mask,~np.logical_and(dist<=1,mag<=np.percentile(mag[mask],0.01)))
-            # inds = np.array(np.nonzero(iscell)).astype(np.int32)
-
+    if iscell is None:
+        if inds is not None:
+            iscell = np.zeros_like(dist,dtype=np.int32)
+            iscell[tuple(inds)] = 1
         else:
-            iscell = dist > mask_threshold # analog to original iscell=(cellprob>cellprob_threshold)
+            if (omni and SKIMAGE_ENABLED) or override:
+                if verbose:
+                    omnipose_logger.info('Using hysteresis threshold.')
+                iscell = filters.apply_hysteresis_threshold(dist, mask_threshold-1, mask_threshold) # good for thin features
+                # mag = np.sqrt(np.nansum(dP**2,axis=0))
+                # mask = np.logical_and(mask,~np.logical_and(dist<=1,mag<=np.percentile(mag[mask],0.01)))
+                # inds = np.array(np.nonzero(iscell)).astype(np.int32)
+
+            else:
+                iscell = dist > mask_threshold # analog to original iscell=(cellprob>cellprob_threshold)
 
     # if nclasses>1, we can do instance segmentation. 
     if np.any(iscell) and nclasses>1: 
@@ -1391,7 +1393,6 @@ def compute_masks(dP, dist, bd=None, p=None, inds=None, niter=None, rescale=1.0,
                                            use_gpu=use_gpu, device=device, omni=omni, 
                                            suppress= suppress,
                                            calc_trace=calc_trace, verbose=verbose)
-                
             else:
                 tr = []
                 inds = np.stack(np.nonzero(iscell_pad))
@@ -1400,7 +1401,7 @@ def compute_masks(dP, dist, bd=None, p=None, inds=None, niter=None, rescale=1.0,
 
             #calculate masks
             if (omni and OMNI_INSTALLED) or override:
-                if affinity_seg:                    
+                if affinity_seg:                 
                     affinity_graph, neighbors, neigh_inds, bounds = _get_affinity(steps,iscell_pad,dP_pad,dt_pad,p,inds)
                     coords = tuple(inds)
                     if cluster:
@@ -1853,7 +1854,7 @@ def steps_interp(p, dP, dist, niter, use_gpu=True, device=None, omni=True, suppr
     # We also need to rescale the flow by the same factor, but no shift of -1. 
     
     for k in range(d): 
-        pt[...,k] = 2*pt[...,k]/shape[k] - 1
+        pt[...,k] = 2*pt[...,k]/shape[k] - 1 
         flow[:,k] = 2*flow[:,k]/shape[k]
     
     # make an array to track the trajectories 
@@ -1905,6 +1906,7 @@ def steps_interp(p, dP, dist, niter, use_gpu=True, device=None, omni=True, suppr
     # if verbose:
     #     executionTime = (time.time() - startTime)
     #     omnipose_logger.info('steps_interp() execution time: {0:.3g} sec'.format(executionTime))
+    empty_cache() # release memory
     return p, tr
 
 @njit('(float32[:,:,:,:],float32[:,:,:,:], int32[:,:], int32)', nogil=True)
@@ -3083,10 +3085,11 @@ def _get_affinity(steps, mask_pad, mu_pad, dt_pad, p, p0,
     """
     Get the weights associated with the edges of the affinity graph. 
     Here pixels are connected (affinity 1) or disconnected (affinity 0). 
+    The particular way I store this affinity graph may also be called an "adjacency list". 
     """
 
     axes = range(mu_pad.shape[0])
-    coord = np.nonzero(mask_pad)
+    coord = np.nonzero(mask_pad) # should this not just be inds/p0?
     coords = np.stack(coord)
 
     div = divergence(mu_pad)
@@ -3098,7 +3101,7 @@ def _get_affinity(steps, mask_pad, mu_pad, dt_pad, p, p0,
     if euler_offset is None:
         euler_offset = 2*np.sqrt(d)
         # euler_offset = d
-    
+
     shape = mask_pad.shape
     neighbors = utils.get_neighbors(coord,steps,d,shape) # shape (d,3**d,npix)   
     indexes, neigh_inds, ind_matrix = utils.get_neigh_inds(tuple(neighbors),coord,shape)
@@ -3107,62 +3110,57 @@ def _get_affinity(steps, mask_pad, mu_pad, dt_pad, p, p0,
     S,L = neigh_inds.shape
     connect = np.zeros((S,L),dtype=bool)
     
+
+    # central pixel operations factored out of the loop
+    pix_A = p[(Ellipsis,)+coord]
+    A = pix_A-p0[:, indexes] # displacement at each pixel 
+    mag_A = np.sqrt(np.sum(A**2,axis=0))
+    slow_A = mag_A<1
+    sink_A = div[coord]<0
+    mask_A = mask_pad[coord]
+    dt_pad_A = dt_pad[coord]
+
     # we only need to loop over the first half of all steps, as we consider symmetrical pairs 
-    for i in range(S//2): 
+    # interestingly, going over all S gives 2-connected, but just half gives 1-connected...
+    for i in range(S//2):
         s = steps[i]
         neigh = tuple(coords+s[np.newaxis].T) # in direction of step
         
         neigh_indices = ind_matrix[neigh]
         neigh_sel = neigh_indices>-1 # exlude -1 from indexing later 
 
-        # replace flow angles with displacement angles
-        A =  p[(Ellipsis,)+coord]-p0[:, indexes]
-        B =  p[(Ellipsis,)+neigh]-p0[:,neigh_indices]
-        
-        mag_A = np.sqrt(np.sum(A**2,axis=0))
+        pix_B = p[(Ellipsis,)+neigh]
+        B = pix_B - p0[:,neigh_indices] # displacement at neighbor
         mag_B = np.sqrt(np.sum(B**2,axis=0))
-        
         cosAB = utils.safe_divide(np.sum(np.multiply(A,B),axis=0), mag_A * mag_B)
-        # denom = mag_A * mag_B
-        # dot = np.sum(np.multiply(A,B),axis=0)
-        # cosAB = np.where(denom>0,dot/denom,0)
-        
+
         angleAB = np.arccos(cosAB.clip(-1,1))
-        angleAB[np.logical_and(mask_pad[coord],mask_pad[neigh]==0)] = np.pi #background is opposite
+        angleAB[np.logical_and(mask_A,mask_pad[neigh]==0)] = np.pi #background is opposite
 
         # see if connected in forward direction
-        separationAB = p[(Ellipsis,)+neigh] - p[(Ellipsis,)+coord]
+        separationAB = p[(Ellipsis,)+neigh] - pix_A
         sepAB = np.sum(separationAB**2,axis=0) # squared distance now 
-        
-#         separationAB0 = p0[:, indexes] - p0[:,neigh_indices]
-#         sepAB0 = np.sum(separationAB0**2,axis=0) # squared distance now 
-        
-        scut = (euler_offset+np.mean((dt_pad[coord],dt_pad[neigh]),axis=0))**2 #cutoff must be symmetrical
-        # scut = (mag_A+mag_B)**2
-        # scut = np.mean((dt_pad[coord],dt_pad[neigh]),axis=0)**2
-        # scut = (euler_offset+dt_pad[coord]*dt_pad[neigh])**2
-        # scut = euler_offset+np.sqrt(mag_A*mag_B)
-        
-        
+
+        scut = (euler_offset+np.mean((dt_pad_A,dt_pad[neigh]),axis=0))**2 #cutoff must be symmetrical
         
         # We want pixels that do not move to be internal, connected everywhere
-        is_slow = np.logical_or(mag_A<1,mag_B<1)
-        is_sink = np.logical_or(div[coord]<0,div[neigh]<0)
+        is_slow = np.logical_or(slow_A,mag_B<1)
+        is_sink = np.logical_or(sink_A,div[neigh]<0)
         
         # a slow pixel at the skeleton should be internal
         # or otherwise pixels that get closer together with somewhat parallel flows
         isconnectAB = np.logical_or(np.logical_and(is_slow,is_sink), 
                                     np.logical_and.reduce((sepAB<scut,
-                                                            # angleAB<=acut,
                                                            np.logical_or(angleAB<=acut,is_sink), 
-                                                           mask_pad[neigh]==mask_pad[coord],
+                                                           mask_pad[neigh]==mask_A,
                                                           ))
                                    )
 
         # assign symmetrical connectivity 
         target = neigh_inds[i]
         sel = target>-1
-        connect[i,sel] = isconnectAB[sel] # source to target 
+        # connect[i,sel] = isconnectAB[sel] # source to target 
+        connect[i,indexes[sel]] = isconnectAB[sel] # source to target, slightly faster than just using sel 
         connect[-(i+1),target[sel]] = isconnectAB[sel] #target to source
         
 
@@ -3174,7 +3172,6 @@ def _get_affinity(steps, mask_pad, mu_pad, dt_pad, p, p0,
     non_self = np.array(list(set(np.arange(len(steps)))-{inds[0][0]})) # I need these to be in order
 
     connect = _despur(connect, neigh_inds, indexes, steps, non_self, cardinal, ordinal, d, clean_bd_connections)
-
     # need to ensure that pixels connected to internal pixels ar enot connected to boundaries in the oppoiste direction 
     
     
@@ -3182,9 +3179,10 @@ def _get_affinity(steps, mask_pad, mu_pad, dt_pad, p, p0,
     csum = np.sum(connect,axis=0)
     crop = csum<d
     for i in non_self:
-        target = neigh_inds[i,crop]
-        connect[i,crop] = 0 
-        connect[-(i+1),target[target>-1]] = 0 
+        target = neigh_inds[i,crop] # neighbors from which to delete connections 
+        connect[i,crop] = 0 # delete connection from nbeighbor to self
+        connect[-(i+1),target[target>-1]] = 0 # delete connection from self to neighbor
+
 
     # construct boundary
     csum = np.sum(connect,axis=0)
@@ -3205,31 +3203,45 @@ def _despur(connect, neigh_inds, indexes, steps, non_self,
     count = 0
     delta = True
     s0 = len(non_self)//2 #<<<<<<<<<<<<<< idx 
+
+    valid_neighs = neigh_inds > -1 # must avoid using -1 index to access array, could also do edges here maybe to avoid padding 
+
     while delta and count<iter_cutoff:    
         count+=1
         before = connect.copy()
         
-        csum =  np.sum(connect,axis=0)
-        internal = (csum==(3**dim-1))
-        csum_cardinal = np.sum(connect[cardinal],axis=0)
+        csum =  np.sum(connect,axis=0) # total number of connections for each hypervoxel
+        internal = (csum==(3**dim-1)) # classify those hypervoxels that are "internal"
+        csum_cardinal = np.sum(connect[cardinal],axis=0) # total connections in cardinal directions only 
         
         # 1st stage of processing removes spur pixels in parallel
         is_external_spur = csum_cardinal<dim
 
-        is_internal = np.stack([internal[neigh_inds[s]] for s in cardinal])
-        is_internal_spur = np.any(np.logical_and(is_internal,is_internal[::-1]),axis=0) # flip and or for fast pairwise comaprsion 
+        # internal spurs are more subtle. I want to patch missing connections between internal pixels.
+        # One idea is that usually internal pixels should be sandwiched between at leat two other internal pixels. 
+        # This always is the case deep inside the graph, but not when close to boundary "folds" that partially surround intenral pixels 
+        # However, any such pixels that are detected as spurs just get connected to everyone, so they don't change at all. They simply get 
+        # caught every time as a spur. Since that might lead to extra processing, I could try to avoid it by also condiitoning on
+        # the number of internal pixels that are cardinal neighbors. You need  at least two cardinal connections (since it always reduces to a line)
+        
+
+        is_internal = np.stack([internal[neigh_inds[s]] for s in cardinal]) # cardinal neighbor internal classification
+        is_surround = np.sum(is_internal,axis=0)>1 # restrict to only those with 2+ internal cardinal neighbors
+        is_sandwiched = np.any(np.logical_and(is_internal,is_internal[::-1]),axis=0) # flip and or for fast pairwise comparsion 
+        is_internal_spur = np.logical_and(is_surround,is_sandwiched)
+        # is_internal_spur = is_sandwiched
         
         for i in non_self:
             target = neigh_inds[i]
-            valid_target = target>-1 # must avoid using -1 idex to access array 
+            valid_target = valid_neighs[i]
             
             # connection = 0 > remove pixels that are insufficiently connected by severing all connections
             # connection = 1 > remove internal spur boundary points by restoring all connections 
             for connection,spur in enumerate([is_external_spur,is_internal_spur]):
                 sel = spur*valid_target
-                connect[i,sel] = connection
+                connect[i,indexes[sel]] = connection # seems to actually be faster than  connect[i,sel]
                 connect[-(i+1),target[sel]] = connection
-        
+
 
         # must recompute after those operations were perfomed 
         csum = np.sum(connect,axis=0)
@@ -3305,7 +3317,10 @@ def _despur(connect, neigh_inds, indexes, steps, non_self,
                                 for o in ax1:
                                     t = neigh_inds[o,target] # ordinal neighbor of this neighbor pixel
                                     if t in neigh:
-                                        w = np.argwhere(neigh==t)[0][0]
+                                    # if np.any(neigh==t): # slower 
+
+                                        # w = np.argwhere(neigh==t)[0][0]
+                                        w = np.flatnonzero(neigh==t)[0]
                                         k = ax0[w]
                                         c = (connect[o,target] and connect[k,idx]) and t>-1 and target>-1
 
@@ -3318,7 +3333,6 @@ def _despur(connect, neigh_inds, indexes, steps, non_self,
             # plus you are processing more pixels 
                     
         after = connect.copy()
-        diff = np.sum(before!=after)
         delta = np.any(before!=after)
         if count>=iter_cutoff-1:
             print('run over iterations',count)
@@ -3336,15 +3350,34 @@ def _despur(connect, neigh_inds, indexes, steps, non_self,
 #                 edge_list.append((p,neigh_inds[s][p]))
 #     return edge_list
 
+# @njit()
+# def affinity_to_edges(affinity_graph,neigh_inds,step_inds,px_inds):
+#     """Convert symmetric affinity graph to list of edge tuples for connected components labeling."""
+#     edge_list = []
+#     for s in step_inds:
+#         for p in px_inds:
+#             if p <= neigh_inds[s][p] and affinity_graph[s,p]:  # upper triangular 
+#                 edge_list.append((p,neigh_inds[s][p]))
+#     return edge_list
+
+# this version is a lot faster. igraph takes longer to initialize, however. 
 @njit()
 def affinity_to_edges(affinity_graph,neigh_inds,step_inds,px_inds):
     """Convert symmetric affinity graph to list of edge tuples for connected components labeling."""
-    edge_list = []
+    n_edges = len(step_inds) * len(px_inds)
+    edge_list = np.empty((n_edges, 2), dtype=np.int64)
+    # edge_list = [(-1,-1)] * n_edges  # Preallocate list with placeholder tuples
+
+    idx = 0
     for s in step_inds:
         for p in px_inds:
             if p <= neigh_inds[s][p] and affinity_graph[s,p]:  # upper triangular 
-                edge_list.append((p,neigh_inds[s][p]))
-    return edge_list
+                edge_list[idx] = (p,neigh_inds[s][p])
+                idx += 1
+    return edge_list[:idx] # return only the portion edge_list that contins edges 
+    # return [e for e in edge_list[:idx]]
+
+
 
 
 def affinity_to_masks(affinity_graph,neigh_inds,iscell, 
@@ -3380,13 +3413,19 @@ def affinity_to_masks(affinity_graph,neigh_inds,iscell,
     # step_inds = np.concatenate(utils.kernel_setup(dim)[1][:2]) # get the center and cardinal indices 
     # step_inds = utils.get_steps(dim)
     edge_list = affinity_to_edges(affinity_graph,neigh_inds,step_inds,px_inds)
+    # tic=time.time()
+    # edge_list = list(edge_list) # faster to just let igraph handle it 
+    # edge_list = edge_list.tolist() #slower
+    # edge_list = [e for e in edge_list] #about the same as tolist
 
+    # print('el shape',np.array(edge_list).shape)
     g = Graph(n=npix, edges=edge_list)
+    # print('gt',time.time()-tic)
+
     labels = np.zeros(iscell.shape,dtype=int)
     coords = np.nonzero(iscell)
     for i,nodes in enumerate(g.connected_components()):
          labels[tuple([c[nodes] for c in coords])] = i+1 if len(nodes)>1 else 0
-        
 
     if exclude_interior:
         # we only labeled the boundary, so fill the rest in 

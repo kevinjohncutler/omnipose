@@ -167,3 +167,121 @@ def imshow(img,figsize=2,ax=None,hold=False,**kwargs):
 #     colors = [c[l] for l in lut]
 #     cmap = mpl.colors.ListedColormap(colors)
 #     return cmap
+
+# @njit()
+# def rgb_flow(dP,transparency=False,mask=None,norm=False):
+#     """ dP is 2 x Y x X => 'optic' flow representation 
+    
+#     Parameters
+#     -------------
+    
+#     dP: NDarray, float
+#         Flow field component stack [B,dy,dx]
+        
+#     transparency: bool, default False
+#         magnitude of flow controls opacity, not lightness (clear background)
+        
+#     mask: 2D array 
+#         Multiplies each RGB component to suppress noise
+    
+#     """
+
+#     mag = np.sqrt(np.sum(dP**2,axis=1))
+#     if norm:
+#         mag = np.clip(utils.normalize99(mag), 0, 1.).astype(np.float32)
+    
+#     angles = np.arctan2(dP[:,1], dP[:,0])+np.pi
+#     a = 2
+#     r = ((np.cos(angles)+1)/a)
+#     g = ((np.cos(angles+2*np.pi/3)+1)/a)
+#     b = ((np.cos(angles+4*np.pi/3)+1)/a)
+
+#     if transparency:
+#         im = np.stack((r,g,b,mag),axis=-1)
+#     else:
+#         im = np.stack((r*mag,g*mag,b*mag),axis=-1)
+        
+#     if mask is not None and transparency and dP.shape[0]<3:
+#         im[...,-1] *= mask
+        
+#     im = (np.clip(im, 0, 1) * 255).astype(np.uint8)
+#     return im
+
+
+# from numba import jit
+
+# @jit(nopython=True)
+# @njit()
+# def rgb_flow(dP, transparency=True, mask=None, norm=True):
+#     mag = np.sqrt(np.sum(dP**2,axis=1)).reshape(1, -1)
+#     vecs = dP[:,0] + dP[:,1]*1j
+#     roots = np.exp(1j * np.pi * (2  * np.arange(3) / 3 +1))
+#     rgb = (np.real(roots * vecs.reshape(-1, 1) / np.max(mag)).T + 1 ) / 2
+#     if norm:
+#         # mag = np.clip(utils.normalize99(mag), 0, 1.).astype(np.float32)
+#         mag -= np.min(mag)
+#         mag /= np.max(mag)
+
+#     shape = dP.shape
+#     newshape = (shape[0], shape[3], shape[2], 3+transparency)
+#     # newshape = (shape[0], shape[2], shape[3], 3+transparency)
+
+#     if transparency:
+#         im = np.concatenate((rgb, mag), axis=0)
+#     else:
+#         im = rgb * mag
+
+#     im = (np.clip(im.T.reshape(newshape), 0, 1) * 255).astype(np.uint8)
+#     # im = np.swapaxes(im,1,2)
+#     return im
+
+
+# @njit()
+# def rgb_flow(dP, transparency=True, mask=None, norm=True):
+#     mag = np.sqrt(np.sum(dP**2,axis=1))
+#     vecs = dP[:,0] + dP[:,1]*1j
+#     roots = np.exp(1j * np.pi * (2  * np.arange(3) / 3 +1)).reshape((1, 1, 1, -1))
+#     rgb = (np.real(vecs[...,None]*roots / np.max(mag)) + 1 ) / 2
+
+#     if norm:
+#         mag -= np.min(mag)
+#         mag /= np.max(mag)
+
+#     shape = dP.shape
+#     newshape = (shape[0], shape[2], shape[3], 3+transparency)
+
+#     print(rgb.shape,newshape, mag.shape, vecs.shape)
+#     if transparency:
+#         im = np.empty(newshape)
+#         im[..., :3] = rgb
+#         im[..., 3] = mag
+#     else:
+#         im = rgb * mag
+
+#     im = (np.clip(im, 0, 1) * 255).astype(np.uint8)
+#     return im
+
+
+        
+import torch
+def rgb_flow(dP, transparency=True, mask=None, norm=True, device=torch.device('cpu')):
+    if isinstance(dP,torch.Tensor):
+        device = dP.device
+    else:
+        dP = torch.from_numpy(dP).to(device)
+        
+    mag = utils.torch_norm(dP,dim=1)
+    vecs = dP[:,0] + dP[:,1]*1j
+    roots = torch.exp(1j * np.pi * (2  * torch.arange(3, device=device) / 3 +1)) 
+    rgb = (torch.real(vecs.unsqueeze(-1)*roots.view(1, 1, 1, -1) / torch.max(mag)) + 1 ) / 2 
+    if norm:
+        mag -= torch.min(mag)
+        mag /= torch.max(mag)
+
+    if transparency:
+        im = torch.cat((rgb, mag[..., None]), dim=-1)
+    else:
+        im = rgb * mag[..., None]
+
+    im = (torch.clamp(im, 0, 1) * 255).type(torch.uint8)
+    return im 

@@ -256,7 +256,11 @@ def main(args):
             tqdm_out = utils.TqdmToLogger(logger,level=logging.INFO)
             
             # currently, CLI eval forces the network to run on just one image at a time
-            # We can change this if images are all the same size by 
+            # We can change this if images are all the same size by running several as a batch
+            # (this assumes that several full images will already fit on the GPU)
+            # This means that this loop should probably be a dataloader. Before doing that,
+            # the eval function itself needs to be updated to accept several images 
+            # it then needs to run those as a batch, stitch the output for postprocessing, and parse it back out
             for image_name in tqdm(image_names, file=tqdm_out):
                 image = io.imread(image_name)
                 out = model.eval(image, channels=channels, diameter=diameter, rescale = args.rescale,
@@ -330,7 +334,6 @@ def main(args):
             shape = img.shape
             # training with all channels
             # if args.all_channels:
-            # print('AA',args.nchan,args.channel_axis)
             if args.channel_axis is None:
                 if args.dim != dim: # user dim allows us to discern ND from (N-1)D+C
                     nchan = min(shape) # This assumes that the channel axis is the smallest 
@@ -351,8 +354,6 @@ def main(args):
             
             args.nchan = nchan
             
-            # print('BB',args.nchan,args.channel_axis)
-
             # model path
             if not os.path.exists(cpmodel_path):
                 if not args.train:

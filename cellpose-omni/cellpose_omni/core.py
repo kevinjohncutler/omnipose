@@ -14,7 +14,6 @@ import omnipose
 # from functools import partial
 # from focal_loss.focal_loss import FocalLoss
 
-
 try:
     from mxnet import gluon, nd
     import mxnet as mx
@@ -345,8 +344,8 @@ class UnetModel():
     def _from_device(self, X):
         if self.torch:
             x = X.detach().cpu().numpy()
-            # clear memeory after evaluation (confirmed working)
-            # empty_cache() #could add overhead
+            # clear memory after evaluation (confirmed working)
+            empty_cache() #could add overhead
         else:
             x = X.asnumpy()
         return x
@@ -367,7 +366,7 @@ class UnetModel():
             self.net.to(torch_CPU)
         y = self._from_device(y)
         style = self._from_device(style)
-        if return_conv:
+        if return_conv: # conv is not even defined anywhere, why is this here?
             conv = self._from_device(conv)
             y = np.concatenate((y, conv), axis=1)
         
@@ -530,7 +529,7 @@ class UnetModel():
     def _run_tiled(self, imgi, augment=False, bsize=224, tile_overlap=0.1, return_conv=False):
         """ run network in tiles of size [bsize x bsize]
 
-        First image is split into overlapping tiles of size [bsize x bsize].
+        Image is split into overlapping tiles of size [bsize x bsize].
         If augment, tiles have 50% overlap and are flipped at overlaps.
         The average of the network output over tiles is returned.
 
@@ -1034,7 +1033,7 @@ class UnetModel():
                      }
             # torch.multiprocessing.set_start_method('spawn')
             
-            training_set = omnipose.dataset(train_data, train_labels, train_links, **kwargs)       
+            training_set = omnipose.data.train_set(train_data, train_labels, train_links, **kwargs)       
 
             # reproducible batches 
             torch.manual_seed(42)
@@ -1049,7 +1048,7 @@ class UnetModel():
             print('num_workers',num_workers,'batch_size', batch_size)
             
             # params = {'batch_size': batch_size,
-            params = {'batch_size': 1, # this batch size is more like how many worker batches to aggregate 
+            params = {'batch_size': 1, # this batch size means something like how many worker batches to aggregate 
                       'shuffle': False, # use sampler instead
                       'collate_fn': training_set.collate_fn,
                       'worker_init_fn': training_set.worker_init_fn,
@@ -1069,7 +1068,7 @@ class UnetModel():
             
             if test_data is not None:
                 print('will need to fix sampler')
-                validation_set = omnipose.dataset(test_data, test_labels, test_links, **kwargs)
+                validation_set = omnipose.data.train_set(test_data, test_labels, test_links, **kwargs)
                 validation_loader = torch.utils.data.DataLoader(validation_set, **params)
 
         # for debugging
@@ -1101,7 +1100,7 @@ class UnetModel():
                 for batch_idx, (batch_data, batch_labels, batch_inds) in enumerate(train_loader):
                 # for batch_inds in train_loader.batch_sampler:
                 #     batch_data, batch_labels = train_loader(batch_inds)
-                    shape = batch_data.shape
+                    # shape = batch_data.shape
 
                     tic = time.time()
 

@@ -21,6 +21,8 @@ import mgen
 import fastremap
 
 from numba import njit
+import functools
+
 
 
 # No reason to support anything but pytorch for omnipose
@@ -184,8 +186,6 @@ def normalize99(Y,lower=0.01,upper=99.99):
     normalized array with a minimum of 0 and maximum of 1
     
     """
-    # X = Y.copy()
-    # return np.interp(Y, (np.percentile(Y, lower), np.percentile(Y, upper)), (0, 1))
     return np.interp(Y, np.percentile(Y, [lower,upper]), (0, 1)) # much faster to call both at once 
     
 
@@ -252,6 +252,7 @@ def mono_mask_bd(masks,outlines,color=[1,0,0],a=0.25):
 def moving_average(x, w):
     return convolve1d(x,np.ones(w)/w,axis=0)
 
+
 def rescale(T,floor=None,ceiling=None):
     """Rescale array between 0 and 1"""
     if ceiling is None:
@@ -260,6 +261,7 @@ def rescale(T,floor=None,ceiling=None):
         floor = T[:].min()
     T = np.interp(T, (floor, ceiling), (0, 1))
     return T
+
 
 def normalize_stack(vol,mask,bg=0.5,bright_foreground=None,subtractive=False,iterations=1):
     """
@@ -567,7 +569,7 @@ def get_neighbors(coords, steps, dim, shape, edges=None):
 
 # this version works without padding, should ultimately replace the other one 
 # @njit
-def get_neigh_inds(neighbors,coords,shape):
+def get_neigh_inds(neighbors,coords,shape,background_reflect=False):
     """
     For L pixels and S steps, find the neighboring pixel indexes 
     0,1,...,L for each step. Background index is -1. Returns:
@@ -598,13 +600,18 @@ def get_neigh_inds(neighbors,coords,shape):
     
     ind_matrix[coords] = indexes
     neigh_inds = ind_matrix[neighbors]
-
-    oob = np.nonzero(neigh_inds==-1) # 2 x nbad , pos 0 is the 0-step inds and pos 1 is the npix inds 
-    neigh_inds[oob] = indexes[oob[1]] # reflect back to itself 
-    ind_matrix[neighbors] = neigh_inds # update ind matrix as well
     
-    # should I also update neighbor coordinate array? No, that's more fixed. 
-    # index points to the correct coordinate. 
+    # If needed, we can do a similar thing I do at boundaries and make neighbor
+    # references to background redirect back to the edge pixel. However, this should 
+    # not be default, since I rely on accurate neighbor indices later to test for background
+    # So, probably better to do this sort of thing while contructing the affinity graph itself 
+    if background_reflect:
+        oob = np.nonzero(neigh_inds==-1) # 2 x nbad , pos 0 is the 0-step inds and pos 1 is the npix inds 
+        neigh_inds[oob] = indexes[oob[1]] # reflect back to itself 
+        ind_matrix[neighbors] = neigh_inds # update ind matrix as well
+
+        # should I also update neighbor coordinate array? No, that's more fixed. 
+        # index points to the correct coordinate. 
     
     # not sure if -1 is general enough, probbaly should be since other adjacent masks will be unlinked
     # can test it by adding some padding to the concatenation...
@@ -652,25 +659,21 @@ def subsample_affinity(augmented_affinity,slc,mask):
     in_mask_and_bounds =np.logical_and(in_bounds,in_mask)
 
     inds_crop = np.nonzero(in_mask_and_bounds)[0]
-    
-    # print(np.any(in_bounds),np.any(in_mask),coords.shape,coords)
-    # if np.any(in_mask_and_bounds):
-    if len(inds_crop):
-        # inds_crop = np.nonzero(in_mask_and_bounds)[0]
-    
+
+    if len(inds_crop):    
         crop_neighbors = neighbors[:,:,inds_crop]
         affinity_crop = affinity_graph[:,inds_crop]
     
         # shift coordinates back acording to the lower bound of the slice 
-        #also refect at edges of the new bounding box
+        # also refect at edges of the new bounding box
         edges = [np.array([-1,s.stop-s.start]) for s in slc]
         steps = get_steps(dim)
         
+        # I should see if I can get this batched somehow... 
         for d in range(dim):        
             crop_coords = coords[d,inds_crop] - slc[d].start
             S = steps[:,d].reshape(-1, 1)
             X = crop_coords + S # cropped coordinates 
-            
             edgemask = np.logical_and(np.isin(X, edges[d]), ~np.isin(X+S, edges[d]))
             C = np.broadcast_to(crop_coords, X.shape)
             crop_neighbors[d] = np.where(edgemask, C, X)
@@ -681,7 +684,7 @@ def subsample_affinity(augmented_affinity,slc,mask):
         e = np.empty((dim+1,nstep,0),dtype=augmented_affinity.dtype)
         return e
 
-
+@functools.lru_cache(maxsize=None)
 def get_steps(dim):
     """
     Get a symmetrical list of all 3**N points in a hypercube represented
@@ -705,7 +708,8 @@ def get_steps(dim):
     neigh = [[-1,0,1] for i in range(dim)]
     steps = cartesian(neigh) # all the possible step sequences in ND
     return steps
-    
+
+@functools.lru_cache(maxsize=None)
 def steps_to_indices(steps):
     """
     Get indices of the hupercubes sharing m-faces on the central n-cube. These
@@ -726,6 +730,7 @@ def steps_to_indices(steps):
     return inds, fact, sign
 
 # [steps[:idx],steps[idx+1:]] can give the other steps 
+@functools.lru_cache(maxsize=None)
 def kernel_setup(dim):
     """
     Get relevant kernel information for the hypercube of interest. 
@@ -1056,3 +1061,46 @@ def load_nested_list(file_path):
     for key in loaded_data.keys():
         loaded_nested_list.append(loaded_data[key])
     return loaded_nested_list
+
+import torch.nn.functional as F
+def hysteresis_threshold(image, low, high):
+    """
+    Pytorch implementation of skimage.filters.apply_hysteresis_threshold(). 
+    Discprepencies occur for very high thresholds/thin objects. 
+    
+    """
+
+    # Ensure the image is a torch tensor
+    if not isinstance(image, torch.Tensor):
+        image = torch.tensor(image)
+
+    # Create masks for values greater than low and high thresholds
+    mask_low = image > low
+    mask_high = image > high
+
+    # Initialize thresholded tensor
+    thresholded = mask_low.clone()
+
+    # Create hysteresis kernel
+    spatial_dims = len(image.shape) - 2
+    kernel_size = [3] * spatial_dims
+    hysteresis_kernel = torch.ones([1, 1] + kernel_size, device=image.device, dtype=image.dtype)
+
+    # Hysteresis thresholding
+    thresholded_old = torch.zeros_like(thresholded)
+    while (thresholded_old != thresholded).any():
+        if spatial_dims == 2:
+            hysteresis_magnitude = F.conv2d(thresholded.float(), hysteresis_kernel, padding=1)
+        elif spatial_dims == 3:
+            hysteresis_magnitude = F.conv3d(thresholded.float(), hysteresis_kernel, padding=1)
+        else:
+            raise ValueError(f'Unsupported number of spatial dimensions: {spatial_dims}')
+
+        # thresholded_old = thresholded.clone()
+        thresholded_old.copy_(thresholded)
+        thresholded = ((hysteresis_magnitude > 0) & mask_low) | mask_high
+
+    return thresholded.bool()#, mask_low, mask_high
+
+
+    

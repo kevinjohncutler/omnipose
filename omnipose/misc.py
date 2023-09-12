@@ -88,7 +88,6 @@ def project_to_skeletons(images,labels,augmented_affinity, device, interp,
     print('c0',len(contour_list),unique_L)
     for contour, L, proj in zip(contour_list, unique_L, projections):
         N = proj.shape[-1]
-        print('ggg',N)
         # target = np.nonzero(skel_labels==L)
         target = np.array([c[contour] for c in skel_coords])
 

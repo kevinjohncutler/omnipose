@@ -9,10 +9,7 @@ from urllib.parse import urlparse
 import torch
 from torch import nn, distributed, multiprocessing, optim 
 
-
 # from torch.nn.parallel import DistributedDataParallel as DDP
-
-
 
 from scipy.ndimage import gaussian_filter, zoom
 
@@ -22,6 +19,12 @@ models_logger = logging.getLogger(__name__)
 from . import transforms, dynamics, utils, plot
 from .core import UnetModel, assign_device, check_mkl, MXNET_ENABLED, parse_model_string
 from .io import OMNI_INSTALLED
+from omnipose.gpu import empty_cache, ARM
+from omnipose.utils import hysteresis_threshold
+
+from torchvf.numerics import interp_vf, ivp_solver, init_values_semantic
+# from torchvf.utils import cluster
+
 
 _MODEL_URL = 'https://www.cellpose.org/models'
 _MODEL_DIR_ENV = os.environ.get("CELLPOSE_LOCAL_MODELS_PATH")
@@ -521,10 +524,12 @@ class CellposeModel(UnetModel):
             
             
     # eval contains most of the tricky code handling all the cases for nclasses 
-    def eval(self, x, batch_size=8, channels=None, channel_axis=None, 
-             z_axis=None, normalize=True, invert=False, 
+    # to get eval to efficiently run on an entire image set, we could pass a torch dataset
+    # this dataset could either parse out images loaded from memory or from storage 
+    def eval(self, x, batch_size=8, indices=None, channels=None, channel_axis=None, 
+             z_axis=None, normalize=True, invert=False, show_progress=True,
              rescale=None, diameter=None, do_3D=False, anisotropy=None, net_avg=True, 
-             augment=False, tile=True, tile_overlap=0.1, bsize=224,
+             augment=False, tile=True, tile_overlap=0.1, bsize=224, num_workers=8,
              resample=True, interp=True, cluster=False, suppress=True, 
              boundary_seg=False, affinity_seg=False,
              flow_threshold=0.4, mask_threshold=0.0, diam_threshold=12., niter=None,
@@ -644,7 +649,7 @@ class CellposeModel(UnetModel):
                 labelled image, where 0=no masks; 1,2,...=mask labels
 
             flows: list of lists 2D arrays, or list of 3D arrays (if do_3D=True)
-                flows[k][0] = XY flow in HSV 0-255
+                flows[k][0] = 8-bit RGb phase plot of flow field
                 flows[k][1] = flows at each pixel
                 flows[k][2] = scalar cell probability (Cellpose) or distance transform (Omnipose)
                 flows[k][3] = boundary output (nonempty for Omnipose)
@@ -664,12 +669,180 @@ class CellposeModel(UnetModel):
             if omni:
                 models_logger.info(f'using omni model, cluster {cluster}')
         
-        if isinstance(x, list) or x.squeeze().ndim==5:
+        # images are given has a list, especially when heterogeneous in shape
+        slice_ndim = self.dim+(self.nchan>1)
+        is_list = isinstance(x, list)
+
+
+        is_stack = is_image = False
+        if isinstance(x, np.ndarray):
+            dim_diff = x.ndim-slice_ndim
+            opt = [0,1]
+            is_image, is_stack = [dim_diff==i for i in opt]
+            correct_shape = dim_diff in opt
+
+            
+        # allow for a dataset to be passed so that we can do batches 
+        # will be defined in omnipose.data.train_set 
+        is_dataset = isinstance(x,torch.utils.data.Dataset)
+        if is_dataset:
+            correct_shape =  True # assume the dataset has the right shape
+
+        if not (is_list or is_stack or is_dataset or is_image):
+            models_logger.warning('input images must be a list of images, array of images, or dataloader')
+        else:
+            if is_list:
+                correct_shape = np.all([x[i].squeeze().ndim==slice_ndim] for i in range(len(x)))
+
+            if not correct_shape:
+                print(slice_ndim,x.ndim,is_list,is_stack)
+                models_logger.warning('input images do not match the expected number of dimensions ({}) and channels ({}) of model.'.format(self.dim,self.nchan))
+
+        # Note: dataset is finetuned for basic omnipose usage. No styles are returned, some options may not be supported. 
+        if is_dataset:
+            indices = list(range(len(x))) if indices is None else indices
+
+            # the sequential batch sampler gives us a set of indices in sequence, like 0-5, 6-11, etc. 
+            sampler = torch.utils.data.sampler.BatchSampler(omnipose.data.sampler(indices),
+                                                            batch_size=batch_size,
+                                                            drop_last=False) 
+
+            params = {'batch_size': 1, # this batch size is more like how many worker batches to aggregate 
+                    #   'shuffle': False, # use sampler instead
+                      'collate_fn': x.collate_fn,
+                      'pin_memory': False, # only useful for CPU tensors
+                      'num_workers': num_workers, 
+                      'sampler': sampler,# iterabledataset does not need this 
+                      'persistent_workers': True if num_workers>0 else False,
+                      'multiprocessing_context': 'spawn' if num_workers>0 else None,
+                      'prefetch_factor': batch_size if num_workers>0 else None
+                     }
+
+            loader = torch.utils.data.DataLoader(x, **params)
+            dist, dP, bd, masks, bounds, p, tr, affinity = [], [], [], [], [], [], [], []
+
+            # I think the loader can at least do all the preprocessing work it will take to figure out
+            # padding and stitching and slicing 
+            progress_bar = tqdm(total=len(indices),disable=~show_progress) 
+            for batch,inds,subs in loader:                
+                shape = batch.shape
+                nimg = batch.shape[0]
+                shape = batch.shape[-(self.dim+1):] # nclasses, Y, X
+                resize = shape[-self.dim:] if not resample else None 
+
+                # define the slice needed to get rid of padding required for net downsamples 
+                slc = [slice(0, s+1) for s in shape]
+                slc[-(self.dim+1)] = slice(0, self.nclasses + 1) 
+                for k in range(1,self.dim+1):
+                    slc[-k] = slice(subs[-k][0], subs[-k][-1]+1)
+                slc = tuple(slc)
+
+                # run the network on the batch 
+                # yf, style = self.network(batch)
+                with torch.no_grad():
+                    yf = self.net(batch)[0]
+                    # print('need to add normalization / invert /rescale options in dataloader')
+
+                # slice out padding
+                yf = yf[(Ellipsis,)+slc]
+
+                # compared to the usual per-image pipeline, this one will not support cellpose or u-net 
+                flow_pred = yf[:,:self.dim]
+                dist_pred = yf[:,self.dim] #scalar field always after the vector field output    
+                
+                if self.nclasses>=self.dim+2:
+                    bd_pred = yf[:,self.dim+1]
+                else:
+                    bd_pred = [None]*nimg
+                
+                # I made a vastly faster implementation using pytorch
+                rgb = omnipose.plot.rgb_flow(flow_pred,transparency=transparency) 
+
+
+                # I implemented hysteresis with just pytorch
+                # it is faster than skimage with larger batches, but not by much
+                # it does better in thin sections, however (though might be broken skeleton fragments)
+                # I might just replace the main branch code with this
+                foreground = self._from_device(hysteresis_threshold(dist_pred.unsqueeze(1),mask_threshold-1, mask_threshold))
+                dist_pred = self._from_device(dist_pred)
+                flow_pred = self._from_device(flow_pred)
+                rgb = self._from_device(rgb)
+
+                # add to output lists 
+                dP.extend(flow_pred)
+                dist.extend(dist_pred)
+                bd.extend(bd_pred)
+
+                del yf 
+                
+                # can loop through batch and simpyl run compute_masks
+                for iscell, disti, dPi, bdi in zip(foreground, dist_pred, flow_pred, bd_pred):
+                    outputs = omnipose.core.compute_masks(dPi, disti, bdi, 
+                                                        iscell=iscell.squeeze(),
+                                                        niter=niter, 
+                                                        rescale=rescale, 
+                                                        resize=resize,
+                                                        min_size=min_size, 
+                                                        max_size=max_size,
+                                                        mask_threshold=mask_threshold,   
+                                                        diam_threshold=diam_threshold,
+                                                        flow_threshold=flow_threshold, 
+                                                        flow_factor=flow_factor,             
+                                                        interp=interp, 
+                                                        cluster=cluster, 
+                                                        boundary_seg=boundary_seg,
+                                                        affinity_seg=affinity_seg,
+                                                        calc_trace=calc_trace, 
+                                                        verbose=verbose,
+                                                        use_gpu=self.gpu, 
+                                                        device=self.device, 
+                                                        nclasses=self.nclasses, 
+                                                        dim=self.dim) 
+
+                    masks.append(outputs[0])
+                    p.append(outputs[1])
+                    tr.append(outputs[2])
+                    bounds.append(outputs[3])
+                    affinity.append(outputs[4])
+
+                    progress_bar.update(len(inds))
+                    empty_cache()
+
+            progress_bar.close()
+
+            masks = np.array(masks)
+            bounds = np.array(bounds)
+            p = np.array(p)
+            tr = np.array(tr)
+            
+            ret = [masks, dP, dist, p, bd, tr, affinity, bounds]
+
+            for r in ret:
+                r.squeeze() if isinstance(r,np.ndarray) else r 
+            
+            # the flow list stores: 
+            # (1) RGB representation of flows
+            # (2) flow components
+            # (3) cellprob (cp) or distance field (op)
+            # (4) pixel coordinates after Euler integration
+            # (5) boundary output (nclasses=4)
+            # (6) pixel trajectories during Euler integation (trace=True)
+            # (7) nstep_by_npix affinity graph
+            # (8) binary boundary map
+            
+            # 5-8 were added in Omnipose, hence the unusual placement in the list. 
+            # flows = [[o for o in out] for out in zip(rgb, dP, cellprob, p, bd, tr, affinity, bounds)]
+            flows = [list(item) for item in zip(rgb, dP, dist, p, bd, tr, affinity, bounds)] # not sure which is faster of these yet
+
+            return masks, flows, [] 
+
+            
+        elif (is_list or is_stack) and correct_shape:
             masks, styles, flows = [], [], []
 
             tqdm_out = utils.TqdmToLogger(models_logger, level=logging.INFO)
             nimg = len(x)
-            iterator = trange(nimg, file=tqdm_out) if nimg>1 else range(nimg)
+            iterator = trange(nimg, file=tqdm_out,disable=~show_progress) if nimg>1 else range(nimg)
             for i in iterator:
                 dia = diameter[i] if isinstance(diameter, list) or isinstance(diameter, np.ndarray) else diameter
                 rsc = rescale[i] if isinstance(rescale, list) or isinstance(rescale, np.ndarray) else rescale
@@ -677,8 +850,6 @@ class CellposeModel(UnetModel):
                                                                         (isinstance(channels[i], list) 
                                                                          or isinstance(channels[i], np.ndarray)) and
                                                                         len(channels[i])==2) else channels
-
-
                 
                 maski, stylei, flowi = self.eval(x[i], 
                                                  batch_size=batch_size, 
@@ -811,7 +982,8 @@ class CellposeModel(UnetModel):
         nimg = shape[0] 
         bd, tr, affinity = None, None, None
         
-        # set up image padding for prediction 
+        # set up image padding for prediction - set to 0 not as it actually doesn't really help 
+        # note that this is not the same padding as what you need for the network to run 
         pad_seq = [(pad,)*2]*self.dim + [(0,)*2] # do not pad channel axis 
         unpad = tuple([slice(pad,-pad) if pad else slice(None,None)]*self.dim) # works in case pad is zero
         
@@ -839,8 +1011,8 @@ class CellposeModel(UnetModel):
                 dP = dP/2 #should be averaging components 
             del yf
         else:
-            tqdm_out = utils.TqdmToLogger(models_logger, level=logging.INFO)
-            iterator = trange(nimg, file=tqdm_out) if nimg>1 else range(nimg)
+            tqdm_out = utils.TqdmToLogger(models_logger, level=logging.INFO,)
+            iterator = trange(nimg, file=tqdm_out, disable=~show_progress) if nimg>1 else range(nimg)
             styles = np.zeros((nimg, self.nbase[-1]), np.float32)
             
             #indexing a little weird here due to channels being last now 
@@ -882,7 +1054,9 @@ class CellposeModel(UnetModel):
                 # resample interpolates the network output to native resolution prior to running Euler integration
                 # this means the masks will have no scaling artifacts. We could *upsample* by some factor to make
                 # the clustering etc. work even better, but that is not implemented yet 
-                if resample:
+                if resample and rescale!=1.0:
+                    for k in range(yf.shape[-1]):
+                        print('a',shape[1:1+self.dim]/np.array(yf.shape[:-1]))
                     # ND version actually gives better results than CV2 in some places. 
                     yf = np.stack([zoom(yf[...,k], shape[1:1+self.dim]/np.array(yf.shape[:-1]), order=1) 
                                    for k in range(yf.shape[-1])],axis=-1)
@@ -904,7 +1078,6 @@ class CellposeModel(UnetModel):
                 styles[i] = style
             del yf, style
         styles = styles.squeeze()
-        
         
         net_time = time.time() - tic
         if nimg > 1:
@@ -1036,7 +1209,8 @@ class CellposeModel(UnetModel):
         else:
             #pass back zeros if not compute_masks 
             ret = [np.zeros(0)]*9
-            
+        
+        empty_cache()
         return (*ret,)
 
         

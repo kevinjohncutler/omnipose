@@ -1,2 +1,1 @@
-from . import core, utils, loss, plot, misc, cli
-from .dataset import dataset
+from . import core, utils, loss, plot, misc, cli, data
