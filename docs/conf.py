@@ -401,6 +401,9 @@ copybutton_remove_prompts = True
 
 # pygments_style = 'custom'
 
+# fix em dash being converted to double dash, straight to curly quotes, 
+# and other headaches!
+smartquotes = False
 
 highlight_language = 'python'
 

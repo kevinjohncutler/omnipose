@@ -709,7 +709,7 @@ def get_steps(dim):
     steps = cartesian(neigh) # all the possible step sequences in ND
     return steps
 
-@functools.lru_cache(maxsize=None)
+# @functools.lru_cache(maxsize=None)
 def steps_to_indices(steps):
     """
     Get indices of the hupercubes sharing m-faces on the central n-cube. These

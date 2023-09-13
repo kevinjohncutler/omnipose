@@ -62,7 +62,7 @@ It is best for reproducibility to explicitly choose hyperparameters at runtime r
 :bash:`--n_epochs` 
     controls how many times the network is shown the full dataset. I usually do 4000. 
 
-:bash:`--dataparallel` 
+:bash:`--dataloader` 
     toggles on parallel dataloading. Preprocessing batches for training is a CPU bottleneck, but the DataParallel library helps a lot with that. Use :bash:`--num_workers` to control how many cores will participate. This is only a benefit when you have more images in your training set than cores on your machine. 
 
 :header-2:`Model saving`

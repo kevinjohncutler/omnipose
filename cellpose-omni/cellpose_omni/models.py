@@ -23,6 +23,7 @@ from omnipose.gpu import empty_cache, ARM
 from omnipose.utils import hysteresis_threshold
 
 from torchvf.numerics import interp_vf, ivp_solver, init_values_semantic
+
 # from torchvf.utils import cluster
 
 
@@ -671,12 +672,15 @@ class CellposeModel(UnetModel):
         
         # images are given has a list, especially when heterogeneous in shape
         slice_ndim = self.dim+(self.nchan>1)
+        # the logic here needs to be updated to account for the fact that images may not alreay match the expected dims
+        # and channels, namely mono channel might have a 2-channel model. I should just check for if the number of channels could
+        # possibly match, and warn that intenral conversion will happen or may break...
         is_list = isinstance(x, list)
-
-
         is_stack = is_image = False
+
         if isinstance(x, np.ndarray):
             dim_diff = x.ndim-slice_ndim
+            print(x.shape,x.ndim, slice_ndim, self.nchan, channels,'a')
             opt = [0,1]
             is_image, is_stack = [dim_diff==i for i in opt]
             correct_shape = dim_diff in opt
@@ -759,11 +763,47 @@ class CellposeModel(UnetModel):
                 rgb = omnipose.plot.rgb_flow(flow_pred,transparency=transparency) 
 
 
+
                 # I implemented hysteresis with just pytorch
                 # it is faster than skimage with larger batches, but not by much
                 # it does better in thin sections, however (though might be broken skeleton fragments)
                 # I might just replace the main branch code with this
-                foreground = self._from_device(hysteresis_threshold(dist_pred.unsqueeze(1),mask_threshold-1, mask_threshold))
+                foreground = hysteresis_threshold(dist_pred.unsqueeze(1),mask_threshold-1, mask_threshold)
+
+                vf = interp_vf(flow_pred/5., mode = "nearest_batched")
+                # init_values = init_values_semantic(foreground, device=self.device)
+                
+                shape = flow_pred.shape
+                B = shape[0]
+                dims = shape[-self.dim:]
+
+                # print('S',shape,B,dims)
+
+                coords = [torch.arange(0, l, device = self.device) for l in dims]
+                mesh = torch.meshgrid(coords, indexing = "ij")
+                init_shape = [B, 1] + ([1] * len(dims))
+                # init_values = torch.stack(mesh[::-1], dim = 0)
+                init_values = torch.stack(mesh, dim = 0)
+
+                init_values = init_values.repeat(init_shape)
+
+                print('S',shape,B,dims)
+                # print('mesh',mesh.shape)
+                print(init_values.shape,init_shape,flow_pred.shape)
+                print(init_values)
+                final_points = ivp_solver(vf,init_values, 
+                                        dx = 1,
+                                        n_steps = 8,
+                                        solver = "euler")[-1] 
+
+
+                # print('p',final_points.shape)
+
+                # cast to CPU
+                # final_points = self._from_device(final_points[...,foreground.squeeze()])
+                final_points = self._from_device(final_points)
+
+                foreground = self._from_device(foreground)
                 dist_pred = self._from_device(dist_pred)
                 flow_pred = self._from_device(flow_pred)
                 rgb = self._from_device(rgb)
@@ -773,11 +813,20 @@ class CellposeModel(UnetModel):
                 dist.extend(dist_pred)
                 bd.extend(bd_pred)
 
+
                 del yf 
                 
+                print('ss')
                 # can loop through batch and simpyl run compute_masks
-                for iscell, disti, dPi, bdi in zip(foreground, dist_pred, flow_pred, bd_pred):
+                for iscell, disti, dPi, bdi, pts in zip(foreground, dist_pred, flow_pred, bd_pred, final_points):
+                    print('ff',pts.shape) # need to pad this array or remove padding from calculation
+                    print('points', pts.min(), pts.max())
+                    # one way to avoid padding is to completely 
+
+
                     outputs = omnipose.core.compute_masks(dPi, disti, bdi, 
+                                                            p=pts,
+                                                            # p = None,
                                                         iscell=iscell.squeeze(),
                                                         niter=niter, 
                                                         rescale=rescale, 
@@ -910,9 +959,11 @@ class CellposeModel(UnetModel):
                 if not self.torch:
                     net.collect_params().grad_req = 'null'
 
+            # print('before',x.shape)
             x = transforms.convert_image(x, channels, channel_axis=channel_axis, z_axis=z_axis,
                                          do_3D=(do_3D or stitch_threshold>0), normalize=False, 
                                          invert=False, nchan=self.nchan, dim=self.dim, omni=omni)
+            # print('after',x.shape)
             if x.ndim < self.dim+2: # we need nimg x dims x channels, so 2D has 4, 3D has 5, etc. 
                 x = x[np.newaxis]
             
@@ -976,12 +1027,12 @@ class CellposeModel(UnetModel):
                 interp=True, cluster=False, suppress=True, boundary_seg=False, affinity_seg=False,
                 anisotropy=1.0, do_3D=False, stitch_threshold=0.0,
                 omni=False, calc_trace=False, verbose=False, pad=0):
-        
+        # by this point, the image(s) will already have been formatted with channels, batch, etc 
+
         tic = time.time()
         shape = x.shape
         nimg = shape[0] 
         bd, tr, affinity = None, None, None
-        
         # set up image padding for prediction - set to 0 not as it actually doesn't really help 
         # note that this is not the same padding as what you need for the network to run 
         pad_seq = [(pad,)*2]*self.dim + [(0,)*2] # do not pad channel axis 
@@ -1043,7 +1094,7 @@ class CellposeModel(UnetModel):
                         img = np.stack([zoom(img[...,k],rescale,order=3) for k in range(img.shape[-1])],axis=-1)
                     else:
                         img = zoom(img,rescale,order=1)
-                        
+
                 yf, style = self._run_nets(img, net_avg=net_avg,
                                            augment=augment, tile=tile,
                                            tile_overlap=tile_overlap, 

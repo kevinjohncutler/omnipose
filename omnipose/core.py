@@ -245,7 +245,6 @@ def labels_to_flows(labels, links=None, files=None, use_gpu=False, device=None,
 
     """
     
-    
     nimg = len(labels)
     if links is None:
         links = [None]*nimg # just for entering below 
@@ -1275,11 +1274,13 @@ def compute_masks(dP, dist, bd=None, p=None, inds=None, iscell=None, niter=None,
     
     """
     # do everything in padded arrays for boundary/affinity functions 
-    pad = 1
+    pad = 0
     if do_3D:
         dim = 3 
     pad_seq = [(0,)*2]+[(pad,)*2]*dim
-    unpad = tuple([slice(pad,-pad)]*dim) 
+    # unpad = tuple([slice(pad,-pad)]*dim) 
+    unpad = tuple([slice(pad,-pad) if pad else slice(None,None)]*dim) # works in case pad is zero
+
 
     if hole_size is None:
         hole_size = 3**(dim//2) # just a guess
@@ -1317,7 +1318,7 @@ def compute_masks(dP, dist, bd=None, p=None, inds=None, iscell=None, niter=None,
         shape =  iscell_pad.shape
         
         # for boundary later, also for affinity_seg option
-        steps = utils.get_steps(dim)
+        steps = utils.get_steps(dim) # perhaps should factor this out of the function 
         
         #preprocess flows
         if omni and OMNI_INSTALLED:
@@ -1495,33 +1496,6 @@ def compute_masks(dP, dist, bd=None, p=None, inds=None, iscell=None, niter=None,
         bounds_unpad = bounds[unpad]
         
         if affinity_seg:
-            # # I also want to return the raw affinity graph
-            # # the problem there is that it is computed on the padded array
-            # # besides unpadding, I need to delete columns for missing pixels 
-
-            # # Idea here is that I index everything corresponding to the affinity graph first
-            # # indexes, neigh_inds, ind_matrix = get_neigh_inds(np.argwhere(masks).T,masks.shape,steps)
-            # # must use iscell_pad here, not masks, as it must correspond to the original set of pixels 
-            # # indexes, neigh_inds, ind_matrix = get_neigh_inds(np.argwhere(iscell_pad).T,
-            # #                                                  iscell_pad.shape,
-            # #                                                  steps)
-            
-            # indexes, neigh_inds, ind_matrix = utils.get_neigh_inds(tuple(neighbors),coords,shape)
-
-
-            # # then I figure out which of these columns correspond to pixels that are in the final masks
-            # # this works by looking at an array of indices the same size as the image, and any pixels not part
-            # # of the original affinity graph do not participate, i.e. hole filling does not work 
-            # coords_remaining = np.nonzero(masks)
-            # inds_remaining = ind_matrix[coords_remaining]
-            # affinity_graph_unpad = affinity_graph[:,inds_remaining]
-            # neighbors_unpad = neighbors[...,inds_remaining] - pad
-
-            # # I also want to package the affinity graph with the pixel coordinates 
-            # # then there is no ambiguity and can extract a binary mask
-            # # thus the augmented affinity graph would be (d+1,3**d,npix)
-
-            # augmented_affinity = np.vstack((neighbors_unpad,affinity_graph_unpad[np.newaxis]))
 
             # newer version that takes care of mask cleanup as well
             slc = tuple([slice(pad,shape[d]-pad) for d in range(dim)])
@@ -1908,6 +1882,10 @@ def steps_interp(p, dP, dist, niter, use_gpu=True, device=None, omni=True, suppr
     #     omnipose_logger.info('steps_interp() execution time: {0:.3g} sec'.format(executionTime))
     empty_cache() # release memory
     return p, tr
+
+
+# def steps_batch():
+
 
 @njit('(float32[:,:,:,:],float32[:,:,:,:], int32[:,:], int32)', nogil=True)
 def steps3D(p, dP, inds, niter):
@@ -3103,8 +3081,12 @@ def _get_affinity(steps, mask_pad, mu_pad, dt_pad, p, p0,
         # euler_offset = d
 
     shape = mask_pad.shape
+
+    # These functions are incredibly important, as they define neighbor coordinates everywhere
+    # INCLUDING at boundaries. Before, I had to pad by 1 to ensure neighbor indexing would not go over. 
     neighbors = utils.get_neighbors(coord,steps,d,shape) # shape (d,3**d,npix)   
     indexes, neigh_inds, ind_matrix = utils.get_neigh_inds(tuple(neighbors),coord,shape)
+
     
     mag_S = [np.sqrt(np.sum(s**2,axis=0)) for s in steps]
     S,L = neigh_inds.shape
@@ -3124,9 +3106,8 @@ def _get_affinity(steps, mask_pad, mu_pad, dt_pad, p, p0,
     # interestingly, going over all S gives 2-connected, but just half gives 1-connected...
     for i in range(S//2):
         s = steps[i]
-        neigh = tuple(coords+s[np.newaxis].T) # in direction of step
-        
-        neigh_indices = ind_matrix[neigh]
+        neigh = tuple(neighbors[:,i])
+        neigh_indices = neigh_inds[i]
         neigh_sel = neigh_indices>-1 # exlude -1 from indexing later 
 
         pix_B = p[(Ellipsis,)+neigh]
