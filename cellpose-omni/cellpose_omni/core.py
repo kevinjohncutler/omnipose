@@ -727,6 +727,8 @@ class UnetModel():
               learning_rate=0.2, n_epochs=500, momentum=0.9, weight_decay=0.00001, 
               batch_size=8, rescale=False):
         """ train function uses 0-1 mask label and boundary pixels for training """
+        
+        print('Probably not supposed to be in this branch.')
 
         nimg = len(train_data)
 
@@ -755,6 +757,7 @@ class UnetModel():
         val_classes = train_classes[::8]
         val_labels = train_labels[::8]
         del train_data[::8], train_classes[::8], train_labels[::8]
+
 
         model_path = self._train_net(train_data, train_classes, 
                                      test_data, test_classes, save_path, save_every, save_each,
@@ -1129,6 +1132,8 @@ class UnetModel():
                     inds = rperm[ibatch:ibatch+batch_size]
                     rsc = diam_train[inds] / self.diam_mean if rescale else np.ones(len(inds), np.float32)
                     # now passing in the full train array, need the labels for distance field
+
+                    # with omni=False, lablels[i] is (4,*dims). With omni=True, labels is (*dims,)
                     imgi, lbl, scale = transforms.random_rotate_and_resize([train_data[i] for i in inds], 
                                                                            Y=[train_labels[i] for i in inds],
                                                                            rescale=rsc, 
@@ -1146,7 +1151,8 @@ class UnetModel():
                     t2 = time.time()
                     # new parallized approach: random warp+ image augmentation, batch flows
                     links = [train_links[idx] for idx in inds]
-                    
+                    # with omni=True, lbl is just (nbatch,*dims) sinc eit is labels only, but with omni=False then (nbatch,nclasses, *dims)
+
                     out = omnipose.core.masks_to_flows_batch(lbl, links, 
                                                              device=self.device, 
                                                              omni=self.omni, 

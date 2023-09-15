@@ -684,7 +684,7 @@ def subsample_affinity(augmented_affinity,slc,mask):
         e = np.empty((dim+1,nstep,0),dtype=augmented_affinity.dtype)
         return e
 
-@functools.lru_cache(maxsize=None)
+@functools.lru_cache(maxsize=None) 
 def get_steps(dim):
     """
     Get a symmetrical list of all 3**N points in a hypercube represented
@@ -730,7 +730,7 @@ def steps_to_indices(steps):
     return inds, fact, sign
 
 # [steps[:idx],steps[idx+1:]] can give the other steps 
-@functools.lru_cache(maxsize=None)
+@functools.lru_cache(maxsize=None) 
 def kernel_setup(dim):
     """
     Get relevant kernel information for the hypercube of interest. 
@@ -1069,7 +1069,6 @@ def hysteresis_threshold(image, low, high):
     Discprepencies occur for very high thresholds/thin objects. 
     
     """
-
     # Ensure the image is a torch tensor
     if not isinstance(image, torch.Tensor):
         image = torch.tensor(image)
@@ -1100,6 +1099,23 @@ def hysteresis_threshold(image, low, high):
         thresholded_old.copy_(thresholded)
         thresholded = ((hysteresis_magnitude > 0) & mask_low) | mask_high
 
+
+    # sum_old = thresholded.sum()
+    # while True:
+    #     if spatial_dims == 2:
+    #         hysteresis_magnitude = F.conv2d(thresholded.float(), hysteresis_kernel, padding=1)
+    #     elif spatial_dims == 3:
+    #         hysteresis_magnitude = F.conv3d(thresholded.float(), hysteresis_kernel, padding=1)
+    #     else:
+    #         raise ValueError(f'Unsupported number of spatial dimensions: {spatial_dims}')
+
+    #     thresholded = ((hysteresis_magnitude > 0) & mask_low) | mask_high
+    #     sum_new = thresholded.sum()
+
+    #     if sum_new == sum_old:
+    #         break
+
+        # sum_old = sum_new
     return thresholded.bool()#, mask_low, mask_high
 
 

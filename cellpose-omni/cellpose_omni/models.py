@@ -416,6 +416,7 @@ class CellposeModel(UnetModel):
         self.dropout = dropout
         self.kernel_size = kernel_size
         # channel axis might be useful here 
+        pretrained_model_string = None
         if model_type is not None or (pretrained_model and not os.path.exists(pretrained_model[0])):
             pretrained_model_string = model_type 
             if ~np.any([pretrained_model_string == s for s in MODEL_NAMES]): #also covers None case
@@ -445,8 +446,6 @@ class CellposeModel(UnetModel):
             if model_type in C2_MODEL_NAMES:
                 self.nchan = 2
 
-            # set omni flag to true if the name contains it
-            self.omni = 'omni' in os.path.splitext(Path(pretrained_model_string).name)[0]
             
             # for now, omni models cannot do net_avg 
             if self.omni:
@@ -462,13 +461,14 @@ class CellposeModel(UnetModel):
                 params = parse_model_string(pretrained_model_string)
                 if params is not None:
                     residual_on, style_on, concatenation = params 
-                self.omni = 'omni' in os.path.splitext(Path(pretrained_model_string).name)[0]
         
+        # set omni flag to true if the name contains it
+        if pretrained_model_string is not None:
+            self.omni = 'omni' in os.path.splitext(Path(pretrained_model_string).name)[0] if self.omni is None else self.omni 
+
         # convert abstract prediction classes number to actual count
         # flow field components increase this by dim-1
-        # print('AAA', self.nclasses, self.nchan, self.dim)
         self.nclasses = self.nclasses + (self.dim-1)
-        # print('BBB', self.nclasses, self.nchan, self.dim)
 
         # initialize network
         super().__init__(gpu=gpu, pretrained_model=False,
@@ -501,10 +501,13 @@ class CellposeModel(UnetModel):
                 
         ostr = ['off', 'on']
         omnistr = ['','_omni'] #toggle by containing omni phrase 
-        self.net_type = 'cellpose_residual_{}_style_{}_concatenation_{}{}_nclasses_{}_nchan_{}'.format(ostr[residual_on],
+        self.net_type = 'cellpose_residual_{}_style_{}_concatenation_{}{}_abstract_nclasses_{}_nchan_{}_dim_{}'.format(ostr[residual_on],
                                                                                    ostr[style_on],
                                                                                    ostr[concatenation],
-                                                                                   omnistr[omni],self.nclasses,self.nchan) 
+                                                                                   omnistr[omni],
+                                                                                   self.nclasses-(self.dim-1), # "abstract"
+                                                                                   self.nchan, 
+                                                                                   self.dim) 
         
         if self.torch and gpu:
             self.net = nn.DataParallel(self.net)
@@ -680,7 +683,7 @@ class CellposeModel(UnetModel):
 
         if isinstance(x, np.ndarray):
             dim_diff = x.ndim-slice_ndim
-            print(x.shape,x.ndim, slice_ndim, self.nchan, channels,'a')
+            # print(x.shape,x.ndim, slice_ndim, self.nchan, channels,'a')
             opt = [0,1]
             is_image, is_stack = [dim_diff==i for i in opt]
             correct_shape = dim_diff in opt
@@ -762,7 +765,9 @@ class CellposeModel(UnetModel):
                 # I made a vastly faster implementation using pytorch
                 rgb = omnipose.plot.rgb_flow(flow_pred,transparency=transparency) 
 
-
+                # ADD NITER CALCULATION HERE 
+                if niter is None:
+                    niter = omnipose.core.get_niter(dist_pred)
 
                 # I implemented hysteresis with just pytorch
                 # it is faster than skimage with larger batches, but not by much
@@ -770,83 +775,87 @@ class CellposeModel(UnetModel):
                 # I might just replace the main branch code with this
                 foreground = hysteresis_threshold(dist_pred.unsqueeze(1),mask_threshold-1, mask_threshold)
 
-                vf = interp_vf(flow_pred/5., mode = "nearest_batched")
+                # vf = interp_vf(flow_pred/5., mode = "nearest_batched")
                 # init_values = init_values_semantic(foreground, device=self.device)
                 
                 shape = flow_pred.shape
                 B = shape[0]
                 dims = shape[-self.dim:]
 
-                # print('S',shape,B,dims)
-
                 coords = [torch.arange(0, l, device = self.device) for l in dims]
                 mesh = torch.meshgrid(coords, indexing = "ij")
                 init_shape = [B, 1] + ([1] * len(dims))
-                # init_values = torch.stack(mesh[::-1], dim = 0)
-                init_values = torch.stack(mesh, dim = 0)
+                init_values = torch.stack(mesh, dim = 0) # torchvf flips with mesh[::-1]
+                init_values = init_values.repeat(init_shape).float()
 
-                init_values = init_values.repeat(init_shape)
+                # print(dims,'DIMS',torch.stack(mesh).shape)
 
-                print('S',shape,B,dims)
+                # print('gggttt',shape,B,dims,init_values.device,mesh[0].device)
                 # print('mesh',mesh.shape)
-                print(init_values.shape,init_shape,flow_pred.shape)
-                print(init_values)
-                final_points = ivp_solver(vf,init_values, 
-                                        dx = 1,
-                                        n_steps = 8,
-                                        solver = "euler")[-1] 
+                # print('hnhnhhnh',init_values.shape,init_shape,flow_pred.shape)
+                # print(init_values)
+                # final_points = ivp_solver(vf,init_values, 
+                #                         dx = 1,
+                #                         n_steps = 8,
+                #                         solver = "euler")[-1] 
 
+                # print('fff111',final_points.shape)
+                cell_px = (Ellipsis,)+torch.nonzero(foreground.squeeze(),as_tuple=True)[-self.dim:]
+                final_points = init_values
+                final_points[cell_px] = omnipose.core.steps_interp_batch(init_values[cell_px],
+                                                                    flow_pred/5., #<<<<<<<<<<< add support for other options here 
+                                                                    niter=niter,
+                                                                    omni=omni,
+                                                                    suppress=suppress,
+                                                                    verbose=verbose)[0].squeeze()
 
-                # print('p',final_points.shape)
 
                 # cast to CPU
-                # final_points = self._from_device(final_points[...,foreground.squeeze()])
                 final_points = self._from_device(final_points)
 
                 foreground = self._from_device(foreground)
                 dist_pred = self._from_device(dist_pred)
                 flow_pred = self._from_device(flow_pred)
                 rgb = self._from_device(rgb)
+                del yf 
+
 
                 # add to output lists 
                 dP.extend(flow_pred)
                 dist.extend(dist_pred)
                 bd.extend(bd_pred)
-
-
-                del yf 
                 
-                print('ss')
-                # can loop through batch and simpyl run compute_masks
+                # can loop through batch and run compute_masks
                 for iscell, disti, dPi, bdi, pts in zip(foreground, dist_pred, flow_pred, bd_pred, final_points):
-                    print('ff',pts.shape) # need to pad this array or remove padding from calculation
-                    print('points', pts.min(), pts.max())
+                    # print('a1a1a133',pts.shape) # need to pad this array or remove padding from calculation
+                    # print('points_ff', pts.min(), pts.max())
                     # one way to avoid padding is to completely 
+                    parallel = 1
+                    # print('PARALLEL', parallel)
 
-
+                    #NOW THAT THE trajectories are "WORKING", I need to add the parallel affinity here 
                     outputs = omnipose.core.compute_masks(dPi, disti, bdi, 
-                                                            p=pts,
-                                                            # p = None,
-                                                        iscell=iscell.squeeze(),
-                                                        niter=niter, 
-                                                        rescale=rescale, 
-                                                        resize=resize,
-                                                        min_size=min_size, 
-                                                        max_size=max_size,
-                                                        mask_threshold=mask_threshold,   
-                                                        diam_threshold=diam_threshold,
-                                                        flow_threshold=flow_threshold, 
-                                                        flow_factor=flow_factor,             
-                                                        interp=interp, 
-                                                        cluster=cluster, 
-                                                        boundary_seg=boundary_seg,
-                                                        affinity_seg=affinity_seg,
-                                                        calc_trace=calc_trace, 
-                                                        verbose=verbose,
-                                                        use_gpu=self.gpu, 
-                                                        device=self.device, 
-                                                        nclasses=self.nclasses, 
-                                                        dim=self.dim) 
+                                                            p=pts.squeeze() if parallel else None,
+                                                            iscell=iscell.squeeze(),
+                                                            niter=niter, 
+                                                            rescale=rescale, 
+                                                            resize=resize,
+                                                            min_size=min_size, 
+                                                            max_size=max_size,
+                                                            mask_threshold=mask_threshold,   
+                                                            diam_threshold=diam_threshold,
+                                                            flow_threshold=flow_threshold, 
+                                                            flow_factor=flow_factor,             
+                                                            interp=interp, 
+                                                            cluster=cluster, 
+                                                            boundary_seg=boundary_seg,
+                                                            affinity_seg=affinity_seg,
+                                                            calc_trace=calc_trace, 
+                                                            verbose=verbose,
+                                                            use_gpu=self.gpu, 
+                                                            device=self.device, 
+                                                            nclasses=self.nclasses, 
+                                                            dim=self.dim) 
 
                     masks.append(outputs[0])
                     p.append(outputs[1])
@@ -1271,16 +1280,17 @@ class CellposeModel(UnetModel):
         This is the one used to train the instance segmentation network. 
         
         """
-        if self.omni and OMNI_INSTALLED: #loss function for omnipose fields
-            loss = omnipose.core.loss(self, lbl, y)
-        else: # original loss function 
-            veci = 5. * self._to_device(lbl[:,1:])
-            lbl  = self._to_device(lbl[:,0]>.5)
-            loss = self.criterion(y[:,:2] , veci) 
-            if self.torch:
-                loss /= 2.
-            loss2 = self.criterion2(y[:,2] , lbl)
-            loss = loss + loss2
+        loss = omnipose.core.loss(self, lbl, y)
+        # if self.omni and OMNI_INSTALLED: #loss function for omnipose fields
+        #     loss = omnipose.core.loss(self, lbl, y)
+        # else: # original loss function 
+        #     veci = 5. * self._to_device(lbl[:,1:])
+        #     lbl  = self._to_device(lbl[:,0]>.5)
+        #     loss = self.criterion(y[:,:2] , veci) 
+        #     if self.torch:
+        #         loss /= 2.
+        #     loss2 = self.criterion2(y[:,2] , lbl)
+        #     loss = loss + loss2
         return loss
 
 
@@ -1399,23 +1409,36 @@ class CellposeModel(UnetModel):
         labels_to_flows = dynamics.labels_to_flows if not (self.omni and OMNI_INSTALLED) else omnipose.core.labels_to_flows
 
         # Omnipose needs to recompute labels on-the-fly after image warping
-        if self.omni and OMNI_INSTALLED:
-            models_logger.info('No precomuting flows with Omnipose. Computed during training.')
-            
-            # We assume that if links are given, labels are properly formatted as 0,1,2,...,N
-            # might be worth implementing a remapping for the links just in case...
-            # for now, just skip this for any labels that come with a link file 
-            for i,(labels,links) in enumerate(zip(train_labels,train_links)):
-                if links is None:
-                    train_labels[i] = omnipose.utils.format_labels(labels)
-            
-            # nmasks is inflated when using multi-label objects, so keep that in mind if you care about min_train_masks 
-            nmasks = np.array([label.max() for label in train_labels])
+        models_logger.info('No precomuting flows with Omnipose. Computed during training.')
+        
+        # We assume that if links are given, labels are properly formatted as 0,1,2,...,N
+        # might be worth implementing a remapping for the links just in case...
+        # for now, just skip this for any labels that come with a link file 
+        for i,(labels,links) in enumerate(zip(train_labels,train_links)):
+            if links is None:
+                train_labels[i] = omnipose.utils.format_labels(labels)
+        
+        # nmasks is inflated when using multi-label objects, so keep that in mind if you care about min_train_masks 
+        nmasks = np.array([label.max() for label in train_labels])
 
-        else:
-            train_labels = labels_to_flows(labels=train_labels, links=train_links, files=train_files, 
-                                           use_gpu=self.gpu, device=self.device, dim=self.dim)
-            nmasks = np.array([label[0].max() for label in train_labels])
+
+
+        # if self.omni and OMNI_INSTALLED:
+        #     models_logger.info('No precomuting flows with Omnipose. Computed during training.')
+            
+        #     # We assume that if links are given, labels are properly formatted as 0,1,2,...,N
+        #     # might be worth implementing a remapping for the links just in case...
+        #     # for now, just skip this for any labels that come with a link file 
+        #     for i,(labels,links) in enumerate(zip(train_labels,train_links)):
+        #         if links is None:
+        #             train_labels[i] = omnipose.utils.format_labels(labels)
+            
+        #     # nmasks is inflated when using multi-label objects, so keep that in mind if you care about min_train_masks 
+        #     nmasks = np.array([label.max() for label in train_labels])
+        # else:
+        #     train_labels = labels_to_flows(labels=train_labels, links=train_links, files=train_files, 
+        #                                    use_gpu=self.gpu, device=self.device, dim=self.dim)
+        #     nmasks = np.array([label[0].max() for label in train_labels])
 
         if run_test:
             test_labels = labels_to_flows(test_labels, test_links, files=test_files, 

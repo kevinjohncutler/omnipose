@@ -419,6 +419,7 @@ def main(args):
             # train segmentation model
             if args.train:
                 # with torch.autograd.profiler.profile(use_cuda=True) as prof:
+                print('imagesize',images[0].shape)
                 cpmodel_path = model.train(images, labels, links, train_files=image_names,
                                            test_data=test_images, 
                                            test_labels=test_labels, 

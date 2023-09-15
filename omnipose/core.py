@@ -140,7 +140,15 @@ def get_niter(dists):
         of the distance field relaxation method
     
     """
-    return np.ceil(np.max(dists)*1.16).astype(int)+1
+    module = {np.ndarray: np, torch.Tensor: torch}[type(dists)]
+   
+    # m = module.max(dists)
+    # c = module.ceil(m*1.16)
+    # # c = c.item()
+    # i = c.to(torch.int32) + 1
+    # return i
+    c = module.ceil(module.max(dists)*1.16)+1
+    return c.astype(int) if isinstance(c, np.ndarray) else c.int()
 
 
 # minor modification to generalize to nD 
@@ -560,15 +568,18 @@ def masks_to_flows_torch(masks, affinity_graph, coords=None, dists=None, device=
         # for omni, I used to reflect across the edge like a barbarian to simulate the mask extending past the edge, then crop
         # now I just use the affinity graph and force connections to the boundary!
 
-        centers = np.array([])
+        centers = np.array([])  
         if not omni: #do original centroid projection algrorithm
+            unique_labels = fastremap.unique(masks)[1:]
             # get mask centers
-            centers = np.array(scipy.ndimage.center_of_mass(masks, labels=masks, 
-                                                            index=np.arange(1, masks.max()+1))).astype(int).T
+            centers = np.array(scipy.ndimage.center_of_mass(masks, 
+                                                            labels=masks, 
+                                                            index=unique_labels)).astype(int).T
+                        
             # check mask center inside mask
-            valid = masks[tuple(centers)] == np.arange(1, masks.max()+1)
+            valid = masks[tuple(centers)] == unique_labels
             for i in np.nonzero(~valid)[0]:
-                crds = np.array(np.nonzero(masks==(i+1)))
+                crds = np.array(np.nonzero(masks==unique_labels[i]))
                 meds = np.median(crds,axis=0)
                 imin = np.argmin(np.sum((crds-meds)**2,axis=0))
                 centers[:,i]=crds[:,imin]
@@ -581,7 +592,7 @@ def masks_to_flows_torch(masks, affinity_graph, coords=None, dists=None, device=
                     n_iter = get_niter(dists) ##### omnipose.core.get_niter
             else:
                 slices = scipy.ndimage.find_objects(masks)
-                ext = np.array([[s.stop - s.start + 1 for s in slc] for slc in slices])
+                ext = np.array([[s.stop - s.start + 1 for s in slices[i-1]] for i in unique_labels])
                 n_iter = 2 * (ext.sum(axis=1)).max()
             
 
@@ -643,7 +654,7 @@ def get_links(masks,labels,bd,connectivity=1):
 import networkx as nx
 def links_to_mask(masks,links):
     """
-    Convert linked masks to stictched masks. 
+    Convert linked masks to stitched masks. 
     """
     G = nx.from_edgelist(links)
     l = list(nx.connected_components(G))
@@ -676,7 +687,7 @@ def masks_to_affinity(masks, coords, steps, inds, idx, fact, sign, dim,
     
     idx is the central index of the kernel, inds[0]. 
     edges is a list of tuples (y1,y2,y3,...),(x1,x2,x3,...) etc. to which all adjacent pixels should be connected
-    concatenated masks should be paddedby 1 to make sure tghat doesn't cause unextpected label merging 
+    concatenated masks should be paddedby 1 to make sure that doesn't cause unextpected label merging 
     dist can be used instead for edge connectivity 
     """
 
@@ -701,8 +712,7 @@ def masks_to_affinity(masks, coords, steps, inds, idx, fact, sign, dim,
     
     # see where the neighbor matches central pixel
     is_self = piece_masks == piece_masks[idx] 
-    
-    # Begin a list of conditions.  
+
     # Pixels are linked if they share the same label or are next to an edge...
     conditions = [is_self,
                   is_edge
@@ -713,8 +723,7 @@ def masks_to_affinity(masks, coords, steps, inds, idx, fact, sign, dim,
         is_link = np.zeros(piece_masks.shape, dtype=np.bool_)
         is_link = get_link_matrix(links, piece_masks, np.concatenate(inds), idx, is_link)
         conditions.append(is_link)
-        # print('CCC',is_link.shape) 
-
+        
     affinity_graph = np.logical_or.reduce(conditions) 
     affinity_graph[idx] = 0 # no self connections
     
@@ -1281,7 +1290,6 @@ def compute_masks(dP, dist, bd=None, p=None, inds=None, iscell=None, niter=None,
     # unpad = tuple([slice(pad,-pad)]*dim) 
     unpad = tuple([slice(pad,-pad) if pad else slice(None,None)]*dim) # works in case pad is zero
 
-
     if hole_size is None:
         hole_size = 3**(dim//2) # just a guess
 
@@ -1399,6 +1407,8 @@ def compute_masks(dP, dist, bd=None, p=None, inds=None, iscell=None, niter=None,
                 inds = np.stack(np.nonzero(iscell_pad))
                 if verbose:
                     omnipose_logger.info('p given')
+
+            # print(p.shape,'PPPPPPPPP')
 
             #calculate masks
             if (omni and OMNI_INSTALLED) or override:
@@ -1792,6 +1802,7 @@ def steps_interp(p, dP, dist, niter, use_gpu=True, device=None, omni=True, suppr
     d = dP.shape[0] # number of components = number of dimensions 
     shape = dP.shape[1:] # shape of component array is the shape of the ambient volume 
     inds = list(range(d))[::-1] # grid_sample requires a particular ordering 
+    # print('inds_main', inds,p.shape) 
     
     # if verbose:
     #     startTime = time.time()
@@ -1817,11 +1828,14 @@ def steps_interp(p, dP, dist, niter, use_gpu=True, device=None, omni=True, suppr
     for k in range(d):
         pt = pt.unsqueeze(0) # get it in the right shape
 
+    # print('p_main', p.shape, p.min(), p.max(), pt.shape) 
+
     if isinstance(dP, torch.Tensor):
         flow = dP[inds].to(device).unsqueeze(0)
     else:   
         flow = torch.tensor(dP[inds],device=device).unsqueeze(0) #covert flow numpy array to tensor on GPU, add dimension 
 
+    # print('flow_main',flow.shape)
     # we want to normalize the coordinates between 0 and 1. To do this, 
     # we divide the coordinates by the shape along that dimension. To symmetrize,
     # we then multiply by 2 and subtract 1. I
@@ -1855,7 +1869,7 @@ def steps_interp(p, dP, dist, niter, use_gpu=True, device=None, omni=True, suppr
                 dPt0.copy_(dPt) # update old flow 
                 dPt /= step_factor(t) # suppression factor 
                 
-        for k in range(d): #clamp the final pixel locations
+        for k in range(d): #clamp the final pixel locations, <<<< could be done for all at once?
             pt[...,k] = torch.clamp(pt[...,k] + dPt[:,k], -1., 1.)
         
         
@@ -1885,6 +1899,88 @@ def steps_interp(p, dP, dist, niter, use_gpu=True, device=None, omni=True, suppr
 
 
 # def steps_batch():
+
+def steps_interp_batch(p, dP, niter, omni=True, suppress=True,
+                 calc_trace=False, calc_bd=False, verbose=False):
+    """Euler integration of pixel locations p subject to flow dP for niter steps in N dimensions. 
+    
+    Parameters
+    ----------------
+    p: float32, tensor
+        pixel locations [axis x Lz x Ly x Lx] (start at initial meshgrid)
+    dP: float32, ND array
+        flows [axis x Lz x Ly x Lx]
+    niter: int32
+        number of iterations of dynamics to run
+
+    Returns
+    ---------------
+    p: float32, ND array
+        final locations of each pixel after dynamics
+
+    """
+    align_corners = True
+    mode = 'nearest' if (omni and not suppress) else 'bilinear'
+    
+    d = dP.shape[1] # number of components = number of dimensions 
+    shape = dP.shape[2:] # shape of component array is the shape of the ambient volume 
+    inds = list(range(d))[::-1] # grid_sample requires a particular ordering
+
+    # print('inds', inds,p.shape, p.min(), p.max()) 
+
+    device = dP.device # get the device from dP tensor
+
+    shape = np.array(shape)[inds]-1.  # dP is d.Ly.Lx, inds flips this to flipped X-1, Y-1, ...
+    # print('SHAPE',shape)
+    # print('p_new...',p.shape)
+    pt = p[:,inds].permute(0,2,1).unsqueeze(1).float()
+    # print('pt_new',pt.shape)
+
+    pt0 = pt.clone() # save first
+    flow = dP[:,inds] # inds is just flipping the spatial component ordering from YX to XY
+    
+    # print('point, flow shape',pt.shape,flow.shape)
+
+    for k in range(d): 
+        pt[...,k] = 2*pt[...,k]/shape[k] - 1 
+        flow[:,k] = 2*flow[:,k]/shape[k]
+    
+    if calc_trace:
+        trace = torch.clone(pt).detach()
+
+    if omni and OMNI_INSTALLED and suppress:
+        dPt0 = torch.nn.functional.grid_sample(flow, pt, mode=mode, align_corners=align_corners)
+
+    for t in range(niter):
+        if calc_trace and t>0:
+            trace = torch.cat((trace,pt))
+        dPt = torch.nn.functional.grid_sample(flow, pt, mode=mode,
+                                              align_corners=align_corners)
+
+        if omni and OMNI_INSTALLED and suppress:
+                dPt = (dPt+dPt0) / 2. # average with previous flow 
+                dPt0.copy_(dPt) # update old flow 
+                dPt /= step_factor(t) # suppression factor 
+                
+        for k in range(d): #clamp the final pixel locations
+            pt[...,k] = torch.clamp(pt[...,k] + dPt[:,k], -1., 1.)
+        
+    pt = (pt+1)*0.5
+    for k in range(d): 
+        pt[...,k] *= shape[k]
+
+    if calc_trace:
+        trace = (trace+1)*0.5
+        for k in range(d): 
+            trace[...,k] *= shape[k]
+
+    if calc_trace:
+        tr =  trace[...,inds].cpu().numpy().squeeze().T
+    else:
+        tr = None
+
+    p =  pt[...,inds].permute(0,-1,1,2)
+    return p, tr
 
 
 @njit('(float32[:,:,:,:],float32[:,:,:,:], int32[:,:], int32)', nogil=True)
@@ -3067,7 +3163,9 @@ def _get_affinity(steps, mask_pad, mu_pad, dt_pad, p, p0,
     """
 
     axes = range(mu_pad.shape[0])
-    coord = np.nonzero(mask_pad) # should this not just be inds/p0?
+    # coord = np.nonzero(mask_pad) # should this not just be inds/p0?
+    # print('coord',np.all(coord==p0),p.shape,p0.shape) yes it is 
+    coord = tuple(p0)
     coords = np.stack(coord)
 
     div = divergence(mu_pad)

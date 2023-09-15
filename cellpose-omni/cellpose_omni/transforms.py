@@ -554,21 +554,23 @@ def reshape(data, channels=[0,0], chan_first=False, channel_axis=0):
 
     """
     data = data.astype(np.float32)
-    if data.ndim < 3: # plain 2D images get a new channel azis 
+    if data.ndim < 3: # plain 2D images get a new channel axis 
         data = data[...,np.newaxis]
-    elif data.shape[0]<8 and data.ndim==3: # Assume stack of this sort ar nchan x Ly x Lx, so reorder to Ly x Lx x nchan 
+    elif data.shape[0]<8 and data.ndim==3: # Assume stack is nchan x Ly x Lx, so reorder to Ly x Lx x nchan 
         data = np.transpose(data, (1,2,0))
-    # use grayscale image
+        channel_axis = -1 
+        # 8 is completely arbitrary and idk why we need to assume this, we should change to just using the channel axis 
     if data.shape[-1]==1:
+        # use grayscale image
+        # adds a second channel of zeros 
         data = np.concatenate((data, np.zeros_like(data)), axis=-1)
     else:
         if channels[0]==0:
-            # data = data.mean(axis=-1, keepdims=True) # why do this? Seems like it would be smashing channels together instead of taking the 0th one. 
+            # [0,0] does a mean of all channels, pads with 0 for second channel 
             data = data.mean(axis=channel_axis, keepdims=True) # also had a big bug: 3D volumes get squashed to 2D along x axis!!! Assumptions bad. 
-            
             data = np.concatenate((data, np.zeros_like(data)), axis=-1) # forces images to always have 2 channels, possibly bad for multidimensional
         else:
-            chanid = [channels[0]-1] # oh so [0,0] would do a mean and [1,0] would actually take the first channel?
+            chanid = [channels[0]-1] # [0,0] would do a mean, [1,0] would actually take the first channel
             if channels[1] > 0:
                 chanid.append(channels[1]-1)
             data = data[...,chanid]
@@ -894,19 +896,24 @@ def random_rotate_and_resize(X, Y=None, scale_range=1., gamma_range=[.5,4], tyx=
         nimg = len(X)
         inds = np.arange(nimg)
     
-    if omni and OMNI_INSTALLED:
-        return omnipose.core.random_rotate_and_resize(X, Y=Y, scale_range=scale_range, gamma_range=gamma_range,
-                                                      tyx=tyx, do_flip=do_flip, rescale=rescale, inds=inds, 
-                                                      nchan=nchan)
-    else:
-        # backwards compatibility; completely 'stock', no gamma augmentation or any other extra frills. 
-        # [Y[i][1:] for i in inds] is necessary because the original transform function does not use masks (entry 0). 
-        # This used to be done in the original function call. 
-        if tyx is None:
-            tyx = (224,)*dim
-        return original_random_rotate_and_resize(X, Y=[y[1:] for y in Y] if Y is not None else None, 
-                                                 scale_range=scale_range, xy=tyx,
-                                                 do_flip=do_flip, rescale=rescale, unet=unet)
+    return omnipose.core.random_rotate_and_resize(X, Y=Y, scale_range=scale_range, gamma_range=gamma_range,
+                                                    tyx=tyx, do_flip=do_flip, rescale=rescale, inds=inds, 
+                                                    nchan=nchan)
+
+    # if omni and OMNI_INSTALLED:
+    #     return omnipose.core.random_rotate_and_resize(X, Y=Y, scale_range=scale_range, gamma_range=gamma_range,
+    #                                                   tyx=tyx, do_flip=do_flip, rescale=rescale, inds=inds, 
+    #                                                   nchan=nchan)
+    # else:
+    #     # backwards compatibility; completely 'stock', no gamma augmentation or any other extra frills. 
+    #     # [Y[i][1:] for i in inds] is necessary because the original transform function does not use masks (entry 0). 
+    #     # This used to be done in the original function call. 
+    #     if tyx is None:
+    #         tyx = (224,)*dim
+    #     print('yoyo',X[0].shape,Y[0].shape)
+    #     return original_random_rotate_and_resize(X, Y=[y[1:] for y in Y] if Y is not None else None, 
+    #                                              scale_range=scale_range, xy=tyx,
+    #                                              do_flip=do_flip, rescale=rescale, unet=unet)
 
 
 # I have the omni flag here just in case, but it actually does not affect the tests
@@ -1009,6 +1016,8 @@ def original_random_rotate_and_resize(X, Y=None, scale_range=1., xy = (224,224),
         scale: array, float
             amount by which each image was resized
     """
+
+    print('this',X[0].shape)
     scale_range = max(0, min(2, float(scale_range)))
     nimg = len(X)
     if X[0].ndim>2:
