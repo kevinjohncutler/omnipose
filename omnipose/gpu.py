@@ -21,3 +21,21 @@ try: # similar backward incompatibility where torch.mps does not even exist
 except Exception as e:
     empty_cache = torch.cuda.empty_cache
     print(e)
+
+
+# @torch.jit.script
+# def custom_nonzero_cuda(tensor):
+#   """Returns a tuple of tensors containing the non-zero indices of the given tensor
+#   and the corresponding elements of the tensor."""
+
+#   indices = torch.empty_like(tensor, dtype=torch.long)
+#   elements = torch.empty_like(tensor)
+
+#   block_size = 32
+#   num_blocks = (tensor.numel() + block_size - 1) // block_size
+
+#   torch.cuda.launch_kernel(
+#       'custom_nonzero_kernel', num_blocks, block_size,
+#       tensor, indices, elements)
+
+#   return indices, elements

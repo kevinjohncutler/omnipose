@@ -19,7 +19,7 @@ models_logger = logging.getLogger(__name__)
 from . import transforms, dynamics, utils, plot
 from .core import UnetModel, assign_device, check_mkl, MXNET_ENABLED, parse_model_string
 from .io import OMNI_INSTALLED
-from omnipose.gpu import empty_cache, ARM
+from omnipose.gpu import empty_cache, ARM #, custom_nonzero_cuda
 from omnipose.utils import hysteresis_threshold
 
 from torchvf.numerics import interp_vf, ivp_solver, init_values_semantic
@@ -744,12 +744,13 @@ class CellposeModel(UnetModel):
                     slc[-k] = slice(subs[-k][0], subs[-k][-1]+1)
                 slc = tuple(slc)
 
+
                 # run the network on the batch 
                 # yf, style = self.network(batch)
                 with torch.no_grad():
                     yf = self.net(batch)[0]
                     # print('need to add normalization / invert /rescale options in dataloader')
-
+                
                 # slice out padding
                 yf = yf[(Ellipsis,)+slc]
 
@@ -765,15 +766,19 @@ class CellposeModel(UnetModel):
                 # I made a vastly faster implementation using pytorch
                 rgb = omnipose.plot.rgb_flow(flow_pred,transparency=transparency) 
 
-                # ADD NITER CALCULATION HERE 
-                if niter is None:
-                    niter = omnipose.core.get_niter(dist_pred)
+ 
 
                 # I implemented hysteresis with just pytorch
                 # it is faster than skimage with larger batches, but not by much
                 # it does better in thin sections, however (though might be broken skeleton fragments)
                 # I might just replace the main branch code with this
-                foreground = hysteresis_threshold(dist_pred.unsqueeze(1),mask_threshold-1, mask_threshold)
+                hysteresis = 0
+                if hysteresis:
+                    foreground = hysteresis_threshold(dist_pred.unsqueeze(1),mask_threshold-1, mask_threshold)
+                else:
+                    foreground = dist_pred.unsqueeze(1) >= mask_threshold
+                    # print('add flag')
+
 
                 # vf = interp_vf(flow_pred/5., mode = "nearest_batched")
                 # init_values = init_values_semantic(foreground, device=self.device)
@@ -800,7 +805,58 @@ class CellposeModel(UnetModel):
                 #                         solver = "euler")[-1] 
 
                 # print('fff111',final_points.shape)
-                cell_px = (Ellipsis,)+torch.nonzero(foreground.squeeze(),as_tuple=True)[-self.dim:]
+
+                # these are equivalent 
+                coords = torch.nonzero(foreground.squeeze(),as_tuple=True)
+                # coords = custom_nonzero_cuda(foreground.squeeze())
+                # coords = torch.where(foreground.squeeze())
+
+                # this block works
+
+                # # Assuming foreground is a boolean tensor of shape (B, D1, D2, ..., DN)
+                # fg = foreground.squeeze()  # Now fg has shape (B, D1, D2, ..., DN)
+
+                # # Create a grid of indices
+                # grids = torch.meshgrid([torch.arange(size, device=fg.device) for size in fg.shape])
+
+                # # Stack the grids to create an index mesh
+                # index_mesh = torch.stack(grids, dim=0)  # Now index_mesh has shape (N+1, B, D1, D2, ..., DN)
+
+                # # Move index_mesh to the same device as foreground
+                # index_mesh = index_mesh.to(fg.device)
+
+                # # Use the boolean tensor to index into the index mesh
+                # selected_indices = index_mesh[:, fg]
+                # coords = tuple(selected_indices)
+
+                # print('ccc', len(coords), coords[0].shape, torch.stack(coords).shape)
+
+                # print('dsdf')
+
+                # fg = foreground.squeeze()  # Now fg has shape (B, D1, D2, ..., DN)
+
+                # # Create a grid of indices
+                # grids = torch.meshgrid([torch.arange(size, device=fg.device) for size in fg.shape])
+
+                # # Reshape each grid to have shape (-1)
+                # reshaped_grids = [grid.reshape(-1) for grid in grids]
+
+                # # Convert the reshaped grids to a tuple of indices
+                # selected_indices = tuple(reshaped_grids)
+
+                # # print(len(reshaped_grids),reshaped_grids[0].shape,reshaped_grids)
+
+                # coords = tuple(selected_indices)
+
+
+                cell_px = (Ellipsis,)+coords[-self.dim:]
+
+                if niter is None:
+                    # niter = omnipose.core.get_niter(dist_pred).cpu()
+                    # int(diameters(foreground,dist_pred)/(1+affinity_seg))
+                    niter = int(2*(self.dim+1)*torch.mean(dist_pred[(Ellipsis,)+coords]) / (1+affinity_seg))
+
+
                 final_points = init_values
                 final_points[cell_px] = omnipose.core.steps_interp_batch(init_values[cell_px],
                                                                     flow_pred/5., #<<<<<<<<<<< add support for other options here 
@@ -836,7 +892,7 @@ class CellposeModel(UnetModel):
                     #NOW THAT THE trajectories are "WORKING", I need to add the parallel affinity here 
                     outputs = omnipose.core.compute_masks(dPi, disti, bdi, 
                                                             p=pts.squeeze() if parallel else None,
-                                                            iscell=iscell.squeeze(),
+                                                            iscell=iscell.squeeze() if parallel else None,
                                                             niter=niter, 
                                                             rescale=rescale, 
                                                             resize=resize,
@@ -893,7 +949,7 @@ class CellposeModel(UnetModel):
             flows = [list(item) for item in zip(rgb, dP, dist, p, bd, tr, affinity, bounds)] # not sure which is faster of these yet
 
             return masks, flows, [] 
-
+        
             
         elif (is_list or is_stack) and correct_shape:
             masks, styles, flows = [], [], []
@@ -968,14 +1024,19 @@ class CellposeModel(UnetModel):
                 if not self.torch:
                     net.collect_params().grad_req = 'null'
 
-            # print('before',x.shape)
+            if verbose: models_logger.info('shape before transforms.convert_image(): {}'.format(x.shape))
+
             x = transforms.convert_image(x, channels, channel_axis=channel_axis, z_axis=z_axis,
                                          do_3D=(do_3D or stitch_threshold>0), normalize=False, 
                                          invert=False, nchan=self.nchan, dim=self.dim, omni=omni)
-            # print('after',x.shape)
-            if x.ndim < self.dim+2: # we need nimg x dims x channels, so 2D has 4, 3D has 5, etc. 
-                x = x[np.newaxis]
             
+            if verbose: models_logger.info('shape after transforms.convert_image(): {}'.format(x.shape))
+
+            if x.ndim < self.dim+2: # we need (nimg, *dims, nchan), so 2D has 4, 3D has 5, etc. 
+                x = x[np.newaxis]
+
+                if verbose: models_logger.info('shape now {}'.format(x.shape))
+
             self.batch_size = batch_size
             rescale = self.diam_mean / diameter if (rescale is None and (diameter is not None and diameter>0)) else rescale
             rescale = 1.0 if rescale is None else rescale
@@ -1087,12 +1148,16 @@ class CellposeModel(UnetModel):
             
             for i in iterator:
                 img = np.asarray(x[i])
+
                 if normalize or invert:
                     img = transforms.normalize_img(img, invert=invert, omni=omni)
                 
                 # pad the image to get cleaner output at the edges
-                # padding with edge values seems to work the best 
-                img = np.pad(img,pad_seq,'edge')
+                # padding with edge values seems to work the best
+                # but actually, not really useful in the end...
+                if pad>0:
+                    img = np.pad(img,pad_seq,'edge')
+
 
                 if rescale != 1.0:
                     # if self.dim>2:
@@ -1103,7 +1168,6 @@ class CellposeModel(UnetModel):
                         img = np.stack([zoom(img[...,k],rescale,order=3) for k in range(img.shape[-1])],axis=-1)
                     else:
                         img = zoom(img,rescale,order=1)
-
                 yf, style = self._run_nets(img, net_avg=net_avg,
                                            augment=augment, tile=tile,
                                            tile_overlap=tile_overlap, 
@@ -1115,8 +1179,8 @@ class CellposeModel(UnetModel):
                 # this means the masks will have no scaling artifacts. We could *upsample* by some factor to make
                 # the clustering etc. work even better, but that is not implemented yet 
                 if resample and rescale!=1.0:
-                    for k in range(yf.shape[-1]):
-                        print('a',shape[1:1+self.dim]/np.array(yf.shape[:-1]))
+                    # for k in range(yf.shape[-1]):
+                    #     print('a',shape[1:1+self.dim]/np.array(yf.shape[:-1]))
                     # ND version actually gives better results than CV2 in some places. 
                     yf = np.stack([zoom(yf[...,k], shape[1:1+self.dim]/np.array(yf.shape[:-1]), order=1) 
                                    for k in range(yf.shape[-1])],axis=-1)

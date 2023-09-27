@@ -304,6 +304,7 @@ class UnetModel():
                 shape = img.shape
                 # rescale image for flow computation
                 imgs = transforms.resize_image(img, rsz=rescale[i])
+                print('This branch seems to have a bug',img.shape, imgs.shape)
                 y, style = self._run_nets(img, net_avg=net_avg, augment=augment, 
                                           tile=tile)
                 
@@ -475,7 +476,6 @@ class UnetModel():
             if tiled it is averaged over tiles
 
         """
-
         transpose = False
         if imgs.ndim==4 and self.dim==2: #doing cellpose 3D, model does 2D slices but image is 3D+chans  
             # make image Lz x nchan x Ly x Lx for net
@@ -484,8 +484,8 @@ class UnetModel():
             return_conv = False
             transpose = True
         elif imgs.ndim>self.dim:
-            # make image nchan x Ly x Lx for net
-            order = (self.dim,)+tuple([k for k in range(self.dim)]) #(2,0,1)
+            # make image (nchan, *dims) for net
+            order = (self.dim,)+tuple([k for k in range(self.dim)]) #(2,0,1) in 2D etc.
             imgs = np.transpose(imgs, order)
             transpose = True
             detranspose = tuple([k for k in range(1,self.dim+1)])+(0,)#(1,2,0)
@@ -521,6 +521,7 @@ class UnetModel():
         y = y[slc]
 
         # transpose so channels axis is last again
+        # Seems really silly to keep doing this, maybe I should just heep channels first everywhere 
         if transpose:
             y = np.transpose(y, detranspose)
 

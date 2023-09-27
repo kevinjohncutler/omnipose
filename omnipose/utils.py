@@ -87,7 +87,7 @@ def cross_reg(imstack,upsample_factor=100,order=1,
     """
     Find the transformation matrices for all images in a time series to align to the beginning frame. 
     """
-    dim = imstack.ndim - 1 # dim is spatial, assume fisrt dimension is t
+    dim = imstack.ndim - 1 # dim is spatial, assume first dimension is t
     s = np.zeros(dim)
     shape = imstack.shape[-dim:]
     regstack = np.zeros_like(imstack)
@@ -166,15 +166,16 @@ def safe_divide(num,den,cutoff=0):
     """ Division ignoring zeros and NaNs in the denominator.""" 
     return np.divide(num, den, out=np.zeros_like(num), 
                      where=np.logical_and(den>cutoff,~np.isnan(den)))        
-@njit
-def normalize99(Y,lower=0.01,upper=99.99):
-    """ normalize image so 0.0 is 0.01st percentile and 1.0 is 99.99th percentile 
+
+
+def normalize99(Y, lower=0.01, upper=99.99):
+    """ normalize array/tensor so 0.0 is 0.01st percentile and 1.0 is 99.99th percentile 
     Upper and lower percentile ranges configurable. 
     
     Parameters
     ----------
-    Y: ndarray, float
-        Component array of lenth N by L1 by L2 by ... by LN. 
+    Y: ndarray/tensor, float
+        Input array/tensor. 
     upper: float
         upper percentile above which pixels are sent to 1.0
     
@@ -183,11 +184,26 @@ def normalize99(Y,lower=0.01,upper=99.99):
     
     Returns
     --------------
-    normalized array with a minimum of 0 and maximum of 1
+    normalized array/tensor with a minimum of 0 and maximum of 1
     
     """
-    return np.interp(Y, np.percentile(Y, [lower,upper]), (0, 1)) # much faster to call both at once 
+    quantiles = np.array([lower, upper]) / 100
+
+    if isinstance(Y, np.ndarray):
+        module = np
+    elif torch.is_tensor(Y):
+        module = torch
+        quantiles = torch.tensor(quantiles, dtype=Y.dtype, device=Y.device)
+    else:
+        raise ValueError("Input should be either a numpy array or a torch tensor.")
+        
+    lower_val, upper_val = module.quantile(Y, quantiles)
+    Y = module.clip(Y, lower_val, upper_val)
+    Y -= lower_val
+    Y /= (upper_val - lower_val)
     
+    return Y
+
 
 def normalize_image(im,mask,bg=0.5,dim=2,iterations=1,scale=1):
     """ Normalize image by rescaling from 0 to 1 and then adjusting gamma to bring 
@@ -228,7 +244,7 @@ def normalize_image(im,mask,bg=0.5,dim=2,iterations=1,scale=1):
         
     return np.stack(im,axis=0).squeeze()
 
-
+import ncolor
 def mask_outline_overlay(img,masks,outlines,mono=None):
     if mono is None:
         m,n = ncolor.label(masks,max_depth=20,return_n=True)
@@ -237,7 +253,10 @@ def mask_outline_overlay(img,masks,outlines,mono=None):
     else:
         colors = mono
         m = masks>0
-    im = rescale(color.rgb2gray(img))
+    if img.ndim == 3:
+        im = rescale(color.rgb2gray(img))
+    else:
+        im = img
     overlay = color.label2rgb(m,im,colors,
                               bg_label=0,
                               alpha=np.stack([((m>0)*1.+outlines*0.75)/3]*3,axis=-1))

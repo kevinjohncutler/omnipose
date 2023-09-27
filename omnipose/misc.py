@@ -778,6 +778,7 @@ def channel_overlay(ch0, ch1, color=(1, 1, 0), a=1):
     return rgb
 
 
+
 import torch
 def divergence(y):
     axes = [k for k in range(len(y[0]))] #note that this only works when there are at least two images in batch 

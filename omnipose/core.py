@@ -140,15 +140,16 @@ def get_niter(dists):
         of the distance field relaxation method
     
     """
-    module = {np.ndarray: np, torch.Tensor: torch}[type(dists)]
-   
+    isarray = type(dists) == np.ndarray
+    module = np if isarray else torch
+    c = module.ceil(module.max(dists)*1.16)+1
+    return c.astype(int) if isarray else c.int()
+
     # m = module.max(dists)
     # c = module.ceil(m*1.16)
     # # c = c.item()
     # i = c.to(torch.int32) + 1
     # return i
-    c = module.ceil(module.max(dists)*1.16)+1
-    return c.astype(int) if isinstance(c, np.ndarray) else c.int()
 
 
 # minor modification to generalize to nD 
@@ -161,7 +162,7 @@ def dist_to_diam(dt_pos,n):
     dt_pos: 1D array, float
         array of positive distance field values
     n: int
-        dimension of volume. dt_pos is always 1D becasue only the positive values
+        dimension of volume. dt_pos is always 1D because only the positive values
         int he distance field are passed in. 
         
     Returns

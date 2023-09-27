@@ -38,12 +38,13 @@ class sampler(torch.utils.data.Sampler):
 # incidentally, this also provides a platform for doing image augmentations (combine output from rotated images etc.)
 
 class eval_set(torch.utils.data.Dataset):
-    def __init__(self, data, dim, channel_axis=0):
+    def __init__(self, data, dim, channel_axis=0,device=torch.device('cpu')):
         self.data = data
         self.dim = dim
         self.channel_axis = channel_axis
         self.stack = isinstance(self.data, np.ndarray)
         self.files = isinstance(self.data[0],str)
+        self.device=device
         
     def __iter__(self):
         worker_info = mp.get_worker_info()
@@ -66,26 +67,63 @@ class eval_set(torch.utils.data.Dataset):
         for index in range(start, end):
             yield self[index] 
 
-    def __getitem__(self, inds, no_pad=False):
+#     def __getitem__(self, inds, no_pad=False):
         
+#         if isinstance(inds, int):
+#             inds = [inds]
+            
+#         if self.stack:
+#             imgs = self.data[inds].astype(float)#.to(self.device)
+# #         else:   
+# #             # imgs = [(np.asarray(imageio.imread(self.data[index]) if self.files else self.data[index])).astype(float) for index in inds]
+# #             imgs = np.stack([(imageio.imread(self.data[index]) if self.files else self.data[index]) for index in inds]).astype(float)
+            
+#         if imgs.ndim == 1+self.dim:
+#             imgs = np.expand_dims(imgs,axis=1)
+#         elif not channel_axis:
+#             # if the channel axis is 0, then the default order is correct: B,C,Y,X
+#             # otherwise, we need to move it to position 1
+#             imgs = np.moveaxis(imgs,channel_axis,1)
+        
+#         imgs = normalize99(imgs) # normalizing as a stack only makes sense for homogeneous datasets, might need a toggle 
+        
+#         if no_pad:
+#             return imgs.squeeze()
+#         else:
+#             shape = imgs.shape[-self.dim:]
+#             div = 16
+#             extra = 1
+#             idxs = [k for k in range(-self.dim,0)]
+#             Lpad = [int(div * np.ceil(shape[i]/div) - shape[i]) for i in idxs]
+#             pad1 = [extra*div//2 + Lpad[k]//2 for k in range(self.dim)]
+#             pad2 = [extra*div//2 + Lpad[k] - Lpad[k]//2 for k in range(self.dim)]
+
+#             emptypad = tuple([[0,0]]*(imgs.ndim-self.dim))
+#             pads = emptypad+tuple(np.stack((pad1,pad2),axis=1))
+#             subs = [np.arange(pad1[k],pad1[k]+shape[k]) for k in range(self.dim)]
+
+#             mode = 'reflect'
+#             I = np.pad(imgs,pads, mode=mode)
+
+#             return torch.tensor(I), inds, subs
+
+    def __getitem__(self, inds, no_pad=False):
         if isinstance(inds, int):
             inds = [inds]
             
         if self.stack:
             imgs = self.data[inds].astype(float)
-#         else:   
-#             # imgs = [(np.asarray(imageio.imread(self.data[index]) if self.files else self.data[index])).astype(float) for index in inds]
-#             imgs = np.stack([(imageio.imread(self.data[index]) if self.files else self.data[index]) for index in inds]).astype(float)
+        else:   
+            imgs = torch.stack([(imageio.imread(self.data[index]) if self.files else self.data[index]) for index in inds]).astype(float)
             
+        imgs = torch.tensor(imgs, device=self.device)
+        imgs = normalize99(imgs) # much faster on GPU now 
+        
         if imgs.ndim == 1+self.dim:
-            imgs = np.expand_dims(imgs,axis=1)
+            imgs = imgs.unsqueeze(1)
         elif not channel_axis:
-            # if the channel axis is 0, then the default order is correct: B,C,Y,X
-            # otherwise, we need to move it to position 1
-            imgs = np.moveaxis(imgs,channel_axis,1)
-        
-        imgs = normalize99(imgs) # normalizing as a stack only makes sense for homogeneous datasets, might need a toggle 
-        
+            imgs = imgs.permute([0, channel_axis] + list(range(1, channel_axis)) + list(range(channel_axis+1, imgs.ndim)))
+                
         if no_pad:
             return imgs.squeeze()
         else:
@@ -94,17 +132,22 @@ class eval_set(torch.utils.data.Dataset):
             extra = 1
             idxs = [k for k in range(-self.dim,0)]
             Lpad = [int(div * np.ceil(shape[i]/div) - shape[i]) for i in idxs]
-            pad1 = [extra*div//2 + Lpad[k]//2 for k in range(self.dim)]
-            pad2 = [extra*div//2 + Lpad[k] - Lpad[k]//2 for k in range(self.dim)]
+            lower_pad = [extra*div//2 + Lpad[k]//2 for k in range(self.dim)] # lower pad along each axis
+            upper_pad = [extra*div//2 + Lpad[k] - Lpad[k]//2 for k in range(self.dim)] # upper pad along each axis 
 
-            emptypad = tuple([[0,0]]*(imgs.ndim-self.dim))
-            pads = emptypad+tuple(np.stack((pad1,pad2),axis=1))
-            subs = [np.arange(pad1[k],pad1[k]+shape[k]) for k in range(self.dim)]
+            # for torch.nn.functional.pad(), we need (x1,x2,y1,y2,...) where x1,x2 are the bounds for the LAST dimension
+            # and y1,y2 are bounds for the penultimate etc., and we already computed upper and lower bound lists pad1, pad2 
+            # thus, we need to reverse the order of the dimensions and assemble this tuple 
+            pads = tuple()
+            for k in range(self.dim):
+                pads += (lower_pad[-(k+1)],upper_pad[-(k+1)])
+
+            subs = [np.arange(lower_pad[k],lower_pad[k]+shape[k]) for k in range(self.dim)]
 
             mode = 'reflect'
-            I = np.pad(imgs,pads, mode=mode)
-
-            return torch.tensor(I), inds, subs
+            I = torch.nn.functional.pad(imgs, pads, mode=mode)
+            
+            return I, inds, subs
 
     
     def collate_fn(self,worker_data):
@@ -185,7 +228,7 @@ class eval_set(torch.utils.data.Dataset):
 
 ### training dataset
 
-class dataset(torch.utils.data.Dataset):
+class train_set(torch.utils.data.Dataset):
 # class dataset(torch.utils.data.IterableDataset):
 
 # class dataset(torch.utils.data.TensorDataset):

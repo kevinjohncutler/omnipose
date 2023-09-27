@@ -1,1 +1,1 @@
-from . import core, utils, loss, plot, misc, cli, data
+from . import core, utils, loss, plot, misc, cli, data, gpu

@@ -822,7 +822,6 @@ def pad_image_ND(img0, div=16, extra=1, dim=2):
         xrange of pixels in I corresponding to img0
 
     """
-
     inds = [k for k in range(-dim,0)]
     Lpad = [int(div * np.ceil(img0.shape[i]/div) - img0.shape[i]) for i in inds]
     pad1 = [extra*div//2 + Lpad[k]//2 for k in range(dim)]
