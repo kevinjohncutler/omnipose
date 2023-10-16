@@ -168,7 +168,7 @@ def safe_divide(num,den,cutoff=0):
                      where=np.logical_and(den>cutoff,~np.isnan(den)))        
 
 
-def normalize99(Y, lower=0.01, upper=99.99):
+def normalize99(Y, lower=0.01, upper=99.99, dim=None):
     """ normalize array/tensor so 0.0 is 0.01st percentile and 1.0 is 99.99th percentile 
     Upper and lower percentile ranges configurable. 
     
@@ -196,13 +196,28 @@ def normalize99(Y, lower=0.01, upper=99.99):
         quantiles = torch.tensor(quantiles, dtype=Y.dtype, device=Y.device)
     else:
         raise ValueError("Input should be either a numpy array or a torch tensor.")
+    if dim is not None:
+        # Reshape Y into a 2D tensor for quantile computation
+        Y_reshaped = Y.transpose(0, dim).reshape(Y.shape[dim], -1)
+        lower_val, upper_val = module.quantile(Y_reshaped, quantiles, dim=-1)
         
-    lower_val, upper_val = module.quantile(Y, quantiles)
-    Y = module.clip(Y, lower_val, upper_val)
-    Y -= lower_val
-    Y /= (upper_val - lower_val)
+        # Reshape back into original shape for broadcasting
+        if dim == 0:
+            lower_val = lower_val.reshape(Y.shape[dim], *([1] * (len(Y.shape) - 1)))
+            upper_val = upper_val.reshape(Y.shape[dim], *([1] * (len(Y.shape) - 1)))
+        else:
+            lower_val = lower_val.reshape(*Y.shape[:dim], *([1] * (len(Y.shape) - dim - 1)))
+            upper_val = upper_val.reshape(*Y.shape[:dim], *([1] * (len(Y.shape) - dim - 1)))
+    else:
+        lower_val, upper_val = module.quantile(Y, quantiles)
+        
+    # Y = module.clip(Y, lower_val, upper_val) # is this needed? 
+    # Y -= lower_val
+    # Y /= (upper_val - lower_val)
     
-    return Y
+    # return Y
+    # return (Y-lower_val)/(upper_val-lower_val)
+    return module.clip((Y-lower_val)/(upper_val-lower_val),0,1)
 
 
 def normalize_image(im,mask,bg=0.5,dim=2,iterations=1,scale=1):
@@ -362,7 +377,10 @@ def bbox_to_slice(bbox,shape,pad=0,im_pad=0):
         im_pad = [im_pad]*dim
     # return tuple([slice(int(max(0,bbox[n]-pad[n])),int(min(bbox[n+dim]+pad[n],shape[n]))) for n in range(len(bbox)//2)])
     # added a +1 to stop, might be a necessary fix but not sure yet 
-    return tuple([slice(int(max(im_pad[n],bbox[n]-pad[n])),int(min(bbox[n+dim]+pad[n]+1,shape[n]-im_pad[n]))) 
+    print('im_pad',im_pad, bbox, pad, shape)
+    one = 0
+    return tuple([slice(int(max(im_pad[n],bbox[n]-pad[n])),
+                        int(min(bbox[n+dim]+pad[n]+one,shape[n]-im_pad[n]))) 
                   for n in range(len(bbox)//2)])
     
 
@@ -387,7 +405,7 @@ def crop_bbox(mask, pad=10, iterations=3, im_pad=0, area_cutoff=0,
     slices: list of bounding box slices with padding 
     
     """
-    bw = binary_dilation(mask>0,iterations=iterations)
+    bw = binary_dilation(mask>0,iterations=iterations) if iterations> 0 else mask>0
     clusters = measure.label(bw)
     regions = measure.regionprops(clusters)
     sz = mask.shape
@@ -400,6 +418,8 @@ def crop_bbox(mask, pad=10, iterations=3, im_pad=0, area_cutoff=0,
         w = np.argmax([props.area for props in regions])
         bbx = regions[w].bbox 
         minpad = min(pad,bbx[0],bbx[1],sz[0]-bbx[2],sz[1]-bbx[3])
+        # print(pad,bbx[0],bbx[1],sz[0]-bbx[2],sz[1]-bbx[3])
+        # print(minpad,sz,bbx)
         slices.append(bbox_to_slice(bbx,sz,pad=minpad,im_pad=im_pad))
         
     else:
@@ -407,8 +427,10 @@ def crop_bbox(mask, pad=10, iterations=3, im_pad=0, area_cutoff=0,
             if props.area>area_cutoff:
                 bbx = props.bbox 
                 minpad = min(pad,bbx[0],bbx[1],sz[0]-bbx[2],sz[1]-bbx[3])
+                print(minpad,'m',im_pad)
                 slices.append(bbox_to_slice(bbx,sz,pad=minpad,im_pad=im_pad))
     
+    # merge into a single slice 
     if binary:
         start_xy = np.min([[slc[i].start for i in range(d)] for slc in slices],axis=0)
         stop_xy = np.max([[slc[i].stop for i in range(d)] for slc in slices],axis=0)
@@ -524,8 +546,9 @@ def border_indices(tyx):
     return np.concatenate(indices)
 
 
-# @njit this version actually a lot slower than below 
-# def get_neighbors(coords, steps, dim, shape, edges=None):
+# @njit 
+# def get_neighbors(coords, steps, dim, shape, edges=None, pad=0):
+#     print('this version actually a lot slower than below ')
 #     if edges is None:
 #         edges = [np.array([-1,s]) for s in shape]
         
@@ -565,14 +588,15 @@ def border_indices(tyx):
 #             neighbors[d,i] = np.where(mask, coords[d], X)
 #     return neighbors
 
+
 # slightly faster than the jit code!
-def get_neighbors(coords, steps, dim, shape, edges=None):
+def get_neighbors(coords, steps, dim, shape, edges=None, pad=0):
     """
     Get the coordinates of all neighbor pixels. 
     Coordinates of pixels that are out-of-bounds get clipped. 
     """
     if edges is None:
-        edges = [np.array([-1,s]) for s in shape]
+        edges = [np.array([-1+pad,s-pad]) for s in shape]
         
     npix = coords[0].shape[-1]
     neighbors = np.empty((dim, len(steps), npix), dtype=np.int64)
@@ -580,13 +604,41 @@ def get_neighbors(coords, steps, dim, shape, edges=None):
     for d in range(dim):        
         S = steps[:,d].reshape(-1, 1)
         X = coords[d] + S
-        mask = np.logical_and(np.isin(X, edges[d]), ~np.isin(X+S, edges[d]))
-        C = np.broadcast_to(coords[d], X.shape)
-        neighbors[d] = np.where(mask, C, X)
-    
-    return neighbors
+        # mask = np.logical_and(np.isin(X, edges[d]), ~np.isin(X+S, edges[d]))
 
-# this version works without padding, should ultimately replace the other one 
+        # out of bounds is where the shifted coordinate X is in the edges list
+        # that second criterion might have been for my batched stuff 
+        # oob = np.logical_and(np.isin(X, edges[d]), ~np.isin(X+S, edges[d]))
+        oob = np.isin(X, edges[d])
+        # print('checkme f', pad,np.sum(oob))
+
+        C = np.broadcast_to(coords[d], X.shape)
+        neighbors[d] = np.where(oob, C, X)
+        # neighbors[d] = X
+
+    return neighbors
+    
+def get_neighbors_torch(input, steps):
+    """This version not yet used/tested."""
+    # Get dimensions
+    B, D, *DIMS = input.shape
+    nsteps = steps.shape[0]
+
+    # Compute coordinates
+    coordinates = torch.stack(torch.meshgrid([torch.arange(dim) for dim in DIMS]), dim=0)
+    coordinates = coordinates.unsqueeze(0).expand(B, *[-1]*(D+1))  # Add batch dimension and repeat for batch
+
+    # Compute shifted coordinates
+    steps = steps.unsqueeze(-1).unsqueeze(-1).expand(nsteps, D, *DIMS).to(input.device)
+    shifted_coordinates = (coordinates.unsqueeze(1) + steps.unsqueeze(0))
+
+    # Clamp shifted_coordinates in-place
+    for d in range(D):
+        shifted_coordinates[:, :, d].clamp_(min=0, max=DIMS[d]-1)
+
+    return shifted_coordinates
+
+# this version works without padding, should ultimately replace the other one in core
 # @njit
 def get_neigh_inds(neighbors,coords,shape,background_reflect=False):
     """
@@ -613,6 +665,8 @@ def get_neigh_inds(neighbors,coords,shape,background_reflect=False):
     ind_matrix: ND array
         indexes inserted into the ND image volume
     """
+    neighbors = tuple(neighbors) # just in case I pass it as ndarray
+
     npix = neighbors[0].shape[-1]
     indexes = np.arange(npix)
     ind_matrix = -np.ones(shape,int)
@@ -675,7 +729,7 @@ def subsample_affinity(augmented_affinity,slc,mask):
     in_bounds = np.all(np.vstack([[c<s.stop, c>=s.start] for c,s in zip(coords,slc)]),axis=0)
     in_mask = mask[tuple(coords)]>0
     
-    in_mask_and_bounds =np.logical_and(in_bounds,in_mask)
+    in_mask_and_bounds = np.logical_and(in_bounds,in_mask)
 
     inds_crop = np.nonzero(in_mask_and_bounds)[0]
 
@@ -693,7 +747,10 @@ def subsample_affinity(augmented_affinity,slc,mask):
             crop_coords = coords[d,inds_crop] - slc[d].start
             S = steps[:,d].reshape(-1, 1)
             X = crop_coords + S # cropped coordinates 
-            edgemask = np.logical_and(np.isin(X, edges[d]), ~np.isin(X+S, edges[d]))
+            # edgemask = np.logical_and(np.isin(X, edges[d]), ~np.isin(X+S, edges[d]))
+            edgemask = np.isin(X, edges[d])
+            # print('checkthisttoo')
+
             C = np.broadcast_to(crop_coords, X.shape)
             crop_neighbors[d] = np.where(edgemask, C, X)
 
@@ -701,7 +758,7 @@ def subsample_affinity(augmented_affinity,slc,mask):
         return np.vstack((crop_neighbors,affinity_crop[np.newaxis]))
     else:
         e = np.empty((dim+1,nstep,0),dtype=augmented_affinity.dtype)
-        return e
+        return e, []
 
 @functools.lru_cache(maxsize=None) 
 def get_steps(dim):

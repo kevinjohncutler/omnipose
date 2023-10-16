@@ -22,7 +22,7 @@ from .io import OMNI_INSTALLED
 from omnipose.gpu import empty_cache, ARM #, custom_nonzero_cuda
 from omnipose.utils import hysteresis_threshold
 
-from torchvf.numerics import interp_vf, ivp_solver, init_values_semantic
+from torchvf.numerics import interp_vf, ivp_solver
 
 # from torchvf.utils import cluster
 
@@ -152,7 +152,7 @@ class Cellpose():
     def eval(self, x, batch_size=8, channels=None, channel_axis=None, z_axis=None,
              invert=False, normalize=True, diameter=30., do_3D=False, anisotropy=None,
              net_avg=True, augment=False, tile=True, tile_overlap=0.1, resample=True, 
-             interp=True, cluster=False, boundary_seg=False, affinity_seg=False, 
+             interp=True, cluster=False, boundary_seg=False, affinity_seg=False, despur=True,
              flow_threshold=0.4, mask_threshold=0.0, 
              cellprob_threshold=None, dist_threshold=None, diam_threshold=12., min_size=15, max_size=None,
              stitch_threshold=0.0, rescale=None, progress=None, omni=False, verbose=False,
@@ -337,6 +337,7 @@ class Cellpose():
                                             diam_threshold=diam_threshold,
                                             boundary_seg=boundary_seg, 
                                             affinity_seg=affinity_seg, 
+                                            despur=despur,
                                             min_size=min_size, 
                                             max_size=max_size,
                                             stitch_threshold=stitch_threshold,
@@ -419,7 +420,7 @@ class CellposeModel(UnetModel):
         pretrained_model_string = None
         if model_type is not None or (pretrained_model and not os.path.exists(pretrained_model[0])):
             pretrained_model_string = model_type 
-            if ~np.any([pretrained_model_string == s for s in MODEL_NAMES]): #also covers None case
+            if not np.any([pretrained_model_string == s for s in MODEL_NAMES]): #also covers None case
                 pretrained_model_string = 'cyto'
             if (pretrained_model and not os.path.exists(pretrained_model[0])):
                 models_logger.warning('pretrained model has incorrect path')
@@ -531,15 +532,17 @@ class CellposeModel(UnetModel):
     # to get eval to efficiently run on an entire image set, we could pass a torch dataset
     # this dataset could either parse out images loaded from memory or from storage 
     def eval(self, x, batch_size=8, indices=None, channels=None, channel_axis=None, 
-             z_axis=None, normalize=True, invert=False, show_progress=True,
+             z_axis=None, normalize=True, invert=False, 
              rescale=None, diameter=None, do_3D=False, anisotropy=None, net_avg=True, 
              augment=False, tile=True, tile_overlap=0.1, bsize=224, num_workers=8,
-             resample=True, interp=True, cluster=False, suppress=True, 
-             boundary_seg=False, affinity_seg=False,
+             resample=True, interp=True, cluster=False, suppress=None, 
+             boundary_seg=False, affinity_seg=False, despur=True,
              flow_threshold=0.4, mask_threshold=0.0, diam_threshold=12., niter=None,
              cellprob_threshold=None, dist_threshold=None, flow_factor=5.0,
-             compute_masks=True, min_size=15, max_size=None, stitch_threshold=0.0, progress=None, omni=False, 
-             calc_trace=False, verbose=False, transparency=False, loop_run=False, model_loaded=False):
+             compute_masks=True, min_size=15, max_size=None, stitch_threshold=0.0, 
+             progress=None, show_progress=True, 
+             omni=False, calc_trace=False, verbose=False, transparency=False, 
+             loop_run=False, model_loaded=False):
         """
             segment list of images x, or 4D array - Z x nchan x Y x X
 
@@ -674,19 +677,22 @@ class CellposeModel(UnetModel):
                 models_logger.info(f'using omni model, cluster {cluster}')
         
         # images are given has a list, especially when heterogeneous in shape
-        slice_ndim = self.dim+(self.nchan>1)
+        is_grey = np.sum(channels)==0
+        slice_ndim = self.dim+(self.nchan>1 and not is_grey)+(channel_axis is not None)
         # the logic here needs to be updated to account for the fact that images may not alreay match the expected dims
         # and channels, namely mono channel might have a 2-channel model. I should just check for if the number of channels could
         # possibly match, and warn that intenral conversion will happen or may break...
         is_list = isinstance(x, list)
         is_stack = is_image = False
-
+        
         if isinstance(x, np.ndarray):
+            # [0,0] is a special instance where we want to run the model on a single channel
             dim_diff = x.ndim-slice_ndim
-            # print(x.shape,x.ndim, slice_ndim, self.nchan, channels,'a')
-            opt = [0,1]
+            opt = np.array([0,1])#-is_grey
             is_image, is_stack = [dim_diff==i for i in opt]
-            correct_shape = dim_diff in opt
+            correct_shape = dim_diff in opt          
+            
+            # print('yoyo debug',x.shape,channel_axis,is_image, is_stack,channels, dim_diff, opt)  
 
             
         # allow for a dataset to be passed so that we can do batches 
@@ -695,7 +701,7 @@ class CellposeModel(UnetModel):
         if is_dataset:
             correct_shape =  True # assume the dataset has the right shape
 
-        if not (is_list or is_stack or is_dataset or is_image):
+        if not (is_list or is_stack or is_dataset or is_image or loop_run):
             models_logger.warning('input images must be a list of images, array of images, or dataloader')
         else:
             if is_list:
@@ -726,14 +732,15 @@ class CellposeModel(UnetModel):
                      }
 
             loader = torch.utils.data.DataLoader(x, **params)
-            dist, dP, bd, masks, bounds, p, tr, affinity = [], [], [], [], [], [], [], []
+            dist, dP, bd, masks, bounds, p, tr, affinity, flow_RGB = [], [], [], [], [], [], [], [], []
 
             # I think the loader can at least do all the preprocessing work it will take to figure out
             # padding and stitching and slicing 
-            progress_bar = tqdm(total=len(indices),disable=~show_progress) 
+            progress_bar = tqdm(total=len(indices),disable=not show_progress) 
             for batch,inds,subs in loader:                
                 shape = batch.shape
                 nimg = batch.shape[0]
+                nchan = batch.shape[1]
                 shape = batch.shape[-(self.dim+1):] # nclasses, Y, X
                 resize = shape[-self.dim:] if not resample else None 
 
@@ -744,11 +751,21 @@ class CellposeModel(UnetModel):
                     slc[-k] = slice(subs[-k][0], subs[-k][-1]+1)
                 slc = tuple(slc)
 
-
+                # catch cases where the images are 1-channel
+                # but the model is 2 channel
+                if self.nchan-nchan:
+                    print('padding with extra chan')
+                    batch = torch.cat([batch,torch.zeros_like(batch)],dim=1)#.permute(0,2,3,1)
+                    # batch = torch.cat([batch,batch],dim=1)
+                    # batch = torch.cat([torch.zeros_like(batch),batch],dim=1)
+   
                 # run the network on the batch 
                 # yf, style = self.network(batch)
+                
                 with torch.no_grad():
+                    self.net.eval() # was missing this - some layers behave differently without it 
                     yf = self.net(batch)[0]
+                    del batch
                     # print('need to add normalization / invert /rescale options in dataloader')
                 
                 # slice out padding
@@ -761,7 +778,7 @@ class CellposeModel(UnetModel):
                 if self.nclasses>=self.dim+2:
                     bd_pred = yf[:,self.dim+1]
                 else:
-                    bd_pred = [None]*nimg
+                    bd_pred = torch.empty(nimg)
                 
                 # I made a vastly faster implementation using pytorch
                 rgb = omnipose.plot.rgb_flow(flow_pred,transparency=transparency) 
@@ -774,14 +791,14 @@ class CellposeModel(UnetModel):
                 # I might just replace the main branch code with this
                 hysteresis = 0
                 if hysteresis:
-                    foreground = hysteresis_threshold(dist_pred.unsqueeze(1),mask_threshold-1, mask_threshold)
+                    foreground = hysteresis_threshold(dist_pred.unsqueeze(1),mask_threshold-1, mask_threshold).squeeze(dim=0)
                 else:
-                    foreground = dist_pred.unsqueeze(1) >= mask_threshold
+                    foreground = dist_pred >= mask_threshold
                     # print('add flag')
 
 
                 # vf = interp_vf(flow_pred/5., mode = "nearest_batched")
-                # init_values = init_values_semantic(foreground, device=self.device)
+                # initial_points = init_values_semantic(foreground, device=self.device)
                 
                 shape = flow_pred.shape
                 B = shape[0]
@@ -790,16 +807,16 @@ class CellposeModel(UnetModel):
                 coords = [torch.arange(0, l, device = self.device) for l in dims]
                 mesh = torch.meshgrid(coords, indexing = "ij")
                 init_shape = [B, 1] + ([1] * len(dims))
-                init_values = torch.stack(mesh, dim = 0) # torchvf flips with mesh[::-1]
-                init_values = init_values.repeat(init_shape).float()
+                initial_points = torch.stack(mesh, dim = 0) # torchvf flips with mesh[::-1]
+                initial_points = initial_points.repeat(init_shape).float()
 
                 # print(dims,'DIMS',torch.stack(mesh).shape)
 
-                # print('gggttt',shape,B,dims,init_values.device,mesh[0].device)
+                # print('gggttt',shape,B,dims,initial_points.device,mesh[0].device)
                 # print('mesh',mesh.shape)
-                # print('hnhnhhnh',init_values.shape,init_shape,flow_pred.shape)
-                # print(init_values)
-                # final_points = ivp_solver(vf,init_values, 
+                # print('hnhnhhnh',initial_points.shape,init_shape,flow_pred.shape)
+                # print(initial_points)
+                # final_points = ivp_solver(vf,initial_points, 
                 #                         dx = 1,
                 #                         n_steps = 8,
                 #                         solver = "euler")[-1] 
@@ -807,7 +824,7 @@ class CellposeModel(UnetModel):
                 # print('fff111',final_points.shape)
 
                 # these are equivalent 
-                coords = torch.nonzero(foreground.squeeze(),as_tuple=True)
+                coords = torch.nonzero(foreground,as_tuple=True)
                 # coords = custom_nonzero_cuda(foreground.squeeze())
                 # coords = torch.where(foreground.squeeze())
 
@@ -850,49 +867,68 @@ class CellposeModel(UnetModel):
 
 
                 cell_px = (Ellipsis,)+coords[-self.dim:]
-
                 if niter is None:
                     # niter = omnipose.core.get_niter(dist_pred).cpu()
                     # int(diameters(foreground,dist_pred)/(1+affinity_seg))
                     niter = int(2*(self.dim+1)*torch.mean(dist_pred[(Ellipsis,)+coords]) / (1+affinity_seg))
+                    if verbose:
+                        models_logger.info('niter set to %d'%niter)
 
+                final_points = initial_points.clone()
+                final_p, traced_p = omnipose.core.steps_interp_batch(initial_points[cell_px],
+                                                        flow_pred/5., #<<<<<<<<<<< add support for other options here 
+                                                        niter=niter,
+                                                        omni=omni,
+                                                        suppress=suppress,
+                                                        verbose=verbose, calc_trace=calc_trace)
+                
+                final_points[cell_px] = final_p.squeeze()
 
-                final_points = init_values
-                final_points[cell_px] = omnipose.core.steps_interp_batch(init_values[cell_px],
+                steps, inds, idx, fact, sign = omnipose.utils.kernel_setup(self.dim)
+                affinity_graph = omnipose.core._get_affinity_torch(initial_points, 
+                                                                    final_points, 
                                                                     flow_pred/5., #<<<<<<<<<<< add support for other options here 
-                                                                    niter=niter,
-                                                                    omni=omni,
-                                                                    suppress=suppress,
-                                                                    verbose=verbose)[0].squeeze()
-
+                                                                    dist_pred, 
+                                                                    foreground, 
+                                                                    steps,
+                                                                    fact,
+                                                                    niter,
+                                                                    )
 
                 # cast to CPU
                 final_points = self._from_device(final_points)
-
+                traced_p = self._from_device(traced_p) if traced_p is not None else [None]*B
                 foreground = self._from_device(foreground)
                 dist_pred = self._from_device(dist_pred)
                 flow_pred = self._from_device(flow_pred)
+                bd_pred = self._from_device(bd_pred)
                 rgb = self._from_device(rgb)
+                affinity_graph = self._from_device(affinity_graph).swapaxes(0,1)
                 del yf 
-
 
                 # add to output lists 
                 dP.extend(flow_pred)
                 dist.extend(dist_pred)
                 bd.extend(bd_pred)
+                flow_RGB.extend(rgb)
                 
                 # can loop through batch and run compute_masks
-                for iscell, disti, dPi, bdi, pts in zip(foreground, dist_pred, flow_pred, bd_pred, final_points):
+                for iscell, disti, dPi, bdi, agi, pts, trp in zip(foreground, dist_pred, flow_pred, bd_pred, affinity_graph, final_points, traced_p):
                     # print('a1a1a133',pts.shape) # need to pad this array or remove padding from calculation
                     # print('points_ff', pts.min(), pts.max())
                     # one way to avoid padding is to completely 
                     parallel = 1
+                    coords = np.nonzero(iscell)
+                    # print('agi 33',agi.shape, affinity_graph.shape, np.sum(iscell), np.stack(coords).shape)
+                    # agi = None
                     # print('PARALLEL', parallel)
-
                     #NOW THAT THE trajectories are "WORKING", I need to add the parallel affinity here 
-                    outputs = omnipose.core.compute_masks(dPi, disti, bdi, 
+                    outputs = omnipose.core.compute_masks(dPi, disti, 
+                                                            affinity_graph=agi[(Ellipsis,)+coords] if agi is not None else agi,
+                                                            bd = bdi, 
                                                             p=pts.squeeze() if parallel else None,
-                                                            iscell=iscell.squeeze() if parallel else None,
+                                                            coords = np.stack(coords),
+                                                            iscell=iscell if parallel else None,
                                                             niter=niter, 
                                                             rescale=rescale, 
                                                             resize=resize,
@@ -906,6 +942,7 @@ class CellposeModel(UnetModel):
                                                             cluster=cluster, 
                                                             boundary_seg=boundary_seg,
                                                             affinity_seg=affinity_seg,
+                                                            despur=despur,
                                                             calc_trace=calc_trace, 
                                                             verbose=verbose,
                                                             use_gpu=self.gpu, 
@@ -915,11 +952,12 @@ class CellposeModel(UnetModel):
 
                     masks.append(outputs[0])
                     p.append(outputs[1])
-                    tr.append(outputs[2])
+                    # tr.append(outputs[2])
+                    tr.append(trp)
                     bounds.append(outputs[3])
                     affinity.append(outputs[4])
-
-                    progress_bar.update(len(inds))
+                    
+                    progress_bar.update()
                     empty_cache()
 
             progress_bar.close()
@@ -928,8 +966,7 @@ class CellposeModel(UnetModel):
             bounds = np.array(bounds)
             p = np.array(p)
             tr = np.array(tr)
-            
-            ret = [masks, dP, dist, p, bd, tr, affinity, bounds]
+            ret = [masks, dP, dist, p, bd, tr, affinity, bounds, flow_RGB]
 
             for r in ret:
                 r.squeeze() if isinstance(r,np.ndarray) else r 
@@ -943,11 +980,9 @@ class CellposeModel(UnetModel):
             # (6) pixel trajectories during Euler integation (trace=True)
             # (7) nstep_by_npix affinity graph
             # (8) binary boundary map
-            
             # 5-8 were added in Omnipose, hence the unusual placement in the list. 
             # flows = [[o for o in out] for out in zip(rgb, dP, cellprob, p, bd, tr, affinity, bounds)]
-            flows = [list(item) for item in zip(rgb, dP, dist, p, bd, tr, affinity, bounds)] # not sure which is faster of these yet
-
+            flows = [list(item) for item in zip(flow_RGB, dP, dist, p, bd, tr, affinity, bounds)] # not sure which is faster of these yet
             return masks, flows, [] 
         
             
@@ -956,7 +991,10 @@ class CellposeModel(UnetModel):
 
             tqdm_out = utils.TqdmToLogger(models_logger, level=logging.INFO)
             nimg = len(x)
-            iterator = trange(nimg, file=tqdm_out,disable=~show_progress) if nimg>1 else range(nimg)
+            iterator = trange(nimg, file=tqdm_out,disable=not show_progress) if nimg>1 else range(nimg)
+            # note: ~ is bitwise flip, overloaded to act as elementwise not for numpy arrays
+            # but for boolean variables, must use "not" operator isstead 
+            
             for i in iterator:
                 dia = diameter[i] if isinstance(diameter, list) or isinstance(diameter, np.ndarray) else diameter
                 rsc = rescale[i] if isinstance(rescale, list) or isinstance(rescale, np.ndarray) else rescale
@@ -987,6 +1025,7 @@ class CellposeModel(UnetModel):
                                                  suppress=suppress,
                                                  boundary_seg=boundary_seg,
                                                  affinity_seg=affinity_seg,
+                                                 despur=despur,
                                                  mask_threshold=mask_threshold, 
                                                  diam_threshold=diam_threshold,
                                                  flow_threshold=flow_threshold, 
@@ -997,6 +1036,7 @@ class CellposeModel(UnetModel):
                                                  max_size=max_size,
                                                  stitch_threshold=stitch_threshold, 
                                                  progress=progress,
+                                                 show_progress=show_progress,
                                                  omni=omni,
                                                  calc_trace=calc_trace, 
                                                  verbose=verbose,
@@ -1026,6 +1066,7 @@ class CellposeModel(UnetModel):
 
             if verbose: models_logger.info('shape before transforms.convert_image(): {}'.format(x.shape))
 
+            # This takes care of the special case of grasycale, padding with zeros if the model was trained like that
             x = transforms.convert_image(x, channels, channel_axis=channel_axis, z_axis=z_axis,
                                          do_3D=(do_3D or stitch_threshold>0), normalize=False, 
                                          invert=False, nchan=self.nchan, dim=self.dim, omni=omni)
@@ -1062,6 +1103,7 @@ class CellposeModel(UnetModel):
                                                                                       suppress=suppress,
                                                                                       boundary_seg=boundary_seg,  
                                                                                       affinity_seg=affinity_seg,
+                                                                                      despur=despur,
                                                                                       min_size=min_size, 
                                                                                       max_size=max_size,
                                                                                       do_3D=do_3D, 
@@ -1078,7 +1120,7 @@ class CellposeModel(UnetModel):
             # (4) pixel coordinates after Euler integration
             # (5) boundary output (nclasses=4)
             # (6) pixel trajectories during Euler integation (trace=True)
-            # (7) nstep_by_npix affinity graph
+            # (7) augmented affinity graph (coords+affinity) of shape (dim,nstep,npix)
             # (8) binary boundary map
             
             # 5-8 were added in Omnipose, hence the unusual placement in the list. 
@@ -1094,7 +1136,7 @@ class CellposeModel(UnetModel):
                 augment=False, tile=True, tile_overlap=0.1, bsize=224,
                 mask_threshold=0.0, diam_threshold=12., flow_threshold=0.4, niter=None, flow_factor=5.0, 
                 min_size=15, max_size=None,
-                interp=True, cluster=False, suppress=True, boundary_seg=False, affinity_seg=False,
+                interp=True, cluster=False, suppress=None, boundary_seg=False, affinity_seg=False, despur=True,
                 anisotropy=1.0, do_3D=False, stitch_threshold=0.0,
                 omni=False, calc_trace=False, verbose=False, pad=0):
         # by this point, the image(s) will already have been formatted with channels, batch, etc 
@@ -1112,7 +1154,6 @@ class CellposeModel(UnetModel):
             img = np.asarray(x)
             if normalize or invert: # possibly make normalize a vector of upper-lower values  
                 img = transforms.normalize_img(img, invert=invert, omni=omni)
-            
             # have not tested padding in do_3d yet 
             # img = np.pad(img,pad_seq,'reflect')
             
@@ -1133,7 +1174,7 @@ class CellposeModel(UnetModel):
             del yf
         else:
             tqdm_out = utils.TqdmToLogger(models_logger, level=logging.INFO,)
-            iterator = trange(nimg, file=tqdm_out, disable=~show_progress) if nimg>1 else range(nimg)
+            iterator = trange(nimg, file=tqdm_out, disable=not show_progress) if nimg>1 else range(nimg)
             styles = np.zeros((nimg, self.nbase[-1]), np.float32)
             
             #indexing a little weird here due to channels being last now 
@@ -1148,10 +1189,12 @@ class CellposeModel(UnetModel):
             
             for i in iterator:
                 img = np.asarray(x[i])
+                # at this point, img should be (*DIMS,C)
 
                 if normalize or invert:
                     img = transforms.normalize_img(img, invert=invert, omni=omni)
-                
+                   # at this point, img should still be (*DIMS,C) 
+                   
                 # pad the image to get cleaner output at the edges
                 # padding with edge values seems to work the best
                 # but actually, not really useful in the end...
@@ -1219,7 +1262,8 @@ class CellposeModel(UnetModel):
             if do_3D:
                 if not (omni and OMNI_INSTALLED):
                     # run cellpose compute_masks                   
-                    masks, bounds, p, tr = dynamics.compute_masks(dP, cellprob, bd, 
+                    masks, bounds, p, tr = dynamics.compute_masks(dP, cellprob, 
+                                                                  bd=bd, 
                                                                   niter=niter, 
                                                                   resize=None, 
                                                                   mask_threshold=mask_threshold,
@@ -1236,8 +1280,9 @@ class CellposeModel(UnetModel):
                     affinity = []
                 else:
                     # run omnipose compute_masks
-                    masks, bounds, p, tr, affinity = omnipose.core.compute_masks(dP, cellprob, bd,
-                                                                                do_3D=do_3D,
+                    masks, bounds, p, tr, affinity = omnipose.core.compute_masks(dP, cellprob, 
+                                                                                 bd=bd,
+                                                                                 do_3D=do_3D,
                                                                                 niter=niter,
                                                                                 resize=None,
                                                                                 min_size=min_size, 
@@ -1251,6 +1296,7 @@ class CellposeModel(UnetModel):
                                                                                 suppress=suppress,
                                                                                 boundary_seg=boundary_seg,
                                                                                 affinity_seg=affinity_seg,
+                                                                                despur=despur,
                                                                                 calc_trace=calc_trace, 
                                                                                 verbose=verbose,
                                                                                 use_gpu=self.gpu, 
@@ -1287,7 +1333,8 @@ class CellposeModel(UnetModel):
                             # dP[:,i] /= rescale this does nothign here since I normalize the flow anyway, have to pass in 
                         
                         bdi = bd[i] if bd is not None else None
-                        outputs = omnipose.core.compute_masks(dP[:,i], cellprob[i], bdi, 
+                        outputs = omnipose.core.compute_masks(dP[:,i], cellprob[i], 
+                                                              bd=bdi, 
                                                               niter=niter, 
                                                               rescale=rescale, 
                                                               resize=resize,
@@ -1299,8 +1346,10 @@ class CellposeModel(UnetModel):
                                                               flow_factor=flow_factor,             
                                                               interp=interp, 
                                                               cluster=cluster, 
+                                                              suppress=suppress,
                                                               boundary_seg=boundary_seg,
                                                               affinity_seg=affinity_seg,
+                                                              despur=despur,
                                                               calc_trace=calc_trace, 
                                                               verbose=verbose,
                                                               use_gpu=self.gpu, 

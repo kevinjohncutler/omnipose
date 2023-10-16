@@ -2760,7 +2760,7 @@ class MainW(QMainWindow):
         #     rerun = True
         #     self.threshold = self.threshslider.value()
 
-        print('bbbbbb', self.recompute_masks,self.cellprob, self.threshold)
+        # print('bbbbbb', self.recompute_masks,self.cellprob, self.threshold)
         if not self.recompute_masks:
             return
         
@@ -2881,6 +2881,8 @@ class MainW(QMainWindow):
             channels = self.get_channels()
             self.diameter = float(self.Diameter.text())
             
+            # print('heredebug',self.stack.shape,data.shape, channels)
+            
             ### will either have to put in edge cases for worm etc or just generalize model loading to respect what is there 
             try:
                 omni_model = 'omni' in self.current_model
@@ -2937,7 +2939,9 @@ class MainW(QMainWindow):
                                                omni=omni, 
                                                affinity_seg=self.affinity.isChecked(),
                                                cluster = self.cluster.isChecked(),
-                                               transparency=True)[:2]
+                                               transparency=True,
+                                               channel_axis=-1
+                                               )[:2]
                 
             except Exception as e:
                 print('GUI.py: NET ERROR: %s'%e)

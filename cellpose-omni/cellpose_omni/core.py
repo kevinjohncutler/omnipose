@@ -512,6 +512,7 @@ class UnetModel():
         else:
 
             imgs = np.expand_dims(imgs, axis=0)
+            # at this point imgs is (B,C,*dims)
             y, style = self.network(imgs, return_conv=return_conv)
             y, style = y[0], style[0]
         style /= (style**2).sum()**0.5
@@ -821,7 +822,7 @@ class UnetModel():
                     y = self.net(X)[0]
                     del X
                     loss = self.loss_fn(lbl,y)
-                    del lbl
+                    del lbl, y 
                 self.scaler.scale(loss).backward()
                 train_loss = loss.detach()
                 self.scaler.step(self.optimizer) 
@@ -831,12 +832,11 @@ class UnetModel():
                 y = self.net(X)[0]
                 del X
                 loss = self.loss_fn(lbl,y)
-                del lbl
+                del lbl, y
                 loss.backward()
                 train_loss = loss.detach() # added detach, probably redundant but trying to fix memory leak 
                 self.optimizer.step()
                 train_loss *= len(x)
-                # print('aa',train_loss)
         else:
             with mx.autograd.record():
                 y = self.net(X)[0]

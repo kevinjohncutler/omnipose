@@ -38,14 +38,14 @@ class sampler(torch.utils.data.Sampler):
 # incidentally, this also provides a platform for doing image augmentations (combine output from rotated images etc.)
 
 class eval_set(torch.utils.data.Dataset):
-    def __init__(self, data, dim, channel_axis=0,device=torch.device('cpu')):
+    def __init__(self, data, dim, channel_axis=0,device=torch.device('cpu'),normalize_stack=True):
         self.data = data
         self.dim = dim
         self.channel_axis = channel_axis
         self.stack = isinstance(self.data, np.ndarray)
         self.files = isinstance(self.data[0],str)
         self.device=device
-        
+        self.normalize_stack=normalize_stack
     def __iter__(self):
         worker_info = mp.get_worker_info()
 
@@ -116,19 +116,25 @@ class eval_set(torch.utils.data.Dataset):
         else:   
             imgs = torch.stack([(imageio.imread(self.data[index]) if self.files else self.data[index]) for index in inds]).astype(float)
             
+ 
         imgs = torch.tensor(imgs, device=self.device)
-        imgs = normalize99(imgs) # much faster on GPU now 
+
+        # imgs = torch.stack([normalize99(i) for i in imgs]) looks like my normalize99 function is fine...
         
         if imgs.ndim == 1+self.dim:
             imgs = imgs.unsqueeze(1)
+            # imgs = torch.cat([imgs,torch.zeros_like(imgs)],dim=1)
+            # print('k,jj')
         elif not channel_axis:
             imgs = imgs.permute([0, channel_axis] + list(range(1, channel_axis)) + list(range(channel_axis+1, imgs.ndim)))
-                
+        
+        imgs = normalize99(imgs,dim=None if self.normalize_stack else 0) # much faster on GPU now
+
         if no_pad:
             return imgs.squeeze()
         else:
             shape = imgs.shape[-self.dim:]
-            div = 16
+            div = 16 
             extra = 1
             idxs = [k for k in range(-self.dim,0)]
             Lpad = [int(div * np.ceil(shape[i]/div) - shape[i]) for i in idxs]
@@ -145,7 +151,10 @@ class eval_set(torch.utils.data.Dataset):
             subs = [np.arange(lower_pad[k],lower_pad[k]+shape[k]) for k in range(self.dim)]
 
             mode = 'reflect'
-            I = torch.nn.functional.pad(imgs, pads, mode=mode)
+            # mode = 'constant'
+            # # value = torch.mean(imgs) if mode=='constant' else 0  
+            # value = 0 # turns out performance on sparse cells much better if padding is zero 
+            I = torch.nn.functional.pad(imgs, pads, mode=mode,value=None)
             
             return I, inds, subs
 
@@ -163,7 +172,6 @@ class eval_set(torch.utils.data.Dataset):
         batch_subs = [item for sublist in worker_subs for item in sublist]
 
         return batch_imgs.float(), batch_inds, batch_subs
-
 
     def __len__(self):
         return len(self.data)

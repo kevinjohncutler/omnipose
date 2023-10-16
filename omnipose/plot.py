@@ -149,17 +149,26 @@ def apply_ncolor(masks,offset=0,cmap=None,max_depth=20,expand=True):
     else:
         return cmap(utils.rescale(m))
 
-def imshow(img,figsize=2,ax=None,hold=False,**kwargs):
-    if type(figsize) is not (list or tuple):
-        figsize = (figsize,figsize)
-    if ax is None:
-        fig,ax = plt.subplots(frameon=False,figsize=figsize)
+def imshow(imgs, figsize=2, ax=None, hold=False, **kwargs):
+    if isinstance(imgs, list):
+        fig, axs = plt.subplots(1, len(imgs), figsize=(figsize, figsize*len(imgs)), 
+                                frameon=False, facecolor = [0]*4)
+        for i in range(len(imgs)):
+            axs[i].imshow(imgs[i], **kwargs)
+            axs[i].axis("off")
     else:
-        hold=True
-    ax.imshow(img,**kwargs)
-    ax.axis("off")
+        if type(figsize) is not (list or tuple):
+            figsize = (figsize, figsize)
+        if ax is None:
+            fig, ax = plt.subplots(frameon=False, figsize=figsize,facecolor =[0]*4)
+        else:
+            hold = True
+        ax.imshow(imgs, **kwargs)
+        ax.axis("off")
     if not hold:
         plt.show()
+
+
 
 # def get_cmap(masks):
 #     lut = ncolor.get_lut(masks)
@@ -265,6 +274,7 @@ def imshow(img,figsize=2,ax=None,hold=False,**kwargs):
         
 import torch
 def rgb_flow(dP, transparency=True, mask=None, norm=True, device=torch.device('cpu')):
+    """Meant for stacks of dP, unsqueeze if using on a single plane."""
     if isinstance(dP,torch.Tensor):
         device = dP.device
     else:
@@ -274,10 +284,15 @@ def rgb_flow(dP, transparency=True, mask=None, norm=True, device=torch.device('c
     vecs = dP[:,0] + dP[:,1]*1j
     roots = torch.exp(1j * np.pi * (2  * torch.arange(3, device=device) / 3 +1)) 
     rgb = (torch.real(vecs.unsqueeze(-1)*roots.view(1, 1, 1, -1) / torch.max(mag)) + 1 ) / 2 
+
+    # f = 1.5
+    # rgb /= f
+    # rgb += (1-1/f)/2
+    
+    
     if norm:
         mag -= torch.min(mag)
         mag /= torch.max(mag)
-
     if transparency:
         im = torch.cat((rgb, mag[..., None]), dim=-1)
     else:

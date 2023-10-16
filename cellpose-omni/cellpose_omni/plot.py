@@ -48,21 +48,25 @@ def dx_to_circ(dP,transparency=False,mask=None,sinebow=True,norm=True):
     dP = np.array(dP)
     mag = np.sqrt(np.sum(dP**2,axis=0))
     if norm:
-        mag = np.clip(transforms.normalize99(mag,omni=OMNI_INSTALLED), 0, 1.)
+        mag = np.clip(transforms.normalize99(mag,omni=OMNI_INSTALLED), 0, 1.)[...,np.newaxis]
     
     angles = np.arctan2(dP[1], dP[0])+np.pi
     if sinebow:
         a = 2
-        r = ((np.cos(angles)+1)/a)
-        g = ((np.cos(angles+2*np.pi/3)+1)/a)
-        b =((np.cos(angles+4*np.pi/3)+1)/a)
+        angles_shifted = np.stack([angles, angles + 2*np.pi/3, angles + 4*np.pi/3],axis=-1)
+        rgb = (np.cos(angles_shifted) + 1) / a
+        # f = 1.5
+        # rgb /= f
+        # rgb += (1-1/f)/2
+        
     else:
         (r, g, b) = colorsys.hsv_to_rgb(angles, 1, 1)
-    
+        rgb = np.stack((r,g,b),axis=0)
+        
     if transparency:
-        im = np.stack((r,g,b,mag),axis=-1)
+        im = np.concatenate((rgb,mag),axis=-1)
     else:
-        im = np.stack((r*mag,g*mag,b*mag),axis=-1)
+        im = rgb*mag
         
     if mask is not None and transparency and dP.shape[0]<3:
         im[:,:,-1] *= mask
