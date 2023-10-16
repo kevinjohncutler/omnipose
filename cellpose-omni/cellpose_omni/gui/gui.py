@@ -2810,8 +2810,10 @@ class MainW(QMainWindow):
             dist = self.flows[-1][self.model.dim]
             bd = self.flows[-1][self.model.dim+1]
             # print('flow debug',self.model.dim,p.shape,dP.shape,dist.shape,bd.shape)
-            maski = omnipose.core.compute_masks(dP, dist, bd, 
-                                                p, 
+            maski = omnipose.core.compute_masks(dP=dP, dist=dist, 
+                                                affinity_graph=None, 
+                                                bd=bd,
+                                                p=p, 
                                                 mask_threshold=mask_threshold,
                                                 flow_threshold=flow_threshold,
                                                 resize=self.cellpix.shape[-2:],
