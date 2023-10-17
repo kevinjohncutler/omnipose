@@ -671,7 +671,7 @@ def get_neigh_inds(neighbors,coords,shape,background_reflect=False):
     indexes = np.arange(npix)
     ind_matrix = -np.ones(shape,int)
     
-    ind_matrix[coords] = indexes
+    ind_matrix[tuple(coords)] = indexes
     neigh_inds = ind_matrix[neighbors]
     
     # If needed, we can do a similar thing I do at boundaries and make neighbor

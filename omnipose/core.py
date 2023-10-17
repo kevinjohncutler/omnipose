@@ -765,7 +765,7 @@ def affinity_to_boundary(masks,affinity_graph,coords):
     csum = np.sum(affinity_graph,axis=0)
     boundary = np.logical_and(csum<(3**dim-1),csum>0) # check this latter condition
     bd_matrix = np.zeros(masks.shape,int)
-    bd_matrix[coords] = boundary 
+    bd_matrix[tuple(coords)] = boundary 
     
     return bd_matrix
 
@@ -956,7 +956,8 @@ def _extend_centers_torch(masks, centers, affinity_graph, coords=None, n_iter=20
 
     if coords is None:
         coords = np.nonzero(masks>0) # >0 to handle -1 labels at edge; do I use that anymore? check...
-
+    else:
+        coords = tuple(coords)
     # we want to index the flatened pixel list T will of shape (npix,)
     neighbors = utils.get_neighbors(coords,steps,d,shape,edges) # shape (d,3**d,npix)   
     indexes, neigh_inds, ind_matrix = utils.get_neigh_inds(tuple(neighbors),coords,shape)

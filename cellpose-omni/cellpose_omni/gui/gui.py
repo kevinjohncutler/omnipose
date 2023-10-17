@@ -1033,7 +1033,7 @@ class MainW(QMainWindow):
         # b+=1
         self.threshold = 0.0
         self.threshslider = superqt.QLabeledDoubleSlider(QtCore.Qt.Horizontal)
-        self.threshslider.setRange(0,5)
+        self.threshslider.setRange(0,1)
         self.threshslider.setValue(self.threshold)
         self.threshslider._label.setFont(self.medfont)
         self.l0.addWidget(self.threshslider, b, c,1,TOOLBAR_WIDTH-c)
@@ -2715,9 +2715,9 @@ class MainW(QMainWindow):
             return self.threshslider.value(), self.probslider.value()
         except Exception as e:
             print('flow threshold or cellprob threshold not a valid number, setting to defaults')
-            self.flow_threshold.setText('0.4')
+            self.flow_threshold.setText('0.0')
             self.cellprob_threshold.setText('0.0')
-            return 0.4, 0.0
+            return 0.0, 0.0
         
     # The CP2 GUI uses a text box instead of a slider... I prefer the slider  
 #     def run_mask_reconstruction(self):
@@ -2764,13 +2764,14 @@ class MainW(QMainWindow):
         if not self.recompute_masks:
             return
         
-        flow_threshold, mask_threshold = self.get_thresholds()
-        if flow_threshold is None:
+        self.threshold, self.cellprob = self.get_thresholds()
+        
+        if self.threshold is None:
             logger.info('computing masks with cell prob=%0.3f, no flow error threshold'%
-                    (mask_threshold))
+                    (self.cellprob))
         else:
             logger.info('computing masks with cell prob=%0.3f, flow error threshold=%0.3f'%
-                    (mask_threshold, flow_threshold))
+                    (self.cellprob, self.threshold))
 
         net_avg = self.NetAvg.currentIndex()==0 and self.current_model in models.MODEL_NAMES
         resample = self.NetAvg.currentIndex()<2
@@ -2780,8 +2781,8 @@ class MainW(QMainWindow):
              'flow_threshold={:.2f}, diameter={:.2f}, invert={}, cluster={}, net_avg={},'
              'do_3D={}, omni={}'
             ).format(self.get_channels(),
-                     mask_threshold,
-                     flow_threshold,
+                     self.cellprob,
+                     self.threshold,
                      self.diameter,
                      self.invert.isChecked(),
                      self.cluster.isChecked(),
@@ -2794,8 +2795,8 @@ class MainW(QMainWindow):
             maski = dynamics.compute_masks(dP=self.flows[-1][:-1], 
                                            cellprob=self.flows[-1][-1],
                                            p=self.flows[-2].copy(),  
-                                           mask_threshold=mask_threshold,
-                                           flow_threshold=flow_threshold,
+                                           mask_threshold=self.cellprob,
+                                           flow_threshold=self.threshold,
                                            resize=self.cellpix.shape[-2:],
                                            verbose=self.verbose.isChecked())[0]
         else:
@@ -2810,12 +2811,13 @@ class MainW(QMainWindow):
             dist = self.flows[-1][self.model.dim]
             bd = self.flows[-1][self.model.dim+1]
             # print('flow debug',self.model.dim,p.shape,dP.shape,dist.shape,bd.shape)
-            maski = omnipose.core.compute_masks(dP=dP, dist=dist, 
+            maski = omnipose.core.compute_masks(dP=dP, 
+                                                dist=dist, 
                                                 affinity_graph=None, 
                                                 bd=bd,
                                                 p=p, 
-                                                mask_threshold=mask_threshold,
-                                                flow_threshold=flow_threshold,
+                                                mask_threshold=self.cellprob,
+                                                flow_threshold=self.threshold,
                                                 resize=self.cellpix.shape[-2:],
                                                 cluster=self.cluster.isChecked(),
                                                 verbose=self.verbose.isChecked(),
@@ -2911,6 +2913,9 @@ class MainW(QMainWindow):
                 net_avg = self.NetAvg.currentIndex()==0 and self.current_model in models.MODEL_NAMES
                 resample = self.NetAvg.currentIndex()<2
                 omni = OMNI_INSTALLED and self.omni.isChecked()
+                
+                self.threshold, self.cellprob = self.get_thresholds()
+
                 # useful printout for easily copying parameters to a notebook etc. 
                 s = ('channels={}, mask_threshold={}, '
                      'flow_threshold={}, diameter={}, invert={}, cluster={}, net_avg={}, '
