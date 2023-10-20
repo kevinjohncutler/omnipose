@@ -76,7 +76,10 @@ def main(args):
                 print('GUI dependencies may not be installed (normal for first run).')
                 confirm = confirm_prompt('Install GUI dependencies? (Note: uses PyQt6.)')
                 if confirm:
-                    install('cellpose-omni[gui]')
+                    current_dir = os.path.abspath(os.path.dirname(__file__))
+                    cellpose_omni_path = os.path.dirname(current_dir)
+                    print('cellpose_omni_path',cellpose_omni_path)
+                    install('cellpose-omni[gui] @ file://{}'.format(cellpose_omni_path)) # local version)                            
         else:
             gui.run()
 

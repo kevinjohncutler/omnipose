@@ -19,6 +19,8 @@ install_deps = ['numpy>=1.22.4', 'scipy', 'numba',
                 # 'torchvf@git+https://github.com/kevinjohncutler/torchvf.git'
                 ]
 
+# install_deps.append('cellpose-omni{} @ file://{}'.format('[gui]' if 'gui' in sys.argv else '',cellpose_omni_path))
+
 doc_deps = ['sphinx-autobuild',
             'sphinx_automodapi',
             'sphinx_copybutton',
@@ -53,7 +55,9 @@ setup(
     use_scm_version=True,
     # install_requires = install_deps+cp_deps,
     install_requires = install_deps,
-
+    extras_require={
+        "gui": ["cellpose-omni[gui] @ file://{}".format(cellpose_omni_path)]
+    },
     tests_require=[
       'pytest'
     ],
