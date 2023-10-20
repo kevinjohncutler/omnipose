@@ -78,7 +78,7 @@ def main(args):
                 if confirm:
                     current_dir = os.path.abspath(os.path.dirname(__file__))
                     cellpose_omni_path = os.path.dirname(current_dir)
-                    print('cellpose_omni_path',cellpose_omni_path)
+                    # print('cellpose_omni_path',cellpose_omni_path)
                     install('cellpose-omni[gui] @ file://{}'.format(cellpose_omni_path)) # local version)                            
         else:
             gui.run()
