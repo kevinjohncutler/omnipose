@@ -56,8 +56,9 @@ Standalone versions of this GUI for Windows, macOS, and Linux are available on t
     ``` 
     or, for the most up-to-date development version,
     ```
-    pip install git+https://github.com/kevinjohncutler/omnipose.git
-    
+    git clone https://github.com/kevinjohncutler/omnipose.git
+    cd omnipose
+    pip install -e .    
     ```
     Note: if you previously installed Omnipose, please run `pip uninstall cellpose_omni` to prevent version conflicts. See [project structure](#project-structure) for more details. 
     
