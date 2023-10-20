@@ -22,4 +22,4 @@ python:
 build:
   os: ubuntu-22.04  # specify the operating system here
   tools:
-    python: "3.10"  # specify the Python version here
+    python: "3.9"  # specify the Python version here
