@@ -16,7 +16,8 @@ install_deps = ['numpy>=1.22.4', 'scipy', 'numba',
                 'mgen','matplotlib',
                 'peakdetect','igraph',
                 'torchvf','tqdm',
-                'cellpose-omni @ file://{}#egg=cellpose-omni'.format(cellpose_omni_path) # local version
+                # 'cellpose-omni',
+                'cellpose-omni @ file://{}'.format(cellpose_omni_path) # local version
                 # 'file://{}#egg=cellpose-omni'.format(cellpose_omni_path) # local version in editable mode
 
                 # 'torchvf@git+https://github.com/kevinjohncutler/torchvf.git'
@@ -28,20 +29,12 @@ doc_deps = ['sphinx-autobuild',
             'sphinx_automodapi',
             'sphinx_copybutton',
             'sphinx_design','furo','myst_nb']
-
-import os
-
-# if os.getenv('NO_GUI'):
-#     extra = 'omni'
-# else:
-#     extra = 'all'
-# extra = 'omni'
-# cp_ver = '0.9.1'
-# cp_deps = ['cellpose-omni[{}]>={}'.format(extra,cp_ver),]
     
 with open("README.md", "r") as fh:
     long_description = fh.read() 
     
+    
+print('\n found',setuptools.find_packages())    
 setup(
     name="omnipose",
     version=get_version(),
@@ -60,8 +53,9 @@ setup(
     # install_requires = install_deps+cp_deps,
     install_requires = install_deps,
     extras_require={
-        "gui": ["cellpose-omni[gui] @ file://{}#egg=cellpose-omni".format(cellpose_omni_path)]
+        "gui": ["cellpose-omni[gui] @ file://{}".format(cellpose_omni_path)]
     },
+    # dependency_links=["file://{}".format(cellpose_omni_path)],
     tests_require=[
       'pytest'
     ],

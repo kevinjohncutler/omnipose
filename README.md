@@ -60,7 +60,13 @@ Standalone versions of this GUI for Windows, macOS, and Linux are available on t
     cd omnipose
     python install.py gui
     ```
-    (Omit `gui` if you do not want the gui installed). Note: if you previously installed Omnipose, please run `pip uninstall cellpose_omni` to prevent version conflicts. See [project structure](#project-structure) for more details. 
+    (Omit `gui` if you do not want the gui installed). 
+    
+> :warning: **Version conflicts**: if you previously installed Omnipose, please run 
+> ```
+> pip uninstall cellpose_omni && pip cache remove cellpose_omni
+> ```
+> to prevent version conflicts. See [project structure](#project-structure) for more details. 
     
 ### Python compatibility 
 We have tested Omnipose extensively on Python version 3.8.5 and have encountered issues on some lower versions. Versions up to 3.10.11 have been confirmed compatible, but we have encountered bugs with the GUI dependencies on 3.11+. For those users with system or global pyenv python3 installations, check your python version by running `python -V` before making your conda environment and choose a different version. That way, there is no crosstalk between pip-installed packages inside and outside your environment. So if you have 3.x.y installed via pyenv etc., install your environment with 3.x.z instead. 
