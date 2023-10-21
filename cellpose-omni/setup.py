@@ -1,5 +1,6 @@
 import setuptools
 from setuptools import setup
+from setuptools_scm import get_version
 
 install_deps = ['numpy>=1.22.4', 'scipy', 'natsort',
                 'tifffile', 'tqdm', 'numba', 
@@ -54,22 +55,22 @@ except:
 with open("README.md", "r") as fh:
     long_description = fh.read()
     
-    
 setup(
     name="cellpose-omni",
+    version=get_version(root='..', relative_to=__file__),  # use version number from omnipose package
     license="BSD",
     author="Kevin Cutler",
     author_email="kevinjohncutler@outlook.com",
     description="cellpose fork developed for omnipose",
     long_description=long_description,
     long_description_content_type="text/markdown",
-    url="https://github.com/kevinjohncutler/cellpose",
+    url="https://github.com/kevinjohncutler/omnipose/tree/main/cellpose-omni",
     setup_requires=[
       'pytest-runner',
-      # 'setuptools_scm',
+      'setuptools_scm',
     ],
     packages=setuptools.find_packages(),
-    use_scm_version=True,
+    # use_scm_version=True,
     install_requires = install_deps+omni_deps,
     tests_require=[
       'pytest'
@@ -90,5 +91,5 @@ setup(
      entry_points = {
         'console_scripts': [
           'cellpose_omni = cellpose_omni.__main__:main']
-     }
+     },
 )

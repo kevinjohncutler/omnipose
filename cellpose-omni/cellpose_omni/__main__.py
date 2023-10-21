@@ -80,10 +80,11 @@ def main(args):
                     cellpose_omni_path = os.path.dirname(current_dir)
                     print('cellpose_omni_path',cellpose_omni_path)
                     next_command = ['&&', 'omnipose'] # run omnipose again
-                    install('cellpose-omni[gui] @ file://{}'.format(cellpose_omni_path)) # local version)       
+                    install('cellpose-omni[gui] @ file://{}#egg=cellpose-omni'.format(cellpose_omni_path)) # local version)       
                     subprocess.check_call([sys.executable, "-m", "omnipose"])
                                                              
         else:
+            print('heyyyo\n')
             gui.run()
 
     else:

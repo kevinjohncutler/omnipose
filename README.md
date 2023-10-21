@@ -58,11 +58,9 @@ Standalone versions of this GUI for Windows, macOS, and Linux are available on t
     ```
     git clone https://github.com/kevinjohncutler/omnipose.git
     cd omnipose
-    pip install -e .    
-    cd cellpose-omni
-    pip install -e .    
+    python install.py gui
     ```
-    Note: if you previously installed Omnipose, please run `pip uninstall cellpose_omni` to prevent version conflicts. See [project structure](#project-structure) for more details. 
+    (Omit `gui` if you do not want the gui installed). Note: if you previously installed Omnipose, please run `pip uninstall cellpose_omni` to prevent version conflicts. See [project structure](#project-structure) for more details. 
     
 ### Python compatibility 
 We have tested Omnipose extensively on Python version 3.8.5 and have encountered issues on some lower versions. Versions up to 3.10.11 have been confirmed compatible, but we have encountered bugs with the GUI dependencies on 3.11+. For those users with system or global pyenv python3 installations, check your python version by running `python -V` before making your conda environment and choose a different version. That way, there is no crosstalk between pip-installed packages inside and outside your environment. So if you have 3.x.y installed via pyenv etc., install your environment with 3.x.z instead. 
@@ -130,7 +128,7 @@ Cell size remains the only practical limitation of Omnipose. On the low end, cel
 
 
 ## Project structure, feature requests, and issues 
-Omnipose is built on [Cellpose][cp], and functionally that means Cellpose actually imports Omnipose to replace many of its operations with the Omnipose versions with `omni=True`. Omnipose was first packaged into the Cellpose repo before I began making too many ND-generalizations (full rewrites) for the authors to maintain. Thus was birthed my `cellpose_omni` fork, which I published to PyPi separately from Omnipose for some time. I later decided that maintaining two packages for one project was overcomplicated for me and users (especially for installations from the repo), so the latest version of `cellpose_omni` now lives here. `cellpose_omni` still gets installed as its own subpackage when you install Omnipose, and its version should show up as 0.0.0. If you have issues migrating to the new version, make sure to `pip uninstall omnipose cellpose_omni` before re-installing Omnipose. 
+Omnipose is built on [Cellpose][cp], and functionally that means Cellpose actually imports Omnipose to replace many of its operations with the Omnipose versions with `omni=True`. Omnipose was first packaged into the Cellpose repo before I began making too many ND-generalizations (full rewrites) for the authors to maintain. Thus was birthed my `cellpose_omni` fork, which I published to PyPi separately from Omnipose for some time. I later decided that maintaining two packages for one project was overcomplicated for me and users (especially for installations from the repo), so the latest version of `cellpose_omni` now lives here. `cellpose_omni` still gets installed as its own subpackage when you install Omnipose. If you have issues migrating to the new version, make sure to `pip uninstall omnipose cellpose_omni` before re-installing Omnipose. The `install.py` script simply runs `pip install -e .{extras}` in the `omnipose` and `cellpose` directories. 
 
 If you encounter bugs with Omnipose, you can check the [main Cellpose repo][cp] for related issues and also post them here. I do my best to keep up with with bug fixes and features from the main branch, but it helps me out a lot if users bring them to my attention. If there are any features or pull requests in Cellpose that you want to see in Omnipose ASAP, please let me know. 
 
