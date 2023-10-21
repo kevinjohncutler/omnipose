@@ -33,9 +33,7 @@ doc_deps = ['sphinx-autobuild',
 with open("README.md", "r") as fh:
     long_description = fh.read() 
     
-    
-print('\n found',setuptools.find_packages())    
-setup(
+    setup(
     name="omnipose",
     version=get_version(),
     author="Kevin Cutler",
@@ -48,7 +46,7 @@ setup(
         'pytest-runner',
         'setuptools_scm',
     ],
-    packages=setuptools.find_packages(exclude=("omnipose.scripts",)),
+    packages=setuptools.find_packages(),
     # use_scm_version=True,
     # install_requires = install_deps+cp_deps,
     install_requires = install_deps,
