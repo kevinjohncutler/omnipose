@@ -1,2 +1,3 @@
 from . import core, utils, loss, plot, misc, cli, data, gpu
-__import__('pkg_resources').declare_namespace(__name__)
+import pkg_resources
+__version__ = pkg_resources.get_distribution("omnipose").version
