@@ -23,7 +23,16 @@ except Exception as err:
     raise
     
 
-sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+# sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+# from dependencies import gui_deps
+
+# Get the parent directory of the omnipose package
+import omnipose
+from pathlib import Path
+omnidir = Path(omnipose.__file__).parent.parent
+
+# Import from dependencies
+sys.path.append(str(omnidir))
 from dependencies import gui_deps
 
 
