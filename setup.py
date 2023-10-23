@@ -36,5 +36,7 @@ setup(
         'console_scripts': [
           'omnipose = omnipose.__main__:main']
     },
+    py_modules=['dependencies'],
+
 
 )
