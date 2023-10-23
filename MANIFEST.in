@@ -1,4 +1,5 @@
 include README.md
 include LICENSE
+include dependencies.py
 recursive-include omnipose/cellpose-omni *
 prune scripts
