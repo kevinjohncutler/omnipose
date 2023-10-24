@@ -207,7 +207,6 @@ To train the ``bact_phase_omni`` model from scratch using the same parameters fr
 :header-2:`Training 3D models`
 ------------------------------
 
-.. include:: ../README.md
-   :parser: myst_parser.sphinx_
+.. include:: ../README.rst
    :start-after: 3D Omnipose
    :end-before: To evaluate Omnipose models on 3D data

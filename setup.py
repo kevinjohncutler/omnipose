@@ -1,7 +1,7 @@
 import setuptools
 from setuptools import setup
 
-from dependencies import install_deps, gui_deps, doc_deps
+from dependencies import install_deps, gui_deps, doc_deps, distributed_deps
     
 with open("README.md", "r") as fh:
     long_description = fh.read() 
@@ -23,6 +23,8 @@ setup(
     install_requires = install_deps,
     extras_require = {
       'gui': gui_deps,
+      'docs': doc_deps,
+      'all': doc_deps + gui_deps + distributed_deps,
     },
     tests_require=[
       'pytest'

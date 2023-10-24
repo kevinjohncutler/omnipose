@@ -19,7 +19,10 @@ gui_deps = [
 doc_deps = ['sphinx-autobuild',
             'sphinx_automodapi',
             'sphinx_copybutton',
-            'sphinx_design','furo','myst_nb']
+            'sphinx-argparse',
+            'sphinx_design',
+            'furo',
+            'myst_nb']
 
 distributed_deps = [
         'dask',

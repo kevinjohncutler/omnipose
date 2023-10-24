@@ -143,6 +143,8 @@ myst_enable_extensions = [
     "html_image",
 ]
 
+myst_heading_anchors = 2 # add anchors to all headings
+
 master_doc = 'index'
 
 # Add any paths that contain templates here, relative to this directory.
@@ -209,7 +211,12 @@ shared = {"color-problematic": "#818181",
           # "color-background-hover":"#8f0ae5",
           "color-api-name": "#f0147a",
           "color-api-pre-name": "#8f0ae5",
-
+        #   "pst-font-size-h5": "1.2rem",
+#           --font-size--normal: 100%;
+#   --font-size--small: 87.5%;
+#   --font-size--small--2: 81.25%;
+#   --font-size--small--3: 75%;
+#   --font-size--small--4: 62.5%;
 #             // API documentation
 #   --color-api-background: var(--color-background-secondary);
 #   --color-api-background-hover: var(--color-background-hover);
@@ -236,9 +243,10 @@ shared = {"color-problematic": "#818181",
         #   "color-code-foreground":"#0000ff", # text color saying "copied!"
 
             "color-toc-background": "#0000",
+            "sd-color-shadow": "#0000",    
             # --color-toc-item-text--active, --color-toc-item-text
 
-            
+            "color-sidebar-item-background--current": "#0000", # do not keep it highlighted 
         }
 
 dark = {
@@ -253,24 +261,24 @@ dark = {
         # "color-highlight-on-target":"#fe5130",
 
         
-        "color-foreground-primary": "#ffffffcc", # for main text and headings
+        "color-foreground-primary": "#ffffff", # for main text and headings
         "color-foreground-secondary": "#a0a0a0", # for secondary text
         "color-foreground-muted": "#818181", # for muted text
         "color-foreground-border": "#333", # for content borders
 
-        "color-background-primary": "#121212", # for content
+        "color-background-primary": "#111111", # for content
         "color-background-secondary": "#30303030", # for navigation + ToC, also the default for code block
 
         "mystnb-source-bg-color":"#30303030", # works when iv.cell div.cell_input, div.cell details.above-input>summary { has background-color none
         
         "color-background-hover": "#30303030", # for navigation-item hover
-        "color-background-hover--transparent": "#30303000",
-        # "color-card-background": "#30303030", # cards
+        "color-background-hover--transparent": "#0000",
+        "color-card-background": "#30303030", # cards
         "color-background-border": "#333", # for UI borders
         "color-background-item": "#444", # foreground for "background" items (eg: copybutton)
 
         # Announcements
-        "color-announcement-background": "#000000dd",
+        "color-announcement-background": "#000000",
         "color-announcement-text": "#eee",
 
         # // Highlighted text (search)
@@ -318,17 +326,20 @@ light = {
         "color-foreground-primary": "black", # for main text and headings
         "color-foreground-secondary": "#5a5a5a", # for secondary text
         "color-foreground-muted": "#646464", # for muted text
-        "color-foreground-border": "#efefefef", # for content borders
+        "color-foreground-border": "#ddd", # for content borders
 
         "color-background-primary": "#ffff", # for content
-        "color-background-secondary": "#efefefef", # for navigation + ToC, 
-        "color-background-hover": "#efefefef", # for navigation-item hover
-        "color-background-hover--transparent": "#efefef00",
-        "mystnb-source-bg-color":"#efefefef",     # code input 
-        "color-card-background": "#efefefef", # cards
+        "color-background-secondary": "#eeeeee99", # for navigation + ToC, 
+        "color-background-hover": "#eeeeee99", # for navigation-item hover
+        "color-background-hover--transparent": "#0000",
+        "mystnb-source-bg-color":"#eeeeee99",     # code input 
+        
+        
+        "color-card-background": "#eeeeee99", # cards
     
         "color-background-border": "#ddd", # for UI borders
         "color-background-item": "#ccc", # foreground for "background" items (eg: copybutton)
+
 
         # Announcements
         "color-announcement-background": "#000000dd",

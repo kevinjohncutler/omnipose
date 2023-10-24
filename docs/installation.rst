@@ -1,38 +1,17 @@
 .. include:: sinebow.rst
-
+.. include:: links.rst
 
 :sinebow11:`Installation`
 =========================
 
-.. include:: ../README.md
-   :parser: myst_parser.sphinx_
-   :start-after: ## How to install Omnipose
-   :end-before: ### Python compatibility 
-
-:header-2:`Python compatibility`
---------------------------------
-.. include:: ../README.md
-   :parser: myst_parser.sphinx_
-   :start-after: ### Python compatibility 
-   :end-before: ### Pyenv versus Conda
-
-:header-2:`Pyenv versus Conda`
-------------------------------
-.. include:: ../README.md
-   :parser: myst_parser.sphinx_
-   :start-after: ### Pyenv versus Conda
-   :end-before: ### GPU support 
-
-:header-2:`GPU Support`
------------------------
-.. include:: ../README.md
-   :parser: myst_parser.sphinx_
-   :start-after: ### GPU support
-   :end-before: ## How to use Omnipose
+.. include:: ../README.rst
+   :start-after: .. _install_start:
+   :end-before: .. _install_stop:
 
 
 :header-2:`Where are models stored?`
 ------------------------------------
+
 To maintain compatibility with Cellpose, the pretrained Omnipose models are also downloaded to ``$HOME/.cellpose/models/``.
 This path on linux is ``/home/USERNAME/.cellpose/``, on macOS ``/Users/USERNAME/.cellpose/``, and on Windows
 ``C:\Users\USERNAME\.cellpose\models\``. These models are downloaded the first time you 

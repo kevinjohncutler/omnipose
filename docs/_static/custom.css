@@ -230,16 +230,30 @@ div.cell details.below-input>summary {
   box-shadow: none;
 }
 
-.sidebar-tree .reference {color: none  !important}
+.sidebar-tree .reference {
+  /* color: none  !important;
+  backdrop-filter: blur(5px); */
+  font-size: var(--font-size--normal);
+}
 .sidebar-tree .toctree-l1 > .reference,
 .sidebar-tree .toctree-l2 > .reference,
 .sidebar-tree .toctree-l3 > .reference {
   color: none !important; 
-  background: transparent !important;
+  /* background: transparent !important; */
+  /* backdrop-filter: blur(5px); */
+  
+  padding-left: 1.75rem;
 } 
+
 .sidebar-tree .toctree-l1 > label .icon {
   color: var(--color-foreground-muted);
-  background: transparent !important;
+  /* background: transparent !important;
+  backdrop-filter: blur(5px); */
+  
+}
+
+.sidebar-tree .caption, .sidebar-tree :not(.caption)>.caption-text {
+  font-size: var(--font-size--normal);
 }
 
 /* Add underline to active TOC element */
@@ -451,18 +465,49 @@ details {
 
 /* Override color for header 2 fields in table of contents */
 #toc .toctree-l2 > a {
-    color: var(--color-foreground-secondary);
+  color: var(--color-foreground-secondary);
+}
+
+/* make these normal colored  */
+li.toctree-l2 > a[href^="cli.html"] {
+  /* color: var(--darkreader-text--sinebow21) !important; */
+  color: var(--color-foreground) !important;
+}
+
+/* bold the card titles */
+.toctree-wrapper.compound .caption, .toctree-wrapper.compound :not(.caption)>.caption-text {
+  font-weight: bold;
+  margin-bottom: 0.5em;
+
 }
 
 /* toc scroll bar - from furo*/
 .sidebar-scroll::-webkit-scrollbar, .toc-scroll::-webkit-scrollbar, article[role=main] ::-webkit-scrollbar {
     height: .25rem;
-    width:.25rem
+    width:.25rem;
 }
 
 .sidebar-scroll::-webkit-scrollbar-thumb, .toc-scroll::-webkit-scrollbar-thumb, article[role=main] ::-webkit-scrollbar-thumb {
     background-color: var(--color-foreground-border);
     /* background-color: green; */
-    
     border-radius:.125rem
+}
+
+/*  make the sidebar trasnlucent  */
+.sidebar-drawer { 
+  /* background-color: rgba(0, 255, 255, 0.25); */
+  background-color: var(--color-background-secondary);
+  backdrop-filter: blur(9px);
+  /* box-shadow: 0 0 10px rgba(0, 0, 0, 0.25); */
+  box-shadow: 0 0 0.5rem rgba(0, 0, 0, 0.1);
+}
+
+
+.sd-card, .sd-grid-item  {
+  border: 1px solid var(--color-foreground-border);
+}
+
+body > label.overlay.sidebar-overlay {
+  background-color: transparent;
+  /* backdrop-filter: blur(3px); */
 }

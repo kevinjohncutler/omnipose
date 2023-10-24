@@ -889,9 +889,9 @@ def curve_filter(im,filterWidth=1.5):
            G : Gaussian curvature of the image
            C1 : Principal curvature 1 of the image
            C2 : Principal curvature 2 of the image
-           im_xx :
-           im_yy :
-           im_xy :
+           im_xx : \del^2 x / \del x^2
+           im_yy : \del^2 x / \del y^2
+           im_xy : \del^2 x / \del x \del y
 
     """
     shape = [np.floor(7*filterWidth) //2 *2 +1]*2 # minor modification is to make this odd

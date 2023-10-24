@@ -293,7 +293,7 @@ class MainW(QMainWindow):
                                        "color: {}; ".format(text_color),
                                        "}"])
         # self.styleInactive = ("QPushButton {Text-align: middle; "
-        #                       "background-color: #303030; "
+        #                       "background-color: #151515; "
         #                      "border-color: #565656;"
         #                       "color: #fff;}")
         self.stylePressed = ''
@@ -428,7 +428,7 @@ class MainW(QMainWindow):
 
         self.headings = ''
         # self.dropdowns = ("QComboBox QAbstractItemView { color: white;"
-        #                   "background-color: #303030;"
+        #                   "background-color: #151515;"
         #                   "selection-color: white; "
         #                   "min-width: 100px; }")
         #                 # "selection-background-color: rgb(50,100,50);")
@@ -1372,7 +1372,7 @@ class MainW(QMainWindow):
     
     def dropdowns(self,width=WIDTH_0):
         return ''.join(['QComboBox QAbstractItemView {',
-                        # 'background-color: #303030;',
+                        # 'background-color: #151515;',
                         # 'selection-color: white; ',
                         'min-width: {};'.format(width),
                         '}'])
@@ -1800,7 +1800,7 @@ class MainW(QMainWindow):
             tick.hoverPen = pg.mkPen(self.accent,width=2)
             
     def set_button_color(self):
-        color = '#efefef' if self.darkmode else '#888888'
+        color = '#eeeeee' if self.darkmode else '#888888'
         self.ModelButton.setStyleSheet('border: 2px solid {};'.format(color))
             
     def set_crosshair_colors(self):
