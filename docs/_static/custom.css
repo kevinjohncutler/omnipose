@@ -114,7 +114,7 @@ table.docutils caption {
   
   border: none !important;
   border-radius: 3px !important;
-  box-shadow: none !important;
+  /* box-shadow: none !important; */
 }
 
 /* Input cells */
@@ -124,7 +124,7 @@ div.cell div.cell_input {
   margin: 0em !important;
   border: none !important;
   border-radius: 3px !important;
-  box-shadow: none !important;
+  /* box-shadow: none !important; */
 
   /* background: rgba(var(--color-background-secondary),0.5); */
   /* background-color: rgba(var(--color-background-secondary),0.5); */
@@ -146,7 +146,7 @@ div.cell_input div.input > div.highlight,
 div.cell_output div.output > div.highlight {
   margin: 0em !important;
   border: none !important;
-  box-shadow: none !important;
+  /* box-shadow: none !important; */
   color: none !important;
   background-color: transparent !important;
 
@@ -167,7 +167,7 @@ div.cell div.cell_input, div.cell details.above-input>summary {
   border: none !important;
   border-radius: 3px;
   /* background: none !important; */
-  box-shadow: none;
+  /* box-shadow: none; */
   /* background-color: transparent !important; */
   /* background-color: var(--color-background-secondary); */
   background-color: none;
@@ -227,7 +227,7 @@ div.cell details.below-input>summary {
   border: none;
   margin-top: 1em;
   margin-bottom: 0em;
-  box-shadow: none;
+  /* box-shadow: none; */
 }
 
 .sidebar-tree .reference {
@@ -499,15 +499,40 @@ li.toctree-l2 > a[href^="cli.html"] {
   background-color: var(--color-background-secondary);
   backdrop-filter: blur(9px);
   /* box-shadow: 0 0 10px rgba(0, 0, 0, 0.25); */
-  box-shadow: 0 0 0.5rem rgba(0, 0, 0, 0.1);
+  /* box-shadow: 0 0 0.25rem rgba(0, 0, 0, 0.1); */
+  
+  /* from furo admonition */
+  box-shadow: 0 0.2rem 0.5rem rgba(0, 0, 0, 0.05), 0 0 0.0625rem rgba(0, 0, 0, 0.1) !important; 
+  
 }
 
 
 .sd-card, .sd-grid-item  {
   border: 1px solid var(--color-foreground-border);
+  /* box-shadow: 0 0 0.5rem rgba(0, 0, 0, 0.1); */
+  
+  /* box-shadow: 0 0.1rem 0.25rem var(--sd-color-shadow), 0 0 0.0625rem rgba(0, 0, 0, 0.1) !important;  */
+  
+  /* from furo admonition */
+  box-shadow: 0 0.2rem 0.5rem rgba(0, 0, 0, 0.05), 0 0 0.0625rem rgba(0, 0, 0, 0.1) !important; 
+  
 }
 
+/* .sd-shadow-sm {
+  /* box-shadow: 0 0 10rem rgba(255, 0, 0, 0.5) !important; */
+  box-shadow: 0 0 0.25rem rgba(0, 0, 0, 0.1) !important; 
+} */
+
+/* do not dim page */
 body > label.overlay.sidebar-overlay {
-  background-color: transparent;
+  background-color: none;
   /* backdrop-filter: blur(3px); */
 }
+
+.overlay { background-color: transparent;}
+
+
+/* 
+body {
+  background: linear-gradient(to bottom right, rgba(1, 1, 1, 0.1), rgba(.5, .5, .5, 0.1));
+} */

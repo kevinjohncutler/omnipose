@@ -112,6 +112,7 @@ How to install Omnipose
       cd omnipose
       pip install -e .
 
+.. _install_stop:
 
 .. warning::
    If you previously installed Omnipose, please run
@@ -126,6 +127,8 @@ How to install Omnipose
 Python compatibility
 ~~~~~~~~~~~~~~~~~~~~
 
+.. _python_start:
+
 We have tested Omnipose extensively on Python version 3.8.5 and have
 encountered issues on some lower versions. Versions up to 3.10.11 have
 been confirmed compatible, but we have encountered bugs with the GUI
@@ -136,8 +139,12 @@ different version. That way, there is no crosstalk between pip-installed
 packages inside and outside your environment. So if you have 3.x.y
 installed via pyenv etc., install your environment with 3.x.z instead.
 
+.. _python_stop:
+
 Pyenv versus Conda
 ~~~~~~~~~~~~~~~~~~
+
+.. _pyenv_start:
 
 Pyenv also works great for creating an environment for installing
 Omnipose (and it also works a lot better for installing Napari alongside
@@ -149,8 +156,12 @@ finicky. You can use pyenv on Windows and macOS too, but you will need a
 conda environment for Apple Silicon GPU support (PyPi still lacks many
 package versions built for Apple Silicon).
 
+.. _pyenv_stop:
+
 GPU support
 ~~~~~~~~~~~
+
+.. _gpu_start:
 
 Omnipose runs on CPU on macOS, Windows, and Linux. PyTorch has
 historically only supported NVIDIA GPUs, but has more more recently
@@ -195,7 +206,7 @@ thread <https://github.com/kevinjohncutler/omnipose/issues/14>`__. On
 all systems, remember that you may need to use ipykernel to use the
 omnipose environment in a notebook.
 
-.. _install_stop:
+.. _gpu_stop:
 
 How to use Omnipose
 -------------------

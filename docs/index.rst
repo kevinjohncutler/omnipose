@@ -1,5 +1,3 @@
-.. include:: ../README.rst
-
 .. include:: sinebow.rst
 
 |

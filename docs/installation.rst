@@ -8,6 +8,37 @@
    :start-after: .. _install_start:
    :end-before: .. _install_stop:
 
+.. warning::
+   If you previously installed Omnipose, please run
+
+   .. code-block::
+   
+      pip uninstall cellpose_omni && pip cache remove cellpose_omni
+
+   to prevent version conflicts. See :ref:`project structure <project-structure>` for more details. 
+
+:header-2:`Python compatibility`
+--------------------------------
+
+.. include:: ../README.rst
+   :start-after: .. _python_start:
+   :end-before: .. _python_stop:
+   
+:header-2:`Pyenv versus Conda`
+--------------------------------
+
+.. include:: ../README.rst
+   :start-after: .. _pyenv_start:
+   :end-before: .. _pyenv_stop:
+
+:header-2:`GPU support`
+-----------------------
+
+.. include:: ../README.rst
+   :start-after: .. _gpu_start:
+   :end-before: .. _gpu_stop:
+
+
 
 :header-2:`Where are models stored?`
 ------------------------------------
