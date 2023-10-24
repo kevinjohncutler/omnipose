@@ -3,7 +3,7 @@ from setuptools import setup
 
 from dependencies import install_deps, gui_deps, doc_deps, distributed_deps
     
-with open("README.md", "r") as fh:
+with open("README.rst", "r") as fh:
     long_description = fh.read() 
 
 setup(
