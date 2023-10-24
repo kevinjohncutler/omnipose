@@ -28,8 +28,8 @@ pre-trained models for:
    can be a good starting point for users making their own ground-truth
    datasets.
 
-:header-2:`Try out Omnipose online`
------------------------------------
+Try out Omnipose online
+-----------------------
 
 New users can check out the
 `ZeroCostDL4Mic <https://github.com/HenriquesLab/ZeroCostDL4Mic/wiki>`__
@@ -112,7 +112,6 @@ How to install Omnipose
       cd omnipose
       pip install -e .
 
-..
 
 .. warning::
    If you previously installed Omnipose, please run
@@ -124,8 +123,8 @@ How to install Omnipose
    to prevent version conflicts. See :ref:`project structure <project-structure>` for more details. 
 
 
-:header-3:`Python compatibility`
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+Python compatibility
+~~~~~~~~~~~~~~~~~~~~
 
 We have tested Omnipose extensively on Python version 3.8.5 and have
 encountered issues on some lower versions. Versions up to 3.10.11 have
@@ -137,8 +136,8 @@ different version. That way, there is no crosstalk between pip-installed
 packages inside and outside your environment. So if you have 3.x.y
 installed via pyenv etc., install your environment with 3.x.z instead.
 
-:header-3:`Pyenv versus Conda`
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+Pyenv versus Conda
+~~~~~~~~~~~~~~~~~~
 
 Pyenv also works great for creating an environment for installing
 Omnipose (and it also works a lot better for installing Napari alongside
@@ -150,8 +149,8 @@ finicky. You can use pyenv on Windows and macOS too, but you will need a
 conda environment for Apple Silicon GPU support (PyPi still lacks many
 package versions built for Apple Silicon).
 
-:header-3:`GPU support`
-~~~~~~~~~~~~~~~~~~~~~~~
+GPU support
+~~~~~~~~~~~
 
 Omnipose runs on CPU on macOS, Windows, and Linux. PyTorch has
 historically only supported NVIDIA GPUs, but has more more recently
@@ -266,8 +265,8 @@ automatically during training with ``--diameter <X>``. The mean cell
 diameter ``D`` is calculated from the ground truth masks and images are
 rescaled by ``X/D``.
 
-:header-2:`Project structure, feature requests, and issues`
------------------------------------------------------------
+Project structure, feature requests, and issues
+-----------------------------------------------
 
 .. _ps1:
 
