@@ -93,7 +93,6 @@ def main(args):
                     subprocess.check_call([sys.executable, "-m", "omnipose"])
                                                              
         else:
-            print('heyyyo\n')
             gui.run()
 
     else:
@@ -361,6 +360,11 @@ def main(args):
                     args.channel_axis = 0 
                 else:
                     nchan = args.nchan
+            elif args.channel_axis <= len(shape):
+                nchan = shape[args.channel_axis]
+            else:
+                logger.critical('images have %s dimensions, but channel_axis is set to %s'%(dim,args.channel_axis))
+                return
             
             rstr = 'Be sure to use --nchan {} when running the model.'.format(nchan)
             if args.nchan is None:
@@ -435,7 +439,7 @@ def main(args):
             # train segmentation model
             if args.train:
                 # with torch.autograd.profiler.profile(use_cuda=True) as prof:
-                # print('imagesize',images[0].shape)
+                # print('imagesize\n\n',images[0].shape,labels[0].shape)
                 cpmodel_path = model.train(images, labels, links, train_files=image_names,
                                            test_data=test_images, 
                                            test_labels=test_labels, 

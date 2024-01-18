@@ -1,18 +1,106 @@
 import torch
-from .utils import torch_norm
+from .utils import torch_norm, kernel_setup
 from torchvf.losses import ivp_loss
 import numpy as np
+from .core import steps_interp_batch, _get_affinity_torch, divergence_torch, _gradient
+from torchvf.numerics import interp_vf, ivp_solver
+
 
 
 class EulerLoss(ivp_loss.IVPLoss):
-    def __init__(self,device):
-        super().__init__(dx=np.sqrt(2)/5,                                                   
+    def __init__(self,device,dim):
+        super().__init__(dx=np.sqrt(dim)/5,                                                   
                          # n_steps=2,
-                         n_steps=2,                                                   
+                        #  n_steps=(dim**2)//2,
+                         n_steps=dim, # maybe should be dim                                                  
                          device=device,                                                   
                          mode='nearest_batched',
                          # mode='bilinear_batched'
                         )
+        
+        
+# one way to implement affinity loss would be to get euler loss going
+
+
+class AffinityLoss(torch.nn.Module):
+
+    def __init__(self,device,dim):
+        self.device = device
+        self.dim = dim
+        self.steps, self.inds, self.idx, self.fact, self.sign = kernel_setup(self.dim)
+        super().__init__()
+        
+        self.MSE = torch.nn.MSELoss(reduction='mean')
+        self.BCE = torch.nn.BCELoss(reduction='mean')
+
+    def forward(self,flow_pred,dist_pred,flow_gt,dist_gt): # y is GT, x is predicted 
+    
+        torch.autograd.set_detect_anomaly(True)
+
+        mask_threshold = 0
+        # foreground must be union of x and y foregrounds             
+        foreground = torch.logical_or(dist_pred >= mask_threshold, dist_gt >= mask_threshold)
+    
+        # vf = interp_vf(flow_pred/5., mode = "nearest_batched")
+        # initial_points = init_values_semantic(foreground, device=self.device)
+        
+        shape = flow_pred.shape
+        B = shape[0]
+        dims = shape[-self.dim:]
+
+        coords = [torch.arange(0, l, device = self.device) for l in dims]
+        mesh = torch.meshgrid(coords, indexing = "ij")
+        init_shape = [B, 1] + ([1] * len(dims))
+        initial_points = torch.stack(mesh, dim = 0) # torchvf flips with mesh[::-1]
+        initial_points = initial_points.repeat(init_shape).float()
+
+        coords = torch.nonzero(foreground,as_tuple=True)
+
+        cell_px = (Ellipsis,)+coords[-self.dim:]
+        # if niter is None:
+        #     niter = int(2*(self.dim+1)*torch.mean(dist_pred[(Ellipsis,)+coords]) / 2)
+        niter = 10
+        
+        # this shoudl be paralleized 
+        ags = []
+        fps = []
+        bds = []
+        for f,d in zip([flow_pred,flow_gt],[dist_pred,dist_gt]):
+            # final_points = initial_points.clone()
+            # final_p, traced_p = steps_interp_batch(initial_points[cell_px],
+            #                                         flow_pred/5., #<<<<<<<<<<< add support for other options here 
+            #                                         niter=niter, omni=True)
+            # final_points[cell_px] = final_p.squeeze()
+            vf = interp_vf(f, mode = "nearest_batched")
+            final_points = ivp_solver(vf,
+                                      initial_points, 
+                                        dx = np.sqrt(self.dim)/5,
+                                        n_steps = 2,
+                                        solver = "euler")[-1] 
+            
+            fps.append(final_points)
+
+            affinity_graph = _get_affinity_torch(initial_points, 
+                                                final_points, 
+                                                f/5., #<<<<<<<<<<< add support for other options here 
+                                                d, 
+                                                foreground, 
+                                                self.steps,
+                                                self.fact,
+                                                niter,
+                                                )
+            ags.append(affinity_graph*1.0)
+            
+            csum = torch.sum(affinity_graph,axis=1)
+            bds.append(1.0*torch.logical_and(csum<(3**self.dim-1),csum>=self.dim))
+        
+        # lossA = self.BCE(*ags)
+        lossA = self.MSE(*ags)
+        lossE = self.MSE(*fps)
+        lossB = self.BCE(*bds) # zeor?
+        # print(lossA,lossE,lossB)
+        return lossA, lossE, lossB
+            
 
 
 class WeightedMSELoss(torch.nn.Module):
@@ -20,7 +108,7 @@ class WeightedMSELoss(torch.nn.Module):
         super().__init__()
 
     def forward(self,y,Y,w):
-        return torch.mean(torch.square((y-Y)/5.)*w)
+        return torch.mean(torch.square(y-Y)*w)
 
 
 class SineSquaredLoss(torch.nn.Module):
@@ -59,7 +147,8 @@ class SSL_Norm(torch.nn.Module):
         magX = torch_norm(x,dim=1)
         magY = torch_norm(y,dim=1)
         denom = torch.multiply(magX,magY)
-        dot = torch.sum(torch.stack([x[:,k]*y[:,k] for k in range(x.shape[1])],dim=1),dim=1)
+        # dot = torch.sum(torch.stack([x[:,k]*y[:,k] for k in range(x.shape[1])],dim=1),dim=1)
+        dot = (x * y).sum(dim=1)
         # cossq = torch.where(denom>eps,dot/(denom+eps),1)**2 #golden 
         # cossq = torch.where(denom>0,dot/(denom+eps),1)**2 
         
@@ -88,12 +177,25 @@ class SSL_Norm(torch.nn.Module):
         # SSL = torch.mean((1-cossq)*bd)*10 # upweight here for experiment
         
         # reduce these terms by a bit to avoid some artifacts, decent 
-#         NL = torch.mean(torch.square(mask*magY-magX)*bd)/2 
+        # NL = torch.mean(torch.square(mask*magY-magX)*bd)/2 
 #         SSL = torch.mean((1-cossq)*bd)*6 # upweight here for experiment
         
+        # golden
         # reduce further to get performance back maybe? This worked very, very well 
-        NL = (torch.mean(torch.square(mask*magY-magX)*bd)/2+torch.mean(torch.square(magX-magY))/25)/2
-        SSL = torch.mean((1-cossq)*bd)*4
+        # NL = (torch.mean(torch.square(mask*magY-magX)*bd)/2+torch.mean(torch.square(magX-magY))/25)/2
+        # SSL = torch.mean((1-cossq)*bd)*4
+        
+        s = torch.square(magY-magX)
+        NL = (torch.mean(s*bd)/2+torch.mean(s)/25)/2
+        sel = torch.where(bd)
+        SSL = torch.mean((1-cossq[sel]))
+        
+        
+        
+        # see if SSL should be weighted instead of purely masked by bd 
+        # NL = (torch.mean(torch.square(mask*magY-magX)*w)/2+torch.mean(torch.square(magX-magY))/25)/2
+        # SSL = torch.mean((1-cossq)*w)*4
+        
         
         # I think that I can simplify the NL a lot by just making the appropriate weight matrix
         # might as well apply it to SSL instead of just bd, but then the overall factor needs to go back up
@@ -180,4 +282,42 @@ class DerivativeLoss(torch.nn.Module):
         sel = torch.where(mask) # read that masked selection could be causing this 
         return torch.mean(torch.sum(torch.square((dy-dY)/5.),axis=0)[sel]*w[sel])    
     
+
+# it will probably be better just to do the gradient for the whole image....
+# i.e use a constant affinity graph 
+# class EikonalLoss(torch.nn.Module):
+#     def __init__(self,device,dim):
+#         self.device = device
+#         steps,inds,idx,fact,sign = utils.kernel_setup(dim)
+#         self.dim = torch.tensor(dim,device=device)
+#         self.idx = torch.tensor(idx)
+#         self.fact = torch.tensor(fact)
+#         self.steps = torch.tensor(steps,device=device)        
+#         self.inds = tuple([torch.tensor(i) for i in inds])
+            
+        
+#         super().__init__()
+
+#     def forward(self,dist_pred,flow_gt,mask):
+#     neighbors = utils.get_neighbors(coords,steps,d,shape,edges) # shape (d,3**d,npix)   
     
+    
+#         isneigh = torch.tensor(affinity_graph,device=device,dtype=torch.bool) 
+#         neigh_inds = torch.tensor(neigh_inds,device=device)
+#         central_inds = torch.tensor(central_inds,device=device,dtype=torch.long)
+        
+#         # get the gradient of the predicted distance field
+#         T = dist_pred[mask]
+
+
+class CorrelationLoss(torch.nn.Module):
+    def __init__(self):
+        super().__init__()
+
+    def forward(self,x,y):
+        vx = x - torch.mean(x, dim=0)
+        vy = y - torch.mean(y, dim=0)
+        num = torch.sum(vx * vy, dim=0)
+        denom = torch.sum(vx**2, dim=0) * torch.sum(vy**2, dim=0)
+        cost = torch.where(denom>0,num/torch.sqrt(denom),-1)
+        return -torch.mean(cost) 

@@ -22,6 +22,18 @@ import fastremap
 
 from numba import njit
 import functools
+import itertools
+
+import logging, sys
+logging.basicConfig(
+                    level=logging.INFO,
+                    format="%(asctime)s [%(levelname)s] %(message)s",
+                    handlers=[
+                        logging.StreamHandler(sys.stdout)
+                    ]
+                )
+
+omnipose_logger = logging.getLogger(__name__)
 
 
 
@@ -40,6 +52,15 @@ torch_GPU = torch.device('mps') if ARM else torch.device('cuda')
 torch_CPU = torch.device('cpu')
 
 
+def find_files(directory, suffix, exclude_suffixes=[]):
+    for root, dirs, files in os.walk(directory):
+        for basename in files:
+            name, ext = os.path.splitext(basename)
+            if name.endswith(suffix) and not any(name.endswith(exclude) for exclude in exclude_suffixes):
+                filename = os.path.join(root, basename)
+                yield filename
+                
+
 def findbetween(s,string1='[',string2=']'):
     """Find text between string1 and string2."""
     return re.findall(str(re.escape(string1))+"(.*)"+str(re.escape(string2)),s)[0]
@@ -55,6 +76,203 @@ def to_16_bit(im):
 def to_8_bit(im):
     """Rescale image [0,2^8-1] and then cast to uint8."""
     return np.uint8(rescale(im)*(2**8-1))
+    
+
+### This section defines the tiling functions 
+def get_module(x):
+    if isinstance(x, (np.ndarray, tuple, int, float)):
+        return np
+    elif torch.is_tensor(x):
+        return torch
+    else:
+        raise ValueError("Input must be a numpy array, a tuple, a torch tensor, an integer, or a float")
+        
+def get_flip(idx):
+    module = get_module(idx)
+    return tuple([slice(None,None,None) if i%2 else 
+                  slice(None,None,-1) for i in idx])
+
+
+def _taper_mask_ND(shape=(224,224), sig=7.5):
+    dim = len(shape)
+    bsize = max(shape)
+    xm = np.arange(bsize)
+    xm = np.abs(xm - xm.mean())
+    # 1D distribution 
+    mask = 1/(1 + np.exp((xm - (bsize/2-20)) / sig)) 
+    # extend to ND
+    for j in range(dim-1):
+        mask = mask * mask[..., np.newaxis]
+    slc = tuple([slice(bsize//2-s//2,bsize//2+s//2+s%2) for s in shape])
+    mask = mask[slc]
+    return mask
+
+def unaugment_tiles_ND(y, inds, unet=False):
+    """ reverse test-time augmentations for averaging
+
+    Parameters
+    ----------
+
+    y: float32
+        array of shape (ntiles, nchan, *DIMS)
+        where nchan = (*DP,distance) (and boundary if nlasses=3)
+
+    unet: bool (optional, False)
+        whether or not unet output or cellpose output
+    
+    Returns
+    -------
+
+    y: float32
+
+    """
+    module = get_module(y)
+    dim = len(inds[0])
+    for i,idx in enumerate(inds): 
+        flip = get_flip(idx)
+        factor = module.array([1 if i%2 else -1 for i in idx])
+        y[i] = y[i][(Ellipsis,)+flip]
+        if not unet:
+            y[i][:dim] = [s*f for s,f in zip(y[i][:dim],factor)]
+    return y
+
+def average_tiles_ND(y,subs,shape):
+    """ average results of network over tiles
+
+    Parameters
+    -------------
+
+    y: float, [ntiles x nclasses x bsize x bsize]
+        output of cellpose network for each tile
+
+    subs : list
+        list of slices for each subtile 
+
+    shape : int, list or tuple
+        shape of pre-tiled image (may be larger than original image if
+        image size is less than bsize)
+
+    Returns
+    -------------
+
+    yf: float32, [nclasses x Ly x Lx]
+        network output averaged over tiles
+    """
+    module = get_module(y)
+    is_torch = module.__name__ == 'torch'
+    if is_torch:
+        params = {'device':y.device,'dtype':torch.float32} 
+    else:
+        params = {'dtype':np.float32}
+    
+    Navg = module.zeros(shape,**params)
+    yf = module.zeros((y.shape[1],)+shape, **params)
+    mask = _taper_mask_ND(y.shape[-len(shape):])
+    
+    if is_torch:
+        mask = torch.tensor(mask,device=y.device)
+        
+    for j,slc in enumerate(subs):
+        yf[(Ellipsis,)+slc] += y[j] * mask
+        Navg[slc] += mask
+    yf /= Navg
+    return yf
+
+def make_tiles_ND(imgi, bsize=224, augment=False, tile_overlap=0.1, normalize=True):
+    """ make tiles of image to run at test-time
+
+    if augmented, tiles are flipped and tile_overlap=2.
+        * original
+        * flipped vertically
+        * flipped horizontally
+        * flipped vertically and horizontally
+
+    Parameters
+    ----------
+    imgi : float32
+        array that's nchan x Ly x Lx
+
+    bsize : float (optional, default 224)
+        size of tiles
+
+    augment : bool (optional, default False)
+        flip tiles and set tile_overlap=2.
+
+    tile_overlap: float (optional, default 0.1)
+        fraction of overlap of tiles
+
+    Returns
+    -------
+    IMG : float32
+        tensor of shape ntiles,nchan,bsize,bsize
+
+    subs : list
+        list of slices for each subtile
+
+    shape : tuple
+        shape of original image
+
+    """
+    module = get_module(imgi)
+    nchan = imgi.shape[0]
+    shape = imgi.shape[1:]
+    dim = len(shape)
+    inds = []
+    if augment:
+        bsize = int(bsize)
+        pad_seq = [(0,0)]+[(0,max(0,bsize-s))for s in shape]
+        imgi = module.pad(imgi,pad_seq)
+        shape = imgi.shape[-dim:]
+        ntyx = [max(2, int(module.ceil(2. * s / bsize))) for s in shape]
+        start = [module.linspace(0, s-bsize, n).astype(int) for s,n in zip(shape,ntyx)]
+        intervals = [[slice(si,si+bsize) for si in s] for s in start]
+        subs = list(itertools.product(*intervals))
+        indexes = [module.arange(len(s)) for s in start]
+        inds = list(itertools.product(*indexes))
+        IMG = []
+        for slc,idx in zip(subs,inds):        
+            flip = get_flip(idx)
+            IMG.append(imgi[(Ellipsis,)+slc][(Ellipsis,)+flip])
+        IMG = module.stack(IMG)
+    else:
+        tile_overlap = min(0.5, max(0.05, tile_overlap))
+        bbox = tuple([int(min(bsize,s)) for s in shape])
+        ntyx = [1 if s<=bsize else int(np.ceil((1.+2*tile_overlap) * s / bsize)) 
+                for s in shape]
+        start = [np.linspace(0, s-b, n).astype(int) for s,b,n in zip(shape,bbox,ntyx)]
+        intervals = [[slice(si,si+bsize) for si in s] for s in start]
+        subs = list(itertools.product(*intervals))
+        
+        IMG = module.stack([imgi[(Ellipsis,)+slc] for slc in subs])
+        
+        if normalize:
+            omnipose_logger.info('Running on tiles. Now normalizing each tile separately.')
+            IMG = normalize99(IMG,dim=0)
+            
+        else:
+            omnipose_logger.info('rescaling stack as a whole')
+            IMG = rescale(IMG)
+            
+            
+    return IMG, subs, shape, inds
+
+
+
+def generate_slices(image_shape, crop_size):
+    """Generate slices for cropping an image into crops of size crop_size."""
+    num_crops = [math.ceil(s / crop_size) for s in image_shape]
+    I,J = range(num_crops[0]),range(num_crops[1])
+    slices = [[[] for j in  J] for i in I]
+    for i in I:
+        row_start = i * crop_size
+        row_end = min((i + 1) * crop_size, image_shape[0])
+        for j in J:
+            col_start = j * crop_size
+            col_end = min((j + 1) * crop_size, image_shape[1])
+            # slices.append((slice(row_start, row_end), slice(col_start, col_end)))
+            slices[i][j] = (slice(row_start, row_end), slice(col_start, col_end))
+            
+    return slices, num_crops
 
 def shifts_to_slice(shifts,shape):
     """
@@ -127,6 +345,108 @@ def shift_stack(imstack, shifts, order=1, cval=None):
                                cval=np.nanmean(imstack[i]) if cval is None else cval)   
     return regstack
 
+
+# GPU version
+import torch
+import torch.fft
+
+# def phase_cross_correlation_GPU(target, moving_images):
+
+#     # Assuming target is a 2D tensor [height, width]
+#     # and moving_images is a 3D tensor [num_images, height, width]
+
+#     # Expand dims of target to match moving_images
+#     target = target.unsqueeze(0)
+#     # print(target.shape,moving_images.shape)
+#     # Compute FFT of images
+#     target_fft = torch.fft.fftn(target, dim=[-2, -1])
+#     moving_fft = torch.fft.fftn(moving_images, dim=[-2, -1])
+    
+#     # print(target_fft.shape,moving_fft.shape)
+    
+#     # Compute cross-correlation by multiplying with complex conjugate
+#     cross_corr = torch.fft.ifftn(target_fft * moving_fft.conj(), dim=[-2, -1]).real
+    
+#     # Find peak in cross-correlation
+#     max_indices = torch.argmax(cross_corr.view(cross_corr.shape[0], -1), dim=1)
+    
+#     # Convert flat indices to 2D indices
+#     height = cross_corr.shape[-2]
+#     width = cross_corr.shape[-1]
+#     shifts_y = max_indices // width
+#     shifts_x = max_indices % width
+
+#     # Adjust shifts to fall within the correct range
+#     # make sure shift vector points in the right direction 
+#     shifts_y =  height // 2 - (shifts_y + height // 2) % height
+#     shifts_x =  width // 2 - (shifts_x + width // 2) % width
+
+#     # Combine shifts along both dimensions into a single tensor
+#     shifts = torch.stack([shifts_y, shifts_x], dim=-1)
+#     return shifts
+
+def phase_cross_correlation_GPU(image_stack, target_index):
+    # Assuming image_stack is a 3D tensor [num_images, height, width]
+    # and target_index is an integer
+
+    target_image = image_stack[target_index].unsqueeze(0)
+    moving_images = torch.cat([image_stack[:target_index], image_stack[target_index+1:]])
+
+    target_fft = torch.fft.fftn(target_image, dim=[-2, -1])
+    moving_fft = torch.fft.fftn(moving_images, dim=[-2, -1])
+
+    cross_corr = torch.fft.ifftn(target_fft * moving_fft.conj(), dim=[-2, -1]).real
+
+    max_indices = torch.argmax(cross_corr.view(cross_corr.shape[0], -1), dim=1)
+
+    height = cross_corr.shape[-2]
+    width = cross_corr.shape[-1]
+    shifts_y = max_indices // width
+    shifts_x = max_indices % width
+
+    shifts_y =  height // 2 - (shifts_y + height // 2) % height
+    shifts_x =  width // 2 - (shifts_x + width // 2) % width
+
+    shifts = torch.stack([shifts_y, shifts_x], dim=-1)
+
+    # Insert a zero shift at the target index
+    zero_shift = torch.zeros(1, 2, device=image_stack.device)
+    shifts = torch.cat([shifts[:target_index], zero_shift, shifts[target_index:]])
+
+    return shifts.long()
+
+
+def apply_shifts(moving_images, shifts):
+    # Assuming moving_images is a 3D tensor [num_images, height, width]
+    # and shifts is a 2D tensor [num_images, 2] (y, x)
+
+    N, H, W = moving_images.shape
+    max_shift_y = shifts[:, 0].abs().max().item()
+    max_shift_x = shifts[:, 1].abs().max().item()
+
+    # Create a grid of indices
+    grid_y, grid_x = torch.meshgrid(torch.arange(max_shift_y, H - max_shift_y), torch.arange(max_shift_x, W - max_shift_x))
+    grid_y = grid_y.to(shifts.device)
+    grid_x = grid_x.to(shifts.device)
+
+    # Apply the shifts to the grid of indices
+    grid_y = grid_y[None] + shifts[:, 0][:, None, None]
+    grid_x = grid_x[None] + shifts[:, 1][:, None, None]
+
+    # Use the shifted grid of indices to index into moving_images
+    intersection = moving_images[torch.arange(N)[:, None, None], grid_y, grid_x]
+
+    return intersection
+
+
+def unravel_index(index, shape):
+    out = []
+    for dim in reversed(shape):
+        out.append(index % dim)
+        index = index // dim
+    return tuple(reversed(out))
+
+
 def normalize_field(mu,use_torch=False,cutoff=0):
     """ normalize all nonzero field vectors to magnitude 1
     
@@ -162,11 +482,33 @@ def torch_norm(a,dim=0,keepdim=False):
         return torch.linalg.norm(a,dim=dim,keepdim=keepdim)
 
 # @njit
-def safe_divide(num,den,cutoff=0):
-    """ Division ignoring zeros and NaNs in the denominator.""" 
-    return np.divide(num, den, out=np.zeros_like(num), 
-                     where=np.logical_and(den>cutoff,~np.isnan(den)))        
+# def safe_divide(num,den,cutoff=0):
+#     """ Division ignoring zeros and NaNs in the denominator.""" 
+#     # module = get_module(num) # assume num and den are the same type
 
+#     # return np.divide(num, den, out=np.zeros_like(num), 
+#     #                  where=np.logical_and(den>cutoff,~np.isnan(den)))        
+    
+#     if isinstance(num, np.ndarray):
+#         return np.divide(num, den, out=np.zeros_like(num), 
+#                          where=np.logical_and(den>cutoff,~np.isnan(den)))
+#     elif isinstance(num, torch.Tensor):
+#         return torch.where((den > cutoff) & torch.isfinite(den), num / den, torch.zeros_like(num))
+#     else:
+#         raise TypeError("num must be a numpy array or a PyTorch tensor")
+
+# def safe_divide(num, den, cutoff=0):
+#     """ Division ignoring zeros and NaNs in the denominator.""" 
+#     module = get_module(num)
+#     return module.where((den > cutoff) & module.isfinite(den) & (den>0), 
+#                         module.divide(num, den), 
+#                         module.zeros_like(num))
+
+def safe_divide(num, den, cutoff=0):
+    """ Division ignoring zeros and NaNs in the denominator.""" 
+    module = get_module(num)
+    valid_den = (den > cutoff) & module.isfinite(den) #isfinite catches both nan and inf
+    return module.divide(num, den, out=module.zeros_like(num,dtype=module.float64), where=valid_den)
 
 def normalize99(Y, lower=0.01, upper=99.99, dim=None):
     """ normalize array/tensor so 0.0 is 0.01st percentile and 1.0 is 99.99th percentile 
@@ -196,10 +538,12 @@ def normalize99(Y, lower=0.01, upper=99.99, dim=None):
         quantiles = torch.tensor(quantiles, dtype=Y.dtype, device=Y.device)
     else:
         raise ValueError("Input should be either a numpy array or a torch tensor.")
+        
     if dim is not None:
         # Reshape Y into a 2D tensor for quantile computation
-        Y_reshaped = Y.transpose(0, dim).reshape(Y.shape[dim], -1)
-        lower_val, upper_val = module.quantile(Y_reshaped, quantiles, dim=-1)
+        Y_flattened = Y.reshape(Y.shape[dim], -1)
+
+        lower_val, upper_val = module.quantile(Y_flattened, quantiles, axis=-1)        
         
         # Reshape back into original shape for broadcasting
         if dim == 0:
@@ -209,15 +553,49 @@ def normalize99(Y, lower=0.01, upper=99.99, dim=None):
             lower_val = lower_val.reshape(*Y.shape[:dim], *([1] * (len(Y.shape) - dim - 1)))
             upper_val = upper_val.reshape(*Y.shape[:dim], *([1] * (len(Y.shape) - dim - 1)))
     else:
-        lower_val, upper_val = module.quantile(Y, quantiles)
-        
+        # lower_val, upper_val = module.quantile(Y, quantiles)
+        try:
+            lower_val, upper_val = module.quantile(Y, quantiles)
+        except RuntimeError:
+            lower_val, upper_val = auto_chunked_quantile(Y, quantiles)
+
+    # print('hff',upper_val,lower_val.shape)
     # Y = module.clip(Y, lower_val, upper_val) # is this needed? 
     # Y -= lower_val
     # Y /= (upper_val - lower_val)
     
     # return Y
     # return (Y-lower_val)/(upper_val-lower_val)
-    return module.clip((Y-lower_val)/(upper_val-lower_val),0,1)
+    # return module.clip((Y-lower_val)/(upper_val-lower_val),0,1)
+    # return module.clip((Y-lower_val)/(upper_val-lower_val),0,1)
+    return safe_divide(Y-lower_val,upper_val-lower_val)
+    
+    
+import psutil
+def auto_chunked_quantile(tensor, q):
+    # Determine the maximum number of elements that can be handled by PyTorch's quantile function
+    max_elements = 16e6 -1  
+
+    # Determine the number of elements in the tensor
+    num_elements = tensor.nelement()
+
+    # Determine the chunk size
+    chunk_size = math.ceil(num_elements / max_elements)
+    if num_elements % max_elements != 0:
+        chunk_size += 1
+    
+    # Split the tensor into chunks
+    chunks = torch.chunk(tensor, chunk_size)
+    print('nchunk',len(chunks),num_elements,tensor.shape)
+    # Compute the quantile for each chunk
+    return torch.stack([torch.quantile(chunk, q) for chunk in chunks]).mean(dim=0)
+
+# # Usage:
+# large_tensor = torch.rand(int(2000e4))
+# q = torch.tensor([0.2, 0.9])
+
+# quantiles = auto_chunked_quantile(large_tensor, q)
+
 
 
 def normalize_image(im,mask,bg=0.5,dim=2,iterations=1,scale=1):
@@ -261,6 +639,10 @@ def normalize_image(im,mask,bg=0.5,dim=2,iterations=1,scale=1):
 
 import ncolor
 def mask_outline_overlay(img,masks,outlines,mono=None):
+    """
+    Apply a color overlay to a grayscale image based on a label matrix.
+    mono is a single color to use. Otherwise, N sinebow colors are used. 
+    """
     if mono is None:
         m,n = ncolor.label(masks,max_depth=20,return_n=True)
         c = sinebow(n)
@@ -287,27 +669,52 @@ def moving_average(x, w):
     return convolve1d(x,np.ones(w)/w,axis=0)
 
 
-def rescale(T,floor=None,ceiling=None):
-    """Rescale array between 0 and 1"""
+# def rescale(T,floor=None,ceiling=None):
+#     """Rescale array between 0 and 1"""
+#     if ceiling is None:
+#         ceiling = T[:].max()
+#     if floor is None:
+#         floor = T[:].min()
+#     T = np.interp(T, (floor, ceiling), (0, 1))
+#     return T
+    
+
+def rescale(T, floor=None, ceiling=None, dim=None):
+    """Rescale data between 0 and 1"""
+    # module = torch if isinstance(T, torch.Tensor) else np
+    module = get_module(T)
+    if dim is not None:
+        axes = tuple(i for i in range(T.ndim) if i != dim)
+    else:
+        axes = None
+
     if ceiling is None:
-        ceiling = T[:].max()
+        ceiling = module.amax(T, axis=axes)
+        if dim is not None:
+            ceiling = ceiling.reshape(*[1 if i != dim else -1 for i in range(T.ndim)])
     if floor is None:
-        floor = T[:].min()
-    T = np.interp(T, (floor, ceiling), (0, 1))
+        floor = module.amin(T, axis=axes)
+        if dim is not None:
+            floor = floor.reshape(*[1 if i != dim else -1 for i in range(T.ndim)])
+
+    # T = (T - floor) / (ceiling - floor)
+    T = safe_divide(T - floor,ceiling - floor)
+    # T = module.clip((T - floor)/(ceiling - floor),0,1)
+
     return T
 
-
-def normalize_stack(vol,mask,bg=0.5,bright_foreground=None,subtractive=False,iterations=1):
+def normalize_stack(vol,mask,bg=0.5,bright_foreground=None,
+                    subtractive=False,iterations=1,equalize_foreground=1,quantiles=[0.01,0.99]):
     """
     Adjust image stacks so that background is 
     (1) consistent in brightness and 
     (2) brought to an even average via semantic gamma normalization.
     """
-    
     # vol = rescale(vol)
     vol = vol.copy()
     # binarize background mask, recede from foreground, slice-wise to not erode in time
-    bg_mask = [binary_erosion(m==0,iterations=iterations) for m in mask] 
+    kwargs = {'iterations':iterations} if iterations>1 else {}
+    bg_mask = [binary_erosion(m==0,**kwargs) for m in mask] 
     # find mean backgroud for each slice
     bg_real = [np.nanmean(v[m]) for v,m in zip(vol,bg_mask)] 
     
@@ -326,22 +733,36 @@ def normalize_stack(vol,mask,bg=0.5,bright_foreground=None,subtractive=False,ite
         vol = np.stack([safe_divide(v-bg_r,bg_min) for v,bg_r in zip(vol,bg_real)]) 
     else:
         vol = np.stack([v*safe_divide(bg_min,bg_r) for v,bg_r in zip(vol,bg_real)]) 
-    
+    # print('mm',vol.min(),vol.max(),bright_foreground)
     # equalize foreground signal
-    if bright_foreground:
-        fg_real = [np.percentile(v[m>0],99.99) for v,m in zip(vol,mask)]
-        # fg_real = [v.max() for v,m in zip(vol,bg_mask)]    
-        floor = np.percentile(vol[bg_mask],0.01)
-        vol = [rescale(v,ceiling=f, floor=floor) for v,f in zip(vol,fg_real)]
-    else:
-        fg_real = [np.percentile(v[m>0],1) for v,m in zip(vol,mask)]
-        ceiling = np.percentile(vol[bg_mask],99.99)
-        vol = [rescale(v,ceiling=ceiling,floor=f) for v,f in zip(vol,fg_real)]
-        
+    if equalize_foreground:
+        q1,q2 = quantiles
+    
+        if bright_foreground:
+            fg_real = [np.percentile(v[m>0],99.99) for v,m in zip(vol,mask)]
+            # fg_real = [v.max() for v,m in zip(vol,bg_mask)]    
+            floor = np.percentile(vol[bg_mask],0.01)
+            vol = [rescale(v,ceiling=f, floor=floor) for v,f in zip(vol,fg_real)]
+        else:
+            fg_real = [np.quantile(v[m>0],q1) for v,m in zip(vol,mask)]
+            # fg_real = [.5]*(len(vol))
+            # ceiling = np.percentile(vol[bg_mask],99.99)
+            
+            # print('hh',np.any(np.stack(fg_real)<0),np.any(np.stack(fg_real)>ceiling),ceiling,np.mean(fg_real))
+            # vol = [rescale(v,ceiling=ceiling,floor=f) for v,f in zip(vol,fg_real)]
+            # ceiling =  [np.percentile(v[m],99.99) for v,m in zip(vol,mask==0)]#bg_mask
+            ceiling =  np.quantile(vol,q2,axis=(-2,-1))
+            vol = [np.interp(v,(f, c), (0, 1)) for v,f,c in zip(vol,fg_real,ceiling)]
+            
+    # print([(np.max(v),np.min(v)) for v,bg_m in zip(vol,bg_mask)])
+    vol = np.stack(vol)
+    
     # vol = rescale(vol) # now rescale by overall min and max 
     vol = np.stack([v**(np.log(bg)/np.log(np.mean(v[bg_m]))) for v,bg_m in zip(vol,bg_mask)]) # now can gamma normalize 
     return vol
 
+def is_integer(var):
+    return isinstance(var, int) or isinstance(var, np.integer) or (isinstance(var, torch.Tensor) and var.is_integer())
 
 def bbox_to_slice(bbox,shape,pad=0,im_pad=0):
     """
@@ -371,13 +792,15 @@ def bbox_to_slice(bbox,shape,pad=0,im_pad=0):
     
     """
     dim = len(shape)
-    if type(pad) is int:
+    # if type(pad) is int:
+    if is_integer(pad):
         pad = [pad]*dim
-    if type(im_pad) is int:
+    # if type(im_pad) is int:
+    if is_integer(im_pad):
         im_pad = [im_pad]*dim
     # return tuple([slice(int(max(0,bbox[n]-pad[n])),int(min(bbox[n+dim]+pad[n],shape[n]))) for n in range(len(bbox)//2)])
     # added a +1 to stop, might be a necessary fix but not sure yet 
-    print('im_pad',im_pad, bbox, pad, shape)
+    # print('im_pad',im_pad, bbox, pad, shape)
     one = 0
     return tuple([slice(int(max(im_pad[n],bbox[n]-pad[n])),
                         int(min(bbox[n+dim]+pad[n]+one,shape[n]-im_pad[n]))) 
@@ -427,7 +850,7 @@ def crop_bbox(mask, pad=10, iterations=3, im_pad=0, area_cutoff=0,
             if props.area>area_cutoff:
                 bbx = props.bbox 
                 minpad = min(pad,bbx[0],bbx[1],sz[0]-bbx[2],sz[1]-bbx[3])
-                print(minpad,'m',im_pad)
+                # print(minpad,'m',im_pad)
                 slices.append(bbox_to_slice(bbx,sz,pad=minpad,im_pad=im_pad))
     
     # merge into a single slice 
@@ -689,6 +1112,8 @@ def get_neigh_inds(neighbors,coords,shape,background_reflect=False):
     # not sure if -1 is general enough, probbaly should be since other adjacent masks will be unlinked
     # can test it by adding some padding to the concatenation...
     
+    # also, the reflections should be happening at edges of the image, but it is not? 
+    
     return indexes, neigh_inds, ind_matrix
 
 
@@ -732,6 +1157,8 @@ def subsample_affinity(augmented_affinity,slc,mask):
     in_mask_and_bounds = np.logical_and(in_bounds,in_mask)
 
     inds_crop = np.nonzero(in_mask_and_bounds)[0]
+    
+    # print('y',len(inds_crop),np.sum(in_mask_and_bounds), np.sum(in_bounds), np.sum(in_mask))
 
     if len(inds_crop):    
         crop_neighbors = neighbors[:,:,inds_crop]

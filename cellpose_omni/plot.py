@@ -169,6 +169,7 @@ def show_segmentation(fig, img, maski, flowi, bdi=None, channels=None, file_name
                                   bg_label=0,
                                   alpha=np.stack([((m>0)*1.+outlines*0.75)/3]*3,axis=-1))
     
+
     else:
         overlay = mask_overlay(img0, maski)
 
@@ -356,7 +357,9 @@ def disk(med, r, Ly, Lx):
     x = xx[inds].flatten()
     return y,x
 
-def outline_view(img0, maski, boundaries=None, color=[1,0,0], channels=None, channel_axis=-1, mode='inner',connectivity=2):
+def outline_view(img0, maski, boundaries=None, color=[1,0,0], 
+                 channels=None, channel_axis=-1, 
+                 mode='inner',connectivity=2,skip_formatting=False):
     """
     Generates a red outline overlay onto image.
     """
@@ -364,7 +367,9 @@ def outline_view(img0, maski, boundaries=None, color=[1,0,0], channels=None, cha
     if np.max(color)<=1:
         color = np.array(color)*(2**8-1)
     
-    img0 = image_to_rgb(img0, channels=channels, channel_axis=channel_axis, omni=True)
+    if not skip_formatting:
+        img0 = image_to_rgb(img0, channels=channels, channel_axis=channel_axis, omni=True)
+    
     if boundaries is None:
         if SKIMAGE_ENABLED:
             outlines = find_boundaries(maski,mode=mode,connectivity=connectivity) #not using masks_to_outlines as that gives border 'outlines'

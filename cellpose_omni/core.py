@@ -7,6 +7,9 @@ import tempfile
 import cv2
 from scipy.stats import mode
 from . import transforms, dynamics, utils, metrics, io
+from omnipose.plot import rgb_flow
+# from acb_mse import ACBLoss
+# print('need to add acb_mse to deps')
 
 import omnipose
 
@@ -335,7 +338,8 @@ class UnetModel():
 
     def _to_device(self, x):
         if self.torch:
-            X = torch.tensor(x,device=self.device).float()
+            # X = torch.tensor(x,device=self.device).float()
+            X = torch.tensor(x,device=self.device,dtype=torch.float32) #specify float32 for mps            
         else:
             #if x.dtype != 'bool':
             X = nd.array(x.astype(np.float32), ctx=self.device)
@@ -610,7 +614,6 @@ class UnetModel():
                                                               tile_overlap=tile_overlap) #<<<
             # IMG now always returned in the form (ny*nx, nchan, ly, lx) 
             # for either tiling or augmenting
-            
             batch_size = self.batch_size
             niter = int(np.ceil(IMG.shape[0] / batch_size))
             nout = self.nclasses + 32*return_conv
@@ -887,6 +890,9 @@ class UnetModel():
         else:
             self.optimizer.set_learning_rate(lr)
 
+
+
+
     def _set_criterion(self):
         if self.unet:
             if self.torch:
@@ -903,7 +909,17 @@ class UnetModel():
                 self.criterion15 = omnipose.loss.NormLoss()
                 self.criterion17 = omnipose.loss.SineSquaredLoss()
                 # self.criterion0 = ivp_loss.IVPLoss(dx=0.2, # consider increasing t0 np.sqrt(2)/5 for diagonals 
-                self.criterion0 = omnipose.loss.EulerLoss(self.device)
+                self.criterion0 = omnipose.loss.EulerLoss(self.device,self.dim)
+                self.criterionA = omnipose.loss.AffinityLoss(self.device,self.dim)
+                self.criterionB  = nn.BCELoss(reduction='mean')
+                self.criterionD = omnipose.loss.DerivativeLoss()
+                self.criterionC = omnipose.loss.CorrelationLoss()
+                # self.criterionS =  omnipose.loss.MSSSIMLoss()
+                # Select weighting for each class if not wanting to use the defualt 1:1 weighting
+                # zero_weighting = 1.0
+                # nonzero_weighting = 1.0
+
+                # self.criterionACB = ACBLoss(zero_weighting, nonzero_weighting)
                 # self.ivp_loss =  ivp_loss.IVPLoss(dx=0.25,n_steps=8,device=self)
                 # self.criterion17 = nn.SoftmaxCrossEntropyLoss(axis=1)
                 # self.criterion17 = FocalLoss()
@@ -975,10 +991,14 @@ class UnetModel():
                 diam_test = np.array([utils.diameters(test_labels[k],omni=self.omni)[0] 
                                       for k in range(len(test_labels))])
                 diam_test[diam_test<5] = 5.
-            scale_range = 0.5
+            # scale_range = 0.5
+            scale_range = 1.5 # I now want to use this as a multiplicative factor
+            
             core_logger.info('>>>> median diameter set to = %d'%self.diam_mean)
         else:
-            scale_range = 1.0
+            # scale_range = 1.0
+            scale_range = 2.0 # I now want to use this as a multiplicative factor
+            # this means that the scale will be 1/2 to 2 instead of 1/2 to 1.5
 
         nchan = train_data[0].shape[0]
         core_logger.info('>>>> training network with %d channel input <<<<'%nchan)
@@ -1049,7 +1069,7 @@ class UnetModel():
             # consider making drop_last true... it might still be a lot faster
             # or maybe find a way to make the last several bathces a bit smaller but still large to balance load 
 
-            print('num_workers',num_workers,'batch_size', batch_size)
+            # print('num_workers',num_workers,'batch_size', batch_size)
             
             # params = {'batch_size': batch_size,
             params = {'batch_size': 1, # this batch size means something like how many worker batches to aggregate 
@@ -1117,7 +1137,7 @@ class UnetModel():
                     if timing:
                         print('\t Dataloading time  (dataloader): {:.2f}'.format(dt))
                     train_loss = self._train_step(batch_data, batch_labels)
-
+                    
                     dt = time.time()-tic
                     steptime += [dt] 
                     if timing:
@@ -1186,6 +1206,7 @@ class UnetModel():
                     # train_loss = self._train_step( self._to_device(np.stack(imgi)),  self._to_device(np.stack(lbl)))
                     train_loss = self._train_step(self._to_device(np.stack(imgi)),lbl)
 
+                    # print('yoyo debug',self._to_device(np.stack(imgi)).shape,lbl.shape)
 
                     dt = time.time()-tic
                     steptime += [dt]
@@ -1262,33 +1283,33 @@ class UnetModel():
             lsum, nsum = 0, 0
 
             if save_path is not None:
-                if iepoch==self.n_epochs-1 or iepoch%save_every==0 or (self.n_epochs-iepoch)<10:
-                    # save model at the end
-                    if save_each: #separate files as model progresses 
-                        if netstr is None:
-                            file_name = '{}_{}_{}_{}'.format(self.net_type, file_label, 
-                                                             d.strftime("%Y_%m_%d_%H_%M_%S.%f"),
-                                                             'epoch_'+str(iepoch)) 
-                        else:
-                            file_name = '{}_{}'.format(netstr, 'epoch_'+str(iepoch))
-                    else:
-                        if netstr is None:
-                            file_name = '{}_{}_{}'.format(self.net_type, 
-                                                          file_label, 
-                                                          d.strftime("%Y_%m_%d_%H_%M_%S.%f"))
-                        else:
-                            file_name = netstr
-                    file_name = os.path.join(file_path, file_name)
-                    ksave += 1
-                    core_logger.info(f'saving network parameters to {file_name}')
+                in_final = (self.n_epochs-iepoch)<10
+                if netstr is None:
+                    netstr =  '{}_{}_{}'.format(self.net_type, file_label,
+                                                   d.strftime("%Y_%m_%d_%H_%M_%S.%f"))
+                    
+                base = netstr+'{}'
+                if iepoch==self.n_epochs-1 or iepoch%save_every==0 or in_final:
+                                            
+                    suffixes = ['']
+                    if save_each or in_final:
+                        # I will want to add a toggle for this 
+                        suffixes+=['_epoch_'+str(iepoch)]
+                    
+                    for s in suffixes:
+                        file_name = base.format(s)
+                        
+                        file_name = os.path.join(file_path, file_name)
+                        ksave += 1
+                        core_logger.info(f'saving network parameters to {file_name}')
 
-                    # self.net.save_model(file_name)
-                    # whether or not we are using dataparallel 
-                    # this logic appears elsewhere in models.py
-                    if self.torch and self.gpu:
-                        self.net.module.save_model(file_name)
-                    else:
-                        self.net.save_model(file_name)
+                        # self.net.save_model(file_name)
+                        # whether or not we are using dataparallel 
+                        # this logic appears elsewhere in models.py
+                        if self.torch and self.gpu:
+                            self.net.module.save_model(file_name)
+                        else:
+                            self.net.save_model(file_name)
 
             else:
                 file_name = save_path

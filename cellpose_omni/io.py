@@ -5,7 +5,7 @@ import cv2
 import tifffile
 import logging, pathlib, sys
 from pathlib import Path
-
+import czifile # maybe replace with aicsimageio?
 from csv import reader, writer
 
 try:
@@ -122,6 +122,13 @@ def imread(filename):
     if ext== '.tif' or ext=='.tiff':
         img = tifffile.imread(filename)
         return img
+    elif ext=='.npy':    
+        return np.load(filename)
+    elif ext=='.czi':
+        return czifile.imread(filename)
+        #     if ext in ['.tif', '.tiff', '.npy', '.czi']:
+        # img = AICSImage(filename).data
+        # return img
     else:
         try:
             img = cv2.imread(filename, -1)#cv2.LOAD_IMAGE_ANYDEPTH)
@@ -132,15 +139,24 @@ def imread(filename):
             io_logger.critical('ERROR: could not read file, %s'%e)
             return None
 
-def imsave(filename, arr):
+
+def imwrite(filename, arr):
     ext = os.path.splitext(filename)[-1]
     if ext== '.tif' or ext=='tiff':
-        tifffile.imsave(filename, arr)
+        tifffile.imwrite(filename, arr)
+    elif ext=='.npy':    
+        np.save(filename, arr)
+    elif ext=='.czi':
+        czifile.imwrite(filename, arr) # maybe replace with aicsimageio?
     else:
         if len(arr.shape)>2:
             arr = cv2.cvtColor(arr, cv2.COLOR_BGR2RGB)
         cv2.imwrite(filename, arr)
 #         skimage.io.imsave(filename, arr.astype()) #cv2 doesn't handle transparency
+
+def imsave(filename, arr):
+    io.loggwarning('WARNING: imsave is deprecated, use io.imwrite instead')
+    return imwrite(filename, arr)
 
 # now allows for any extension(s) to be specified, allowing exlcusion if necessary, non-image files, etc. 
 def get_image_files(folder, mask_filter='_masks', img_filter=None, look_one_level_down=False,

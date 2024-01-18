@@ -1,5 +1,6 @@
 from .core import *
 from .utils import *
+import subprocess
 
 # a bunch of development functions 
 
@@ -433,7 +434,8 @@ def overseg_seeds(msk, bd, mu, T, ks=1.5,
                   rskel=True,extra_peaks=None):
     skel = skeletonize(np.logical_xor(msk,bd))
     
-    div = divergence(mu)
+    # div = divergence(mu.unsqueeze(0)).squeeze().cpu().numpy()
+    div = divergence(mu) #from core
     # cf = utils.curve_filter(div,2.5)
     # cf = utils.curve_filter(skel*1.,2.5)
     # imgin = gaussian(bd-(msk>0)*1.,3)
@@ -822,14 +824,14 @@ def channel_overlay(channels, color_indexes, colors=None, a=1, cmaps=None):
     return rgb
 
 
-import torch
-def divergence(y):
-    axes = [k for k in range(len(y[0]))] #note that this only works when there are at least two images in batch 
-    dim = y.shape[1]
-    # print('divy',y.shape,y[:,0].shape)
+# import torch
+# def divergence(y):
+#     axes = [k for k in range(len(y[0]))] #note that this only works when there are at least two images in batch 
+#     dim = y.shape[1]
+#     # print('divy',y.shape,y[:,0].shape)
 
-    # return torch.stack([torch.gradient(y[:,-k],dim=k)[0] for k in dims]).sum(dim=0)
-    return torch.stack([torch.gradient(y[:,ax],dim=ax-dim)[0] for ax in axes]).sum(dim=0)
+#     # return torch.stack([torch.gradient(y[:,-k],dim=k)[0] for k in dims]).sum(dim=0)
+#     return torch.stack([torch.gradient(y[:,ax],dim=ax-dim)[0] for ax in axes]).sum(dim=0)
     
 
 
@@ -853,3 +855,180 @@ def divergence(y):
 #         result[i] = closest_point
     
 #     return result
+
+
+# def export_movie(frames,basename,basedir,scale=1,fps=15):
+#     frame_width, frame_height, nchan = frames.shape[-3:]
+#     if nchan==3:
+#         pixel_format = 'rgb48le'
+#     else:
+#         pixel_format = 'rgba64le'
+        
+#     file = os.path.join(basedir,basename+'_subprocess_lossless_h264_{}_fps.mp4'.format(fps))
+
+#     p = subprocess.Popen(['ffmpeg', '-y', '-f', 'rawvideo', '-vcodec',
+#                           'rawvideo', '-s', '{}x{}'.format(frame_height,frame_width), '-pix_fmt', pixel_format,
+#                           '-r', str(fps), '-i', '-', '-vf', 'scale=iw*{}:ih*{}:flags=neighbor'.format(scale,scale), 
+#                           '-an', '-vcodec', 'libx264','-crf','0','-preset','ultrafast',
+#                           file], stdin=subprocess.PIPE)
+
+
+#     # loop over the frames
+#     for frame in to_16_bit(frames): # I wonder if 8 bit would be interpolated too 
+#         # write frame to pipe
+#         p.stdin.write(frame.tostring())
+
+#     # close the pipe
+#     p.stdin.close()
+#     p.wait()
+
+# def export_movie(frames,basename,basedir,scale=1,fps=15):
+#     frame_width, frame_height, nchan = frames.shape[-3:]
+#     if nchan==3:
+#         pixel_format = 'rgb48le'
+#     else:
+#         pixel_format = 'rgba64le'
+        
+#     file = os.path.join(basedir,basename+'_scale_{}_fps_{}.mov'.format(scale,fps))
+
+#     p = subprocess.Popen(['ffmpeg', '-y', '-f', 'rawvideo', '-vcodec',
+#                           'rawvideo', '-s', '{}x{}'.format(frame_height,frame_width), '-pix_fmt', pixel_format,
+#                           '-r', str(fps), '-i', '-', '-vf', 'scale=iw*{}:ih*{}:flags=neighbor'.format(scale,scale), 
+#                           '-an', '-vcodec', 'prores_ks',
+#                           file], stdin=subprocess.PIPE)
+
+#     # loop over the frames
+#     for frame in to_16_bit(frames): 
+#         # write frame to pipe
+#         p.stdin.write(frame.tobytes())
+
+#     # close the pipe
+#     p.stdin.close()
+#     p.wait()
+    
+
+
+
+
+# def export_movie(frames,basename,basedir,scale=1,fps=15):
+#     frame_width, frame_height, nchan = frames.shape[-3:]
+#     if nchan==3:
+#         pixel_format = 'rgb48le'
+#     else:
+#         pixel_format = 'rgba64le'
+        
+#     file = os.path.join(basedir,basename+'_{}_fps.mp4'.format(fps))
+
+#     p = subprocess.Popen(['ffmpeg', '-y', '-f', 'rawvideo', '-vcodec',
+#                           'rawvideo', '-s', '{}x{}'.format(frame_height,frame_width), '-pix_fmt', pixel_format,
+#                           '-r', str(fps), '-i', '-', '-vf', 'scale=iw*{}:ih*{}:flags=neighbor'.format(scale,scale), 
+#                           '-an', '-vcodec', 'libx264','-preset','ultrafast',
+#                           file], stdin=subprocess.PIPE)
+
+#     # loop over the frames
+#     for frame in to_16_bit(frames): 
+#         # write frame to pipe
+#         p.stdin.write(frame.tostring())
+
+#     # close the pipe
+#     p.stdin.close()
+#     p.wait()
+def export_movie(frames, basename, basedir, scale=1, fps=15):
+    frame_width, frame_height, nchan = frames.shape[-3:]
+    if nchan == 3:
+        pixel_format = 'rgb48le'
+    else:
+        pixel_format = 'rgba64le'
+
+    file = os.path.join(basedir, basename + '_{}_fps.mp4'.format(fps))
+
+    p = subprocess.Popen(['ffmpeg', '-y', '-f', 'rawvideo', '-vcodec',
+                          'rawvideo', '-s', '{}x{}'.format(frame_height, frame_width), '-pix_fmt', pixel_format,
+                          '-r', str(fps), '-i', '-', '-f', 'lavfi', '-i', 'anullsrc', '-vf', 'scale=iw*{}:ih*{}:flags=neighbor'.format(scale, scale),
+                          '-shortest', '-c:v', 'mpeg4', '-q:v', '0',
+                          file], stdin=subprocess.PIPE)
+
+    # loop over the frames
+    for frame in to_16_bit(frames):
+        # write frame to pipe
+        p.stdin.write(frame.tostring())
+
+    # close the pipe
+    p.stdin.close()
+    p.wait()
+    
+    
+# def export_gif(frames,basename,basedir,scale=1,fps=15, loop=0, bounce=True):
+#     try:
+#         frame_width, frame_height, nchan = frames.shape[-3:]
+#         if nchan==3:
+#             pixel_format = 'rgb24'
+#         else:
+#             pixel_format = 'rgba'
+            
+#         file = os.path.join(basedir,basename+'_{}_fps.gif'.format(fps))
+
+#         p = subprocess.Popen(['ffmpeg', '-y', '-f', 'rawvideo', '-vcodec',
+#                               'rawvideo', '-s', '{}x{}'.format(frame_height,frame_width), '-pix_fmt', pixel_format,
+#                               '-r', str(fps), '-i', '-', '-vf', 'scale=iw*{}:ih*{}:flags=neighbor'.format(scale,scale), 
+#                               '-an', '-vcodec', 'gif', '-loop', str(loop),
+#                               file], stdin=subprocess.PIPE)
+
+#         # loop over the frames
+#         frames_8_bit = to_8_bit(frames)
+#         if bounce:
+#             frames_8_bit = np.concatenate((frames_8_bit, frames_8_bit[::-1]), axis=0)
+#         for frame in frames_8_bit: 
+#             # write frame to pipe
+#             p.stdin.write(frame.tobytes())
+#     except Exception as e:
+#         print(f"An error occurred: {e}")
+#     finally:
+#         # close the pipe
+#         p.stdin.close()
+#         p.wait()
+
+from scipy import ndimage
+def export_gif(frames, basename, basedir, scale=1, fps=15, loop=0, bounce=True):
+    if scale !=1:
+        frames = ndimage.zoom(frames,[1,scale,scale,1],order=0)
+        # scaling is not working with ffmpeg, so I will just scale the frames with ndimage
+        # should be timepoints x Y x X x channels
+    try:
+        if frames.ndim==4:
+            frame_width, frame_height, nchan = frames.shape[-3:]
+            if nchan==3:
+                pixel_format = 'rgb24'
+            else:
+                pixel_format = 'rgba'
+        else:
+            frame_width, frame_height = frames.shape[-2:]
+            pixel_format = 'gray'
+            # turns out this gives the same size, maybe I would need to specify the palette too
+            #
+            
+        file = os.path.join(basedir, basename+'_{}_fps_scale_{}.gif'.format(fps,scale))
+
+        p = subprocess.Popen(['ffmpeg', '-y', '-loglevel', 'error', 
+                              '-f', 'rawvideo', '-vcodec',
+                              'rawvideo', '-s', '{}x{}'.format(frame_height,frame_width), '-pix_fmt', pixel_format,
+                              '-r', str(fps), '-i', '-', '-an', 
+                            #   '-filter_complex', '[0:v]palettegen=stats_mode=single[pal],[0:v][pal]paletteuse=dither=none',
+                               '-filter_complex', '[0:v]palettegen=stats_mode=full[pal],[0:v][pal]paletteuse=dither=none',
+
+                                '-vcodec', 'gif', '-loop', str(loop),
+                              file], stdin=subprocess.PIPE)
+
+        # loop over the frames
+        frames_8_bit = to_8_bit(frames)
+        if bounce:
+            frames_8_bit = np.concatenate((frames_8_bit, frames_8_bit[::-1]), axis=0)
+        for frame in frames_8_bit: 
+            # write frame to pipe
+            p.stdin.write(frame.tobytes())
+    except Exception as e:
+        print(f"An error occurred: {e}")
+    finally:
+        # close the pipe
+        p.stdin.close()
+        p.wait()

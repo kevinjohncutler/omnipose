@@ -245,8 +245,11 @@ shared = {"color-problematic": "#818181",
             "color-toc-background": "#0000",
             "sd-color-shadow": "#0000",    
             # --color-toc-item-text--active, --color-toc-item-text
-
+            "color-highlighted-background": "#0000", # search 
             "color-sidebar-item-background--current": "#0000", # do not keep it highlighted 
+            
+            "color-sidebar-search-background": '#0000',
+            "color-sidebar-search-background--focus": '#0000',
         }
 
 dark = {
@@ -285,8 +288,8 @@ dark = {
         # --color-highlighted-background: #083563;
 
         # GUI Labels
-        "color-guilabel-background": "#08356380",
-        "color-guilabel-border": "#13395f80",
+        "color-guilabel-background": "#ff000080",
+        "color-guilabel-border": "#00ff0080",
 
         # // API documentation
         # "color-api-keyword: var(--color-foreground-secondary);
@@ -305,6 +308,10 @@ dark = {
         # "color-card-marginals-background": "red",
         # 'color-sidebar-link-text--top-level': '#0000',
         # 'text-color': '#0000',
+        
+        "color-sidebar-item-background": "#30303030", # maybe for readthedocs version
+        "color-inline-code-background": "#30303030", # for inline code
+        # --sd-color-shadow) coulduse this for shadow control
 
     }
 

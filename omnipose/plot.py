@@ -5,12 +5,15 @@ from numba import njit
 import matplotlib as mpl
 import matplotlib.pyplot as plt
 
-import matplotlib.collections as mcoll
 import types
 
 import numpy as np
 from matplotlib.backend_bases import GraphicsContextBase, RendererBase
 from matplotlib.collections import LineCollection
+from matplotlib.patches import Rectangle
+from matplotlib.transforms import Bbox
+from matplotlib.path import Path
+
 
 class GC(GraphicsContextBase):
     def __init__(self):
@@ -24,7 +27,7 @@ def custom_new_gc(self):
 def plot_edges(shape,affinity_graph,neighbors,coords,
                figsize=1,fig=None,ax=None, extent=None, slc=None, pic=None, 
                edgecol=[.75]*3+[.5],linewidth=0.15,step_inds=None,
-               cmap='inferno',origin='lower'):
+               cmap='inferno',origin='lower',bounds=None):
     
 
     nstep,npix = affinity_graph.shape 
@@ -72,7 +75,6 @@ def plot_edges(shape,affinity_graph,neighbors,coords,
         affinity_cmap = mpl.colors.ListedColormap(colors)
         pic = affinity_cmap(summed_affinity)
         
-    ax.imshow(pic[slc] if slc is not None else pic, extent=extent,origin=origin)
     
 #         # Generate random values between 0.5 and 1
 #     random_values = np.random.uniform(.75, 1, size=(len(segments),))
@@ -81,7 +83,30 @@ def plot_edges(shape,affinity_graph,neighbors,coords,
 #     colors = edgecol * random_values[:, np.newaxis]
     colors = edgecol
     
-    line_segments = mcoll.LineCollection(segments, color=colors,linewidths=linewidth)
+    ax.imshow(pic[slc] if slc is not None else pic, extent=extent,origin=origin)
+
+
+    line_segments = LineCollection(segments, color=colors,linewidths=linewidth)
+
+    # if bounds is None:
+    #     line_segments = LineCollection(segments, color=colors,linewidths=linewidth)
+
+    # # if bounds is not None:
+    # #     clip_rect = Rectangle((bounds[0], bounds[1]), bounds[2], bounds[3])
+    # #     clip_rect.set_transform(ax.transData)
+    # #     line_segments.set_clip_path(clip_rect)
+        
+    # else:
+    #     # Create a bounding box that defines the extent
+    #     bbox = Bbox.from_extents(bounds[0], bounds[1], bounds[0]+bounds[2], bounds[1]+bounds[3])
+
+    #     # Create a path for each line segment and clip it to the bounding box
+    #     clipped_segments = [Path(seg).clip_to_bbox(bbox).to_polygons() for seg in segments]
+
+    #     # Create a line collection with the clipped segments
+    #     line_segments = LineCollection(clipped_segments)
+
+
     ax.add_collection(line_segments)
     
     if newfig:
@@ -151,7 +176,7 @@ def apply_ncolor(masks,offset=0,cmap=None,max_depth=20,expand=True):
 
 def imshow(imgs, figsize=2, ax=None, hold=False, **kwargs):
     if isinstance(imgs, list):
-        fig, axs = plt.subplots(1, len(imgs), figsize=(figsize, figsize*len(imgs)), 
+        fig, axs = plt.subplots(1, len(imgs), figsize=(figsize*len(imgs), figsize), 
                                 frameon=False, facecolor = [0]*4)
         for i in range(len(imgs)):
             axs[i].imshow(imgs[i], **kwargs)
@@ -160,7 +185,9 @@ def imshow(imgs, figsize=2, ax=None, hold=False, **kwargs):
         if type(figsize) is not (list or tuple):
             figsize = (figsize, figsize)
         if ax is None:
-            fig, ax = plt.subplots(frameon=False, figsize=figsize,facecolor =[0]*4)
+            fig, ax = plt.subplots(frameon=False, 
+                                   figsize=figsize,
+                                   facecolor =[0]*4)
         else:
             hold = True
         ax.imshow(imgs, **kwargs)

@@ -3,6 +3,11 @@ import numpy as np
 import time
 from .core import random_crop_warp, masks_to_flows_batch, batch_labels
 from .utils import normalize99
+from .plot import rgb_flow
+import tifffile 
+
+from .utils import get_flip, _taper_mask_ND, unaugment_tiles_ND, average_tiles_ND, make_tiles_ND
+
 # import multiprocessing as mp
 # import imageio
 
@@ -38,14 +43,24 @@ class sampler(torch.utils.data.Sampler):
 # incidentally, this also provides a platform for doing image augmentations (combine output from rotated images etc.)
 
 class eval_set(torch.utils.data.Dataset):
-    def __init__(self, data, dim, channel_axis=0,device=torch.device('cpu'),normalize_stack=True):
+    def __init__(self, data, dim, 
+                 channel_axis=None,
+                 device=torch.device('cpu'),
+                 normalize_stack=True, 
+                 mode='reflect', 
+                 extra_pad=1, 
+                 tile=False):
         self.data = data
         self.dim = dim
         self.channel_axis = channel_axis
         self.stack = isinstance(self.data, np.ndarray)
         self.files = isinstance(self.data[0],str)
-        self.device=device
-        self.normalize_stack=normalize_stack
+        self.device = device
+        self.normalize_stack = normalize_stack
+        self.mode = mode
+        self.extra_pad = extra_pad
+        self.tile = tile
+        
     def __iter__(self):
         worker_info = mp.get_worker_info()
 
@@ -112,30 +127,60 @@ class eval_set(torch.utils.data.Dataset):
             inds = [inds]
             
         if self.stack:
-            imgs = self.data[inds].astype(float)
-        else:   
-            imgs = torch.stack([(imageio.imread(self.data[index]) if self.files else self.data[index]) for index in inds]).astype(float)
+            imgs = torch.tensor(self.data[inds].astype(float), device=self.device)
             
- 
-        imgs = torch.tensor(imgs, device=self.device)
+        else:   
+            imgs = torch.cat([torch.tensor((imageio.imread(self.data[index]).astype(float) if self.files else self.data[index].astype(float)),device=self.device) 
+                                for index in inds],dim=0)
+        
+        # print(imgs.shape,torch.tensor(self.data[0].astype(float)).shape,self.data[0].shape,self.stack,self.dim)
+        # # add a line here to cathc if already a tensor
 
         # imgs = torch.stack([normalize99(i) for i in imgs]) looks like my normalize99 function is fine...
+        # print('fdgfdg',self.channel_axis)
+        # print(imgs.shape,imgs.ndim,'aa',self.dim)
+        # if imgs.ndim == 1+self.dim:
         
-        if imgs.ndim == 1+self.dim:
-            imgs = imgs.unsqueeze(1)
-            # imgs = torch.cat([imgs,torch.zeros_like(imgs)],dim=1)
-            # print('k,jj')
-        elif not channel_axis:
-            imgs = imgs.permute([0, channel_axis] + list(range(1, channel_axis)) + list(range(channel_axis+1, imgs.ndim)))
         
-        imgs = normalize99(imgs,dim=None if self.normalize_stack else 0) # much faster on GPU now
-
+        # at this point, we have stacked the images. We need to decide if they are
+        # already stacked as a batch or if they need a batch diemnsion.
+        # We also need to add the channel dimension.
+        
+        # could assume no channels
+        # or I could assume that the list/stack has more than one entry
+        # so it will always have spatial dims, a stack dim, and maybe a channel dim
+        
+        # wait, maybe my 3D data uis not trianing right, as it seems to not run with both channel and batch dims
+        
+        # if dimension matches ndim, then no channel axis exists 
+        if imgs.ndim == self.dim:
+            imgs = imgs.unsqueeze(0) # add channel dim
+            print('aa')
+        
+       # if the channel axis exists 
+        if self.channel_axis is not None:
+        #     if self.channel_axis!=0:
+        # elif not self.channel_axis:
+        
+            dims = [0, self.channel_axis] + list(range(1, self.channel_axis)) + list(range(self.channel_axis+1, imgs.ndim))
+            print('d',dims,len(dims),imgs.shape)
+            imgs = imgs.permute(dims)
+        else:
+            imgs = imgs.unsqueeze(1) 
+        
+        # print('heretttt',self.normalize_stack)
+        # coud do try/except here... default to rscale if too large? 
+        if not self.tile:
+            # images are normalized per tile, so no need to normalize at once here, 
+            # which throws an error if the tensor it too big 
+            imgs = normalize99(imgs,dim=None if self.normalize_stack else 0) # much faster on GPU now
+        
         if no_pad:
             return imgs.squeeze()
         else:
             shape = imgs.shape[-self.dim:]
             div = 16 
-            extra = 1
+            extra = self.extra_pad
             idxs = [k for k in range(-self.dim,0)]
             Lpad = [int(div * np.ceil(shape[i]/div) - shape[i]) for i in idxs]
             lower_pad = [extra*div//2 + Lpad[k]//2 for k in range(self.dim)] # lower pad along each axis
@@ -149,14 +194,39 @@ class eval_set(torch.utils.data.Dataset):
                 pads += (lower_pad[-(k+1)],upper_pad[-(k+1)])
 
             subs = [np.arange(lower_pad[k],lower_pad[k]+shape[k]) for k in range(self.dim)]
-
-            mode = 'reflect'
+                        
             # mode = 'constant'
             # # value = torch.mean(imgs) if mode=='constant' else 0  
             # value = 0 # turns out performance on sparse cells much better if padding is zero 
-            I = torch.nn.functional.pad(imgs, pads, mode=mode,value=None)
-            
+            I = torch.nn.functional.pad(imgs, pads, mode=self.mode, value=None)            
             return I, inds, subs
+            
+    def _run_tiled(self, batch, model, 
+                   batch_size=8, augment=False, bsize=224, 
+                   tile_overlap=0.1, return_conv=False):
+        for imgi in batch:
+            IMG, subs, shape, inds = make_tiles_ND(imgi,
+                                                bsize=bsize,
+                                                augment=augment,
+                                                tile_overlap=tile_overlap) 
+            # IMG now always returned in the form (ny*nx, nchan, ly, lx) 
+            # for either tiling or augmenting
+            
+            niter = int(np.ceil(IMG.shape[0] / batch_size))
+            nout = model.nclasses + 32*return_conv
+            y = torch.zeros((IMG.shape[0], nout)+tuple(IMG.shape[-model.dim:]),device=IMG.device)
+            for k in range(niter):
+                irange = np.arange(batch_size*k, min(IMG.shape[0], batch_size*k+batch_size))
+                y0 = model.net(IMG[irange])[0]
+                arg = (len(irange),)+y0.shape[-(model.dim+1):]
+                y[irange] = y0.reshape(arg)
+
+            if augment: 
+                y = unaugment_tiles_ND(y, inds, model.unet)
+            yf = average_tiles_ND(y, subs, shape) #<<<
+            slc = tuple([slice(s) for s in shape])
+            yf = yf[(Ellipsis,)+slc]
+            return yf
 
     
     def collate_fn(self,worker_data):
@@ -272,7 +342,7 @@ class train_set(torch.utils.data.Dataset):
         
         self.v1 = [0]*(self.dim-1)+[1]
         self.v2 = [0]*(self.dim-2)+[1,0]
-        
+                
 
     def __iter__(self):
         worker_info = mp.get_worker_info()
@@ -338,6 +408,7 @@ class train_set(torch.utils.data.Dataset):
         labels = np.zeros((nimg,)+self.tyx, np.float32)
         scale = np.zeros((nimg,self.dim), np.float32)
         links = [self.links[idx] for idx in inds]
+        
 
         for i,idx in enumerate(inds):
             imgi[i], labels[i], scale[i] = random_crop_warp(img=self.data[idx], 
@@ -352,7 +423,9 @@ class train_set(torch.utils.data.Dataset):
                                                             do_flip=self.do_flip, 
                                                             ind=idx
                                                            )
-
+            # print('hey', self.data[idx].shape,self.labels[idx].shape)
+            
+            
         out = masks_to_flows_batch(labels, links,
                                    device=self.device,
                                    omni=self.omni,
@@ -369,9 +442,20 @@ class train_set(torch.utils.data.Dataset):
                            nclasses=self.nclasses,
                            device=self.device
                           )
+        
+        # mucat = torch.concatenate(tuple(lbl[:,-self.dim:]),dim=-1)
+        # rgb = rgb_flow(mucat.swapaxes(0,1)[:,-2:]).cpu().numpy()
+        # tifffile.imwrite('/home/kcutler/DataDrive/teresa_high_frame_rate/crops/edited/testlabelaug{}.tif'.format(inds),np.concatenate(lbl[:,0].cpu().numpy(),axis=-1))
+        # tifffile.imwrite('/home/kcutler/DataDrive/teresa_high_frame_rate/crops/edited/testdistaug{}.tif'.format(inds),np.concatenate(lbl[:,3].cpu().numpy(),axis=-1))
+        # tifffile.imwrite('/home/kcutler/DataDrive/teresa_high_frame_rate/crops/edited/testphaseaug{}.tif'.format(inds),np.concatenate(imgi.squeeze(),axis=-1))
+        # tifffile.imwrite('/home/kcutler/DataDrive/teresa_high_frame_rate/crops/edited/testflowaug{}.tif'.format(inds),rgb)
+             
+        
         imgi = torch.tensor(imgi,device=self.device)
         # imgi = torch.tensor(imgi).to(self.device,non_blocking=True) # slower
         if self.timing:
             print('single image augmentation time: {:.2f}, Device: {}'.format(time.time()-tic,self.device))
+        
+   
         return imgi, lbl, inds
 

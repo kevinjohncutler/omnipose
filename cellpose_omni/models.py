@@ -542,7 +542,7 @@ class CellposeModel(UnetModel):
              compute_masks=True, min_size=15, max_size=None, stitch_threshold=0.0, 
              progress=None, show_progress=True, 
              omni=False, calc_trace=False, verbose=False, transparency=False, 
-             loop_run=False, model_loaded=False):
+             loop_run=False, model_loaded=False,hysteresis=True):
         """
             segment list of images x, or 4D array - Z x nchan x Y x X
 
@@ -713,6 +713,10 @@ class CellposeModel(UnetModel):
 
         # Note: dataset is finetuned for basic omnipose usage. No styles are returned, some options may not be supported. 
         if is_dataset:
+            # set the tile parameter in dataset
+            x.tile = tile
+        
+            # sample indices to evaluate
             indices = list(range(len(x))) if indices is None else indices
 
             # the sequential batch sampler gives us a set of indices in sequence, like 0-5, 6-11, etc. 
@@ -743,7 +747,6 @@ class CellposeModel(UnetModel):
                 nchan = batch.shape[1]
                 shape = batch.shape[-(self.dim+1):] # nclasses, Y, X
                 resize = shape[-self.dim:] if not resample else None 
-
                 # define the slice needed to get rid of padding required for net downsamples 
                 slc = [slice(0, s+1) for s in shape]
                 slc[-(self.dim+1)] = slice(0, self.nclasses + 1) 
@@ -753,9 +756,11 @@ class CellposeModel(UnetModel):
 
                 # catch cases where the images are 1-channel
                 # but the model is 2 channel
-                if self.nchan-nchan:
-                    print('padding with extra chan')
-                    batch = torch.cat([batch,torch.zeros_like(batch)],dim=1)#.permute(0,2,3,1)
+                # if self.nchan-nchan:
+                #     print('padding with extra chan dd',batch)
+                #     batch = torch.cat([batch,torch.zeros_like(batch)],dim=1)#.permute(0,2,3,1)
+                #     print('now',batch)
+                    
                     # batch = torch.cat([batch,batch],dim=1)
                     # batch = torch.cat([torch.zeros_like(batch),batch],dim=1)
    
@@ -764,10 +769,18 @@ class CellposeModel(UnetModel):
                 
                 with torch.no_grad():
                     self.net.eval() # was missing this - some layers behave differently without it 
-                    yf = self.net(batch)[0]
+                    if tile:
+                        yf = x._run_tiled(batch,self,
+                                          batch_size=batch_size,
+                                          bsize=bsize,
+                                          augment=augment,
+                                          tile_overlap=tile_overlap).unsqueeze(0)
+                    else:
+                        yf = self.net(batch)[0]
+                        
                     del batch
                     # print('need to add normalization / invert /rescale options in dataloader')
-                
+      
                 # slice out padding
                 yf = yf[(Ellipsis,)+slc]
 
@@ -789,7 +802,6 @@ class CellposeModel(UnetModel):
                 # it is faster than skimage with larger batches, but not by much
                 # it does better in thin sections, however (though might be broken skeleton fragments)
                 # I might just replace the main branch code with this
-                hysteresis = 0
                 if hysteresis:
                     foreground = hysteresis_threshold(dist_pred.unsqueeze(1),mask_threshold-1, mask_threshold).squeeze(dim=0)
                 else:
@@ -875,6 +887,8 @@ class CellposeModel(UnetModel):
                         models_logger.info('niter set to %d'%niter)
 
                 final_points = initial_points.clone()
+                # print('debugf',self.dim,final_points.shape)
+
                 final_p, traced_p = omnipose.core.steps_interp_batch(initial_points[cell_px],
                                                         flow_pred/5., #<<<<<<<<<<< add support for other options here 
                                                         niter=niter,
@@ -921,6 +935,7 @@ class CellposeModel(UnetModel):
                     coords = np.nonzero(iscell)
                     # print('agi 33',agi.shape, affinity_graph.shape, np.sum(iscell), np.stack(coords).shape)
                     # agi = None
+                    # print('torch computed affinity not quite ready yet ')
                     # print('PARALLEL', parallel)
                     #NOW THAT THE trajectories are "WORKING", I need to add the parallel affinity here 
                     outputs = omnipose.core.compute_masks(dPi, disti, 
@@ -1072,7 +1087,6 @@ class CellposeModel(UnetModel):
                                          invert=False, nchan=self.nchan, dim=self.dim, omni=omni)
             
             if verbose: models_logger.info('shape after transforms.convert_image(): {}'.format(x.shape))
-
             if x.ndim < self.dim+2: # we need (nimg, *dims, nchan), so 2D has 4, 3D has 5, etc. 
                 x = x[np.newaxis]
 
@@ -1124,7 +1138,6 @@ class CellposeModel(UnetModel):
             # (8) binary boundary map
             
             # 5-8 were added in Omnipose, hence the unusual placement in the list. 
-            
             flows = [plot.dx_to_circ(dP,transparency=transparency) 
                      if self.nclasses>1 else np.zeros(cellprob.shape+(3+transparency,),np.uint8),
                      dP, cellprob, p, bd, tr, affinity, bounds]
@@ -1515,7 +1528,7 @@ class CellposeModel(UnetModel):
                                                                                                    normalize, 
                                                                                                    self.dim, self.omni)
         
-        # print('shape', train_data[0].shape, channels)
+        # print('shape', train_data[0].shape, channels, train_labels[0].shape)
 
         # check if train_labels have flows
         # if not, flows computed, returned with labels as train_flows[i][0]

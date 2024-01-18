@@ -28,20 +28,6 @@ def _taper_mask(ly=224, lx=224, sig=7.5):
                 bsize//2-lx//2 : bsize//2+lx//2+lx%2]
     return mask
 
-def _taper_mask_ND(shape=(224,224), sig=7.5):
-    dim = len(shape)
-    bsize = max(shape)
-    xm = np.arange(bsize)
-    xm = np.abs(xm - xm.mean())
-    # 1D distribution 
-    mask = 1/(1 + np.exp((xm - (bsize/2-20)) / sig)) 
-    # extend to ND
-    for j in range(dim-1):
-        mask = mask * mask[..., np.newaxis]
-    slc = tuple([slice(bsize//2-s//2,bsize//2+s//2+s%2) for s in shape])
-    mask = mask[slc]
-    return mask
-
 def unaugment_tiles(y, unet=False):
     """ reverse test-time augmentations for averaging
 
@@ -75,54 +61,6 @@ def unaugment_tiles(y, unet=False):
                 if not unet:
                     y[j,i,0] *= -1
                     y[j,i,1] *= -1
-    return y
-
-def get_flip(idx):
-    """
-    ND slices for flipping arrays along particular axes 
-    based on the tile indices. Used in augment_tiles_ND()
-    and unaugment_tiles_ND(). 
-    """
-    return tuple([slice(None,None,None) if i%2 else 
-                  slice(None,None,-1) for i in idx])
-
-
-def unaugment_tiles_ND(y, inds, unet=False):
-    """ reverse test-time augmentations for averaging
-
-    Parameters
-    ----------
-
-    y: float32
-        array that's ntiles x chan x Ly x Lx where 
-        chan = (dY, dX, dist, boundary)
-
-    unet: bool (optional, False)
-        whether or not unet output or cellpose output
-    
-    Returns
-    -------
-
-    y: float32
-
-    """
-    dim = len(inds[0])
-    
-    for i,idx in enumerate(inds): 
-        
-        # repeat the flip to undo it 
-        flip = get_flip(idx)
-        
-        # flow field componenets need to be flipped 
-        factor = np.array([1 if i%2 else -1 for i in idx])
-        
-        # apply the flip
-        y[i] = y[i][(Ellipsis,)+flip]
-        
-        # apply the flow field flip
-        if not unet:
-            y[i][:dim] = [s*f for s,f in zip(y[i][:dim],factor)]
-            
     return y
 
 
@@ -166,38 +104,6 @@ def average_tiles(y, ysub, xsub, Ly, Lx):
     yf /= Navg
     return yf
 
-def average_tiles_ND(y,subs,shape):
-    """ average results of network over tiles
-
-    Parameters
-    -------------
-
-    y: float, [ntiles x nclasses x bsize x bsize]
-        output of cellpose network for each tile
-
-    subs : list
-        list of slices for each subtile 
-
-    shape : int, list or tuple
-        shape of pre-tiled image (may be larger than original image if
-        image size is less than bsize)
-
-    Returns
-    -------------
-
-    yf: float32, [nclasses x Ly x Lx]
-        network output averaged over tiles
-
-    """
-    Navg = np.zeros(shape)
-    yf = np.zeros((y.shape[1],)+shape, np.float32)
-    # taper edges of tiles
-    mask = _taper_mask_ND(y.shape[-len(shape):])
-    for j,slc in enumerate(subs):
-        yf[(Ellipsis,)+slc] += y[j] * mask
-        Navg[slc] += mask
-    yf /= Navg
-    return yf
 
 def make_tiles(imgi, bsize=224, augment=False, tile_overlap=0.1):
     """ make tiles of image to run at test-time
@@ -292,90 +198,189 @@ def make_tiles(imgi, bsize=224, augment=False, tile_overlap=0.1):
     return IMG, ysub, xsub, Ly, Lx
 
 
-def make_tiles_ND(imgi, bsize=224, augment=False, tile_overlap=0.1):
-    """ make tiles of image to run at test-time
+from omnipose.utils import get_flip, _taper_mask_ND, unaugment_tiles_ND, average_tiles_ND, make_tiles_ND
+# def get_flip(idx):
+#     """
+#     ND slices for flipping arrays along particular axes 
+#     based on the tile indices. Used in augment_tiles_ND()
+#     and unaugment_tiles_ND(). 
+#     """
+#     return tuple([slice(None,None,None) if i%2 else 
+#                   slice(None,None,-1) for i in idx])
 
-    if augmented, tiles are flipped and tile_overlap=2.
-        * original
-        * flipped vertically
-        * flipped horizontally
-        * flipped vertically and horizontally
+# def _taper_mask_ND(shape=(224,224), sig=7.5):
+#     dim = len(shape)
+#     bsize = max(shape)
+#     xm = np.arange(bsize)
+#     xm = np.abs(xm - xm.mean())
+#     # 1D distribution 
+#     mask = 1/(1 + np.exp((xm - (bsize/2-20)) / sig)) 
+#     # extend to ND
+#     for j in range(dim-1):
+#         mask = mask * mask[..., np.newaxis]
+#     slc = tuple([slice(bsize//2-s//2,bsize//2+s//2+s%2) for s in shape])
+#     mask = mask[slc]
+#     return mask
+    
+# def unaugment_tiles_ND(y, inds, unet=False):
+#     """ reverse test-time augmentations for averaging
 
-    Parameters
-    ----------
-    imgi : float32
-        array that's nchan x Ly x Lx
+#     Parameters
+#     ----------
 
-    bsize : float (optional, default 224)
-        size of tiles
+#     y: float32
+#         array that's ntiles x chan x Ly x Lx where 
+#         chan = (dY, dX, dist, boundary)
 
-    augment : bool (optional, default False)
-        flip tiles and set tile_overlap=2.
+#     unet: bool (optional, False)
+#         whether or not unet output or cellpose output
+    
+#     Returns
+#     -------
 
-    tile_overlap: float (optional, default 0.1)
-        fraction of overlap of tiles
+#     y: float32
 
-    Returns
-    -------
-    IMG : float32
-        array that's ntiles x nchan x bsize x bsize
+#     """
+#     dim = len(inds[0])
+    
+#     for i,idx in enumerate(inds): 
+        
+#         # repeat the flip to undo it 
+#         flip = get_flip(idx)
+        
+#         # flow field componenets need to be flipped 
+#         factor = np.array([1 if i%2 else -1 for i in idx])
+        
+#         # apply the flip
+#         y[i] = y[i][(Ellipsis,)+flip]
+        
+#         # apply the flow field flip
+#         if not unet:
+#             y[i][:dim] = [s*f for s,f in zip(y[i][:dim],factor)]
+            
+#     return y
+    
+# def average_tiles_ND(y,subs,shape):
+#     """ average results of network over tiles
 
-    ysub : list
-        list of arrays with start and end of tiles in Y of length ntiles
+#     Parameters
+#     -------------
 
-    xsub : list
-        list of arrays with start and end of tiles in X of length ntiles
+#     y: float, [ntiles x nclasses x bsize x bsize]
+#         output of cellpose network for each tile
+
+#     subs : list
+#         list of slices for each subtile 
+
+#     shape : int, list or tuple
+#         shape of pre-tiled image (may be larger than original image if
+#         image size is less than bsize)
+
+#     Returns
+#     -------------
+
+#     yf: float32, [nclasses x Ly x Lx]
+#         network output averaged over tiles
+
+#     """
+#     Navg = np.zeros(shape)
+#     yf = np.zeros((y.shape[1],)+shape, np.float32)
+#     # taper edges of tiles
+#     mask = _taper_mask_ND(y.shape[-len(shape):])
+#     for j,slc in enumerate(subs):
+#         yf[(Ellipsis,)+slc] += y[j] * mask
+#         Navg[slc] += mask
+#     yf /= Navg
+#     return yf
+
+# def make_tiles_ND(imgi, bsize=224, augment=False, tile_overlap=0.1):
+#     """ make tiles of image to run at test-time
+
+#     if augmented, tiles are flipped and tile_overlap=2.
+#         * original
+#         * flipped vertically
+#         * flipped horizontally
+#         * flipped vertically and horizontally
+
+#     Parameters
+#     ----------
+#     imgi : float32
+#         array that's nchan x Ly x Lx
+
+#     bsize : float (optional, default 224)
+#         size of tiles
+
+#     augment : bool (optional, default False)
+#         flip tiles and set tile_overlap=2.
+
+#     tile_overlap: float (optional, default 0.1)
+#         fraction of overlap of tiles
+
+#     Returns
+#     -------
+#     IMG : float32
+#         array that's ntiles x nchan x bsize x bsize
+
+#     ysub : list
+#         list of arrays with start and end of tiles in Y of length ntiles
+
+#     xsub : list
+#         list of arrays with start and end of tiles in X of length ntiles
 
     
-    """
+#     """
 
-    nchan = imgi.shape[0]
-    shape = imgi.shape[1:]
-    dim = len(shape)
-    inds = []
-    if augment:
-        bsize = np.int32(bsize)
-        # pad if image smaller than bsize
-        pad_seq = [(0,0)]+[(0,max(0,bsize-s))for s in shape]
-        imgi = np.pad(imgi,pad_seq)
-        shape = imgi.shape[-dim:]
+#     nchan = imgi.shape[0]
+#     shape = imgi.shape[1:]
+#     dim = len(shape)
+#     inds = []
+#     if augment:
+#         bsize = np.int32(bsize)
+#         # pad if image smaller than bsize
+#         pad_seq = [(0,0)]+[(0,max(0,bsize-s))for s in shape]
+#         imgi = np.pad(imgi,pad_seq)
+#         shape = imgi.shape[-dim:]
         
-        # tiles overlap by half of tile size
-        ntyx = [max(2, int(np.ceil(2. * s / bsize))) for s in shape]
-        start = [np.linspace(0, s-bsize, n).astype(int) for s,n in zip(shape,ntyx)]
+#         # tiles overlap by half of tile size
+#         ntyx = [max(2, int(np.ceil(2. * s / bsize))) for s in shape]
+#         start = [np.linspace(0, s-bsize, n).astype(int) for s,n in zip(shape,ntyx)]
         
-        intervals = [[slice(si,si+bsize) for si in s] for s in start]
-        subs = list(itertools.product(*intervals))
-        indexes = [np.arange(len(s)) for s in start]
-        inds = list(itertools.product(*indexes))
+#         intervals = [[slice(si,si+bsize) for si in s] for s in start]
+#         subs = list(itertools.product(*intervals))
+#         indexes = [np.arange(len(s)) for s in start]
+#         inds = list(itertools.product(*indexes))
         
-        IMG = []
+#         IMG = []
         
-        # here I flip if the index is odd 
-        for slc,idx in zip(subs,inds):        
-            flip = get_flip(idx) # avoid repetition with unaugment
-            IMG.append(imgi[(Ellipsis,)+slc][(Ellipsis,)+flip])
+#         # here I flip if the index is odd 
+#         for slc,idx in zip(subs,inds):        
+#             flip = get_flip(idx) # avoid repetition with unaugment
+#             IMG.append(imgi[(Ellipsis,)+slc][(Ellipsis,)+flip])
+            
         
-        IMG = np.stack(IMG)
-    else:
-        tile_overlap = min(0.5, max(0.05, tile_overlap))
-        # bsizeY, bsizeX = min(bsize, Ly), min(bsize, Lx)
-        # B = [np.int32(min(b,s)) for s,b in zip(im.shape,bsize)] if bzise variable
-        bbox = tuple([np.int32(min(bsize,s)) for s in shape])
+#         IMG = np.stack(IMG)
+#     else:
+#         tile_overlap = min(0.5, max(0.05, tile_overlap))
+#         # bsizeY, bsizeX = min(bsize, Ly), min(bsize, Lx)
+#         # B = [np.int32(min(b,s)) for s,b in zip(im.shape,bsize)] if bzise variable
+#         bbox = tuple([np.int32(min(bsize,s)) for s in shape])
         
-        # tiles overlap by 10% tile size
-        ntyx = [1 if s<=bsize else int(np.ceil((1.+2*tile_overlap) * s / bsize)) 
-                for s in shape]
-        start = [np.linspace(0, s-b, n).astype(int) for s,b,n in zip(shape,bbox,ntyx)]
+#         # tiles overlap by 10% tile size by default
+#         ntyx = [1 if s<=bsize else int(np.ceil((1.+2*tile_overlap) * s / bsize)) 
+#                 for s in shape]
+#         start = [np.linspace(0, s-b, n).astype(int) for s,b,n in zip(shape,bbox,ntyx)]
 
-        intervals = [[slice(si,si+bsize) for si in s] for s in start]
-        subs = list(itertools.product(*intervals))
+#         intervals = [[slice(si,si+bsize) for si in s] for s in start]
+#         subs = list(itertools.product(*intervals))
         
-        # IMG = np.zeros((len(ystart), len(xstart), nchan,  bsizeY, bsizeX), np.float32)
-        # IMG = np.zeros(tuple([len(s) for s in start])+(nchan,)+bbox, np.float32)
-        IMG = np.stack([imgi[(Ellipsis,)+slc] for slc in subs])
+#         # IMG = np.zeros((len(ystart), len(xstart), nchan,  bsizeY, bsizeX), np.float32)
+#         # IMG = np.zeros(tuple([len(s) for s in start])+(nchan,)+bbox, np.float32)
+#         # IMG = np.stack([imgi[(Ellipsis,)+slc] for slc in subs])
+#         print('normalizing each tile')
+#         IMG = np.stack([normalize99(imgi[(Ellipsis,)+slc],omni=True) for slc in subs])
         
-    return IMG, subs, shape, inds
+        
+#     return IMG, subs, shape, inds
 
 # needs to have a wider range to avoid weird effects with few cells in frame
 # also turns out previous formulation can give negative numbers, messes up log operations etc. 
@@ -470,12 +475,14 @@ def convert_image(x, channels, channel_axis=None, z_axis=None,
             channel_axis += 1
         if x.ndim==3:
             x = x[...,np.newaxis]
-    # print('shape01',x.shape)
+    # print('shape01',x.shape,x.ndim,channel_axis,dim)
     # put channel axis last
     if channel_axis is not None and x.ndim > 2:
         x = move_axis(x, m_axis=channel_axis, first=False)
     elif x.ndim == dim:
-        x = x[...,np.newaxis]
+        # x = x[...,np.newaxis]
+        x = x[np.newaxis]
+        
     
     # print('shape02',x.shape)
 
@@ -652,7 +659,7 @@ def reshape_train_test(train_data, train_labels, test_data, test_labels, channel
             len(test_data) > 0 and len(test_data)==len(test_labels)):
         test_data = None
 
-    # print('reshape_train_test',train_data[0].shape,channels,channel_axis,normalize,omni)
+    print('reshape_train_test',train_data[0].shape,channels,channel_axis,normalize,omni)
     # make data correct shape and normalize it so that 0 and 1 are 1st and 99th percentile of data
     # reshape_and_normalize_data pads the train_data with an empty channel axis if it doesn't have one (single channel images/volumes). 
     train_data, test_data, run_test = reshape_and_normalize_data(train_data, 
@@ -662,7 +669,7 @@ def reshape_train_test(train_data, train_labels, test_data, test_labels, channel
                                                                  normalize=normalize, 
                                                                  omni=omni, 
                                                                  dim=dim)
-    # print('reshape_train_test_2',train_data[0].shape)
+    print('reshape_train_test_2',train_data[0].shape)
 
     if train_data is None:
         error_message = 'training data do not all have the same number of channels'
@@ -672,6 +679,12 @@ def reshape_train_test(train_data, train_labels, test_data, test_labels, channel
 
     if not run_test:
         test_data, test_labels = None, None
+        
+    if not np.all([dta.shape[-dim:] == lbl.shape[-dim:] for dta, lbl in zip(train_data,train_labels)]):
+        error_message = 'training data and labels are not the same shape, must be something wrong with preprocessing assumptions'
+        transforms_logger.critical(error_message)
+        raise ValueError(error_message)
+        return
 
     return train_data, train_labels, test_data, test_labels, run_test
 
@@ -715,18 +728,16 @@ def reshape_and_normalize_data(train_data, test_data=None, channels=None, channe
         if data is None:
             return train_data, test_data, False
         nimg = len(data)
-        # print('reshape_and_normalize_data',nimg,channels,data[0].shape)
         for i in range(nimg):
             if channels is None:
                 if channel_axis is not None:
                     data[i] = move_axis_new(data[i], axis=channel_axis, pos=0) 
                 else:
-                    data[i] = move_min_dim(data[i], force=True) ## going to try avoiding this branch  
-                
+                    m = f'No channel axis specified. Image shape is {data[i].shape}. Supply channel_axis if incorrect.'
+                    transforms_logger.warning(m)                
             
             if channels is not None:
                 data[i] = reshape(data[i], channels=channels, chan_first=True, channel_axis=channel_axis) # the cuplrit with 3D
-                # print('fgddgfgdfg',data[i].shape)
 
             # if data[i].ndim < 3:
             #     data[i] = data[i][np.newaxis,:,:]
@@ -833,7 +844,7 @@ def pad_image_ND(img0, div=16, extra=1, dim=2):
     # changed from 'constant' - avoids a lot of edge artifacts!!!
     # any option that extends the data naturally will do... reflect seems to be the best 
     mode = 'reflect'
-    I = np.pad(img0,pads, mode=mode)
+    I = np.pad(img0,pads,mode=mode)
     
 
     shape = img0.shape[-dim:] 

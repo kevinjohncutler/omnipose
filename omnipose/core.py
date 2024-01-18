@@ -3,12 +3,13 @@ from numba import njit, prange
 import numba
 import cv2
 import edt
-from scipy.ndimage import affine_transform, binary_dilation, binary_opening, binary_closing, label, shift # I need to test against skimage labeling
+from scipy.ndimage import affine_transform, binary_dilation, binary_opening, binary_closing, label, shift, uniform_filter # I need to test against skimage labeling
 from skimage.morphology import remove_small_objects
 from sklearn.utils.extmath import cartesian
 from skimage.segmentation import find_boundaries
 from igraph import Graph
 
+import torch.nn.functional as F
 
 import fastremap
 import os, tifffile
@@ -16,6 +17,7 @@ import time
 import mgen #ND rotation matrix
 from . import utils
 from ncolor.format_labels import delete_spurs
+from .plot import rgb_flow
 
 from .gpu import empty_cache # for clearing memory after follow_flows
 
@@ -380,7 +382,7 @@ def masks_to_flows(masks, affinity_graph=None, dists=None, coords=None, links=No
     # than the dedicated, jitted CPU code thanks to it being parallelized I think.
     
     if masks.ndim==3 and dim==2:
-        # this branch preserves original 3D apprach 
+        # this branch preserves original 3D approach 
         print('Sorry, this branch has not yet been updated - do not use omnipiose for this')
         Lz, Ly, Lx = masks.shape
         mu = np.zeros((3, Lz, Ly, Lx), np.float32)
@@ -422,6 +424,8 @@ def masks_to_flows_batch(batch, links=[None], device=torch.device('cpu'),
     -------------
     concatenated labels, links, etc. and slices to extract them 
     """   
+    
+    # add an if statement to catch the case where all labels are empty 
     
     nsample = len(batch)
     final_flat,clinks,indices,final_shape,dL = concatenate_labels(batch,
@@ -718,7 +722,7 @@ def masks_to_affinity(masks, coords, steps, inds, idx, fact, sign, dim,
     conditions = [is_self,
                   is_edge
                  ] 
-    
+    # print([c.shape for c in conditions],len(links))
     # ...or they are connected via an explicit list of labels to be linked. 
     if links is not None and len(links)>0:
         is_link = np.zeros(piece_masks.shape, dtype=np.bool_)
@@ -1283,12 +1287,16 @@ def compute_masks(dP, dist, affinity_graph=None, bd=None, p=None, coords=None, i
         intermediate locations of each pixel during dynamics,
         size [axis x niter x Ly x Lx] or [axis x niter x Lz x Ly x Lx]. 
         For debugging/paper figures, very slow. 
-    
+    bd: float32, ND array
+        boundary map
+    augmented_affinity: float32, ND array
+        concatenated coordinates and affinity graph, hence (d+1,3**d,npix)
     """
     # print('aaa',affinity_seg, suppress)
 
     # do everything in padded arrays for boundary/affinity functions 
     pad = 0 ##
+    # pad = 1 ##
     # print('pad',pad)
     if do_3D:
         dim = 3 
@@ -1356,7 +1364,7 @@ def compute_masks(dP, dist, affinity_graph=None, bd=None, p=None, coords=None, i
             # dP_ = bd_rescale(dP,mask, 4*bd) / rescale ##### omnipose.core.div_rescale
                 
             # dP_ = dP.copy()
-            if dim>2:
+            if dim>2 and suppress:
                 dP_ *= flow_factor
                 print('dP_ times {} for >2d, still experimenting'.format(flow_factor))
 
@@ -1411,6 +1419,8 @@ def compute_masks(dP, dist, affinity_graph=None, bd=None, p=None, coords=None, i
                 if affinity_seg:
                     hole_size = 0 # turn off small hole filling, still do area threhsolding 
                     if affinity_graph is None:       
+                        if verbose:
+                            omnipose_logger.info('computing affinity graph')
                         # assuming we have no passed in the affinity graph, we need to compute it  
                         affinity_graph, neighbors, neigh_inds = _get_affinity(steps,
                                                                             iscell_pad,
@@ -1419,13 +1429,26 @@ def compute_masks(dP, dist, affinity_graph=None, bd=None, p=None, coords=None, i
                                                                             p,
                                                                             coords, 
                                                                             pad=pad)
+                        # initial_points = coords
+                        # affinity_graph = _get_affinity_torch(initial_points, 
+                        #                                             final_points, 
+                        #                                             flow_pred/5., #<<<<<<<<<<< add support for other options here 
+                        #                                             dist_pred, 
+                        #                                             foreground, 
+                        #                                             steps,
+                        #                                             fact,
+                        #                                             niter,
+                        #                                             )
                     # elif despur:
                         # if it is passed in, we need the neigh_inds to compute masks 
                         # (though eventually we will want this to also be in parallel on GPU...)
                     
                     neighbors = utils.get_neighbors(tuple(coords),steps,dim,shape, pad=pad) # shape (d,3**d,npix)
-                    
                     indexes, neigh_inds, ind_matrix = utils.get_neigh_inds(tuple(neighbors),tuple(coords),shape)
+                    
+                    despur = dim==2 and despur # only do despur in 2D 
+                    if verbose and not despur:
+                        omnipose_logger.info('despur disabled')
                     
                     if despur:
                         non_self = np.array(list(set(np.arange(len(steps)))-{inds[0][0]})) # I need these to be in order
@@ -1440,8 +1463,10 @@ def compute_masks(dP, dist, affinity_graph=None, bd=None, p=None, coords=None, i
                                                 cardinal, 
                                                 ordinal, 
                                                 dim)
+                        
+                        # I need to make sure that the masks/coords also get updated...
                   
-                    bounds = affinity_to_boundary(iscell,affinity_graph,tuple(coords))
+                    bounds = affinity_to_boundary(iscell_pad,affinity_graph,tuple(coords))
                         
                     if cluster:
                         labels = affinity_to_masks(affinity_graph,neigh_inds,iscell_pad,coords,verbose=verbose)
@@ -1597,7 +1622,7 @@ def compute_masks(dP, dist, affinity_graph=None, bd=None, p=None, coords=None, i
 # Omnipose requires (a) a special suppressed Euler step and (b) a special mask reconstruction algorithm. 
 
 # no reason to use njit here except for compatibility with jitted fuctions that call it 
-# this way, the same factor is used everywhere (CPU+-interp, GPU)
+# this way, the same factor is used everywhere (CPU with/without interp, GPU)
 @njit()
 def step_factor(t):
     """ Euler integration suppression factor.
@@ -1756,8 +1781,6 @@ def get_masks(p, bd, dist, mask, inds, nclasses=2,cluster=False,
         clusterer.fit(newinds)
         labels = clusterer.labels_
         
-    
-        
         # filter out small clusters
         # unique_labels = set(labels) - {-1,0}
         # for l in unique_labels:
@@ -1776,11 +1799,10 @@ def get_masks(p, bd, dist, mask, inds, nclasses=2,cluster=False,
         if snap:
             nearest_neighbors = NearestNeighbors(n_neighbors=50)
             neighbors = nearest_neighbors.fit(newinds)
-            o_inds= np.where(labels==-1)[0]
-            if len(o_inds)>1:
+            o_inds = np.where(labels==-1)[0]
+            if len(o_inds):
                 outliers = [newinds[i] for i in o_inds]
                 distances, indices = neighbors.kneighbors(outliers)
-                # indices,o_inds
 
                 ns = labels[indices]
                 # if len(ns)>0:
@@ -1879,17 +1901,16 @@ def steps_interp(p, dP, dist, niter, use_gpu=True, device=None, omni=True, suppr
 
     # for grid_sample to work, we need im,pt to be (N,C,H,W),(N,H,W,2) or (N,C,D,H,W),(N,D,H,W,3). The 'image' getting interpolated
     # is the flow, which has d=2 channels in 2D and 3 in 3D (d vector components). Output has shape (N,C,H,W) or (N,C,D,H,W)
-    pt = torch.tensor(p[inds].T,device=device)
+    pt = torch.tensor(p[inds].T,device=device,dtype=torch.float32) 
     pt0 = pt.clone() # save first
     for k in range(d):
         pt = pt.unsqueeze(0) # get it in the right shape
 
-    # print('p_main', p.shape, p.min(), p.max(), pt.shape) 
-
+    # print('p_main', p.shape, p.min(), p.max(), pt.shape,'\n') 
     if isinstance(dP, torch.Tensor):
-        flow = dP[inds].to(device).unsqueeze(0)
+        flow = dP[inds].to(device=device,dtype=torch.float32).unsqueeze(0)
     else:   
-        flow = torch.tensor(dP[inds],device=device).unsqueeze(0) #covert flow numpy array to tensor on GPU, add dimension 
+        flow = torch.tensor(dP[inds],device=device,dtype=torch.float32).unsqueeze(0) #covert flow numpy array to tensor on GPU, add dimension 
 
     # print('flow_main',flow.shape)
     # we want to normalize the coordinates between 0 and 1. To do this, 
@@ -1988,12 +2009,15 @@ def steps_interp_batch(p, dP, niter, omni=True, suppress=True,
 
     shape = np.array(shape)[inds]-1.  # dP is d.Ly.Lx, inds flips this to flipped X-1, Y-1, ...
     # print('SHAPE',shape)
-    # print('p_new...',p.shape)
-    pt = p[:,inds].permute(0,2,1).unsqueeze(1).float()
+    B,D,I = p.shape
+    # print('p...',p.shape,inds,shape)
+    # pt = p[:,inds].permute(0,2,1).unsqueeze(1).float()
+    pt = p[:,inds].permute(0,2,1).view([B]+[1]*(D-1)+[I,D]).float()
+    
     # print('pt_new',pt.shape)
 
     pt0 = pt.clone() # save first
-    flow = dP[:,inds] # inds is just flipping the spatial component ordering from YX to XY
+    flow = dP[:,inds] # inds is just flipping the spatial component ordering from TYX to XYT
     
     # print('point, flow shape',pt.shape,flow.shape)
 
@@ -2011,6 +2035,8 @@ def steps_interp_batch(p, dP, niter, omni=True, suppress=True,
     for t in range(niter):
         if calc_trace and t>0:
             trace[:,t].copy_(pt)
+            
+        # print('aa',flow.shape,pt.shape)
         dPt = torch.nn.functional.grid_sample(flow, pt, mode=mode,
                                               align_corners=align_corners)
 
@@ -2032,11 +2058,17 @@ def steps_interp_batch(p, dP, niter, omni=True, suppress=True,
             trace[...,k] *= shape[k]
 
     if calc_trace:
-        tr =  trace[...,inds].permute(0,1,-1,2,3)
+        # tr =  trace[...,inds].permute(0,1,-1,2,3)
+        tr =  trace[...,inds].transpose(-1,1).contiguous()
+        
     else:
         tr = None
-
-    p =  pt[...,inds].permute(0,-1,1,2)
+    # print('hh',pt.shape,pt[...,inds].shape)
+    # p =  pt[...,inds].permute(0,-1,1,2)
+    p =  pt[...,inds].transpose(-1,1).contiguous()
+    
+    # print('kk',p.shape)
+    
     return p, tr
 
 
@@ -2433,8 +2465,11 @@ def random_crop_warp(img, Y, tyx, v1, v2, nchan, rescale, scale_range, gamma_ran
         # We want the scale distibution to have a mean of 1
         # There may be a better way to skew the distribution to
         # interpolate the parameter space without skewing the mean 
-        ds = scale_range/2
-        scale = np.random.uniform(low=1-ds,high=1+ds,size=dim) #anisotropic scaling 
+        # ds = scale_range/2
+        # scale = np.random.uniform(low=1-ds,high=1+ds,size=dim) #anisotropic scaling 
+        # scale = np.random.uniform(low=1/scale_range,high=scale_range,size=dim) #anisotropic scaling 
+        scale = np.random.triangular(left=1/scale_range, mode=1, right=scale_range, size=dim) # weight to 1
+        # I need to make sure the scaling does not apply to time dimension...
         if rescale is not None:
             scale *= 1. / rescale
     else:
@@ -2459,34 +2494,66 @@ def random_crop_warp(img, Y, tyx, v1, v2, nchan, rescale, scale_range, gamma_ran
     rt = (np.random.rand(dim,) - .5) #random translation -.5 to .5
     dxy = [rt[a]*(np.maximum(0,s[a]-tyx[a])) for a in axes]
     
+    # # replace this random translation with one biased toward cell density
+    # wrap this in an if any foreground if I try it again 
+    # foreground = labels>0
+    
+    # # Compute the projections and smooth them
+    # # projections = [np.sum(foreground, axis=a) for a in axes]
+    # # Compute the projections and smooth them
+    # projections = [np.sum(foreground, axis=tuple(a for a in axes if a != ax)) for ax in axes]
+    # # print('pp',projections[0].shape)
+    # smoothed_projections = [uniform_filter(p, size=3) for p in projections]
+    # # smoothed_projections = projections
+    
+    # # Normalize the smoothed projections to get probabilities
+    # normalized_projections = [p / np.sum(p) for p in smoothed_projections]
+
+
+    # # Replace the random translation with a weighted random choice based on these probabilities
+    # rt = [np.random.choice(np.arange(len(p)), p=p)/len(p) - 0.5 for p in normalized_projections]
+    # dxy = [rt[a]*(np.maximum(0,s[a]-tyx[a])) for a in axes]
+    
+    # print(dxy) 
+
     c_in = 0.5 * np.array(s) + dxy
     c_out = 0.5 * np.array(tyx)
     offset = c_in - np.dot(M_inv, c_out)
     
     # M = np.vstack((M,offset))
-    mode = 'reflect'
-
+    # mode = 'reflect' 
+    # should maybe alternate between reflect and extend and even cosntant 
+    mode = np.random.choice(['constant','nearest','mirror'])
+    
     lbl = do_warp(labels, M_inv, tyx, offset=offset, order=0, mode=mode) # order 0 is 'nearest neighbor'
     # check to make sure the region contains at enough cell pixels; if not, retry
-    cellpx = np.sum(lbl>0)
-    cutoff = (numpx/10**(dim+1)) # .1 percent of pixels must be cells
-    if cellpx<cutoff:# or cellpx==numpx: # had to disable the overdense feature for cyto2
-                    # may not actually be a problem now anyway
-        # skimage.io.imsave('/home/kcutler/DataDrive/debug/img'+str(depth)+'.png',img[0])
-        # skimage.io.imsave('/home/kcutler/DataDrive/debug/training'+str(depth)+'.png',lbl[0])
-        return random_crop_warp(img, Y, tyx, v1, v2, nchan, rescale, scale_range, 
-                                gamma_range, do_flip, ind, do_labels, depth=depth+1)
-    else:
-        # continue on, this filter helps get rid of orphaned pixels  (not perfect though)
-        lbl = mode_filter(lbl)
+    # cellpx = np.sum(lbl>0)
+    
+    # I used to recursively search for a crop that contained at least 10% cell pixels, 
+    # to avoid the case where the crop is all background. This would mess up flow and I 
+    # reasoned that we never want to train on just background. However, the new code handles
+    # background just fine and so this is no longer necessary.
+    
+            # indented for readibility, will remove at some point
+            # cutoff = (numpx/10**(dim+1)) # .1 percent of pixels must be cells
+            # if cellpx<cutoff:# or cellpx==numpx: # had to disable the overdense feature for cyto2
+            #                 # may not actually be a problem now anyway
+            #     # skimage.io.imsave('/home/kcutler/DataDrive/debug/img'+str(depth)+'.png',img[0])
+            #     # skimage.io.imsave('/home/kcutler/DataDrive/debug/training'+str(depth)+'.png',lbl[0])
+            #     return random_crop_warp(img, Y, tyx, v1, v2, nchan, rescale, scale_range, 
+            #                             gamma_range, do_flip, ind, do_labels, depth=depth+1)
+            # else:
+            #     # continue on, this filter helps get rid of orphaned pixels  (not perfect though)
+            #     lbl = mode_filter(lbl)
+    
+    if np.any(lbl):
+        lbl = mode_filter(lbl)  
             
     #flows now computed in parallel in masks_to_flows_batch
     # it occurs to me that maybe we could parallelize this image augmentation too if we compromise 
     # and just use the same parameters for all images, at least for cropping... since flows are done in parallel,
     # there is no longer an ussue if the patch has no cells 
     
-    # Makes more sense to spend time on image augmentations
-    # after the label augmentation succeeds without triggering recursion
     # each augmentation is now on 50% of the time to ensure that the network also gets to see "raw" images (raw meaning just warped)
     imgi = np.zeros((nchan,)+tyx, np.float32)
     for k in range(nchan):
@@ -2557,6 +2624,14 @@ def random_crop_warp(img, Y, tyx, v1, v2, nchan, rescale, scale_range, gamma_ran
                 imgi = np.flip(imgi,axis=-d) 
                 if Y is not None:
                     lbl = np.flip(lbl,axis=-d)
+        
+        # only flip the spatial dimensions now
+        # reasoning is that time and even PSF in z are not symmetric
+        # for d in range(1,2+1): 
+        #     if np.random.choice([0,1]):
+        #         imgi = np.flip(imgi,axis=-d) 
+        #         if Y is not None:
+        #             lbl = np.flip(lbl,axis=-d)
                         
     return imgi, lbl, scale
 
@@ -2608,13 +2683,12 @@ def loss(self, lbl, y):
     
     else:   
         # flow components are stored as the last self.dim slices 
-        veci = lbl[:,5:]
+        veci = lbl[:,-self.dim:]
         dist = lbl[:,3] # now distance transform replaces probability
         boundary =  lbl[:,2]
         w =  lbl[:,4].detach()
         # w =  lbl[:,1].detach()
         wt = torch.stack([w]*self.dim,dim=1).detach()
-        
 
         flow = y[:,:self.dim] # 0,1,...self.dim-1
         dt = y[:,self.dim]
@@ -2652,7 +2726,10 @@ def loss(self, lbl, y):
         else:
             loss4 = 0 
             
-        loss6 = self.criterion12(dt,dist,w) #weighted MSE on distance field, plain MSE does NOT work 
+        # loss6 = self.criterion12(dt,dist,w) #weighted MSE on distance field, plain MSE does NOT work 
+        
+        loss6 = self.criterion12(dt,dist,w)/25 #weighted MSE on distance field, plain MSE does NOT work 
+        
         # one reason plain MSE might be bad is that I have an extra 1/5 in there that is for the flow...
         # but it works so I am keeping it 
         # might want to cosnider doing a fractional MSE, percent change, for distance 
@@ -2663,13 +2740,192 @@ def loss(self, lbl, y):
         
         
         # this should be the one that gave really bright, normalized flow at edges  
-        # but it might wequire w to be specific 
+        # but it might require w to be specific 
         # return 10*(loss1+loss2+loss4+loss5+loss6)+self.criterion0(flow,veci)
         if experimental:
             return 2*(5*loss1+5*loss2+loss4+10*loss5+loss6)+self.criterion0(flow,veci)/5 # experimental 
         else:
+
+            # return  self.criterion(dt,dist)+ self.criterion(flow,veci)
             # euler / ivp loss added here 
-            return 2*(5*loss1+loss2+loss4+loss5+loss6)+self.criterion0(flow,veci) # golden? 
+            # return 2*(5*loss1+loss2+loss4+loss5+loss6)+self.criterion0(flow,veci) # golden? 
+            # return 2*(2.5*self.dim*loss1+loss2+loss4+loss5+loss6)+self.criterion0(flow,veci) # maybe ND generalzied...
+            
+            # ct = torch.stack([cellmask]*self.dim,dim=1) 
+            # lossD1 = self.criterionD(flow,veci,wt,ct) 
+            # lossD2 = self.criterionD(dt.unsqueeze(1),dist.unsqueeze(1),w.unsqueeze(1),cellmask.unsqueeze(1))
+
+            lossA, lossE, lossB = self.criterionA(flow,dt,veci,dist)
+            lossA *=100
+            # print(lossA.item(),lossE.item(),lossB.item())
+            
+            # print(lossA, self.criterion0(flow,veci)) lossA much bigger than ivp... that deserves debugging
+            # return 2*(5*loss1+loss2+loss4+loss5+loss6) + lossE + lossA
+
+
+            # S1 = self.criterionS(flow,veci)
+            # lossS = self.criterionS(dist,dt) # with 255
+            # lossS = self.criterionS((dist+5)/5,(dt+5)/5) # with 1
+            
+            
+            # the fistance field has wird stuff happening, I hope
+            # that making its gradient explicitly equal to the GT flow will help
+            # dims = [k for k in range(-self.dim,0)]
+            
+            dims = [k for k in range(1,self.dim+1)]
+            grad = torch.stack(torch.gradient(dt,dim=dims),axis=1)
+            
+            
+            
+            # # print('gdgd',veci.shape,grad.shape,dist.shape,dt.shape)
+            # # sel = torch.where(ct)
+            # cross_loss = torch.mean(torch.sum(torch.square(veci/5.-grad),axis=0))/10
+            
+            # return self.dim*(2.5*self.dim*loss1+loss2+loss4+loss5+loss6)+self.criterion0(flow,veci) # maybe ND generalzied...
+            # return lossS+self.dim*(2.5*self.dim*loss1+loss2+loss4+loss5+loss6)+self.criterion0(flow,veci) # maybe ND generalzied...
+            
+            # mask_pred = (dt>0).float()
+            # loss_fg = self.criterion2(mask_pred,cellmask.float())
+            
+            # y_sigmoid = torch.sigmoid(dt).long()
+
+            # # Compute BCE loss
+            # target = cellmask*5.
+            # target[target==0] = -5
+            # loss_sig = self.criterionB(dt,target)
+            
+            # this is effectively the norm loss on the distance field 
+            # eps = 1e-10
+            # eikonal_loss = self.criterion12(torch.sqrt(torch.sum(torch.square(grad),axis=1)+eps),
+            #                                    torch.sqrt(torch.sum(torch.square(veci/5.),axis=1)+eps),w)
+
+            # elu_loss = F.elu(dt-dist).mean() # suppress places where dt is smaller than dist, focus on where it is larger 
+            
+            
+            # return cross_loss+self.dim*(2.5*self.dim*loss1+loss2+loss4+loss5+(self.dim/2)*loss6)+self.criterion0(flow,veci) # maybe ND generalzied...
+            # return loss_fg+cross_loss+self.dim*(2.5*self.dim*loss1+loss2+loss4+loss5+self.dim*loss6)+self.criterion0(flow,veci) # maybe ND generalzied...
+            
+            
+            # lossC = self.criterionC(dt[cellmask],dist[cellmask])
+            # lossC = self.criterionC(dt,dist)
+            # S = torch.sum(dist>0)
+            # N =  torch.square(S-torch.sum(dt>0))
+            # fg_loss = N/S if S > 0 else N
+                        
+            euler_loss = self.criterion0(flow,veci) / 2
+            div = divergence_torch(veci)
+            # div *= boundary 
+            # div = (div-div.min())/(div.max()-div.min())
+            # divergence_loss = 10*self.criterion12(div, divergence_torch(flow), w)
+            div_flow = divergence_torch(flow)
+            # lossDC = self.criterionC(div[cellmask],div_flow[cellmask])
+            # lossC = self.criterionC(div[cellmask], divergence_torch(grad*5.)[cellmask])
+            
+            # lossDC = self.criterion(div,div_flow)/5
+            # lossC = self.criterion(div, divergence_torch(grad*5.))/5
+            
+            # inner = torch.where(dist>2)
+            inner = torch.where(cellmask)
+            
+            lossDC = self.criterion(div[inner],div_flow[inner])/10.
+            # lossC = self.criterion(div[inner], divergence_torch(grad*5.)[inner])/25.
+            
+            # inner = dist>2
+            # loss_int = torch.sum(div_flow*inner>0)/torch.sum(inner)
+            
+            # could also do a product of div and shifted dist, so that positive becomes negative
+            # at the edge 
+            # or hing loss on the div
+            # product = div * div_flow / 4
+            # hinge_loss = torch.mean(torch.clamp(1 - product, min=-1))
+            
+            # idea with this is to suppress any matches that are positive, and really 
+            # penalize any mismatches in sign 
+            # product = div[cellmask] * div_flow[cellmask] * dist[cellmask]
+            # hinge_loss = torch.mean(torch.exp(torch.clamp(-product,min=-5,max=5)))
+            # hinge_loss = torch.mean(torch.clamp(1 - product, min=0))
+            
+            # or just sum all the pixels that are positive when they ar enot supposed to be
+            # inner = dist>1
+            # hinge_loss = torch.mean(torch.clamp(div_flow[inner], min=0))*10
+            
+            # hinge_loss = F.relu(4-div[inner] * div_flow[inner]).mean()*10
+            # hinge_loss = self.criterion(torch.clamp(dist,min=0),torch.clamp(dt,min=0))
+                    
+            # lossDC = self.criterionC(div, divergence_torch(flow))
+            # sel = torch.where(torch.logical_and(dist>=0,dist<=np.sqrt(self.dim)))
+            # boundary_loss = torch.mean(torch.square(dt[sel]-dist[sel]))
+            # boundary_loss = torch.square(torch.max(dt,dim=0)-torch.max(dist,dim=0)).mean()
+            
+            # divergence_loss_2 = 10*self.criterion12(div, divergence_torch(grad), w)
+            # print('div2',divergence_loss_2.item())
+            
+            # print('MSE_flow',loss1.item(),'SSL',loss2.item(),
+            #       'normloss',loss5.item(),'MSE_dist',loss6.item(),
+            #     #   'eikonal',eikonal_loss.item(), 
+            #       'euler1',euler_loss.item(), 
+            #       'euler2',lossE.item(), 
+                
+            #     #   'corr',lossC.item(), 
+            #       'dc',lossDC.item(),
+            #       'aff',lossA.item(),
+            #     #   'hinge_',hinge_loss.item()
+            #     #   'fg',fg_loss.item()
+            #     #   'bd',boundary_loss.item()
+            #     # 'int',loss_int.item()
+            #       ) 
+            
+            #SSL should only apply where the divergence is positive
+            # well, by bd weighting before basically did that
+            
+            # return divergence_loss_2 + divergence_loss + eikonal_loss+ 2*(2.5*self.dim*loss1+loss2+loss4+loss5+self.dim*loss6)+ euler_loss 
+            # return loss1+loss4+loss6+lossDC+lossC #+hinge_loss#+loss_int #+fg_loss #boundary_loss #eikonal_loss
+            # return loss1+loss2+loss4+loss5+loss6+euler_loss+lossDC+lossC#+hinge_loss#+loss_int #+fg_loss #boundary_loss #eikonal_loss
+            return loss1+loss2+loss4+loss5+loss6+lossA+lossE+lossDC#+lossC#+hinge_loss#+loss_int #+fg_loss #boundary_loss #eikonal_loss
+            
+            
+            
+            # return (lossD1+lossD2)/10+self.dim*(2.5*self.dim*loss1+loss2+loss4+loss5+loss6)+self.criterion0(flow,veci) # maybe ND generalzied...
+            
+
+            
+            
+            
+            # it occurs to me that the flow-based loss might need to be weighted
+            # more with higher dimension compared to the other terms. this is because
+            # the loss terms reduce everyhting to a mean despire far more terms contributing 
+            
+            
+            # 3D is not workign as expected, try going back to basics 
+            # return 5*loss1+loss2+loss4+loss5+loss6
+            # return 5*loss1+loss6+loss4 # loss1 and 6 are wieghted MSE on the flow and distance fields, respectively
+            # looks like avoiding the normloss and/or sinesquared loss is better for the background in 3D... why? 
+            
+            # return 5*loss1+loss6+loss4 + loss2 # try adding back in ssl 
+            
+            # ok, so it seems like SSL is fine. Must have been either ivp or norm loss, but I already tried all but ivp, so probably is the norm loss 
+            # return 2*(5*loss1+loss6+loss4 + loss2)+self.criterion0(flow,veci)/5 # npw add back in ivp
+            # indeed, must be the norm loss causing the problem in 3D. Very odd. 
+            
+            # try removing ssl, it might be causing the splitting in 3D
+            # return 2*(5*loss1+loss6+loss4)+self.criterion0(flow,veci)/5 
+            
+            
+            # now try affinity loss
+            # lossA, lossE, lossB = self.criterionA(flow,dt,veci,dist)
+            # print(lossA, self.criterion0(flow,veci)) lossA much bigger than ivp... that deserves debugging
+            # return 2*(5*loss1+loss2+loss4+loss5+loss6)+lossB/5 + lossA/5
+            # return 10*(loss1+loss6)+self.criterion0(flow,veci)
+            # anything with just pure MSE is terrible
+            
+            # loss7 = self.criterionB(1.0*(dt>0),lbl[:,1]*1.0) # compare thresholded distance to thresholded mask
+            # loss7 = self.criterion(1.0*(dt>0),lbl[:,1]*1.0) # compare thresholded distance to thresholded mask
+            
+            # return 2*(5*loss1+loss5+loss6)+self.criterion0(flow,veci)+loss7
+            # return self.criterionACB(flow,veci)+self.criterionACB(dt,dist)+loss4
+            # return 2*(5*loss1+loss2+loss4+loss5+loss6)+lossE 
+            
+            
             
             
         # how about a max beteeen loss1 and loss2? 
@@ -3215,6 +3471,36 @@ def divergence_torch(y):
     dims = [k for k in range(-dim,0)]
     return torch.stack([torch.gradient(y[:,k],dim=k)[0] for k in dims]).sum(dim=0)
 
+# def divergence_torch(y):
+#     dim = y.shape[1]
+#     return torch.stack([torch.gradient(y[:, k], axis=k+1)[0] for k in range(dim)]).sum(dim=0)
+
+# def divergence_torch_optimized(y):
+#     B, D, *DIMS = y.shape
+#     div = torch.zeros([B,*DIMS], dtype=y.dtype, device=y.device)
+#     for d in range(-D,0):
+#         div += torch.gradient(y[:, d], dim=d)[0]
+#     # for d in range(D):
+#     #     print(y[:,d].shape,d)
+#     #     div += torch.gradient(y[:, d], dim=d+1)[0]
+#     return div
+
+
+# def gradient_torch(y, dim):
+#     grad = (y[..., 2:-1] - y[..., :-3]) / 2
+#     grad = torch.cat((y[..., :1] - y[..., 1:2], grad, y[..., -2:-1] - y[..., -3:-2]), dim=dim)
+#     return grad
+
+# def divergence_torch(y):
+#     B, D, *DIMS = y.shape
+#     div = torch.zeros([B,*DIMS], dtype=y.dtype, device=y.device)
+#     for d in range(D):
+#         div += gradient_torch(y[:, d], dim=d+1)
+#     return div
+
+
+
+
 
 def _get_affinity_torch(initial, final, flow, dist, iscell, steps, fact, niter, euler_offset=None,
                         angle_cutoff=np.pi/2.5):
@@ -3269,10 +3555,11 @@ def _get_affinity_torch(initial, final, flow, dist, iscell, steps, fact, niter, 
         
         
     # print('debug',niter, np.sqrt(niter), np.sqrt(niter/2),torch.mean(dist[dist>0]))
-    use_flow = 0
+    use_flow = 1
     if use_flow:
+        # print('using predicted flow for mag cutoff')
         mag_cutoff = .5
-        mag = utils.torch_norm(flow,dim=1,keepdim=True) # alternate on real flow, better for catching boundary faults due to log mag flows 
+        mag = utils.torch_norm(flow,dim=1,keepdim=True) # alternate on real flow, better for catching boundary faults due to low mag flows 
     else:
         # mag_cutoff = np.sqrt(D) # could be higher or based on niter
         mag_cutoff = 3
@@ -3328,7 +3615,7 @@ def _get_affinity_torch(initial, final, flow, dist, iscell, steps, fact, niter, 
     # also take care of background connections here
     csum = torch.sum(connectivity,axis=0)
     
-    keep = csum>=D 
+    keep = csum>=D # is this correct? Not so sure anymore... maybe 2 is good
     for i in range(S//2):
         target_slc = (Ellipsis,)+tuple(target_slices[i])
         source_slc = (Ellipsis,)+tuple(source_slices[i])
@@ -3341,7 +3628,8 @@ def _get_affinity_torch(initial, final, flow, dist, iscell, steps, fact, niter, 
         # bg = iscell[source_slc] == 0
         # connectivity[-(i+1)][target_slc][bg] = 0
         
-        connectivity[-(i+1)][target_slc] = connectivity[i][source_slc] = torch.logical_and(connectivity[i][source_slc],torch.logical_and(iscell[target_slc],iscell[source_slc]))
+        connectivity[-(i+1)][target_slc] = connectivity[i][source_slc] = torch.logical_and(connectivity[i][source_slc],
+                                                                                           torch.logical_and(iscell[target_slc],iscell[source_slc]))
         # print('test symmetry 2 ', torch.all(connectivity[i][source_slc] == connectivity[-(i+1)][target_slc])) 
         
         connectivity[i][source_slc] = connectivity[-(i+1)][target_slc] = torch.logical_and(connectivity[i][source_slc],keep[source_slc])
@@ -3672,8 +3960,6 @@ def affinity_to_edges(affinity_graph,neigh_inds,step_inds,px_inds):
     # return [e for e in edge_list[:idx]]
 
 
-
-
 def affinity_to_masks(affinity_graph,neigh_inds,iscell, coords,
                       cardinal=True,
                       exclude_interior=False,
@@ -3851,3 +4137,160 @@ def linker_label_to_links(maski,linker_label_list):
     dic = fastremap.inverse_component_map(expand_labels(linker_labels,1),unlink_masks)
     links = {(x,z)  for x,y in dic.items() if x!=0 for z in y if z!=0}
     return links
+
+
+
+def split_spacetime(augmented_affinity,mask,verbose=False):
+    """
+    Split lineage labels into frame-by-frame labels and Cell ID / spacetime labeling. 
+    """
+    shape = mask.shape
+    dim = mask.ndim
+    neighbors = augmented_affinity[:dim]
+    affinity_graph = augmented_affinity[dim] 
+    idx = affinity_graph.shape[0]//2
+    coords = tuple(neighbors[:,idx])
+    
+    steps, inds, idx, fact, sign = utils.kernel_setup(dim)
+    step_inds = inds[1] # cardinal only 
+
+    npix = augmented_affinity.shape[-1]
+    px_inds = np.arange(npix)
+
+    
+    sidx = np.nonzero(steps[:,0]==0)[0] # which indexes correspond to spatial-only steps
+    tidx = np.nonzero(steps[:,0])[0] # which indexes correspond to steps in (space)time
+
+    prun_ag = affinity_graph.copy()
+    prun_ag[tidx] = 0 # zero out all connections to timelike steps
+
+    indexes, neigh_inds, ind_matrix = utils.get_neigh_inds(tuple(neighbors),
+                                                           tuple(coords),
+                                                           shape)
+
+    lbl = affinity_to_masks(prun_ag, neigh_inds, mask>0, coords, verbose=verbose)
+    label_list = lbl[coords]
+
+
+
+    # time_steps = np.nonzero([np.all(s == [0,0]) for s in steps[:,-(dim-1):]])[0] # no spatial component
+    time_steps = np.nonzero(np.all(steps ==[1,0,0],axis=1))[0] # only the forward step, fewer links to handle  
+
+    edge_list = affinity_to_edges(affinity_graph,
+                                  neigh_inds,
+                                  time_steps, # if we used step_inds, i.e. all steps, we would get spatial connections too
+                                    px_inds)
+
+
+    link_inds = np.nonzero(edge_list[:,0]!=edge_list[:,1])[0] # non-self links
+    links = np.take(label_list, edge_list[link_inds]) # these are the frame-to-frame label links
+    # get rid of connections to zero?
+    sel = np.nonzero(np.logical_and(links[:,0]!=0,links[:,1]!=0))[0]
+    links = links[sel]
+    edge_list = edge_list[sel]
+    
+
+    unique_pairs,link_counts = fastremap.unique(links,axis=0,return_counts=True)
+    uniq,cts = fastremap.unique(unique_pairs[:,0],return_counts=True)
+    division_inds = np.nonzero(cts==2)[0]
+    mothers = uniq[division_inds]
+    mothers,len(link_counts)
+
+    # now that I know where division happens in my link list, I can use this to prune the original affinity grpah to create logs
+    # for eahc division, simply remove all connections with a negative time step component 
+    # but this will need to be done symmetrically, of course...
+
+    t_fwd = np.nonzero(steps[:,0]==1)[0]
+    t_bwd = np.nonzero(steps[:,0]==-1)[0]
+
+    log_affinity_graph = affinity_graph.copy()
+    # I suspect there is some spur funny business going on
+    # th
+
+
+    for mother in mothers:
+        # find the daugheters
+        mother_inds =  np.nonzero(unique_pairs[:,0]==mother)[0] # should be exactly two here
+        daughters = np.array([unique_pairs[k][1] for k in mother_inds])
+        daughter_counts = np.array([link_counts[k] for k in mother_inds]) # links from mother to daughter
+
+        # but the daughter could also be connected to mother, as there was no symmetry check?
+        # daughter_inds = [np.nonzero(unique_pairs[:,0]==daughter)[0] for daughter in daughters]
+        # mother_counts = [np.array([link_counts[k] for k in di]) for di in daughter_inds] 
+        # print(daughter_inds,mother_counts)
+        if verbose:
+            print('mother {}, daughters {}, daughter counts {}'.format(mother,daughters,daughter_counts))
+
+        midx = np.nonzero(label_list==mother)[0]
+        didx = [np.nonzero(label_list==d)[0] for d in daughters]
+        # print(didx)
+
+        # if np.all([x>timelike_cutoff for x in daughter_counts]):
+        dmin = daughter_counts.min()
+        dmax = daughter_counts.max()
+
+
+    #     for di in didx:
+    #         # delete connections from daughter to mother 
+    #         hits = np.isin(neigh_inds[:,di],midx)
+    #         log_affinity_graph[:,di] = np.where(hits, 0, log_affinity_graph[:,di]) #this is one way
+
+    #         # delete connections from mother to daughter 
+    #         hits = np.isin(neigh_inds[:,midx],di)
+    #         log_affinity_graph[:,midx] = np.where(hits, 0, log_affinity_graph[:,midx])
+
+
+        if dmin/dmax>0.1: # a generous fraction for binary fission or splitting into multiple roughly equal cells 
+            if verbose: print('real\n')
+            # print(label_list[midx])
+
+            # delete connections forward in time for the mother
+            sel = np.ix_(t_fwd,midx)
+            log_affinity_graph[sel] = 0
+
+            # I forgot to do this symmetically
+            hits = np.isin(neigh_inds[t_bwd],midx)
+            log_affinity_graph[t_bwd] = np.where(hits, 0, log_affinity_graph[t_bwd]) 
+
+            # delete connections backward in time for the daughters 
+            for di in didx:
+                # print(label_list[di])
+                sel = np.ix_(t_bwd,di)
+                log_affinity_graph[sel] = 0
+
+                # I forgot to do this symmetically
+                hits = np.isin(neigh_inds[t_fwd],di)
+                log_affinity_graph[t_fwd] = np.where(hits, 0, log_affinity_graph[t_fwd]) 
+
+
+        else:        
+            # otherwsie delete the spurious connections, not every single connection 
+            # unfortunately not just pruning entire  
+            not_real = np.nonzero(daughter_counts<=dmin)[0]
+            print('insufficient temporal connection inds:',not_real)
+            for k in not_real:
+                di = didx[k]
+                daughter = daughters[k]
+                print('info',len(midx),len(di),'daughter',daughter)
+                # delete backward connections
+                sel = np.ix_(t_bwd,di)
+                hits = np.isin(neigh_inds[sel],midx)
+                log_affinity_graph[sel] = np.where(hits, 0, log_affinity_graph[sel])
+
+                # delete forward connections
+                sel = np.ix_(t_fwd,midx)
+                hits = np.isin(neigh_inds[sel],di)
+                log_affinity_graph[sel] = np.where(hits, 0, log_affinity_graph[sel])
+
+                print('\n')
+
+            # should also handle removal from mother tracking links 
+
+
+    logs = affinity_to_masks(log_affinity_graph,neigh_inds,mask>0,
+                             coords,verbose=verbose)
+
+    
+    return lbl, logs
+
+   

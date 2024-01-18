@@ -1,25 +1,4 @@
 @import url("custom.css");
-/* @import url("default.css");
-span.caption-text {
-  color: red;
-}
-*/
-/* .wy-menu > .caption > span.caption-text {
-  color: red;
-}  */
-/* @import url("basic.css"); */
-/* @import url("furo.css"); */
-/* @import url("sphinx_rdt_theme.css");*/
-/* @import url("//media.readthedocs.org/css/sphinx_rtd_theme.css"); */
-/* @import 'furo.css'; */
-
-/* @import 'sphinx_rtd_theme.css'; */
-
-/* :root {
-  --color-background-secondary: rgba(255, 0, 0, 0.1);
-} */
-
-
 
 
 body {
@@ -247,8 +226,8 @@ div.cell details.below-input>summary {
 
 .sidebar-tree .toctree-l1 > label .icon {
   color: var(--color-foreground-muted);
-  /* background: transparent !important;
-  backdrop-filter: blur(5px); */
+  background: transparent !important;
+  /* backdrop-filter: blur(5px); */
   
 }
 
@@ -494,10 +473,12 @@ li.toctree-l2 > a[href^="cli.html"] {
 }
 
 /*  make the sidebar trasnlucent  */
-.sidebar-drawer { 
+.sidebar-drawer,
+.rst-versions .rst-current-version { 
   /* background-color: rgba(0, 255, 255, 0.25); */
   background-color: var(--color-background-secondary);
   backdrop-filter: blur(9px);
+  -webkit-backdrop-filter: blur(9px);
   /* box-shadow: 0 0 10px rgba(0, 0, 0, 0.25); */
   /* box-shadow: 0 0 0.25rem rgba(0, 0, 0, 0.1); */
   
@@ -520,8 +501,9 @@ li.toctree-l2 > a[href^="cli.html"] {
 
 /* .sd-shadow-sm {
   /* box-shadow: 0 0 10rem rgba(255, 0, 0, 0.5) !important; */
-  box-shadow: 0 0 0.25rem rgba(0, 0, 0, 0.1) !important; 
-} */
+  /* box-shadow: 0 0 0.25rem rgba(0, 0, 0, 0.1) !important; 
+} 
+*/
 
 /* do not dim page */
 body > label.overlay.sidebar-overlay {
@@ -529,10 +511,25 @@ body > label.overlay.sidebar-overlay {
   /* backdrop-filter: blur(3px); */
 }
 
-.overlay { background-color: transparent;}
+/* .overlay { background-color: transparent;} */
+
+.overlay {
+  display: none;
+}
+
 
 
 /* 
 body {
   background: linear-gradient(to bottom right, rgba(1, 1, 1, 0.1), rgba(.5, .5, .5, 0.1));
+} */
+
+
+.toctree-checkbox {background-color: transparent;}
+
+/* body > div.page > aside > div > div > form > input.sidebar-search { background-color: red;} */
+
+
+/* input:focus {
+  border-color: green;
 } */
