@@ -339,7 +339,7 @@ class UnetModel():
     def _to_device(self, x):
         if self.torch:
             # X = torch.tensor(x,device=self.device).float()
-            X = torch.tensor(x,device=self.device,dtype=torch.float32) #specify float32 for mps            
+            X = torch.tensor(x,device=self.device,dtype=torch.float32) #specify float32 for mps                        
         else:
             #if x.dtype != 'bool':
             X = nd.array(x.astype(np.float32), ctx=self.device)
