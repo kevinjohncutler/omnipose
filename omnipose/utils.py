@@ -80,7 +80,7 @@ def to_8_bit(im):
 
 ### This section defines the tiling functions 
 def get_module(x):
-    if isinstance(x, (np.ndarray, tuple, int, float)):
+    if isinstance(x, (np.ndarray, tuple, int, float)) or np.isscalar(x):
         return np
     elif torch.is_tensor(x):
         return torch
@@ -504,12 +504,25 @@ def torch_norm(a,dim=0,keepdim=False):
 #                         module.divide(num, den), 
 #                         module.zeros_like(num))
 
+# def safe_divide(num, den, cutoff=0):
+#     """ Division ignoring zeros and NaNs in the denominator.""" 
+#     module = get_module(num)
+#     valid_den = (den > cutoff) & module.isfinite(den) #isfinite catches both nan and inf
+#     return module.divide(num, den, out=module.zeros_like(num,dtype=module.float64), where=valid_den, rounding_mode='trunc')
+
+
 def safe_divide(num, den, cutoff=0):
     """ Division ignoring zeros and NaNs in the denominator.""" 
     module = get_module(num)
     valid_den = (den > cutoff) & module.isfinite(den) #isfinite catches both nan and inf
-    return module.divide(num, den, out=module.zeros_like(num,dtype=module.float64), where=valid_den)
-
+    if module == np:
+        return np.divide(num, den, out=np.zeros_like(num, dtype=np.float32), where=valid_den)
+    elif module == torch:
+        return torch.where(valid_den, num / den, torch.zeros_like(num, dtype=torch.float32))
+    else:
+        raise TypeError("num must be a numpy array or a PyTorch tensor")
+        
+        
 def normalize99(Y, lower=0.01, upper=99.99, dim=None):
     """ normalize array/tensor so 0.0 is 0.01st percentile and 1.0 is 99.99th percentile 
     Upper and lower percentile ranges configurable. 
@@ -568,7 +581,9 @@ def normalize99(Y, lower=0.01, upper=99.99, dim=None):
     # return (Y-lower_val)/(upper_val-lower_val)
     # return module.clip((Y-lower_val)/(upper_val-lower_val),0,1)
     # return module.clip((Y-lower_val)/(upper_val-lower_val),0,1)
-    return safe_divide(Y-lower_val,upper_val-lower_val)
+    # in this case, since lower_val is not the absolute minimum, but the lowerr quanitle, 
+    # Y-lower_val can be less than zero. Likewise for the upward scalimg being slightly >1. 
+    return module.clip(safe_divide(Y-lower_val,upper_val-lower_val),0,1)
     
     
 import psutil

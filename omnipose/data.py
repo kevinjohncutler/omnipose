@@ -48,7 +48,8 @@ class eval_set(torch.utils.data.Dataset):
                  device=torch.device('cpu'),
                  normalize_stack=True, 
                  mode='reflect', 
-                 extra_pad=1, 
+                 extra_pad=1,
+                 projection=None,
                  tile=False):
         self.data = data
         self.dim = dim
@@ -125,11 +126,15 @@ class eval_set(torch.utils.data.Dataset):
     def __getitem__(self, inds, no_pad=False):
         if isinstance(inds, int):
             inds = [inds]
-            
+        
+        
         if self.stack:
+            # data is in memory, index it
             imgs = torch.tensor(self.data[inds].astype(float), device=self.device)
             
         else:   
+            # data is in storage, read it in as a list
+            # or if it is a list, concatenate it
             imgs = torch.cat([torch.tensor((imageio.imread(self.data[index]).astype(float) if self.files else self.data[index].astype(float)),device=self.device) 
                                 for index in inds],dim=0)
         
@@ -143,19 +148,19 @@ class eval_set(torch.utils.data.Dataset):
         
         
         # at this point, we have stacked the images. We need to decide if they are
-        # already stacked as a batch or if they need a batch diemnsion.
+        # already stacked as a batch or if they need a batch dimension.
         # We also need to add the channel dimension.
         
         # could assume no channels
         # or I could assume that the list/stack has more than one entry
         # so it will always have spatial dims, a stack dim, and maybe a channel dim
         
-        # wait, maybe my 3D data uis not trianing right, as it seems to not run with both channel and batch dims
+        # wait, maybe my 3D data uis not training right, as it seems to not run with both channel and batch dims
         
         # if dimension matches ndim, then no channel axis exists 
         if imgs.ndim == self.dim:
             imgs = imgs.unsqueeze(0) # add channel dim
-            print('aa')
+            print('adding channel dim')
         
        # if the channel axis exists 
         if self.channel_axis is not None:
@@ -204,6 +209,7 @@ class eval_set(torch.utils.data.Dataset):
     def _run_tiled(self, batch, model, 
                    batch_size=8, augment=False, bsize=224, 
                    tile_overlap=0.1, return_conv=False):
+    
         for imgi in batch:
             IMG, subs, shape, inds = make_tiles_ND(imgi,
                                                 bsize=bsize,
