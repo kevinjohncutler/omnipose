@@ -428,7 +428,6 @@ from omnipose.utils import rescale
 from scipy.ndimage import center_of_mass, binary_erosion, binary_dilation
 from skimage import measure
 from skimage.morphology import skeletonize, medial_axis
-# import peakdetect
 
 def overseg_seeds(msk, bd, mu, T, ks=1.5, 
                   rskel=True,extra_peaks=None):
@@ -647,7 +646,7 @@ def turn_overseg(maski,bdi):
     return r2[unpad], links
 
 
-import peakdetect
+from scipy.signal import find_peaks
 
 def split_contour(masks,contour_map,contour_list,bd_label=None):
     """
@@ -694,8 +693,7 @@ def split_contour(masks,contour_map,contour_list,bd_label=None):
 
             seed_map[coords_t] = utils.rescale(csum)
             X = np.concatenate([csum[::-1][:Lpad+1],csum,csum[::-1][:Lpad+1]])
-            # pks = peakdetect.peakdetect(X,lookahead=2,delta=1)
-            pks = peakdetect.peakdetect(X,lookahead=int(diam),delta=1)
+            peaks, _ = find_peaks(X, height=1, distance=int(diam))
         
         else:
             values = bd_label[coords_t]
@@ -703,7 +701,6 @@ def split_contour(masks,contour_map,contour_list,bd_label=None):
             # X = np.logical_or(Y!=np.roll(Y,shift=1),Y!=np.roll(Y,shift=-1))*1.
             X = Y!=np.roll(Y,shift=-1)
             pks = [[[p,1] for p in np.nonzero(X)[0]]]
-            # peakdetect gives two sublists, peaks and troughs
         
 
         indexes = []

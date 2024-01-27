@@ -3,7 +3,7 @@ install_deps = ['numpy>=1.22.4', 'scipy', 'numba',
                 'scikit-learn','torch>=1.10',
                 'mahotas>=1.4.13',
                 'mgen','matplotlib',
-                'peakdetect','igraph',
+                'igraph',
                 'torchvf','tqdm', 'natsort','czifile'
                 ]
 
