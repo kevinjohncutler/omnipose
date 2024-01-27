@@ -586,7 +586,6 @@ def normalize99(Y, lower=0.01, upper=99.99, dim=None):
     return module.clip(safe_divide(Y-lower_val,upper_val-lower_val),0,1)
     
     
-import psutil
 def auto_chunked_quantile(tensor, q):
     # Determine the maximum number of elements that can be handled by PyTorch's quantile function
     max_elements = 16e6 -1  
