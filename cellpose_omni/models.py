@@ -1393,8 +1393,8 @@ class CellposeModel(UnetModel):
             ret = [r.squeeze() if isinstance(r,np.ndarray) else r for r in ret]
             
         else:
-            #pass back zeros if not compute_masks 
-            ret = [np.zeros(0)]*9
+            #pass back zeros for masks and p if not compute_masks
+            ret = [[], styles, dP, cellprob, [], bd, tr, affinity, bounds]
         
         empty_cache()
         return (*ret,)
