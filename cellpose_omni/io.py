@@ -152,10 +152,10 @@ def imwrite(filename, arr):
         if len(arr.shape)>2:
             arr = cv2.cvtColor(arr, cv2.COLOR_BGR2RGB)
         cv2.imwrite(filename, arr)
-#         skimage.io.imsave(filename, arr.astype()) #cv2 doesn't handle transparency
+#         skimage.io.imwrite(filename, arr.astype()) #cv2 doesn't handle transparency
 
 def imsave(filename, arr):
-    io.loggwarning('WARNING: imsave is deprecated, use io.imwrite instead')
+    io_logger.warning('WARNING: imsave is deprecated, use io.imwrite instead')
     return imwrite(filename, arr)
 
 # now allows for any extension(s) to be specified, allowing exlcusion if necessary, non-image files, etc. 
@@ -576,7 +576,7 @@ def save_masks(images, masks, flows, file_names, png=True, tif=False,
         warnings.simplefilter("ignore")
         for ext in exts:
             
-            imsave(os.path.join(maskdir,basename + '_cp_masks' + suffix + ext), masks)
+            imwrite(os.path.join(maskdir,basename + '_cp_masks' + suffix + ext), masks)
     
     criterion3 = not (min(images.shape) > 3 and images.ndim >=3)
     
@@ -617,21 +617,21 @@ def save_masks(images, masks, flows, file_names, png=True, tif=False,
         # imgout= img0.copy()
         # imgout[outX, outY] = np.array([255,0,0]) #pure red 
         imgout = plot.outline_view(img0,masks,color=outline_col)
-        imsave(os.path.join(outlinedir, basename + '_outlines' + suffix + '.png'),  imgout)
+        imwrite(os.path.join(outlinedir, basename + '_outlines' + suffix + '.png'),  imgout)
     
     # ncolor labels (ready for color map application)
     if masks.ndim < 3 and OMNI_INSTALLED and save_ncolor:
         check_dir(ncolordir)
         #convert masks to minimal n-color reresentation 
-        imsave(os.path.join(ncolordir, basename + '_cp_ncolor_masks' + suffix + '.png'),
+        imwrite(os.path.join(ncolordir, basename + '_cp_ncolor_masks' + suffix + '.png'),
                ncolor.label(masks))
     
     # save RGB flow picture
     if masks.ndim < 3 and save_flows:
         check_dir(flowdir)
-        imsave(os.path.join(flowdir, basename + '_flows' + suffix + '.tif'), flows[0].astype(np.uint8))
+        imwrite(os.path.join(flowdir, basename + '_flows' + suffix + '.tif'), flows[0].astype(np.uint8))
         #save full flow data
-        imsave(os.path.join(flowdir, basename + '_dP' + suffix + '.tif'), flows[1]) 
+        imwrite(os.path.join(flowdir, basename + '_dP' + suffix + '.tif'), flows[1]) 
     
 def save_server(parent=None, filename=None):
     """ Uploads a *_seg.npy file to the bucket.
