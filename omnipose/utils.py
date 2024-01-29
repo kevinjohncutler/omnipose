@@ -585,7 +585,7 @@ def normalize99(Y, lower=0.01, upper=99.99, dim=None):
     # Y-lower_val can be less than zero. Likewise for the upward scalimg being slightly >1. 
     return module.clip(safe_divide(Y-lower_val,upper_val-lower_val),0,1)
     
-
+    
 def auto_chunked_quantile(tensor, q):
     # Determine the maximum number of elements that can be handled by PyTorch's quantile function
     max_elements = 16e6 -1  
