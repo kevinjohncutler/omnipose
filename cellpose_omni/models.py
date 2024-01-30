@@ -544,7 +544,7 @@ class CellposeModel(UnetModel):
              omni=False, calc_trace=False, verbose=False, transparency=False, 
              loop_run=False, model_loaded=False,hysteresis=True):
         """
-            segment list of images x, or 4D array - Z x nchan x Y x X
+            Evaluation for CellposeModel. Segment list of images x, or 4D array - Z x nchan x Y x X
 
             Parameters
             ----------
@@ -713,6 +713,10 @@ class CellposeModel(UnetModel):
 
         # Note: dataset is finetuned for basic omnipose usage. No styles are returned, some options may not be supported. 
         if is_dataset:
+        
+            if verbose:
+                models_logger.warning('Using dataset evaluation branch. Some options not yet supported.')
+                
             # set the tile parameter in dataset
             x.tile = tile
         
@@ -796,8 +800,6 @@ class CellposeModel(UnetModel):
                 # I made a vastly faster implementation using pytorch
                 rgb = omnipose.plot.rgb_flow(flow_pred,transparency=transparency) 
 
- 
-
                 # I implemented hysteresis with just pytorch
                 # it is faster than skimage with larger batches, but not by much
                 # it does better in thin sections, however (though might be broken skeleton fragments)
@@ -822,18 +824,10 @@ class CellposeModel(UnetModel):
                 initial_points = torch.stack(mesh, dim = 0) # torchvf flips with mesh[::-1]
                 initial_points = initial_points.repeat(init_shape).float()
 
-                # print(dims,'DIMS',torch.stack(mesh).shape)
-
-                # print('gggttt',shape,B,dims,initial_points.device,mesh[0].device)
-                # print('mesh',mesh.shape)
-                # print('hnhnhhnh',initial_points.shape,init_shape,flow_pred.shape)
-                # print(initial_points)
                 # final_points = ivp_solver(vf,initial_points, 
                 #                         dx = 1,
                 #                         n_steps = 8,
                 #                         solver = "euler")[-1] 
-
-                # print('fff111',final_points.shape)
 
                 # these are equivalent 
                 coords = torch.nonzero(foreground,as_tuple=True)
@@ -858,9 +852,6 @@ class CellposeModel(UnetModel):
                 # selected_indices = index_mesh[:, fg]
                 # coords = tuple(selected_indices)
 
-                # print('ccc', len(coords), coords[0].shape, torch.stack(coords).shape)
-
-                # print('dsdf')
 
                 # fg = foreground.squeeze()  # Now fg has shape (B, D1, D2, ..., DN)
 
@@ -887,27 +878,28 @@ class CellposeModel(UnetModel):
                         models_logger.info('niter set to %d'%niter)
 
                 final_points = initial_points.clone()
-                # print('debugf',self.dim,final_points.shape)
-
-                final_p, traced_p = omnipose.core.steps_interp_batch(initial_points[cell_px],
+                final_p, traced_p = omnipose.core.steps_batch(initial_points[cell_px],
                                                         flow_pred/5., #<<<<<<<<<<< add support for other options here 
                                                         niter=niter,
                                                         omni=omni,
                                                         suppress=suppress,
-                                                        verbose=verbose, calc_trace=calc_trace)
+                                                        interp=interp,
+                                                        verbose=verbose, 
+                                                        calc_trace=calc_trace)
                 
                 final_points[cell_px] = final_p.squeeze()
-
-                steps, inds, idx, fact, sign = omnipose.utils.kernel_setup(self.dim)
-                affinity_graph = omnipose.core._get_affinity_torch(initial_points, 
-                                                                    final_points, 
-                                                                    flow_pred/5., #<<<<<<<<<<< add support for other options here 
-                                                                    dist_pred, 
-                                                                    foreground, 
-                                                                    steps,
-                                                                    fact,
-                                                                    niter,
-                                                                    )
+                
+                if affinity_seg:
+                    steps, inds, idx, fact, sign = omnipose.utils.kernel_setup(self.dim)
+                    affinity_graph = omnipose.core._get_affinity_torch(initial_points, 
+                                                                        final_points, 
+                                                                        flow_pred/5., #<<<<<<<<<<< add support for other options here 
+                                                                        dist_pred, 
+                                                                        foreground, 
+                                                                        steps,
+                                                                        fact,
+                                                                        niter,
+                                                                        )
 
                 # cast to CPU
                 final_points = self._from_device(final_points)
@@ -917,7 +909,8 @@ class CellposeModel(UnetModel):
                 flow_pred = self._from_device(flow_pred)
                 bd_pred = self._from_device(bd_pred)
                 rgb = self._from_device(rgb)
-                affinity_graph = self._from_device(affinity_graph).swapaxes(0,1)
+                affinity_graph = self._from_device(affinity_graph).swapaxes(0,1) if affinity_seg else [None]*B
+                
                 del yf 
 
                 # add to output lists 
@@ -928,9 +921,6 @@ class CellposeModel(UnetModel):
                 
                 # can loop through batch and run compute_masks
                 for iscell, disti, dPi, bdi, agi, pts, trp in zip(foreground, dist_pred, flow_pred, bd_pred, affinity_graph, final_points, traced_p):
-                    # print('a1a1a133',pts.shape) # need to pad this array or remove padding from calculation
-                    # print('points_ff', pts.min(), pts.max())
-                    # one way to avoid padding is to completely 
                     parallel = 1
                     coords = np.nonzero(iscell)
                     # print('agi 33',agi.shape, affinity_graph.shape, np.sum(iscell), np.stack(coords).shape)
@@ -1634,7 +1624,7 @@ class SizeModel():
     def eval(self, x, channels=None, channel_axis=None, 
              normalize=True, invert=False, augment=False, tile=True,
              batch_size=8, progress=None, interp=True, omni=False):
-        """ use images x to produce style or use style input to predict size of objects in image
+        """ Evaluation for SizeModel. Use images x to produce style or use style input to predict size of objects in image.
 
             Object size estimation is done in two steps:
             1. use a linear regression model to predict size from style in image

@@ -1852,132 +1852,11 @@ def get_masks(p, bd, dist, mask, inds, nclasses=2,cluster=False,
 # grid_sample will only work for up to 5D tensors (3D segmentation). Will have to address this shortcoming if we ever do 4D. (see my pull request to torchvf for this
 # I got rid of the map_coordinates branch, I tested execution times and pytorch implemtation seems as fast or faster
 # @torch.jit.script
-def steps_interp(p, dP, dist, niter, use_gpu=True, device=None, omni=True, suppress=True,
-                 calc_trace=False, calc_bd=False, verbose=False):
-    """Euler integration of pixel locations p subject to flow dP for niter steps in N dimensions. 
-    
-    Parameters
-    ----------------
-    p: float32, ND array
-        pixel locations [axis x Lz x Ly x Lx] (start at initial meshgrid)
-    dP: float32, ND array
-        flows [axis x Lz x Ly x Lx]
-    niter: int32
-        number of iterations of dynamics to run
 
-    Returns
-    ---------------
-    p: float32, ND array
-        final locations of each pixel after dynamics
+# deleted steps interp in favor of just using steps_batch as a unified function in ND.
+# can use nearest interpolation if needed. 
 
-    """
-    align_corners = True
-    # I think bilinear is actually a problem, as averaging to zero causes stranded pixels 
-    # nearest is also faster and does just as well 
-    # However, I will keep it as the default for the old omnipose version or cellpose 
-    mode = 'nearest' if (omni and not suppress) else 'bilinear'
-    
-    d = dP.shape[0] # number of components = number of dimensions 
-    shape = dP.shape[1:] # shape of component array is the shape of the ambient volume 
-    inds = list(range(d))[::-1] # grid_sample requires a particular ordering 
-    # print('inds_main', inds,p.shape) 
-    
-    # if verbose:
-    #     startTime = time.time()
-    #     print('device',device)
-    
-    if device is None:
-        if use_gpu:
-            device = torch_GPU
-        else:
-            device = torch_CPU
-    # for now, looks like grid_sampler_2d is not implemented for mps
-    # so it is much faster to just default to CPU instead of allowing for fallback
-    # but now that I am realizing that inteprolation is no good... maybe there is a better way 
-    # yes, I should use my torchvf code <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<
-    if ARM:
-        device = torch_CPU
-    shape = np.array(shape)[inds]-1.  # dP is d.Ly.Lx, inds flips this to flipped X-1, Y-1, ...
-
-    # for grid_sample to work, we need im,pt to be (N,C,H,W),(N,H,W,2) or (N,C,D,H,W),(N,D,H,W,3). The 'image' getting interpolated
-    # is the flow, which has d=2 channels in 2D and 3 in 3D (d vector components). Output has shape (N,C,H,W) or (N,C,D,H,W)
-    pt = torch.tensor(p[inds].T,device=device,dtype=torch.float32) 
-    pt0 = pt.clone() # save first
-    for k in range(d):
-        pt = pt.unsqueeze(0) # get it in the right shape
-
-    # print('p_main', p.shape, p.min(), p.max(), pt.shape,'\n') 
-    if isinstance(dP, torch.Tensor):
-        flow = dP[inds].to(device=device,dtype=torch.float32).unsqueeze(0)
-    else:   
-        flow = torch.tensor(dP[inds],device=device,dtype=torch.float32).unsqueeze(0) #covert flow numpy array to tensor on GPU, add dimension 
-
-    # print('flow_main',flow.shape)
-    # we want to normalize the coordinates between 0 and 1. To do this, 
-    # we divide the coordinates by the shape along that dimension. To symmetrize,
-    # we then multiply by 2 and subtract 1. I
-    # We also need to rescale the flow by the same factor, but no shift of -1. 
-    
-    for k in range(d): 
-        pt[...,k] = 2*pt[...,k]/shape[k] - 1 
-        flow[:,k] = 2*flow[:,k]/shape[k]
-    
-    # make an array to track the trajectories 
-    if calc_trace:
-        trace = torch.clone(pt).detach()
-        # trace = torch.zeros((niter,)+pt.shape) # slower to preallocate...
-
-    # init 
-    if omni and OMNI_INSTALLED and suppress:
-        dPt0 = torch.nn.functional.grid_sample(flow, pt, mode=mode, align_corners=align_corners)
-
-    #here is where the stepping happens 
-    for t in range(niter):
-        if calc_trace and t>0:
-            trace = torch.cat((trace,pt))
-            # trace[t] = pt.detach()
-        # align_corners default is False, just added to suppress warning
-        dPt = torch.nn.functional.grid_sample(flow, pt, mode=mode, 
-                                              align_corners=align_corners)#see how nearest changes things 
-
-        if omni and OMNI_INSTALLED and suppress:
-                dPt = (dPt+dPt0) / 2. # average with previous flow 
-                # dPt0 = dPt.clone() # update old flow 
-                dPt0.copy_(dPt) # update old flow 
-                dPt /= step_factor(t) # suppression factor 
-                
-        for k in range(d): #clamp the final pixel locations, <<<< could be done for all at once?
-            pt[...,k] = torch.clamp(pt[...,k] + dPt[:,k], -1., 1.)
-        
-        
-    #undo the normalization from before, reverse order of operations 
-    pt = (pt+1)*0.5
-    for k in range(d): 
-        pt[...,k] *= shape[k]
-
-    if calc_trace:
-        trace = (trace+1)*0.5
-        for k in range(d): 
-            trace[...,k] *= shape[k]
-
-    #pass back to cpu
-    if calc_trace:
-        tr =  trace[...,inds].cpu().numpy().squeeze().T
-    else:
-        tr = None
-
-    p =  pt[...,inds].cpu().numpy().squeeze().T
-
-    # if verbose:
-    #     executionTime = (time.time() - startTime)
-    #     omnipose_logger.info('steps_interp() execution time: {0:.3g} sec'.format(executionTime))
-    empty_cache() # release memory
-    return p, tr
-
-
-# def steps_batch():
-
-def steps_interp_batch(p, dP, niter, omni=True, suppress=True,
+def steps_batch(p, dP, niter, omni=True, suppress=True, interp=True, 
                  calc_trace=False, calc_bd=False, verbose=False):
     """Euler integration of pixel locations p subject to flow dP for niter steps in N dimensions. 
     
@@ -1997,7 +1876,16 @@ def steps_interp_batch(p, dP, niter, omni=True, suppress=True,
 
     """
     align_corners = True
-    mode = 'nearest' if (omni and not suppress) else 'bilinear'
+    # mode = 'nearest' if (omni and not suppress) else 'bilinear'
+    
+    # we want to use bilinear interpolation if using Euler suppression 
+    # Affinity reconstruction does not require Euler suppression
+    # and we want to also be able to toggle this globally with interp arg
+    # (omni and and not suppress) is false when affinity is on
+    interp = interp and not (omni and not suppress)
+    mode = 'bilinear' if interp else 'nearest'
+    if verbose:
+        omnipose_logger.info(f'interp is {interp}, interpolation mode is {mode}')
     
     d = dP.shape[1] # number of components = number of dimensions 
     shape = dP.shape[2:] # shape of component array is the shape of the ambient volume 
@@ -2063,92 +1951,10 @@ def steps_interp_batch(p, dP, niter, omni=True, suppress=True,
         
     else:
         tr = None
-    # print('hh',pt.shape,pt[...,inds].shape)
     # p =  pt[...,inds].permute(0,-1,1,2)
     p =  pt[...,inds].transpose(-1,1).contiguous()
     
-    # print('kk',p.shape)
-    
-    return p, tr
-
-
-@njit('(float32[:,:,:,:],float32[:,:,:,:], int32[:,:], int32)', nogil=True)
-def steps3D(p, dP, inds, niter):
-    """ Run dynamics of pixels to recover masks in 3D.
-    
-    Euler integration of dynamics dP for niter steps.
-
-    Parameters
-    ----------------
-    p: float32, 4D array
-        pixel locations [axis x Lz x Ly x Lx] (start at initial meshgrid)
-    dP: float32, 4D array
-        flows [axis x Lz x Ly x Lx]
-    inds: int32, 2D array
-        non-zero pixels to run dynamics on [npixels x 3]
-    niter: int32
-        number of iterations of dynamics to run
-
-    Returns
-    ---------------
-    p: float32, 4D array
-        final locations of each pixel after dynamics
-
-    """
-    shape = p.shape[1:]
-    for t in range(niter):
-        #pi = p.astype(np.int32)
-        for j in range(inds.shape[0]):
-            z = inds[j,0]
-            y = inds[j,1]
-            x = inds[j,2]
-            p0, p1, p2 = int(p[0,z,y,x]), int(p[1,z,y,x]), int(p[2,z,y,x])
-            p[0,z,y,x] = min(shape[0]-1, max(0, p[0,z,y,x] + dP[0,p0,p1,p2]))
-            p[1,z,y,x] = min(shape[1]-1, max(0, p[1,z,y,x] + dP[1,p0,p1,p2]))
-            p[2,z,y,x] = min(shape[2]-1, max(0, p[2,z,y,x] + dP[2,p0,p1,p2]))
-    return p, None
-
-@njit('(float32[:,:,:], float32[:,:,:], int32[:,:], int32, boolean, boolean)', nogil=True)
-def steps2D(p, dP, inds, niter, suppress=False, calc_trace=False):
-    """ Run dynamics of pixels to recover masks in 2D.
-    
-    Euler integration of dynamics dP for niter steps.
-
-    Parameters
-    ----------------
-    p: float32, 3D array
-        pixel locations [axis x Ly x Lx] (start at initial meshgrid)
-    dP: float32, 3D array
-        flows [axis x Ly x Lx]
-    inds: int32, 2D array
-        non-zero pixels to run dynamics on [npixels x 2]
-    niter: int32
-        number of iterations of dynamics to run
-
-    Returns
-    ---------------
-    p: float32, 3D array
-        final locations of each pixel after dynamics
-
-    """
-    shape = p.shape[1:]
-    if calc_trace:
-        Ly = shape[0]
-        Lx = shape[1]
-        tr = np.zeros((niter,2,Ly,Lx))
-    for t in range(niter):
-        for j in range(inds.shape[0]):
-            if calc_trace:
-                tr[t] = p.copy()
-            # starting coordinates
-            y = inds[j,0]
-            x = inds[j,1]
-            p0, p1 = int(p[0,y,x]), int(p[1,y,x])
-            step = dP[:,p0,p1]
-            if suppress:
-                step /= step_factor(t)
-            for k in range(p.shape[0]):
-                p[k,y,x] = min(shape[k]-1, max(0, p[k,y,x] + step[k]))
+    empty_cache()
     return p, tr
 
 # now generalized and simplified. Will work for ND if dependencies are updated. 
@@ -2186,50 +1992,48 @@ def follow_flows(dP, dist, inds, niter=None, interp=True, use_gpu=True,
         list of intermediate pixel coordinates for each step of the Euler integration
 
     """
-    d = dP.shape[0] # dimension is the number of flow components 
-    shape = np.array(dP.shape[1:]).astype(np.int32) # shape of masks is the shape of the component field
-    
     if verbose:
-        omnipose_logger.info('niter is {}'.format(niter))
+        omnipose_logger.info(f'niter is {niter}, interp is {interp}')
     
     if niter is None:
         niter = 200
     
     niter = np.uint32(niter) 
-    
-    grid = [np.arange(shape[i]) for i in range(d)]
-    p = np.meshgrid(*grid, indexing='ij')
-    # not sure why, but I had changed this to float64 at some point... tests showed that map_coordinates expects float32
-    # possible issues elsewhere? 
-    p = np.array(p).astype(np.float32)
-    # added inds for debugging while preserving backwards compatibility 
-    
-    if inds.ndim < 2 or inds.shape[0] < d:
-        omnipose_logger.warning('WARNING: no mask pixels found')
-        return p, inds, None
-
     cell_px = (Ellipsis,)+tuple(inds)
 
-    if not interp:
-        omnipose_logger.warning('not interp')
-        if d==2:
-            p, tr = steps2D(p, dP.astype(np.float32), inds, niter, 
-                            suppress = suppress, # no momentum term here, suppress toggled by omni upstream 
-                            calc_trace=calc_trace)
-        elif d==3:
-            p, tr = steps3D(p, dP, inds, niter)
-        else:
-            omnipose_logger.warning('No non-interp code available for non-2D or -3D inputs.')
+   # got rid of the interp vs not interp branch in favor of just using nearest interpolation in the
+   # interp code; make single batch compatible with batched integrator with unsqueezing 
+    
+    flow_pred = torch.tensor(dP,device=device).unsqueeze(0) 
+    shape = flow_pred.shape
+    B = shape[0] # this should be 1 in this branch, from unsqueezing
+    dim = shape[1]
+    dims = shape[-dim:] #spatial dims
 
+    coords = [torch.arange(0, l, device=device) for l in dims]
+    mesh = torch.meshgrid(coords, indexing = "ij")
+    init_shape = [B, 1] + ([1] * len(dims))
+    initial_points = torch.stack(mesh, dim = 0) # torchvf flips with mesh[::-1]
+    initial_points = initial_points.repeat(init_shape).float()
+
+    final_points = initial_points.clone()
+    
+    if inds.ndim < 2 or inds.shape[0] < dim:
+        omnipose_logger.warning('WARNING: no mask pixels found')
+        tr = None
     else:
-        # I am not sure why we still use p[cell_px]... instead of just cell_px. 
-        p_interp, tr = steps_interp(p[cell_px], dP, dist, niter, use_gpu=use_gpu,
-                                    device=device, 
-                                    omni=omni, # omni controls the momentum term I have 
-                                    suppress=suppress, # Euler suppression can be independent, i.e. with agginity_seg 
-                                    calc_trace=calc_trace, 
-                                    verbose=verbose)
-        p[cell_px] = p_interp
+        final_p, tr = steps_batch(initial_points[cell_px], 
+                                flow_pred, 
+                                niter,
+                                omni=omni, # omni controls the momentum term I have 
+                                suppress=suppress, # Euler suppression can be independent, i.e. with agginity_seg 
+                                interp=interp,
+                                calc_trace=calc_trace, 
+                                verbose=verbose)
+        
+        final_points[cell_px] = final_p.squeeze()
+        
+    p = final_points.squeeze().cpu().numpy()
     return p, inds, tr
 
 def remove_bad_flow_masks(masks, flows, coords=None, affinity_graph=None, threshold=0.4, use_gpu=False, device=None, omni=True):
@@ -3524,7 +3328,6 @@ def _get_affinity_torch(initial, final, flow, dist, iscell, steps, fact, niter, 
 
     # I think the new strategy is to fill in the arrays for each step
     # then take acos on the full cosine array for thresholding 
-    
     div = divergence_torch(flow) 
     # div = divergence_torch(mu) # NOTE: my original code still uses the flow field prediciton as mu here, 
     # but easier to experiment here and indeed using displacemnet is much more robust without despurring 

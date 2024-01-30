@@ -2,7 +2,7 @@ import torch
 from .utils import torch_norm, kernel_setup
 from torchvf.losses import ivp_loss
 import numpy as np
-from .core import steps_interp_batch, _get_affinity_torch, divergence_torch, _gradient
+from .core import steps_batch, _get_affinity_torch, divergence_torch, _gradient
 from torchvf.numerics import interp_vf, ivp_solver
 
 
@@ -67,7 +67,7 @@ class AffinityLoss(torch.nn.Module):
         bds = []
         for f,d in zip([flow_pred,flow_gt],[dist_pred,dist_gt]):
             # final_points = initial_points.clone()
-            # final_p, traced_p = steps_interp_batch(initial_points[cell_px],
+            # final_p, traced_p = steps_batch(initial_points[cell_px],
             #                                         flow_pred/5., #<<<<<<<<<<< add support for other options here 
             #                                         niter=niter, omni=True)
             # final_points[cell_px] = final_p.squeeze()
