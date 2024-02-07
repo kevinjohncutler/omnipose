@@ -670,11 +670,6 @@ class CellposeModel(UnetModel):
         
         if cellprob_threshold is not None or dist_threshold is not None:
             mask_threshold = deprecation_warning_cellprob_dist_threshold(cellprob_threshold, dist_threshold)
-
-        if verbose:
-            models_logger.info('Evaluating with flow_threshold %0.2f, mask_threshold %0.2f'%(flow_threshold, mask_threshold))
-            if omni:
-                models_logger.info(f'using omni model, cluster {cluster}')
         
         # images are given has a list, especially when heterogeneous in shape
         is_grey = np.sum(channels)==0
@@ -692,14 +687,13 @@ class CellposeModel(UnetModel):
             is_image, is_stack = [dim_diff==i for i in opt]
             correct_shape = dim_diff in opt          
             
-            # print('yoyo debug',x.shape,channel_axis,is_image, is_stack,channels, dim_diff, opt)  
-
-            
+        # print('a1',interp,hysteresis,calc_trace)
+        
         # allow for a dataset to be passed so that we can do batches 
         # will be defined in omnipose.data.train_set 
         is_dataset = isinstance(x,torch.utils.data.Dataset)
         if is_dataset:
-            correct_shape =  True # assume the dataset has the right shape
+            correct_shape = True # assume the dataset has the right shape
 
         if not (is_list or is_stack or is_dataset or is_image or loop_run):
             models_logger.warning('input images must be a list of images, array of images, or dataloader')
@@ -711,6 +705,12 @@ class CellposeModel(UnetModel):
                 print(slice_ndim,x.ndim,is_list,is_stack)
                 models_logger.warning('input images do not match the expected number of dimensions ({}) and channels ({}) of model.'.format(self.dim,self.nchan))
 
+        if verbose and (is_dataset or not (is_list or is_stack)):
+            models_logger.info('Evaluating with flow_threshold %0.2f, mask_threshold %0.2f'%(flow_threshold, mask_threshold))
+            if omni:
+                models_logger.info(f'using omni model, cluster {cluster}')
+
+
         # Note: dataset is finetuned for basic omnipose usage. No styles are returned, some options may not be supported. 
         if is_dataset:
         
@@ -719,6 +719,9 @@ class CellposeModel(UnetModel):
                 
             # set the tile parameter in dataset
             x.tile = tile
+            
+            # set the rescale parameter in dataset
+            x.rescale = rescale
         
             # sample indices to evaluate
             indices = list(range(len(x))) if indices is None else indices
@@ -785,8 +788,15 @@ class CellposeModel(UnetModel):
                     del batch
                     # print('need to add normalization / invert /rescale options in dataloader')
       
+
+      
                 # slice out padding
                 yf = yf[(Ellipsis,)+slc]
+                
+                
+                # rescale and resample
+                if resample and rescale!=1.0:
+                    yf = omnipose.data.torch_zoom(yf, 1/rescale)
 
                 # compared to the usual per-image pipeline, this one will not support cellpose or u-net 
                 flow_pred = yf[:,:self.dim]
@@ -797,6 +807,10 @@ class CellposeModel(UnetModel):
                 else:
                     bd_pred = torch.empty(nimg)
                 
+                # clear from memory
+                del yf 
+
+                
                 # I made a vastly faster implementation using pytorch
                 rgb = omnipose.plot.rgb_flow(flow_pred,transparency=transparency) 
 
@@ -805,11 +819,12 @@ class CellposeModel(UnetModel):
                 # it does better in thin sections, however (though might be broken skeleton fragments)
                 # I might just replace the main branch code with this
                 if hysteresis:
-                    foreground = hysteresis_threshold(dist_pred.unsqueeze(1),mask_threshold-1, mask_threshold).squeeze(dim=0)
+                    foreground = hysteresis_threshold(dist_pred.unsqueeze(1),mask_threshold-1, mask_threshold).squeeze(dim=1)
                 else:
                     foreground = dist_pred >= mask_threshold
                     # print('add flag')
-
+                
+                # print('fg_here',torch.sum(foreground))
 
                 # vf = interp_vf(flow_pred/5., mode = "nearest_batched")
                 # initial_points = init_values_semantic(foreground, device=self.device)
@@ -867,114 +882,131 @@ class CellposeModel(UnetModel):
                 # # print(len(reshaped_grids),reshaped_grids[0].shape,reshaped_grids)
 
                 # coords = tuple(selected_indices)
-
-
-                cell_px = (Ellipsis,)+coords[-self.dim:]
-                if niter is None:
-                    # niter = omnipose.core.get_niter(dist_pred).cpu()
-                    # int(diameters(foreground,dist_pred)/(1+affinity_seg))
-                    niter = int(2*(self.dim+1)*torch.mean(dist_pred[(Ellipsis,)+coords]) / (1+affinity_seg))
-                    if verbose:
-                        models_logger.info('niter set to %d'%niter)
-
-                final_points = initial_points.clone()
-                final_p, traced_p = omnipose.core.steps_batch(initial_points[cell_px],
-                                                        flow_pred/5., #<<<<<<<<<<< add support for other options here 
-                                                        niter=niter,
-                                                        omni=omni,
-                                                        suppress=suppress,
-                                                        interp=interp,
-                                                        verbose=verbose, 
-                                                        calc_trace=calc_trace)
                 
-                final_points[cell_px] = final_p.squeeze()
-                
-                if affinity_seg:
-                    steps, inds, idx, fact, sign = omnipose.utils.kernel_setup(self.dim)
-                    affinity_graph = omnipose.core._get_affinity_torch(initial_points, 
-                                                                        final_points, 
-                                                                        flow_pred/5., #<<<<<<<<<<< add support for other options here 
-                                                                        dist_pred, 
-                                                                        foreground, 
-                                                                        steps,
-                                                                        fact,
-                                                                        niter,
-                                                                        )
 
-                # cast to CPU
-                final_points = self._from_device(final_points)
-                traced_p = self._from_device(traced_p) if traced_p is not None else [None]*B
-                foreground = self._from_device(foreground)
-                dist_pred = self._from_device(dist_pred)
-                flow_pred = self._from_device(flow_pred)
-                bd_pred = self._from_device(bd_pred)
-                rgb = self._from_device(rgb)
-                affinity_graph = self._from_device(affinity_graph).swapaxes(0,1) if affinity_seg else [None]*B
                 
-                del yf 
-
                 # add to output lists 
-                dP.extend(flow_pred)
-                dist.extend(dist_pred)
-                bd.extend(bd_pred)
-                flow_RGB.extend(rgb)
+                dP.extend(self._from_device(flow_pred))
+                dist.extend(self._from_device(dist_pred))
+                bd.extend(self._from_device(bd_pred))
+                flow_RGB.extend(self._from_device(rgb))
                 
-                # can loop through batch and run compute_masks
-                for iscell, disti, dPi, bdi, agi, pts, trp in zip(foreground, dist_pred, flow_pred, bd_pred, affinity_graph, final_points, traced_p):
-                    parallel = 1
-                    coords = np.nonzero(iscell)
-                    # print('agi 33',agi.shape, affinity_graph.shape, np.sum(iscell), np.stack(coords).shape)
-                    # agi = None
-                    # print('torch computed affinity not quite ready yet ')
-                    # print('PARALLEL', parallel)
-                    #NOW THAT THE trajectories are "WORKING", I need to add the parallel affinity here 
-                    outputs = omnipose.core.compute_masks(dPi, disti, 
-                                                            affinity_graph=agi[(Ellipsis,)+coords] if agi is not None else agi,
-                                                            bd = bdi, 
-                                                            p=pts.squeeze() if parallel else None,
-                                                            coords = np.stack(coords),
-                                                            iscell=iscell if parallel else None,
-                                                            niter=niter, 
-                                                            rescale=rescale, 
-                                                            resize=resize,
-                                                            min_size=min_size, 
-                                                            max_size=max_size,
-                                                            mask_threshold=mask_threshold,   
-                                                            diam_threshold=diam_threshold,
-                                                            flow_threshold=flow_threshold, 
-                                                            flow_factor=flow_factor,             
-                                                            interp=interp, 
-                                                            cluster=cluster, 
-                                                            boundary_seg=boundary_seg,
-                                                            affinity_seg=affinity_seg,
-                                                            despur=despur,
-                                                            calc_trace=calc_trace, 
-                                                            verbose=verbose,
-                                                            use_gpu=self.gpu, 
-                                                            device=self.device, 
-                                                            nclasses=self.nclasses, 
-                                                            dim=self.dim) 
 
-                    masks.append(outputs[0])
-                    p.append(outputs[1])
-                    # tr.append(outputs[2])
-                    tr.append(trp)
-                    bounds.append(outputs[3])
-                    affinity.append(outputs[4])
+                if torch.any(foreground):
+                    cell_px = (Ellipsis,)+coords[-self.dim:]
+                    if niter is None:
+                        # niter = omnipose.core.get_niter(dist_pred).cpu()
+                        # int(diameters(foreground,dist_pred)/(1+affinity_seg))
+                        niter = int(2*(self.dim+1)*torch.mean(dist_pred[(Ellipsis,)+coords]) / (1+affinity_seg))
+                        if verbose:
+                            models_logger.info('niter set to %d'%niter)
+
+                    final_points = initial_points.clone()
+                    final_p, traced_p = omnipose.core.steps_batch(initial_points[cell_px],
+                                                            flow_pred/5., #<<<<<<<<<<< add support for other options here 
+                                                            niter=niter,
+                                                            omni=omni,
+                                                            suppress=suppress,
+                                                            interp=interp,
+                                                            verbose=verbose, 
+                                                            calc_trace=calc_trace)
                     
+                    final_points[cell_px] = final_p.squeeze()
+                    
+                    if affinity_seg:
+                        steps, inds, idx, fact, sign = omnipose.utils.kernel_setup(self.dim)
+                        affinity_graph = omnipose.core._get_affinity_torch(initial_points, 
+                                                                            final_points, 
+                                                                            flow_pred/5., #<<<<<<<<<<< add support for other options here 
+                                                                            dist_pred, 
+                                                                            foreground, 
+                                                                            steps,
+                                                                            fact,
+                                                                            niter,
+                                                                            )
+
+                    # cast to CPU for compute_masks
+                    final_points = self._from_device(final_points)
+                    traced_p = self._from_device(traced_p) if traced_p is not None else [None]*B
+                    affinity_graph = self._from_device(affinity_graph).swapaxes(0,1) if affinity_seg else [None]*B
+                    foreground = self._from_device(foreground)
+                    dist_pred = self._from_device(dist_pred)
+                    flow_pred = self._from_device(flow_pred)
+                    bd_pred = self._from_device(bd_pred)
+                    rgb = self._from_device(rgb)
+                    
+
+                    # can loop through batch and run compute_masks
+                    for iscell, disti, dPi, bdi, agi, pts, trp in zip(foreground, dist_pred, flow_pred, bd_pred, affinity_graph, final_points, traced_p):
+                        parallel = 1
+                        coords = np.nonzero(iscell)
+                        # print('agi 33',agi.shape, affinity_graph.shape, np.sum(iscell), np.stack(coords).shape)
+                        # agi = None
+                        # print('torch computed affinity not quite ready yet ')
+                        # print('PARALLEL', parallel)
+                        #NOW THAT THE trajectories are "WORKING", I need to add the parallel affinity here 
+                        outputs = omnipose.core.compute_masks(dPi, disti, 
+                                                                affinity_graph=agi[(Ellipsis,)+coords] if agi is not None else agi,
+                                                                bd = bdi, 
+                                                                p=pts.squeeze() if parallel else None,
+                                                                coords = np.stack(coords),
+                                                                iscell=iscell if parallel else None,
+                                                                niter=niter, 
+                                                                rescale=rescale, 
+                                                                resize=resize,
+                                                                min_size=min_size, 
+                                                                max_size=max_size,
+                                                                mask_threshold=mask_threshold,   
+                                                                diam_threshold=diam_threshold,
+                                                                flow_threshold=flow_threshold, 
+                                                                flow_factor=flow_factor,             
+                                                                interp=interp, 
+                                                                cluster=cluster, 
+                                                                boundary_seg=boundary_seg,
+                                                                affinity_seg=affinity_seg,
+                                                                despur=despur,
+                                                                calc_trace=calc_trace, 
+                                                                verbose=verbose,
+                                                                use_gpu=self.gpu, 
+                                                                device=self.device, 
+                                                                nclasses=self.nclasses, 
+                                                                dim=self.dim) 
+
+                        masks.append(outputs[0])
+                        p.append(outputs[1])
+                        # tr.append(outputs[2])
+                        tr.append(trp)
+                        bounds.append(outputs[3])
+                        affinity.append(outputs[4])
+                        
+                        progress_bar.update()
+                        empty_cache()
+                        
+
+
+                else:
                     progress_bar.update()
                     empty_cache()
-
-            progress_bar.close()
-
+                    models_logger.info('no cell pixels found')
+                    masks = np.zeros((B,)+dims)
+                    bounds = np.zeros((B,)+dims)
+                    affinity = [None for _ in range(B)]
+                    tr = [None for _ in range(B)]
+                    p = [None for _ in range(B)]
+            
+            
             masks = np.array(masks)
             bounds = np.array(bounds)
             p = np.array(p)
             tr = np.array(tr)
             ret = [masks, dP, dist, p, bd, tr, affinity, bounds, flow_RGB]
+            
+            progress_bar.close()
+
 
             for r in ret:
                 r.squeeze() if isinstance(r,np.ndarray) else r 
+
             
             # the flow list stores: 
             # (1) RGB representation of flows

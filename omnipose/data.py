@@ -10,8 +10,21 @@ from .utils import get_flip, _taper_mask_ND, unaugment_tiles_ND, average_tiles_N
 
 # import multiprocessing as mp
 # import imageio
+from aicsimageio import AICSImage
 
-# This will 
+
+import torch.nn.functional as F
+def torch_zoom(img, scale_factor=1.0, dim=2, size=None, mode='bilinear'):
+    # Calculate the target size
+    target_size = [int(dim * scale_factor) for dim in img.shape[-dim:]] if size is None else size
+
+    # Use interpolate to resize the image
+    img = F.interpolate(img, size=target_size, mode=mode, align_corners=False)
+
+    return img
+
+
+
 class eval_loader(torch.utils.data.DataLoader):
     def __init__(self, dataset, model, postprocess_fn, **kwargs):
         super().__init__(dataset, **kwargs)
@@ -42,25 +55,41 @@ class sampler(torch.utils.data.Sampler):
 # dataset for evaluation
 # incidentally, this also provides a platform for doing image augmentations (combine output from rotated images etc.)
 
+# need to modify this to use multichannel for bact_phase omni...
+
 class eval_set(torch.utils.data.Dataset):
     def __init__(self, data, dim, 
                  channel_axis=None,
                  device=torch.device('cpu'),
                  normalize_stack=True, 
-                 mode='reflect', 
+                 rescale=1.0,
+                 pad_mode='reflect',
+                 interp_mode='bilinear',
                  extra_pad=1,
                  projection=None,
-                 tile=False):
+                 tile=False,
+                 aics_args=None,
+                 contrast_limits=None):
         self.data = data
         self.dim = dim
         self.channel_axis = channel_axis
         self.stack = isinstance(self.data, np.ndarray)
-        self.files = isinstance(self.data[0],str)
+        self.aics =  isinstance(self.data, AICSImage)
+        self.aics_args = aics_args if aics_args is not None else {}
+        self.list = isinstance(self.data,list)
+        if self.list:
+            self.files = isinstance(self.data[0], str)
+        else:
+            self.files = False
+        
         self.device = device
         self.normalize_stack = normalize_stack
-        self.mode = mode
+        self.rescale = rescale
+        self.pad_mode = pad_mode
+        self.interp_mode = interp_mode
         self.extra_pad = extra_pad
         self.tile = tile
+        self.contrast_limits = contrast_limits
         
     def __iter__(self):
         worker_info = mp.get_worker_info()
@@ -83,17 +112,7 @@ class eval_set(torch.utils.data.Dataset):
         for index in range(start, end):
             yield self[index] 
 
-#     def __getitem__(self, inds, no_pad=False):
-        
-#         if isinstance(inds, int):
-#             inds = [inds]
-            
-#         if self.stack:
-#             imgs = self.data[inds].astype(float)#.to(self.device)
-# #         else:   
-# #             # imgs = [(np.asarray(imageio.imread(self.data[index]) if self.files else self.data[index])).astype(float) for index in inds]
-# #             imgs = np.stack([(imageio.imread(self.data[index]) if self.files else self.data[index]) for index in inds]).astype(float)
-            
+ 
 #         if imgs.ndim == 1+self.dim:
 #             imgs = np.expand_dims(imgs,axis=1)
 #         elif not channel_axis:
@@ -101,29 +120,9 @@ class eval_set(torch.utils.data.Dataset):
 #             # otherwise, we need to move it to position 1
 #             imgs = np.moveaxis(imgs,channel_axis,1)
         
-#         imgs = normalize99(imgs) # normalizing as a stack only makes sense for homogeneous datasets, might need a toggle 
-        
-#         if no_pad:
-#             return imgs.squeeze()
-#         else:
-#             shape = imgs.shape[-self.dim:]
-#             div = 16
-#             extra = 1
-#             idxs = [k for k in range(-self.dim,0)]
-#             Lpad = [int(div * np.ceil(shape[i]/div) - shape[i]) for i in idxs]
-#             pad1 = [extra*div//2 + Lpad[k]//2 for k in range(self.dim)]
-#             pad2 = [extra*div//2 + Lpad[k] - Lpad[k]//2 for k in range(self.dim)]
 
-#             emptypad = tuple([[0,0]]*(imgs.ndim-self.dim))
-#             pads = emptypad+tuple(np.stack((pad1,pad2),axis=1))
-#             subs = [np.arange(pad1[k],pad1[k]+shape[k]) for k in range(self.dim)]
 
-#             mode = 'reflect'
-#             I = np.pad(imgs,pads, mode=mode)
-
-#             return torch.tensor(I), inds, subs
-
-    def __getitem__(self, inds, no_pad=False):
+    def __getitem__(self, inds, no_pad=False, no_rescale=False):
         if isinstance(inds, int):
             inds = [inds]
         
@@ -132,12 +131,47 @@ class eval_set(torch.utils.data.Dataset):
             # data is in memory, index it
             imgs = torch.tensor(self.data[inds].astype(float), device=self.device)
             
-        else:   
+        elif self.list:   
             # data is in storage, read it in as a list
             # or if it is a list, concatenate it
-            imgs = torch.cat([torch.tensor((imageio.imread(self.data[index]).astype(float) if self.files else self.data[index].astype(float)),device=self.device) 
-                                for index in inds],dim=0)
-        
+            # imgs = [torch.tensor((imread(self.data[index]).astype(float) if self.files else self.data[index].astype(float)),device=self.device) 
+            #                     for index in inds]
+            
+            imgs = [[] for _ in inds]
+            
+            for i,index in enumerate(inds):
+                if self.files:
+                    file = self.data[index]
+                    # img = AICSImage(file).data.squeeze().astype(float)
+                    img = AICSImage(file).get_image_data("YX", out_of_memory=True).squeeze().astype(float)
+
+                else:
+                    img = self.data[index].astype(float)
+                    
+                imgs[i] = torch.tensor(img,device=self.device)
+                
+            
+            # I would like to be able to handle different shapes... perhaps by padding
+            # but I do not think that is reasonable for now. 
+                        
+            # shapes = [img.shape for img in imgs]
+            # same_shape = len(set(shapes)) == 1
+
+            # if not same_shape:
+            #     # Find the maximum dimensions
+            #     max_dims = [max(dim) for dim in zip(*shapes)]
+
+            #     # Pad all images to the maximum dimensions
+            #     imgs = [torch.nn.functional.pad(img, (0, 0, max_dims[0] - img.shape[0], max_dims[1] - img.shape[1])) for img in imgs]
+            imgs = torch.stack(imgs,dim=0)
+            
+        elif self.aics:
+            kwargs = self.aics_args.copy()
+            slice_dim = kwargs.pop('slice_dim')
+            kwargs[slice_dim] = inds 
+            imgs = self.data.get_image_data(**kwargs).squeeze().astype(float)
+            imgs = torch.tensor(imgs,device=self.device)
+            
         # print(imgs.shape,torch.tensor(self.data[0].astype(float)).shape,self.data[0].shape,self.stack,self.dim)
         # # add a line here to cathc if already a tensor
 
@@ -173,13 +207,21 @@ class eval_set(torch.utils.data.Dataset):
         else:
             imgs = imgs.unsqueeze(1) 
         
-        # print('heretttt',self.normalize_stack)
-        # coud do try/except here... default to rscale if too large? 
+
         if not self.tile:
             # images are normalized per tile, so no need to normalize at once here, 
             # which throws an error if the tensor it too big 
-            imgs = normalize99(imgs,dim=None if self.normalize_stack else 0) # much faster on GPU now
+            imgs = normalize99(imgs,
+                               contrast_limits=self.contrast_limits,
+                               dim=None if self.normalize_stack else 0) # much faster on GPU now
         
+        
+        # ADD RESCALE CODE HERE? 
+        # if self.rescale:
+        if self.rescale != 1.0 and not no_rescale:
+            imgs = torch_zoom(imgs, self.rescale, mode=self.interp_mode)
+            
+            
         if no_pad:
             return imgs.squeeze()
         else:
@@ -203,7 +245,7 @@ class eval_set(torch.utils.data.Dataset):
             # mode = 'constant'
             # # value = torch.mean(imgs) if mode=='constant' else 0  
             # value = 0 # turns out performance on sparse cells much better if padding is zero 
-            I = torch.nn.functional.pad(imgs, pads, mode=self.mode, value=None)            
+            I = torch.nn.functional.pad(imgs, pads, mode=self.pad_mode, value=None)            
             return I, inds, subs
             
     def _run_tiled(self, batch, model, 

@@ -523,7 +523,7 @@ def safe_divide(num, den, cutoff=0):
         raise TypeError("num must be a numpy array or a PyTorch tensor")
         
         
-def normalize99(Y, lower=0.01, upper=99.99, dim=None):
+def normalize99(Y, lower=0.01, upper=99.99, contrast_limits=None, dim=None):
     """ normalize array/tensor so 0.0 is 0.01st percentile and 1.0 is 99.99th percentile 
     Upper and lower percentile ranges configurable. 
     
@@ -536,43 +536,53 @@ def normalize99(Y, lower=0.01, upper=99.99, dim=None):
     
     lower: float
         lower percentile below which pixels are sent to 0.0
+        
+    contrast_limits: list, float (optional, override computation)
+        list of two floats, lower and upper contrast limits
     
     Returns
     --------------
     normalized array/tensor with a minimum of 0 and maximum of 1
     
     """
-    quantiles = np.array([lower, upper]) / 100
+    
+    module = get_module(Y)
+    
+    if contrast_limits is None:
+    
+        quantiles = np.array([lower, upper]) / 100
+        if module == torch:
+            quantiles = torch.tensor(quantiles, dtype=Y.dtype, device=Y.device)
+   
+        if dim is not None:
+            # Reshape Y into a 2D tensor for quantile computation
+            Y_flattened = Y.reshape(Y.shape[dim], -1)
 
-    if isinstance(Y, np.ndarray):
-        module = np
-    elif torch.is_tensor(Y):
-        module = torch
-        quantiles = torch.tensor(quantiles, dtype=Y.dtype, device=Y.device)
-    else:
-        raise ValueError("Input should be either a numpy array or a torch tensor.")
-        
-    if dim is not None:
-        # Reshape Y into a 2D tensor for quantile computation
-        Y_flattened = Y.reshape(Y.shape[dim], -1)
-
-        lower_val, upper_val = module.quantile(Y_flattened, quantiles, axis=-1)        
-        
-        # Reshape back into original shape for broadcasting
-        if dim == 0:
-            lower_val = lower_val.reshape(Y.shape[dim], *([1] * (len(Y.shape) - 1)))
-            upper_val = upper_val.reshape(Y.shape[dim], *([1] * (len(Y.shape) - 1)))
+            lower_val, upper_val = module.quantile(Y_flattened, quantiles, axis=-1)        
+            
+            # Reshape back into original shape for broadcasting
+            if dim == 0:
+                lower_val = lower_val.reshape(Y.shape[dim], *([1] * (len(Y.shape) - 1)))
+                upper_val = upper_val.reshape(Y.shape[dim], *([1] * (len(Y.shape) - 1)))
+            else:
+                lower_val = lower_val.reshape(*Y.shape[:dim], *([1] * (len(Y.shape) - dim - 1)))
+                upper_val = upper_val.reshape(*Y.shape[:dim], *([1] * (len(Y.shape) - dim - 1)))
         else:
-            lower_val = lower_val.reshape(*Y.shape[:dim], *([1] * (len(Y.shape) - dim - 1)))
-            upper_val = upper_val.reshape(*Y.shape[:dim], *([1] * (len(Y.shape) - dim - 1)))
-    else:
-        # lower_val, upper_val = module.quantile(Y, quantiles)
-        try:
-            lower_val, upper_val = module.quantile(Y, quantiles)
-        except RuntimeError:
-            lower_val, upper_val = auto_chunked_quantile(Y, quantiles)
+            # lower_val, upper_val = module.quantile(Y, quantiles)
+            try:
+                lower_val, upper_val = module.quantile(Y, quantiles)
+            except RuntimeError:
+                lower_val, upper_val = auto_chunked_quantile(Y, quantiles)
 
-    # print('hff',upper_val,lower_val.shape)
+    else:
+        if module == np:
+            contrast_limits = np.array(contrast_limits)
+        elif module == torch:
+            contrast_limits = torch.tensor(contrast_limits)
+
+        lower_val, upper_val = contrast_limits
+        
+    
     # Y = module.clip(Y, lower_val, upper_val) # is this needed? 
     # Y -= lower_val
     # Y /= (upper_val - lower_val)
@@ -609,6 +619,7 @@ def auto_chunked_quantile(tensor, q):
 # q = torch.tensor([0.2, 0.9])
 
 # quantiles = auto_chunked_quantile(large_tensor, q)
+
 
 
 

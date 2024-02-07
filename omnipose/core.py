@@ -1327,13 +1327,15 @@ def compute_masks(dP, dist, affinity_graph=None, bd=None, p=None, coords=None, i
 
             else:
                 iscell = dist > mask_threshold # analog to original iscell=(cellprob>cellprob_threshold)
-
+    
+    
     # if nclasses>1, we can do instance segmentation. 
     if np.any(iscell) and nclasses>1: 
 
         iscell_pad = np.pad(iscell,pad) # I should get rid of all padding commands, padding is zero now 
         coords = np.array(np.nonzero(iscell_pad)).astype(np.int32)       
-        shape =  iscell_pad.shape
+        shape = iscell_pad.shape
+        
         
         # for boundary later, also for affinity_seg option
         # steps = utils.get_steps(dim) # perhaps should factor this out of the function 
@@ -1413,6 +1415,9 @@ def compute_masks(dP, dist, affinity_graph=None, bd=None, p=None, coords=None, i
                 coords = np.stack(np.nonzero(iscell_pad))
                 if verbose:
                     omnipose_logger.info('p given')
+                    
+            # print('a2',shape,p.shape,coords.shape)
+
 
             #calculate masks
             if (omni and OMNI_INSTALLED) or override:
@@ -1882,7 +1887,7 @@ def steps_batch(p, dP, niter, omni=True, suppress=True, interp=True,
     # Affinity reconstruction does not require Euler suppression
     # and we want to also be able to toggle this globally with interp arg
     # (omni and and not suppress) is false when affinity is on
-    interp = interp and not (omni and not suppress)
+    interp = interp and not suppress
     mode = 'bilinear' if interp else 'nearest'
     if verbose:
         omnipose_logger.info(f'interp is {interp}, interpolation mode is {mode}')

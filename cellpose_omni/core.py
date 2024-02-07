@@ -1052,7 +1052,7 @@ class UnetModel():
                       'dim': self.dim,
                       'nchan': self.nchan,
                       'nclasses': self.nclasses,
-                      'device': self.device if not ARM else torch.device('cpu'), # MPS slower than cpu for flow
+                      'device': self.device if not ARM else torch.device('cpu'), # MPS slower than cpu for flow, check this with new version 
                       'affinity_field': affinity_field
                      }
             # torch.multiprocessing.set_start_method('spawn')

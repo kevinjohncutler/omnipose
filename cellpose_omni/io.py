@@ -146,8 +146,6 @@ def imwrite(filename, arr):
         tifffile.imwrite(filename, arr)
     elif ext=='.npy':    
         np.save(filename, arr)
-    elif ext=='.czi':
-        czifile.imwrite(filename, arr) # maybe replace with aicsimageio?
     else:
         if len(arr.shape)>2:
             arr = cv2.cvtColor(arr, cv2.COLOR_BGR2RGB)
@@ -456,7 +454,7 @@ def masks_flows_to_seg(images, masks, flows, diams, file_names, channels=None):
                         'outlines': outlines.astype(np.uint16) if outlines.max()<2**16-1 else outlines.astype(np.uint32),
                      'masks': masks.astype(np.uint16) if masks.max()<2**16-1 else masks.astype(np.uint32),
                      'chan_choose': channels,
-                     'ismanual': np.zeros(masks.max(), bool),
+                     'ismanual': np.zeros(masks.max().astype(int), bool),
                      'filename': file_names,
                      'flows': flowi,
                      'est_diam': diams})    

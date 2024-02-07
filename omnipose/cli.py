@@ -63,8 +63,8 @@ def get_arg_parser():
     model_args = parser.add_argument_group("model arguments")
     model_args.add_argument('--pretrained_model', required=False, default='cyto', type=str, help='model to use')
     model_args.add_argument('--unet', required=False, default=0, type=int, help='run standard unet instead of cellpose flow output')
-    model_args.add_argument('--nclasses', default=None, type=int, help='number of prediction classes for model (3 for Cellpose, 4 for Omnipose boundary field)')
-    model_args.add_argument('--nchan', default=None, type=int, help='number of channels on which model is trained')
+    model_args.add_argument('--nclasses', default=2, type=int, help='number of prediction classes for model (3 for Cellpose, 4 for Omnipose boundary field)')
+    model_args.add_argument('--nchan', default=1, type=int, help='number of channels on which model is trained')
     model_args.add_argument('--kernel_size', default=2, type=int, help='kernel size for maskpool. Starts at 2, higher means more aggressive downsampling.')
 
 
