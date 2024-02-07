@@ -25,16 +25,18 @@ import functools
 import itertools
 
 import logging, sys
+LOGGER_FORMAT = "%(asctime)-20s\t[%(levelname)-5s]\t[%(filename)-10s %(lineno)-5d%(funcName)-18s]\t%(message)s"
 logging.basicConfig(
-                    level=logging.INFO,
-                    format="%(asctime)s [%(levelname)s] %(message)s",
-                    handlers=[
-                        logging.StreamHandler(sys.stdout)
-                    ]
-                )
+    level=logging.INFO,
+    format=LOGGER_FORMAT,
+    handlers=[
+        logging.StreamHandler(sys.stdout)
+    ]
+)
 
 omnipose_logger = logging.getLogger(__name__)
-
+logging.getLogger('xmlschema').setLevel(logging.WARNING) # get rid of that annoying xmlschema warning
+# logging.getLogger('qdarktheme').setLevel(logging.WARNING)
 
 
 # No reason to support anything but pytorch for omnipose

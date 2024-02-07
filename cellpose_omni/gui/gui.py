@@ -25,6 +25,8 @@ from ..transforms import resize_image #fixed import
 from ..plot import disk
 from omnipose.utils import normalize99, to_8_bit
 
+logger = io.logger
+
 from .guiparts import TOOLBAR_WIDTH, SPACING, WIDTH_0
 
 ALLOWED_THEMES = ['light','dark']
@@ -171,13 +173,11 @@ def interpZ(mask, zdraw):
         #Mu, normu = avg3d(mask[zupper[k]], 1-zl)
         #mask[z] = (Ml + Mu) / (norml + normu)  > 0.5
     return mask, zfill
-            
-global logger
+        
+
 def run(image=PRELOAD_IMAGE):
     signal.signal(signal.SIGINT, signal.SIG_DFL)
-    from ..io import logger_setup
-    global logger
-    logger, log_file = logger_setup()
+
     # Always start by initializing Qt (only once per application)
     warnings.filterwarnings("ignore")
     QCoreApplication.setApplicationName('Omnipose')
@@ -197,13 +197,13 @@ def run(image=PRELOAD_IMAGE):
     if not icon_path.is_file():
         cp_dir = pathlib.Path.home().joinpath('.cellpose')
         cp_dir.mkdir(exist_ok=True)
-        print('downloading logo')
+        logger.info('downloading logo')
         download_url_to_file('https://www.cellpose.org/static/images/cellpose_transparent.png', icon_path, progress=True)
     if not guip_path.is_file():
-        print('downloading help window image')
+        logger.info('downloading help window image')
         download_url_to_file('https://www.cellpose.org/static/images/cellpose_gui.png', guip_path, progress=True)
     if not style_path.is_file():
-        print('downloading style classifier')
+        logger.info('downloading style classifier')
         download_url_to_file('https://www.cellpose.org/static/models/style_choice.npy', style_path, progress=True)
     
     app_icon = QtGui.QIcon()
@@ -244,8 +244,6 @@ def get_unique_points(set):
         cps[k,:] = np.array(pp)
     set = list(np.unique(cps, axis=0))
     return set
-
-
 
 class MainW(QMainWindow):
     def __init__(self, size, dpi, pxr, clipboard, image=None):
@@ -309,10 +307,9 @@ class MainW(QMainWindow):
 
         scrollable = 1 
         if scrollable:
-            self.l0 = QGridLayout(self)
-            self.scrollArea = QScrollArea(self)
+            self.l0 = QGridLayout()
+            self.scrollArea = QScrollArea()
             self.scrollArea.setStyleSheet('QScrollArea {border: none;}') # just for main window
-            
             self.scrollArea.setWidgetResizable(True)
             # policy = QtWidgets.QSizePolicy()
             # policy.setRetainSizeWhenHidden(True)
@@ -347,6 +344,7 @@ class MainW(QMainWindow):
         
         # ---- drawing area ---- #
         self.win = pg.GraphicsLayoutWidget()
+        self.win.viewport().setAttribute(QtCore.Qt.WidgetAttribute.WA_AcceptTouchEvents, False)
         self.l0.addWidget(self.win, 0, TOOLBAR_WIDTH+1, b, 3*b)
         self.win.scene().sigMouseClicked.connect(self.plot_clicked)
         self.win.scene().sigMouseMoved.connect(self.mouse_moved)
@@ -409,7 +407,7 @@ class MainW(QMainWindow):
     def make_buttons(self):
         label_style = ''
         COLORS[0] = '#545454'
-        print( self.height(), self.width())
+        # print( self.height(), self.width())
         ftwt1 = self.height()//50
         ftwt2 = self.height()//100
         ftwt3 = self.height()//200
@@ -1515,11 +1513,11 @@ class MainW(QMainWindow):
 
     def model_choose(self, index):
         if index > 0:
-            print(f'GUI_INFO: selected model {self.ModelChoose.currentText()}, loading now')
+            logger.info(f'selected model {self.ModelChoose.currentText()}, loading now')
             self.initialize_model()
             self.diameter = self.model.diam_labels
             self.Diameter.setText('%0.2f'%self.diameter)
-            print(f'GUI_INFO: diameter set to {self.diameter: 0.2f} (but can be changed)')
+            logger.info(f'diameter set to {self.diameter: 0.2f} (but can be changed)')
 
     # two important things: invert size added, and initialize model takes care of selecting a model
 
@@ -2035,7 +2033,7 @@ class MainW(QMainWindow):
         self.cellcolors = np.delete(self.cellcolors, [idx], axis=0)
         del self.zdraw[idx-1]
         self.ncells -= 1
-        print('GUI_INFO: removed cell %d'%(idx-1))
+        logger.info('removed cell %d'%(idx-1))
         
         self.update_layer()
         if self.ncells==0:
@@ -2071,7 +2069,7 @@ class MainW(QMainWindow):
                 color = self.cellcolors[self.prev_selected]
                 self.draw_mask(z, ar, ac, vr, vc, color, idx=self.prev_selected)
             self.remove_cell(self.selected)
-            print('GUI_INFO: merged two cells')
+            logger.info('merged two cells')
             self.update_layer()
             io._save_sets(self)
             self.undo.setEnabled(False)      
@@ -2089,7 +2087,7 @@ class MainW(QMainWindow):
             self.ncells+=1
             self.ismanual = np.append(self.ismanual, self.removed_cell[0])
             self.zdraw.append([])
-            print('>>> added back removed cell')
+            logger.info('>>> added back removed cell')
             self.update_layer()
             io._save_sets(self)
             self.removed_cell = []
@@ -2175,7 +2173,7 @@ class MainW(QMainWindow):
         try:
             zpos = int(self.zpos.text())
         except:
-            print('ERROR: zposition is not a number')
+            logger.warning('ERROR: zposition is not a number')
         self.currentZ = max(0, min(self.NZ-1, zpos))
         self.zpos.setText(str(self.currentZ))
         self.scroll.setValue(self.currentZ)
@@ -2417,7 +2415,7 @@ class MainW(QMainWindow):
             # if these pixels are overlapping with another cell, reassign them
             ioverlap = self.cellpix[z][ar, ac] > 0
             if (~ioverlap).sum() < 8:
-                print('ERROR: cell too small without overlaps, not drawn')
+                logger.error('cell too small without overlaps, not drawn')
                 return None
             elif ioverlap.sum() > 0:
                 ar, ac = ar[~ioverlap], ac[~ioverlap]
@@ -2442,7 +2440,7 @@ class MainW(QMainWindow):
                 ar, ac = np.nonzero(mask)
                 ioverlap = self.cellpix[z+zmin][ar+ymin, ac+xmin] > 0
                 if (~ioverlap).sum() < 5:
-                    print('WARNING: stroke on plane %d not included due to overlaps'%z)
+                    logger.warning('stroke on plane %d not included due to overlaps'%z)
                 elif ioverlap.sum() > 0:
                     mask[ar[ioverlap], ac[ioverlap]] = 0
                     ar, ac = ar[~ioverlap], ac[~ioverlap]
@@ -2522,7 +2520,7 @@ class MainW(QMainWindow):
     # def compute_saturation(self):
     #     # compute percentiles from stack
     #     self.saturation = []
-    #     print('GUI_INFO: auto-adjust enabled, computing saturation levels')
+    #     logger.info('auto-adjust enabled, computing saturation levels')
     #     if self.NZ>10:
     #         iterator = trange(self.NZ)
     #     else:
@@ -2637,7 +2635,7 @@ class MainW(QMainWindow):
 
     def new_model(self):
         if self.NZ!=1:
-            print('ERROR: cannot train model on 3D data')
+            logger.error('cannot train model on 3D data')
             return
         
         # train model
@@ -2650,7 +2648,7 @@ class MainW(QMainWindow):
             self.train_model()
 
         else:
-            print('GUI_INFO: training cancelled')
+            logger.info('training cancelled')
 
     # this probably needs an overhaul 
     def train_model(self):
@@ -2670,7 +2668,7 @@ class MainW(QMainWindow):
 
         save_path = os.path.dirname(self.filename)
         
-        print('GUI_INFO: name of new model:' + self.training_params['model_name'])
+        logger.info('name of new model:' + self.training_params['model_name'])
         self.new_model_path = self.model.train(self.train_data, self.train_labels, 
                                                channels=self.channels, 
                                                save_path=save_path, 
@@ -2900,7 +2898,7 @@ class MainW(QMainWindow):
                 # allow omni to be togged manually or forced by model
                 if OMNI_INSTALLED:
                     if omni_model:
-                        print('GUI_INFO: turning on Omnipose mask recontruction version for Omnipose models (see menu)')
+                        logger.info('turning on Omnipose mask recontruction version for Omnipose models (see menu)')
                         if not self.omni.isChecked():
                             print('WARNING: Omnipose models require Omnipose mask recontruction (toggle back on in menu)')
                         if not self.cluster.isChecked():

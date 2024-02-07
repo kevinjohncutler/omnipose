@@ -9,7 +9,7 @@ import czifile # maybe replace with aicsimageio?
 from csv import reader, writer
 
 try:
-    from omnipose.utils import format_labels
+    from omnipose.utils import format_labels, LOGGER_FORMAT
     import ncolor
     OMNI_INSTALLED = True
 except:
@@ -54,7 +54,9 @@ def logger_setup(verbose=False):
                     ]
                 )
     logger = logging.getLogger(__name__)
+    
     # logger.setLevel(logging.DEBUG) # does not fix CLI
+
     logger.info(f'WRITING LOG OUTPUT TO {log_file}')
     #logger.handlers[1].stream = sys.stdout
 

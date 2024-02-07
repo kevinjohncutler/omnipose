@@ -7,8 +7,10 @@ import logging
 import fastremap 
 
 from .. import utils, plot, transforms, models
-from ..io import imread, imsave, outlines_to_text
+from ..io import imread, imsave, outlines_to_text, logger_setup
 from ..transforms import normalize99
+
+logger, log_file = logger_setup()
 
 try:
     from PyQt6.QtWidgets import QFileDialog
@@ -50,7 +52,7 @@ def _add_model(parent, filename=None, load_model=True):
         shutil.copyfile(filename, os.fspath(models.MODEL_DIR.joinpath(fname)))
     except shutil.SameFileError:
         pass
-    print(f'GUI_INFO: {filename} copied to models folder {os.fspath(models.MODEL_DIR)}')
+    logger.info(f'{filename} copied to models folder {os.fspath(models.MODEL_DIR)}')
     with open(parent.model_list_path, 'a') as textfile:
         textfile.write(fname + '\n')
     parent.ModelChoose.addItems([fname])
@@ -73,7 +75,7 @@ def _remove_model(parent, ind=None, verbose=True):
     if ind > 0:
         ind -= 1
         if verbose:
-            print(f'GUI_INFO: deleting {parent.model_strings[ind]} from GUI')
+            logger.info(f'deleting {parent.model_strings[ind]} from GUI')
         parent.ModelChoose.removeItem(ind+1)
         del parent.model_strings[ind]
         custom_strings = parent.model_strings
@@ -107,7 +109,7 @@ def _get_train_set(image_names):
                 fastremap.renumber(masks, in_place=True)
                 label_name = image_name + '_seg.npy'
             else:
-                print(f'GUI_INFO: _seg.npy found for {image_name} but masks.ndim!=2')
+                logger.info(f'_seg.npy found for {image_name} but masks.ndim!=2')
         if label_name is not None:
             train_files.append(image_name_full)
             train_data.append(imread(image_name_full))
@@ -136,7 +138,7 @@ def _load_image(parent, filename=None, load_seg=True):
             mask_file = os.path.splitext(filename)[0]+'_masks.tif' if not os.path.isfile(mask_file) else mask_file
             load_mask = True if os.path.isfile(mask_file) else False
     try:
-        print(f'GUI_INFO: loading image: {filename}')
+        logger.info(f'loading image: {filename}')
         image = imread(filename)
         parent.loaded = True
     except Exception as e:
@@ -208,7 +210,7 @@ def _initialize_images(parent, image, resize, X2):
         parent.stack /= (img_max - img_min)
     parent.stack *= 255
     if parent.NZ>1:
-        print('GUI_INFO: converted to float and normalized values to 0.0->255.0')
+        logger.info('converted to float and normalized values to 0.0->255.0')
     del image
     gc.collect()
 
@@ -340,13 +342,13 @@ def _load_seg(parent, filename=None, image=None, image_file=None):
 
         if 'manual_changes' in dat: 
             parent.track_changes = dat['manual_changes']
-            print('GUI_INFO: loaded in previous changes')    
+            logger.info('loaded in previous changes')    
         if 'zdraw' in dat:
             parent.zdraw = dat['zdraw']
         else:
             parent.zdraw = [None for n in range(parent.ncells)]
         parent.loaded = True
-        print(f'GUI_INFO: {parent.ncells} masks found in {filename}')
+        logger.info(f'{parent.ncells} masks found in {filename}')
     else:
         parent.clear_all()
 
@@ -403,7 +405,7 @@ def _load_masks(parent, filename=None):
             parent, "Load masks (PNG or TIFF)"
             )
         filename = name[0]
-    print(f'GUI_INFO: loading masks: {filename}')
+    logger.info(f'loading masks: {filename}')
     masks = imread(filename)
     outlines = None
     if masks.ndim>3:
@@ -448,7 +450,7 @@ def _masks_to_gui(parent, masks, outlines=None, format_labels=False):
         masks = masks.astype(np.uint16) if masks.max()<2**16-1 else masks.astype(np.uint32)
         
     parent.cellpix = masks
-    print(f'GUI_INFO: {masks.max()} masks found')
+    logger.info(f'{masks.max()} masks found')
 
     # get outlines
     if outlines is None: # parent.outlinesOn
@@ -457,7 +459,7 @@ def _masks_to_gui(parent, masks, outlines=None, format_labels=False):
             outlines = utils.masks_to_outlines(masks[z])
             parent.outpix[z] = outlines * masks[z]
             if z%50==0 and parent.NZ > 1:
-                print('GUI_INFO: plane %d outlines processed'%z)
+                logger.info('plane %d outlines processed'%z)
     else:
         parent.outpix = outlines
         shape = parent.outpix.shape
@@ -478,7 +480,7 @@ def _masks_to_gui(parent, masks, outlines=None, format_labels=False):
     else:
         # colors = parent.colormap[np.random.randint(0,1000,size=parent.ncells), :3]
         colors = parent.colormap[:parent.ncells, :3]
-    print('GUI_INFO: creating cell colors and drawing masks')
+    logger.info('creating cell colors and drawing masks')
     parent.cellcolors = np.concatenate((np.array([[255,255,255]]), colors), axis=0).astype(np.uint8)
     parent.draw_masks()
     parent.redraw_masks(masks=parent.masksOn, outlines=parent.outlinesOn) # add to obey outline/mask setting upon recomputing, missing outlines otherwise
@@ -496,20 +498,20 @@ def _save_png(parent):
     base = os.path.splitext(filename)[0]
     if parent.NZ==1:
         if parent.cellpix[0].max() > 65534:
-            print('GUI_INFO: saving 2D masks to tif (too many masks for PNG)')
+            logger.info('saving 2D masks to tif (too many masks for PNG)')
             imsave(base + '_cp_masks.tif', parent.cellpix[0])
         else:
-            print('GUI_INFO: saving 2D masks to png')
+            logger.info('saving 2D masks to png')
             imsave(base + '_cp_masks.png', parent.cellpix[0].astype(np.uint16))
     else:
-        print('GUI_INFO: saving 3D masks to tiff')
+        logger.info('saving 3D masks to tiff')
         imsave(base + '_cp_masks.tif', parent.cellpix)
 
 def _save_outlines(parent):
     filename = parent.filename
     base = os.path.splitext(filename)[0]
     if parent.NZ==1:
-        print('GUI_INFO: saving 2D outlines to text file, see docs for info to load into ImageJ')    
+        logger.info('saving 2D outlines to text file, see docs for info to load into ImageJ')    
         outlines = utils.outlines_list(parent.cellpix[0])
         outlines_to_text(base, outlines)
     else:
@@ -559,4 +561,4 @@ def _save_sets(parent):
                  'runstring': parent.runstring.toPlainText()
                 })
     #print(parent.point_sets)
-    print('GUI_INFO: %d ROIs saved to %s'%(parent.ncells, base + '_seg.npy'))
+    logger.info('%d ROIs saved to %s'%(parent.ncells, base + '_seg.npy'))
