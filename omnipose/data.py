@@ -132,6 +132,9 @@ class eval_set(torch.utils.data.Dataset):
             imgs = torch.tensor(self.data[inds].astype(float), device=self.device)
             
         elif self.list:   
+            
+            # should call some recursive function here... 
+        
             # data is in storage, read it in as a list
             # or if it is a list, concatenate it
             # imgs = [torch.tensor((imread(self.data[index]).astype(float) if self.files else self.data[index].astype(float)),device=self.device) 
@@ -144,7 +147,9 @@ class eval_set(torch.utils.data.Dataset):
                     file = self.data[index]
                     # img = AICSImage(file).data.squeeze().astype(float)
                     img = AICSImage(file).get_image_data("YX", out_of_memory=True).squeeze().astype(float)
-
+                    # print('here',img.shape, AICSImage(file).shape,  AICSImage(file).dims, AICSImage(file).get_image_data("CYX", out_of_memory=True).shape)
+                    
+                    # img = tifffile.imread()
                 else:
                     img = self.data[index].astype(float)
                     
@@ -173,7 +178,7 @@ class eval_set(torch.utils.data.Dataset):
             imgs = torch.tensor(imgs,device=self.device)
             
         # print(imgs.shape,torch.tensor(self.data[0].astype(float)).shape,self.data[0].shape,self.stack,self.dim)
-        # # add a line here to cathc if already a tensor
+        # # add a line here to catch if already a tensor
 
         # imgs = torch.stack([normalize99(i) for i in imgs]) looks like my normalize99 function is fine...
         # print('fdgfdg',self.channel_axis)

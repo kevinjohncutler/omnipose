@@ -1,5 +1,4 @@
-import setuptools
-from setuptools import setup
+from setuptools import setup, find_packages
 
 from dependencies import install_deps, gui_deps, doc_deps, distributed_deps
     
@@ -19,7 +18,7 @@ setup(
         'pytest-runner',
         'setuptools_scm',
     ],
-    packages=setuptools.find_packages(include=['omnipose', 'cellpose_omni']),
+    packages=find_packages(include=['omnipose', 'cellpose_omni']),
     install_requires = install_deps,
     extras_require = {
       'gui': gui_deps,

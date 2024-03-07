@@ -1029,3 +1029,13 @@ def export_gif(frames, basename, basedir, scale=1, fps=15, loop=0, bounce=True):
         # close the pipe
         p.stdin.close()
         p.wait()
+
+
+import sys
+def get_size(var, unit='GB'):
+    units = {'B': 0, 'KB': 1, 'MB': 2, 'GB': 3}
+    return var.nbytes / (1024 ** units[unit])
+    
+    
+
+    

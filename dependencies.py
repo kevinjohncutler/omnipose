@@ -4,7 +4,7 @@ install_deps = ['numpy>=1.22.4', 'scipy', 'numba',
                 'mahotas>=1.4.13',
                 'mgen','matplotlib',
                 'igraph',
-                'torchvf','tqdm', 'natsort','czifile'
+                'torchvf','tqdm', 'natsort','aicsimageio'
                 ]
 
 gui_deps = [

@@ -5,14 +5,17 @@ import cv2
 import tifffile
 import logging, pathlib, sys
 from pathlib import Path
-import czifile # maybe replace with aicsimageio?
+from aicsimageio import AICSImage
 from csv import reader, writer
+import re
 
 try:
-    from omnipose.utils import format_labels, LOGGER_FORMAT
+    from omnipose.utils import format_labels
+    from omnipose.logger import LOGGER_FORMAT
     import ncolor
     OMNI_INSTALLED = True
-except:
+except Exception as e:
+    print(f"Error when importing omnipose or ncolor: {e}")
     OMNI_INSTALLED = False
 
 from . import utils, plot, transforms
@@ -124,16 +127,16 @@ def imread(filename):
     if ext== '.tif' or ext=='.tiff':
         img = tifffile.imread(filename)
         return img
-    elif ext=='.npy':    
+    elif ext=='.npy':
         return np.load(filename)
+    elif ext=='.npz':
+        return np.load(filename)['arr_0']
     elif ext=='.czi':
-        return czifile.imread(filename)
-        #     if ext in ['.tif', '.tiff', '.npy', '.czi']:
-        # img = AICSImage(filename).data
-        # return img
+        img = AICSImage(filename).data
+        return img
     else:
         try:
-            img = cv2.imread(filename, -1)#cv2.LOAD_IMAGE_ANYDEPTH)
+            img = cv2.imread(filename, -1)
             if img.ndim > 2:
                 img = img[..., [2,1,0]]
             return img
@@ -142,16 +145,16 @@ def imread(filename):
             return None
 
 
-def imwrite(filename, arr):
+def imwrite(filename, arr, **kwargs):
     ext = os.path.splitext(filename)[-1]
     if ext== '.tif' or ext=='tiff':
-        tifffile.imwrite(filename, arr)
+        tifffile.imwrite(filename, arr, **kwargs)
     elif ext=='.npy':    
-        np.save(filename, arr)
+        np.save(filename, arr, **kwargs)
     else:
         if len(arr.shape)>2:
             arr = cv2.cvtColor(arr, cv2.COLOR_BGR2RGB)
-        cv2.imwrite(filename, arr)
+        cv2.imwrite(filename, arr, **kwargs)
 #         skimage.io.imwrite(filename, arr.astype()) #cv2 doesn't handle transparency
 
 def imsave(filename, arr):
@@ -160,7 +163,7 @@ def imsave(filename, arr):
 
 # now allows for any extension(s) to be specified, allowing exlcusion if necessary, non-image files, etc. 
 def get_image_files(folder, mask_filter='_masks', img_filter=None, look_one_level_down=False,
-                    extensions = ['png','jpg','jpeg','tif','tiff']):
+                    extensions = ['png','jpg','jpeg','tif','tiff'], pattern=None):
     """ find all images in a folder and if look_one_level_down all subfolders """
     mask_filters = ['_cp_masks', '_cp_output', '_flows', mask_filter]
     image_names = []
@@ -169,11 +172,9 @@ def get_image_files(folder, mask_filter='_masks', img_filter=None, look_one_leve
     
     folders = []
     if look_one_level_down:
-        # folders = natsorted(glob.glob(os.path.join(folder, "*/")))
-        folders = natsorted(glob.glob(os.path.join(folder, "*",'')))  #forward slash is unix only, this should generalize to windows too  
+        folders = natsorted(glob.glob(os.path.join(folder, "*",'')))  
     folders.append(folder)
 
-    
     for folder in folders:
         for ext in extensions:
             image_names.extend(glob.glob(folder + ('/*%s.'+ext)%img_filter))
@@ -186,6 +187,9 @@ def get_image_files(folder, mask_filter='_masks', img_filter=None, look_one_leve
                         for mask_filter in mask_filters])
         if len(img_filter)>0:
             igood &= imfile[-len(img_filter):]==img_filter
+        if pattern is not None:
+            # igood &= bool(re.search(pattern, imfile))
+            igood &= bool(re.search(pattern + r'$', imfile))
         if igood:
             imn.append(im)
     image_names = imn
@@ -194,7 +198,6 @@ def get_image_files(folder, mask_filter='_masks', img_filter=None, look_one_leve
         raise ValueError('ERROR: no images in --dir folder')
     
     return image_names
-
 
 def getname(path,suffix=''):
     return os.path.splitext(Path(path).name)[0].replace(suffix,'')
@@ -473,7 +476,7 @@ def save_to_png(images, masks, flows, file_names):
 def save_masks(images, masks, flows, file_names, png=True, tif=False,
                suffix='',save_flows=False, save_outlines=False, outline_col=[1,0,0],
                save_ncolor=False, dir_above=False, in_folders=False, savedir=None, 
-               save_txt=True, save_plot=True, omni=True, channel_axis=None):
+               save_txt=True, save_plot=True, omni=True, channel_axis=None, channels=None):
     """ save masks + nicely plotted segmentation image to png and/or tiff
 
     if png, masks[k] for images[k] are saved to file_names[k]+'_cp_masks.png'
@@ -514,7 +517,7 @@ def save_masks(images, masks, flows, file_names, png=True, tif=False,
             save_masks(image, mask, flow, file_name, png=png, tif=tif, suffix=suffix, dir_above=dir_above,
                        save_flows=save_flows,save_outlines=save_outlines, outline_col=outline_col,
                        save_ncolor=save_ncolor, savedir=savedir, save_txt=save_txt, save_plot=save_plot,
-                       in_folders=in_folders, omni=omni, channel_axis=channel_axis)
+                       in_folders=in_folders, omni=omni, channel_axis=channel_axis, channels=channels)
         return
 
     # make sure there is a leading underscore if any suffix was supplied
@@ -616,7 +619,9 @@ def save_masks(images, masks, flows, file_names, png=True, tif=False,
         # img0 = (transforms.normalize99(img0,omni=omni)*(2**8-1)).astype(np.uint8)
         # imgout= img0.copy()
         # imgout[outX, outY] = np.array([255,0,0]) #pure red 
-        imgout = plot.outline_view(img0,masks,color=outline_col)
+        imgout = plot.outline_view(img0,masks,color=outline_col, 
+                                   channel_axis=channel_axis, 
+                                   channels=channels)
         imwrite(os.path.join(outlinedir, basename + '_outlines' + suffix + '.png'),  imgout)
     
     # ncolor labels (ready for color map application)

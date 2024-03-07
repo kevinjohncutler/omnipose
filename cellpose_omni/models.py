@@ -37,6 +37,7 @@ if OMNI_INSTALLED:
     from omnipose.core import C2_BD_MODELS, C1_BD_MODELS, C2_MODELS, C1_MODELS 
 else:
     C2_BD_MODELS, C1_BD_MODELS, C2_MODELS, C1_MODELS = [],[],[],[]
+    print('omnipose not installed, omni models will not be available')
 
 CP_MODELS = ['cyto','nuclei','cyto2']
 C2_MODEL_NAMES = C2_BD_MODELS + C2_MODELS + CP_MODELS

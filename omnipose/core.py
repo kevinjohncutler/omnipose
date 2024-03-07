@@ -73,16 +73,10 @@ try:
 except:
     HDBSCAN_ENABLED = False
 
-import logging, sys
-logging.basicConfig(
-                    level=logging.INFO,
-                    format="%(asctime)s [%(levelname)s] %(message)s",
-                    handlers=[
-                        logging.StreamHandler(sys.stdout)
-                    ]
-                )
+import sys
+from .logger import setup_logger
+omnipose_logger = setup_logger('core')
 
-omnipose_logger = logging.getLogger(__name__)
 # omnipose_logger.setLevel(logging.DEBUG)
 # logging.getLogger().addHandler(logging.StreamHandler())
 
@@ -1310,7 +1304,7 @@ def compute_masks(dP, dist, affinity_graph=None, bd=None, p=None, coords=None, i
     
     if verbose:
         startTime0 = time.time()
-        omnipose_logger.info('mask_threshold is %f',mask_threshold)
+        omnipose_logger.info(f'mask_threshold is {mask_threshold}')
         if omni and (not SKIMAGE_ENABLED):
              omnipose_logger.warning('Omni enabled but skimage not enabled')
     
@@ -1796,8 +1790,8 @@ def get_masks(p, bd, dist, mask, inds, nclasses=2,cluster=False,
         if verbose:
             executionTime = (time.time() - startTime)
             
-            print('Execution time in seconds: ' + str(executionTime))
-            print('{} unique labels found'.format(len(np.unique(labels))-1),newinds.shape)
+            omnipose_logger.info('Execution time in seconds: ' + str(executionTime))
+            omnipose_logger.info('{} unique labels found'.format(len(np.unique(labels))-1))
 
         #### snapping outliers to nearest cluster 
         snap = True
@@ -1998,7 +1992,7 @@ def follow_flows(dP, dist, inds, niter=None, interp=True, use_gpu=True,
 
     """
     if verbose:
-        omnipose_logger.info(f'niter is {niter}, interp is {interp}')
+        omnipose_logger.info(f'niter: {niter}, interp: {interp}, suppress: {suppress}, calc_trace: {calc_trace}')
     
     if niter is None:
         niter = 200

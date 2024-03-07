@@ -17,6 +17,7 @@ try:
     OMNI_INSTALLED = True
 except:
     OMNI_INSTALLED = False
+    print('omnipose not installed')
 
 try:
     from skimage.morphology import remove_small_holes

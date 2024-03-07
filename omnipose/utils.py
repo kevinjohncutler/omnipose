@@ -5,7 +5,7 @@ from skimage.morphology import remove_small_holes
 from skimage.registration import phase_cross_correlation
 from scipy.ndimage import shift as im_shift
 from skimage import color
-
+import dask 
 from .plot import sinebow
 
 from skimage import measure 
@@ -24,20 +24,23 @@ from numba import njit
 import functools
 import itertools
 
-import logging, sys
-LOGGER_FORMAT = "%(asctime)-20s\t[%(levelname)-5s]\t[%(filename)-10s %(lineno)-5d%(funcName)-18s]\t%(message)s"
-logging.basicConfig(
-    level=logging.INFO,
-    format=LOGGER_FORMAT,
-    handlers=[
-        logging.StreamHandler(sys.stdout)
-    ]
-)
+# import logging, sys
+# LOGGER_FORMAT = "%(asctime)-20s\t[%(levelname)-5s]\t[%(filename)-10s %(lineno)-5d%(funcName)-18s]\t%(message)s"
+# logging.basicConfig(
+#     level=logging.INFO,
+#     format=LOGGER_FORMAT,
+#     handlers=[
+#         logging.StreamHandler(sys.stdout)
+#     ]
+# )
 
-omnipose_logger = logging.getLogger(__name__)
-logging.getLogger('xmlschema').setLevel(logging.WARNING) # get rid of that annoying xmlschema warning
-# logging.getLogger('qdarktheme').setLevel(logging.WARNING)
+# omnipose_logger = logging.getLogger(__name__)
+# logging.getLogger('xmlschema').setLevel(logging.WARNING) # get rid of that annoying xmlschema warning
+# # logging.getLogger('qdarktheme').setLevel(logging.WARNING)
 
+import sys
+from .logger import setup_logger
+omnipose_logger = setup_logger('utils')
 
 # No reason to support anything but pytorch for omnipose
 # I want it to fail here otherwise, much easier to debug 
@@ -82,7 +85,7 @@ def to_8_bit(im):
 
 ### This section defines the tiling functions 
 def get_module(x):
-    if isinstance(x, (np.ndarray, tuple, int, float)) or np.isscalar(x):
+    if isinstance(x, (np.ndarray, tuple, int, float, dask.array.Array)) or np.isscalar(x):
         return np
     elif torch.is_tensor(x):
         return torch
@@ -180,7 +183,8 @@ def average_tiles_ND(y,subs,shape):
     yf /= Navg
     return yf
 
-def make_tiles_ND(imgi, bsize=224, augment=False, tile_overlap=0.1, normalize=True):
+def make_tiles_ND(imgi, bsize=224, augment=False, tile_overlap=0.1, 
+                  normalize=True, return_tiles=True):
     """ make tiles of image to run at test-time
 
     if augmented, tiles are flipped and tile_overlap=2.
@@ -245,17 +249,17 @@ def make_tiles_ND(imgi, bsize=224, augment=False, tile_overlap=0.1, normalize=Tr
         intervals = [[slice(si,si+bsize) for si in s] for s in start]
         subs = list(itertools.product(*intervals))
         
-        IMG = module.stack([imgi[(Ellipsis,)+slc] for slc in subs])
-        
-        if normalize:
-            omnipose_logger.info('Running on tiles. Now normalizing each tile separately.')
-            IMG = normalize99(IMG,dim=0)
-            
+        if return_tiles:
+            IMG = module.stack([imgi[(Ellipsis,)+slc] for slc in subs])
+            if normalize:
+                omnipose_logger.info('Running on tiles. Now normalizing each tile separately.')
+                IMG = normalize99(IMG,dim=0)
+            else:
+                omnipose_logger.info('rescaling stack as a whole')
+                IMG = rescale(IMG)
         else:
-            omnipose_logger.info('rescaling stack as a whole')
-            IMG = rescale(IMG)
-            
-            
+            IMG = None
+                
     return IMG, subs, shape, inds
 
 
@@ -303,17 +307,25 @@ def make_unique(masks):
 
 # import imreg_dft 
 def cross_reg(imstack,upsample_factor=100,order=1,
-              normalization=None,cval=None,prefilter=True,reverse=True):
+              target_image=None,
+              normalization=None,cval=None,
+              prefilter=True,reverse=True):
     """
     Find the transformation matrices for all images in a time series to align to the beginning frame. 
     """
+    # this is a super important preprocessing step for registration to work
+    im_to_reg = np.stack([i/gaussian_filter(i,5) for i in imstack])
+    
     dim = imstack.ndim - 1 # dim is spatial, assume first dimension is t
     s = np.zeros(dim)
     shape = imstack.shape[-dim:]
     regstack = np.zeros_like(imstack)
     shifts = np.zeros((len(imstack),dim))
-    for i,im in enumerate(imstack[::-1] if reverse else imstack):
-        ref = regstack[i-1] if i>0 else im 
+    for i,im in enumerate(im_to_reg[::-1] if reverse else im_to_reg):
+        if target_image is None:
+            ref = regstack[i-1] if i>0 else im
+        else:
+            ref = target_image
         # reference_mask=~np.isnan(ref)
         # moving_mask=~np.isnan(im)
         # pad = 1
@@ -328,7 +340,7 @@ def cross_reg(imstack,upsample_factor=100,order=1,
         # shift = imreg_dft.imreg.translation(ref,im)['tvec']
         
         shifts[i] = shift
-        regstack[i] = im_shift(im, shift, order=order, prefilter=prefilter,
+        regstack[i] = im_shift(imstack[i], shift, order=order, prefilter=prefilter,
                                mode='nearest' if cval is None else 'constant',
                                cval=np.nanmean(imstack[i]) if cval is None else cval)   
     if reverse:
@@ -340,6 +352,8 @@ def shift_stack(imstack, shifts, order=1, cval=None):
     """
     Shift each time slice of imstack according to list of 2D shifts. 
     """
+    
+    print('TODO: parallize this on dask or GPU')
     regstack = np.zeros_like(imstack)
     for i in range(len(shifts)):        
         regstack[i] = im_shift(imstack[i],shifts[i],order=order, 
@@ -387,58 +401,390 @@ import torch.fft
 #     shifts = torch.stack([shifts_y, shifts_x], dim=-1)
 #     return shifts
 
-def phase_cross_correlation_GPU(image_stack, target_index):
+# def phase_cross_correlation_GPU(image_stack, target_index):
+#     # Assuming image_stack is a 3D tensor [num_images, height, width]
+#     # and target_index is an integer
+
+#     target_image = image_stack[target_index].unsqueeze(0)
+#     moving_images = torch.cat([image_stack[:target_index], image_stack[target_index+1:]])
+
+#     target_fft = torch.fft.fftn(target_image, dim=[-2, -1])
+#     moving_fft = torch.fft.fftn(moving_images, dim=[-2, -1])
+
+#     cross_corr = torch.fft.ifftn(target_fft * moving_fft.conj(), dim=[-2, -1]).real
+
+#     max_indices = torch.argmax(cross_corr.view(cross_corr.shape[0], -1), dim=1)
+
+#     height = cross_corr.shape[-2]
+#     width = cross_corr.shape[-1]
+#     shifts_y = max_indices // width
+#     shifts_x = max_indices % width
+
+#     shifts_y =  height // 2 - (shifts_y + height // 2) % height
+#     shifts_x =  width // 2 - (shifts_x + width // 2) % width
+
+#     shifts = torch.stack([shifts_y, shifts_x], dim=-1)
+
+#     # Insert a zero shift at the target index
+#     zero_shift = torch.zeros(1, 2, device=image_stack.device)
+#     shifts = torch.cat([shifts[:target_index], zero_shift, shifts[target_index:]])
+
+#     return shifts.long()
+    
+
+
+# import torch.nn.functional as F
+
+# def phase_cross_correlation_GPU(image_stack, target_index, upsample_factor=1):
+#     # Assuming image_stack is a 3D tensor [num_images, height, width]
+#     # and target_index is an integer
+
+#     target_image = image_stack[target_index].unsqueeze(0)
+#     moving_images = torch.cat([image_stack[:target_index], image_stack[target_index+1:]])
+
+#     target_fft = torch.fft.fftn(target_image, dim=[-2, -1])
+#     moving_fft = torch.fft.fftn(moving_images, dim=[-2, -1])
+
+#     cross_corr = torch.fft.ifftn(target_fft * moving_fft.conj(), dim=[-2, -1]).real
+
+#     # Upsample cross correlation to achieve subpixel precision
+#     if upsample_factor > 1:
+#         cross_corr = cross_corr.unsqueeze(1)
+#         print('cc',cross_corr.shape)
+#         cross_corr = F.interpolate(cross_corr, scale_factor=upsample_factor, 
+#                                    mode='bilinear', align_corners=False)
+        
+#         print('cc',cross_corr.shape)
+        
+#         cross_corr = cross_corr.squeeze(1)
+
+#     max_indices = torch.argmax(cross_corr.view(cross_corr.shape[0], -1), dim=1)
+
+#     height = cross_corr.shape[-2]
+#     width = cross_corr.shape[-1]
+#     shifts_y = max_indices // width
+#     shifts_x = max_indices % width
+#     shifts_y =  height // 2 - (shifts_y + height // 2) % height
+#     shifts_x =  width // 2 - (shifts_x + width // 2) % width
+
+#     # Convert shifts back to original pixel grid
+#     shifts_y = shifts_y / upsample_factor
+#     shifts_x = shifts_x / upsample_factor
+
+#     shifts = torch.stack([shifts_y, shifts_x], dim=-1)
+
+#     # Insert a zero shift at the target index
+#     zero_shift = torch.zeros(1, 2, device=image_stack.device)
+#     shifts = torch.cat([shifts[:target_index], zero_shift, shifts[target_index:]])
+#     return shifts
+
+# def phase_cross_correlation_GPU(image_stack, target_index, upsample_factor=10):
+#     # Assuming image_stack is a 3D tensor [num_images, height, width]
+#     # and target_index is an integer
+
+#     # Upsample the images
+#     image_stack = F.interpolate(image_stack.unsqueeze(1).float(), scale_factor=upsample_factor, mode='bilinear', align_corners=False).squeeze(1)
+
+#     target_image = image_stack[target_index].unsqueeze(0)
+#     moving_images = torch.cat([image_stack[:target_index], image_stack[target_index+1:]])
+
+#     target_fft = torch.fft.fftn(target_image, dim=[-2, -1])
+#     moving_fft = torch.fft.fftn(moving_images, dim=[-2, -1])
+
+#     cross_corr = torch.fft.ifftn(target_fft * moving_fft.conj(), dim=[-2, -1]).real
+
+#     max_indices = torch.argmax(cross_corr.view(cross_corr.shape[0], -1), dim=1)
+
+#     height = cross_corr.shape[-2]
+#     width = cross_corr.shape[-1]
+#     shifts_y = max_indices // width
+#     shifts_x = max_indices % width
+
+#     shifts_y =  height // 2 - (shifts_y + height // 2) % height
+#     shifts_x =  width // 2 - (shifts_x + width // 2) % width
+
+#     # Convert shifts back to original pixel grid
+#     shifts_y = shifts_y / upsample_factor
+#     shifts_x = shifts_x / upsample_factor
+
+#     shifts = torch.stack([shifts_y, shifts_x], dim=-1)
+
+#     # Insert a zero shift at the target index
+#     zero_shift = torch.zeros(1, 2, device=image_stack.device)
+#     shifts = torch.cat([shifts[:target_index], zero_shift, shifts[target_index:]])
+
+#     return shifts.float()
+
+
+def gaussian_kernel(size: int, sigma: float):
+    """Creates a 2D Gaussian kernel with mean 0.
+
+    Args:
+        size (int): The size of the kernel. Should be an odd number.
+        sigma (float): The standard deviation of the Gaussian distribution.
+
+    Returns:
+        torch.Tensor: The Gaussian kernel.
+    """
+    coords = torch.arange(size).float() - size // 2
+    g = torch.exp(-(coords**2) / (2 * sigma**2))
+    g /= g.sum()
+    return g.outer(g)
+
+def apply_gaussian_blur(image, kernel_size, sigma):
+    """Applies a Gaussian blur to the image.
+
+    Args:
+        image (torch.Tensor): The image to blur.
+        kernel_size (int): The size of the Gaussian kernel.
+        sigma (float): The standard deviation of the Gaussian distribution.
+
+    Returns:
+        torch.Tensor: The blurred image.
+    """
+    kernel = gaussian_kernel(kernel_size, sigma).unsqueeze(0).unsqueeze(0)
+    image = image.unsqueeze(0).unsqueeze(0)
+
+    # Apply 'reflect' padding to the image
+    padding_size = kernel_size // 2
+    image = F.pad(image, (padding_size, padding_size, padding_size, padding_size), mode='reflect')
+
+    # Perform the convolution without additional padding
+    blurred = F.conv2d(image, kernel, padding=0)
+
+    return blurred.squeeze(0).squeeze(0)
+
+def phase_cross_correlation_GPU_old(image_stack, target_index=None, upsample_factor=10, 
+                                reverse=False,normalize=False):
     # Assuming image_stack is a 3D tensor [num_images, height, width]
-    # and target_index is an integer
+    # and target_index is an integer or None for sequential registration
 
-    target_image = image_stack[target_index].unsqueeze(0)
-    moving_images = torch.cat([image_stack[:target_index], image_stack[target_index+1:]])
+    
+    im_to_reg = torch.stack([i/apply_gaussian_blur(i, 5, 1) for i in image_stack])
 
-    target_fft = torch.fft.fftn(target_image, dim=[-2, -1])
-    moving_fft = torch.fft.fftn(moving_images, dim=[-2, -1])
+    # Upsample the images
+    image_stack = F.interpolate(im_to_reg.unsqueeze(1).float(), 
+                                scale_factor=upsample_factor, mode='bilinear', 
+                                align_corners=False).squeeze(1)
 
-    cross_corr = torch.fft.ifftn(target_fft * moving_fft.conj(), dim=[-2, -1]).real
+    # Initialize shifts with a zero shift for the first image
+    # shifts = [[0, 0]]
+    shifts = []
+    
+    for i in range(1, len(image_stack)):
+        if target_index is None:
+            # Sequential registration
+            # target_image = image_stack[i-1]
+            if reverse:
+                # Reverse registration
+                target_image = image_stack[i+1] if i < len(image_stack) - 1 else image_stack[i]
+            else:
+                # Sequential registration
+                target_image = image_stack[i-1] if i > 0 else image_stack[i]
+        else:
+            # Target registration
+            target_image = image_stack[target_index]
 
-    max_indices = torch.argmax(cross_corr.view(cross_corr.shape[0], -1), dim=1)
+        moving_image = image_stack[i]
 
-    height = cross_corr.shape[-2]
-    width = cross_corr.shape[-1]
-    shifts_y = max_indices // width
-    shifts_x = max_indices % width
+        # target_fft = torch.fft.fftn(target_image.unsqueeze(0), dim=[-2, -1])
+        # moving_fft = torch.fft.fftn(moving_image.unsqueeze(0), dim=[-2, -1])
+        target_fft = torch.fft.fftn(target_image, dim=[-2, -1])
+        moving_fft = torch.fft.fftn(moving_image, dim=[-2, -1])
 
-    shifts_y =  height // 2 - (shifts_y + height // 2) % height
-    shifts_x =  width // 2 - (shifts_x + width // 2) % width
+        # Compute the cross-power spectrum
+        cross_power_spectrum = target_fft * moving_fft.conj()
 
-    shifts = torch.stack([shifts_y, shifts_x], dim=-1)
+        # Normalize the cross-power spectrum if the normalize option is True
+        if normalize:
+            cross_power_spectrum /= torch.abs(cross_power_spectrum)
+        
+        cross_corr = torch.abs(torch.fft.ifftn(cross_power_spectrum, dim=[-2, -1]))
+        print('cc',cross_corr.shape)
+        max_index = torch.argmax(cross_corr.view(-1))
 
-    # Insert a zero shift at the target index
-    zero_shift = torch.zeros(1, 2, device=image_stack.device)
-    shifts = torch.cat([shifts[:target_index], zero_shift, shifts[target_index:]])
+        height = cross_corr.shape[-2]
+        width = cross_corr.shape[-1]
+        shift_y = max_index // width
+        shift_x = max_index % width
 
-    return shifts.long()
+        shift_y =  height // 2 - (shift_y + height // 2) % height
+        shift_x =  width // 2 - (shift_x + width // 2) % width
 
+        # Convert shifts back to original pixel grid
+        shift_y = shift_y / upsample_factor
+        shift_x = shift_x / upsample_factor
+
+        shifts.append([shift_y, shift_x])
+
+    shifts.append([0,0])
+    shifts = torch.tensor(shifts, device=image_stack.device)*(-2)
+
+    # Subtract the average shift from all shifts to minimize the total shift
+    # avg_shift = shifts.mean(dim=0)
+    # shifts -= avg_shift
+    # shifts = torch.cumsum(shifts,dim=0)
+    
+    return shifts.float()
+    
+#     return accumulated_shifts
+def phase_cross_correlation_GPU(image_stack, 
+                                upsample_factor=10, 
+                                # normalization='phase'
+                                normalization=None,
+                                
+                                ):
+    # Assuming image_stack is a 3D tensor [num_images, height, width]
+    
+    # Upsample the images
+    # image_stack = F.interpolate(image_stack.unsqueeze(1).float(), 
+    #                             scale_factor=upsample_factor, mode='bilinear', 
+    #                             align_corners=False).squeeze(1)
+    
+    # m = torch.nn.Upsample(scale_factor=tuple([upsample_factor,upsample_factor]),mode='bilinear')
+    # image_stack = m(image_stack.float().unsqueeze(1)).squeeze(1)
+    device = image_stack.device
+    
+    im_to_reg = torch.stack([i/apply_gaussian_blur(i, 9, 3) for i in image_stack.float()])
+    # im_to_reg = image_stack
+    # Compute the FFT of the images
+    norm='backward'
+    image_fft = torch.fft.fft2(im_to_reg,norm=norm)#, dim=[-2, -1])
+    
+    # Compute the cross-power spectrum for each pair of images
+    cross_power_spectrum = image_fft[:-1] * image_fft[1:].conj()
+    
+    # Normalize the cross-power spectrum
+    if normalization == 'phase':
+        cross_power_spectrum /= torch.abs(cross_power_spectrum)#+1e-6
+    
+    # Compute the cross-correlation by taking the inverse FFT
+    cross_corr = torch.abs(torch.fft.ifft2(cross_power_spectrum,norm=norm)) #, dim=[-2, -1])
+    m = torch.nn.Upsample(scale_factor=upsample_factor,mode='bilinear')
+    cross_corr = m(cross_corr.unsqueeze(1)).squeeze(1)
+    
+    # Find the shift for each pair of images
+    max_indices = torch.argmax(cross_corr.view(cross_corr.shape[0], -1), dim=-1).float()
+    shifts_y, shifts_x = (max_indices / cross_corr.shape[-1]).long(), (max_indices % cross_corr.shape[-1]).long()
+
+    # Stack the shifts and append a [0, 0] shift at the beginning
+    # shifts = torch.stack([shifts_y, shifts_x]).T
+    shifts = 2*torch.stack([shifts_y, shifts_x]).T
+    zero_shift = torch.zeros(1, 2, dtype=shifts.dtype, device=shifts.device)
+    shifts = torch.cat([shifts,zero_shift], dim=0) / upsample_factor
+
+    # Accumulate the shifts - SUPER important and was the cause of the bug 
+    shifts = torch.cumsum(shifts.flip(dims=[0]),dim=0).flip(dims=[0])
+    
+    # Subtract the average shift from all shifts to minimize the total shift
+    avg_shift = shifts.mean(dim=0)
+    shifts -= avg_shift
+
+    # should replace shift by making it so that the shifts are closest to pixel shifts? 
+
+    return shifts
+
+    
+def pairwise_registration(image_stack, upsample_factor=10):
+
+    im_to_reg = torch.stack([i/apply_gaussian_blur(i, 5, 5) for i in image_stack])
+
+    # Upsample the images
+    image_stack = F.interpolate(im_to_reg.unsqueeze(1).float(), scale_factor=upsample_factor, mode='bilinear', align_corners=False).squeeze(1)
+
+    num_images = len(image_stack)
+    shifts = torch.zeros((num_images, num_images, 2), device=image_stack.device)
+
+    for i in range(num_images):
+        for j in range(i+1, num_images):
+            target_image = image_stack[i]
+            moving_image = image_stack[j]
+
+            target_fft = torch.fft.fftn(target_image.unsqueeze(0), dim=[-2, -1])
+            moving_fft = torch.fft.fftn(moving_image.unsqueeze(0), dim=[-2, -1])
+
+            cross_corr = torch.fft.ifftn(target_fft * moving_fft.conj(), dim=[-2, -1]).real
+
+            max_index = torch.argmax(cross_corr.view(-1))
+
+            height = cross_corr.shape[-2]
+            width = cross_corr.shape[-1]
+            shift_y = max_index // width
+            shift_x = max_index % width
+
+            shift_y =  height // 2 - (shift_y + height // 2) % height
+            shift_x =  width // 2 - (shift_x + width // 2) % width
+
+            # Convert shifts back to original pixel grid
+            shift_y = shift_y / upsample_factor
+            shift_x = shift_x / upsample_factor
+
+            shifts[i, j] = torch.tensor([shift_y, shift_x])
+            shifts[j, i] = torch.tensor([-shift_y, -shift_x])  # Reverse shift for the opposite direction
+
+    # return shifts
+    # Compute final shifts
+    final_shifts = compute_final_shifts(shifts)
+    final_shifts = torch.cumsum(final_shifts, dim=0)
+    return final_shifts
+    
+import networkx as nx
+
+def compute_final_shifts(pairwise_shifts):
+    # Create a graph where each node is an image and each edge is a shift
+    G = nx.Graph()
+
+    num_images = pairwise_shifts.shape[0]
+    for i in range(num_images):
+        for j in range(i+1, num_images):
+            shift = pairwise_shifts[i, j]
+            # Add an edge between image i and image j with weight equal to the magnitude of the shift
+            G.add_edge(i, j, weight=torch.norm(shift), shift=shift)
+
+    # Compute the minimum spanning tree of the graph
+    mst = nx.minimum_spanning_tree(G)
+
+    # Initialize final shifts with zeros
+    final_shifts = torch.zeros((num_images, 2), device=pairwise_shifts.device)
+
+    # Use a DFS to compute the shifts of all images relative to the reference
+    for edge in nx.dfs_edges(mst, source=0):
+        i, j = edge
+        shift = mst.edges[i, j]['shift']
+        final_shifts[j] = final_shifts[i] + shift
+
+    return final_shifts
 
 def apply_shifts(moving_images, shifts):
     # Assuming moving_images is a 3D tensor [num_images, height, width]
     # and shifts is a 2D tensor [num_images, 2] (y, x)
 
     N, H, W = moving_images.shape
-    max_shift_y = shifts[:, 0].abs().max().item()
-    max_shift_x = shifts[:, 1].abs().max().item()
+
+    # Normalize the shifts to be in the range [-1, 1]
+    shifts = shifts / torch.tensor([H, W]).to(shifts.device)
 
     # Create a grid of indices
-    grid_y, grid_x = torch.meshgrid(torch.arange(max_shift_y, H - max_shift_y), torch.arange(max_shift_x, W - max_shift_x))
-    grid_y = grid_y.to(shifts.device)
-    grid_x = grid_x.to(shifts.device)
+    grid_y, grid_x = torch.meshgrid(torch.arange(H), torch.arange(W))
+    grid_y = grid_y.to(shifts.device).float()
+    grid_x = grid_x.to(shifts.device).float()
+
+    # Normalize the grid to be in the range [-1, 1]
+    grid_y = 2.0 * grid_y / (H - 1) - 1.0
+    grid_x = 2.0 * grid_x / (W - 1) - 1.0
 
     # Apply the shifts to the grid of indices
     grid_y = grid_y[None] + shifts[:, 0][:, None, None]
     grid_x = grid_x[None] + shifts[:, 1][:, None, None]
 
-    # Use the shifted grid of indices to index into moving_images
-    intersection = moving_images[torch.arange(N)[:, None, None], grid_y, grid_x]
+    # Stack the grids to create a [N, H, W, 2] grid
+    grid = torch.stack([grid_x, grid_y], dim=-1)
 
-    return intersection
+    # Use the shifted grid of indices to index into moving_images
+    intersection = F.grid_sample(moving_images.unsqueeze(1), grid, align_corners=False)
+
+    return intersection.squeeze(1)
+
 
 
 def unravel_index(index, shape):
@@ -597,22 +943,21 @@ def normalize99(Y, lower=0.01, upper=99.99, contrast_limits=None, dim=None):
     # Y-lower_val can be less than zero. Likewise for the upward scalimg being slightly >1. 
     return module.clip(safe_divide(Y-lower_val,upper_val-lower_val),0,1)
     
-    
+
+
 def auto_chunked_quantile(tensor, q):
     # Determine the maximum number of elements that can be handled by PyTorch's quantile function
-    max_elements = 16e6 -1  
+    max_elements = 16e6 - 1  
 
     # Determine the number of elements in the tensor
     num_elements = tensor.nelement()
 
     # Determine the chunk size
     chunk_size = math.ceil(num_elements / max_elements)
-    if num_elements % max_elements != 0:
-        chunk_size += 1
     
     # Split the tensor into chunks
     chunks = torch.chunk(tensor, chunk_size)
-    print('nchunk',len(chunks),num_elements,tensor.shape)
+
     # Compute the quantile for each chunk
     return torch.stack([torch.quantile(chunk, q) for chunk in chunks]).mean(dim=0)
 
@@ -624,9 +969,9 @@ def auto_chunked_quantile(tensor, q):
 
 
 
-
-def normalize_image(im,mask,bg=0.5,dim=2,iterations=1,scale=1):
-    """ Normalize image by rescaling from 0 to 1 and then adjusting gamma to bring 
+def normalize_image(im, mask, target=0.5, foreground=False, iterations=1, scale=1, channel_axis=0):
+    """
+    Normalize image by rescaling from 0 to 1 and then adjusting gamma to bring 
     average background to specified value (0.5 by default).
     
     Parameters
@@ -637,32 +982,33 @@ def normalize_image(im,mask,bg=0.5,dim=2,iterations=1,scale=1):
     mask: ndarray, int or bool
         input labels or foreground mask
     
-    bg: float
-        target background value in the range 0-1
+    target: float
+        target background/foreground value in the range 0-1
     
-    dim: int
-        dimension of image or volume
-        (extra dims are channels, assume in front)
+    channel_axis: int
+        the axis that contains the channels
     
     Returns
     --------------
     gamma-normalized array with a minimum of 0 and maximum of 1
     
     """
-    im = rescale(im)*scale
-    if im.ndim>dim:#assume first axis is channel axis
-        im = [chan for chan in im] # break into a list of channels
+    im = rescale(im) * scale
+    if im.ndim > 2:  # assume last axis is channel axis
+        im = np.moveaxis(im, channel_axis, -1)  # move channels to last axis
+        im = [im[..., i] for i in range(im.shape[-1])]  # break into a list of channels
     else:
         im = [im]
         
-    if mask is not list:
-        mask = [mask]*len(im)
+    if not isinstance(mask, list):
+        mask = [mask] * len(im)
 
     for k in range(len(mask)):
-        source_bg = np.mean(im[k][binary_erosion(mask[k]==0,iterations=iterations)])
-        im[k] = im[k]**(np.log(bg)/np.log(source_bg))
+        bin0 = binary_erosion(mask[k]>0 if foreground else mask[k] == 0, iterations=iterations) 
+        source_target = np.mean(im[k][bin0])
+        im[k] = im[k] ** (np.log(target) / np.log(source_target))
         
-    return np.stack(im,axis=0).squeeze()
+    return np.stack(im, axis=channel_axis).squeeze()
 
 import ncolor
 def mask_outline_overlay(img,masks,outlines,mono=None):
@@ -1466,6 +1812,20 @@ def localnormalize(im,sigma1=2,sigma2=20):
     den = np.sqrt(blur2)
     
     return normalize99(num/den+1e-8)
+    
+import torchvision.transforms.functional as TF
+def localnormalize_GPU(im, sigma1=2, sigma2=20):
+    im = normalize99(im)
+    kernel_size1 = round(sigma1 * 6)
+    kernel_size1 += kernel_size1 % 2 == 0
+    blur1 = TF.gaussian_blur(im, kernel_size1, sigma1)
+    num = im - blur1
+    kernel_size2 = round(sigma2 * 6)
+    kernel_size2 += kernel_size2 % 2 == 0
+    blur2 = TF.gaussian_blur(num*num, kernel_size2, sigma2)
+    den = torch.sqrt(blur2)
+
+    return normalize99(num/den+1e-8)
 
 # from https://stackoverflow.com/questions/47370718/indexing-numpy-array-by-a-numpy-array-of-coordinates
 def ravel_index(b, shp):
@@ -1649,4 +2009,9 @@ def hysteresis_threshold(image, low, high):
     return thresholded.bool()#, mask_low, mask_high
 
 
-    
+def correct_illumination(img,sigma=5):
+    # Apply a Gaussian blur to the image
+    blurred = gaussian_filter(img, sigma=sigma)
+
+    # Normalize the image
+    return (img - blurred) / np.std(blurred)
