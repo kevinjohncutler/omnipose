@@ -721,7 +721,7 @@ class CellposeModel(UnetModel):
             x.tile = tile
             
             # set the rescale parameter in dataset
-            x.rescale = rescale
+            x.rescale = 1.0 if rescale is None else rescale
         
             # sample indices to evaluate
             indices = list(range(len(x))) if indices is None else indices

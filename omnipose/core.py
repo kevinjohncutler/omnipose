@@ -7,7 +7,8 @@ from scipy.ndimage import affine_transform, binary_dilation, binary_opening, bin
 from skimage.morphology import remove_small_objects
 from sklearn.utils.extmath import cartesian
 from skimage.segmentation import find_boundaries
-from igraph import Graph
+import networkit as nk # for connected components
+
 
 import torch.nn.functional as F
 
@@ -3744,7 +3745,7 @@ def _despur(connect, neigh_inds, indexes, steps, non_self,
 #                 edge_list.append((p,neigh_inds[s][p]))
 #     return edge_list
 
-# this version is a lot faster. igraph takes longer to initialize, however. 
+# this version is a lot faster. 
 @njit()
 def affinity_to_edges(affinity_graph,neigh_inds,step_inds,px_inds):
     """Convert symmetric affinity graph to list of edge tuples for connected components labeling."""
@@ -3759,9 +3760,7 @@ def affinity_to_edges(affinity_graph,neigh_inds,step_inds,px_inds):
                 edge_list[idx] = (p,neigh_inds[s][p])
                 idx += 1
     return edge_list[:idx] # return only the portion edge_list that contins edges 
-    # return [e for e in edge_list[:idx]]
-
-
+    
 def affinity_to_masks(affinity_graph,neigh_inds,iscell, coords,
                       cardinal=True,
                       exclude_interior=False,
@@ -3791,47 +3790,36 @@ def affinity_to_masks(affinity_graph,neigh_inds,iscell, coords,
         # step_inds = np.concatenate(utils.kernel_setup(dim)[1])
         step_inds = np.arange(nstep)
         
-        
-    # step_inds = np.concatenate(utils.kernel_setup(dim)[1][:2]) # get the center and cardinal indices 
-    # step_inds = utils.get_steps(dim)
     edge_list = affinity_to_edges(affinity_graph,neigh_inds,step_inds,px_inds)
-    # tic=time.time()
-    # edge_list = list(edge_list) # faster to just let igraph handle it 
-    # edge_list = edge_list.tolist() #slower
-    # edge_list = [e for e in edge_list] #about the same as tolist
+    # print(edge_list[0].shape,edge_list[1].shape)
+    # Create a Networkit graph from the edge list
+    g = nk.graph.Graph(n=npix, weighted=False)
+    edge_list = (np.array(edge_list[:,0]), np.array(edge_list[:,1]))
+    g.addEdges(edge_list)
 
-    # print('el shape',np.array(edge_list).shape)
-    g = Graph(n=npix, edges=edge_list)
-    # print('gt',time.time()-tic)
+    # Find the connected components
+    cc = nk.components.ConnectedComponents(g).run()
+    components = cc.getComponents()
 
     labels = np.zeros(iscell.shape,dtype=int)
-    # coords = np.nonzero(iscell) # pass in instead
-    # print('coords',np.stack(coords).shape, npix, len(edge_list), affinity_graph.shape)
-    for i,nodes in enumerate(g.connected_components()):
+    for i,nodes in enumerate(components):
          labels[tuple([c[nodes] for c in coords])] = i+1 if len(nodes)>1 else 0
 
     if exclude_interior:
-        # we only labeled the boundary, so fill the rest in 
-        # might be a faster way of doing this 
         labels = ncolor.expand_labels(labels)*iscell
     
-    # get rid of any mask labels that didn't ultimately get connected 
-    # btw, could figure out a way to snap those pixels to nearest and fix the local connectivity
-    # to have correct boundaries if I so desired... 
-    # coords = np.argwhere(iscell) 
-    coords = np.stack(coords).T # no need to recompute np.argwhere(iscell), but needs reshaping 
-    gone = neigh_inds[(3**dim)//2,csum<dim] # discard anything without dim connections 
+    coords = np.stack(coords).T
+    gone = neigh_inds[(3**dim)//2,csum<dim]
     labels[tuple(coords[gone].T)] = 0 
 
     if verbose:
         executionTime = (time.time() - startTime)
         omnipose_logger.info('affinity_to_masks(cardinal={}) execution time: {:.3g} sec'.format(cardinal,executionTime))
         
-    if return_edges: # for debugging
+    if return_edges:
         return labels, edge_list, coords, px_inds
     else:
         return labels
-
 
 def boundary_to_affinity(masks,boundaries):
     """

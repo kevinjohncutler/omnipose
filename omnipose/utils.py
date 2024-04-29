@@ -24,6 +24,9 @@ from numba import njit
 import functools
 import itertools
 
+import dask
+import dask.array as da
+
 # import logging, sys
 # LOGGER_FORMAT = "%(asctime)-20s\t[%(levelname)-5s]\t[%(filename)-10s %(lineno)-5d%(funcName)-18s]\t%(message)s"
 # logging.basicConfig(
@@ -304,63 +307,74 @@ def make_unique(masks):
         masks[t][masks[t]>0]+=offset
         offset = masks[t].max()
     return masks
-
+    
+    
 # import imreg_dft 
 def cross_reg(imstack,upsample_factor=100,order=1,
-              target_image=None,
-              normalization=None,cval=None,
-              prefilter=True,reverse=True):
+              normalization=None,
+              reverse=True, localnorm=True):
     """
     Find the transformation matrices for all images in a time series to align to the beginning frame. 
     """
-    # this is a super important preprocessing step for registration to work
-    im_to_reg = np.stack([i/gaussian_filter(i,5) for i in imstack])
-    
     dim = imstack.ndim - 1 # dim is spatial, assume first dimension is t
     s = np.zeros(dim)
     shape = imstack.shape[-dim:]
     regstack = np.zeros_like(imstack)
     shifts = np.zeros((len(imstack),dim))
-    for i,im in enumerate(im_to_reg[::-1] if reverse else im_to_reg):
-        if target_image is None:
-            ref = regstack[i-1] if i>0 else im
-        else:
-            ref = target_image
-        # reference_mask=~np.isnan(ref)
-        # moving_mask=~np.isnan(im)
-        # pad = 1
-        # shift = phase_cross_correlation(np.pad(ref,pad), np.pad(im,pad), 
-        shift = phase_cross_correlation(ref,im,
-                                        upsample_factor=upsample_factor, 
-                                        # return_error = False, 
-                                        normalization=normalization)[0]
-                                      # reference_mask=reference_mask,
-                                      # moving_mask=moving_mask)
-        
-        # shift = imreg_dft.imreg.translation(ref,im)['tvec']
-        
-        shifts[i] = shift
-        regstack[i] = im_shift(imstack[i], shift, order=order, prefilter=prefilter,
-                               mode='nearest' if cval is None else 'constant',
-                               cval=np.nanmean(imstack[i]) if cval is None else cval)   
-    if reverse:
-        return shifts[::-1], regstack[::-1]
-    else:
-        return shifts,regstack
-
-def shift_stack(imstack, shifts, order=1, cval=None):
-    """
-    Shift each time slice of imstack according to list of 2D shifts. 
-    """
     
-    print('TODO: parallize this on dask or GPU')
-    regstack = np.zeros_like(imstack)
-    for i in range(len(shifts)):        
-        regstack[i] = im_shift(imstack[i],shifts[i],order=order, 
-                               mode='nearest' if cval is None else 'constant',
-                               cval=np.nanmean(imstack[i]) if cval is None else cval)   
-    return regstack
+    
+    images_to_register = imstack if not reverse else imstack[::-1]
 
+    # Now images_to_register[i] is the sum of image_stack over the interval slices[i]
+    if localnorm: 
+        images_to_register = images_to_register/gaussian_filter(images_to_register,sigma=[0,1,1])
+                    
+    shift_vectors = [phase_cross_correlation(images_to_register[i], 
+                                            images_to_register[i+1], 
+                                            upsample_factor = upsample_factor,
+                                            normalization=normalization)[0] for i in range(len(images_to_register)-1)]
+    
+    
+    shift_vectors.insert(0, np.asarray([0.0,0.0]))  
+    shift_vectors = np.stack(shift_vectors)
+
+    shift_vectors = np.where(np.abs(shift_vectors) > 50, 0, shift_vectors)
+    shift_vectors = np.cumsum(shift_vectors, axis=0)
+        
+ 
+    if reverse:
+        shift_vectors = -shift_vectors[::-1]
+        
+    return shift_vectors
+
+def shift_stack(imstack, shift_vectors, order=1, cval=None, prefilter=True):
+    """
+    Shift each time slice of imstack according to list of nD shifts. 
+    """
+    imstack = imstack.astype(np.float32)
+    shift_vectors = shift_vectors.astype(np.float32)
+
+    # delayed_images = da.from_array(imstack).to_delayed()
+    
+    ndim = imstack.ndim
+    axes = tuple(range(-(ndim-1),0))
+    cvals = np.nanmean(imstack,axis=axes) if cval is None else [cval]*len(shift_vectors)
+    mode = 'nearest' if cval is None else 'constant'
+    
+    # Apply the shift to each image
+    shifted_images = [dask.delayed(im_shift)(image,
+                                            shift_vector, 
+                                            order=order,
+                                            prefilter=prefilter,
+                                            mode=mode,
+                                            cval=cv,
+                                            ) for image, shift_vector, cv in zip(imstack, shift_vectors, cvals)]
+
+    # Compute the shifted images in parallel
+    shifted_images = dask.compute(*shifted_images)
+    shifted_images = np.stack(shifted_images, axis=0)
+    
+    return shifted_images
 
 # GPU version
 import torch
@@ -516,7 +530,7 @@ import torch.fft
 #     return shifts.float()
 
 
-def gaussian_kernel(size: int, sigma: float):
+def gaussian_kernel(size: int, sigma: float, device=torch_GPU):
     """Creates a 2D Gaussian kernel with mean 0.
 
     Args:
@@ -526,12 +540,12 @@ def gaussian_kernel(size: int, sigma: float):
     Returns:
         torch.Tensor: The Gaussian kernel.
     """
-    coords = torch.arange(size).float() - size // 2
+    coords = torch.arange(size,device=device).float() - size // 2
     g = torch.exp(-(coords**2) / (2 * sigma**2))
     g /= g.sum()
     return g.outer(g)
 
-def apply_gaussian_blur(image, kernel_size, sigma):
+def apply_gaussian_blur(image, kernel_size, sigma, device=torch_GPU):
     """Applies a Gaussian blur to the image.
 
     Args:
@@ -542,7 +556,7 @@ def apply_gaussian_blur(image, kernel_size, sigma):
     Returns:
         torch.Tensor: The blurred image.
     """
-    kernel = gaussian_kernel(kernel_size, sigma).unsqueeze(0).unsqueeze(0)
+    kernel = gaussian_kernel(kernel_size, sigma, device).unsqueeze(0).unsqueeze(0)
     image = image.unsqueeze(0).unsqueeze(0)
 
     # Apply 'reflect' padding to the image
@@ -645,7 +659,7 @@ def phase_cross_correlation_GPU(image_stack,
     # image_stack = m(image_stack.float().unsqueeze(1)).squeeze(1)
     device = image_stack.device
     
-    im_to_reg = torch.stack([i/apply_gaussian_blur(i, 9, 3) for i in image_stack.float()])
+    im_to_reg = torch.stack([i/apply_gaussian_blur(i, 9, 3, device=device) for i in image_stack.float()])
     # im_to_reg = image_stack
     # Compute the FFT of the images
     norm='backward'
@@ -755,36 +769,115 @@ def compute_final_shifts(pairwise_shifts):
 
     return final_shifts
 
+# def apply_shifts(moving_images, shifts):
+#     # Assuming moving_images is a 3D tensor [num_images, height, width]
+#     # and shifts is a 2D tensor [num_images, 2] (y, x)
+#     N, H, W = moving_images.shape
+#     device = moving_images.device
+    
+
+#     # Normalize the shifts to be in the range [-1, 1]
+#     shifts = shifts / torch.tensor([H, W]).to(device)
+
+#     # Create a grid of indices
+#     grid_y, grid_x = torch.meshgrid(torch.arange(H, device=device, dtype=torch.float), 
+#                                     torch.arange(W, device=device, dtype=torch.float)) 
+
+#     # Normalize the grid to be in the range [-1, 1]
+#     grid_y = 2.0 * grid_y / (H - 1) - 1.0
+#     grid_x = 2.0 * grid_x / (W - 1) - 1.0
+
+#     # Apply the shifts to the grid of indices
+#     grid_y = grid_y[None] + shifts[:, 0][:, None, None]
+#     grid_x = grid_x[None] + shifts[:, 1][:, None, None]
+
+#     # Stack the grids to create a [N, H, W, 2] grid
+#     grid = torch.stack([grid_x, grid_y], dim=-1)
+
+#     # Use the shifted grid of indices to index into moving_images
+#     intersection = F.grid_sample(moving_images.unsqueeze(1), grid, align_corners=False)
+
+#     return intersection.squeeze(1)
+
+
+#turns out that looping over the shifts is faster than using grid_sample on the entire thing, at least on CPU
+# @torch.jit.script
 def apply_shifts(moving_images, shifts):
-    # Assuming moving_images is a 3D tensor [num_images, height, width]
-    # and shifts is a 2D tensor [num_images, 2] (y, x)
+    # If shifts is a 1D tensor, add an extra dimension to make it 2D
+    if len(shifts.shape) == 1:
+        shifts = shifts.unsqueeze(0)
+
+    # print('shifts',shifts.shape)
 
     N, H, W = moving_images.shape
-
+    device = moving_images.device
     # Normalize the shifts to be in the range [-1, 1]
-    shifts = shifts / torch.tensor([H, W]).to(shifts.device)
+    shifts = shifts / torch.tensor([H, W]).to(device)
 
     # Create a grid of indices
-    grid_y, grid_x = torch.meshgrid(torch.arange(H), torch.arange(W))
-    grid_y = grid_y.to(shifts.device).float()
-    grid_x = grid_x.to(shifts.device).float()
+    grid_y, grid_x = torch.meshgrid(torch.arange(H, device=device, dtype=torch.float), 
+                                    torch.arange(W, device=device, dtype=torch.float),
+                                    indexing='ij') 
 
     # Normalize the grid to be in the range [-1, 1]
     grid_y = 2.0 * grid_y / (H - 1) - 1.0
     grid_x = 2.0 * grid_x / (W - 1) - 1.0
 
-    # Apply the shifts to the grid of indices
-    grid_y = grid_y[None] + shifts[:, 0][:, None, None]
-    grid_x = grid_x[None] + shifts[:, 1][:, None, None]
+    # Initialize tensor to hold the shifted images
+    shifted_images = torch.empty_like(moving_images)
 
-    # Stack the grids to create a [N, H, W, 2] grid
-    grid = torch.stack([grid_x, grid_y], dim=-1)
+    # Find unique shifts and their indices
+    unique_shifts, indices = torch.unique(shifts, dim=0, return_inverse=True)
 
-    # Use the shifted grid of indices to index into moving_images
-    intersection = F.grid_sample(moving_images.unsqueeze(1), grid, align_corners=False)
+    # Group the indices by their corresponding shifts
+    bincounts = torch.bincount(indices)
+    split_sizes = [bincounts[i].item() for i in range(bincounts.size(0))]
+    grouped_indices = torch.split_with_sizes(indices, split_sizes)
 
-    return intersection.squeeze(1)
+    for i, group in enumerate(grouped_indices):
+        # Get the shift for this group
+        shift = unique_shifts[i]
 
+        # Apply the shift to the grid of indices
+        grid_y_shifted = grid_y[None] + shift[0]
+        grid_x_shifted = grid_x[None] + shift[1]
+
+        # Stack the grids to create a [1, H, W, 2] grid
+        grid = torch.stack([grid_x_shifted, grid_y_shifted], dim=-1)
+
+        # Use the shifted grid of indices to index into the slices
+        shifted_slices = torch.nn.functional.grid_sample(moving_images[group].unsqueeze(1), 
+                                                         grid.repeat(len(group),1,1,1), 
+                                                         mode='bilinear', #default
+                                                         align_corners=False #default
+                                                         )
+
+        # Store the shifted slices
+        shifted_images[group] = shifted_slices.squeeze(1)
+
+    return shifted_images
+    
+# from scipy.ndimage import map_coordinates
+
+# def apply_shifts_numpy(moving_images: np.ndarray, shifts: np.ndarray) -> np.ndarray:
+#     N, H, W = moving_images.shape
+
+#     # Normalize the shifts to be in the range [-1, 1]
+#     shifts = shifts / np.array([H, W])
+
+#     # Create a grid of indices
+#     grid_y, grid_x = np.meshgrid(np.arange(H), np.arange(W), indexing='ij')
+
+#     # Apply the shift to the grid of indices
+#     grid_y_shifted = grid_y[None] + shifts[:, 0, None, None]
+#     grid_x_shifted = grid_x[None] + shifts[:, 1, None, None]
+
+#     # Use the shifted grid of indices to index into the slices
+#     shifted_images = np.empty_like(moving_images)
+#     for i, image in enumerate(moving_images):
+#         shifted_images[i] = map_coordinates(image, [grid_y_shifted[i], grid_x_shifted[i]], order=1)
+
+#     return shifted_images  
 
 
 def unravel_index(index, shape):
@@ -822,6 +915,7 @@ def normalize_field(mu,use_torch=False,cutoff=0):
     
 # @torch.jit.script
 def torch_norm(a,dim=0,keepdim=False):
+    """ Wrapper for torch.linalg.norm to handle ARM architecture. """
     if ARM: 
         #torch.linalg.norm not implemented on MPS yet
         # this is the fastest I have tested but still slow in comparison 
@@ -969,7 +1063,8 @@ def auto_chunked_quantile(tensor, q):
 
 
 
-def normalize_image(im, mask, target=0.5, foreground=False, iterations=1, scale=1, channel_axis=0):
+def normalize_image(im, mask, target=0.5, foreground=False, 
+                    iterations=1, scale=1, channel_axis=0, per_channel=True):
     """
     Normalize image by rescaling from 0 to 1 and then adjusting gamma to bring 
     average background to specified value (0.5 by default).
@@ -996,20 +1091,34 @@ def normalize_image(im, mask, target=0.5, foreground=False, iterations=1, scale=
     im = rescale(im) * scale
     if im.ndim > 2:  # assume last axis is channel axis
         im = np.moveaxis(im, channel_axis, -1)  # move channels to last axis
-        im = [im[..., i] for i in range(im.shape[-1])]  # break into a list of channels
     else:
-        im = [im]
+        im = np.expand_dims(im, axis=-1)
         
     if not isinstance(mask, list):
-        mask = [mask] * len(im)
+        mask = np.stack([mask] * im.shape[-1], axis=-1)
 
-    for k in range(len(mask)):
-        bin0 = binary_erosion(mask[k]>0 if foreground else mask[k] == 0, iterations=iterations) 
-        source_target = np.mean(im[k][bin0])
-        im[k] = im[k] ** (np.log(target) / np.log(source_target))
+
+    # for k in range(len(mask)):
+    #     bin0 = binary_erosion(mask[k]>0 if foreground else mask[k] == 0, iterations=iterations) 
+    #     source_target = np.mean(im[k][bin0])
+    #     im[k] = im[k] ** (np.log(target) / np.log(source_target))
         
-    return np.stack(im, axis=channel_axis).squeeze()
-
+    bin0 = mask>0 if foreground else mask == 0
+    if iterations > 0:
+        # Create a structuring element that erodes only along the last two dimensions
+        structure = np.ones((3,) * (im.ndim - 1) + (1,))
+        structure[1, ...] = 0
+        bin0 =  binary_erosion(bin0, structure=structure, iterations=iterations)
+        
+    masked_im = np.ma.masked_array(im, mask=np.logical_not(bin0))
+    source_target = np.ma.mean(masked_im, axis=(0,1) if per_channel else None) 
+    # print(np.log(source_target).max(),'ss')
+    im = im ** (np.log(target) / np.log(source_target))
+    # im = np.exp(np.log(im+1e-8) * np.log(target) / (np.log(source_target)))    
+    # im = np.power(im,np.log(target) / np.log(source_target))
+    return np.moveaxis(im, -1, channel_axis).squeeze()
+    
+    
 import ncolor
 def mask_outline_overlay(img,masks,outlines,mono=None):
     """
@@ -1051,30 +1160,33 @@ def moving_average(x, w):
 #     T = np.interp(T, (floor, ceiling), (0, 1))
 #     return T
     
-
-def rescale(T, floor=None, ceiling=None, dim=None):
-    """Rescale data between 0 and 1"""
-    # module = torch if isinstance(T, torch.Tensor) else np
+def rescale(T, floor=None, ceiling=None, exclude_dims=None):
+    """
+    Rescale data between 0 and 1.
+    exclude_dims is the axis or axes that will remain. 
+    """
     module = get_module(T)
-    if dim is not None:
-        axes = tuple(i for i in range(T.ndim) if i != dim)
+    if exclude_dims is not None:
+        if isinstance(exclude_dims, int):
+            exclude_dims = (exclude_dims,)
+        order = [1 if i not in exclude_dims else -1 for i in range(T.ndim)]
+        axes = tuple(i for i in range(T.ndim) if i not in exclude_dims)
     else:
         axes = None
-
+                
     if ceiling is None:
         ceiling = module.amax(T, axis=axes)
-        if dim is not None:
-            ceiling = ceiling.reshape(*[1 if i != dim else -1 for i in range(T.ndim)])
+        if exclude_dims is not None:
+            ceiling = ceiling.reshape(*order)
     if floor is None:
         floor = module.amin(T, axis=axes)
-        if dim is not None:
-            floor = floor.reshape(*[1 if i != dim else -1 for i in range(T.ndim)])
+        if exclude_dims is not None:
+            floor = floor.reshape(*order)
 
-    # T = (T - floor) / (ceiling - floor)
-    T = safe_divide(T - floor,ceiling - floor)
-    # T = module.clip((T - floor)/(ceiling - floor),0,1)
+    T = safe_divide(T - floor, ceiling - floor)
 
     return T
+
 
 def normalize_stack(vol,mask,bg=0.5,bright_foreground=None,
                     subtractive=False,iterations=1,equalize_foreground=1,quantiles=[0.01,0.99]):

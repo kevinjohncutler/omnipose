@@ -145,24 +145,68 @@ def sinebow(N,bg_color=[0,0,0,0], offset=0):
         colordict.update({j+1:[r,g,b,1]})
     return colordict
 
-@njit
-def colorize(im,colors=None,color_weights=None,offset=0):
+# @njit
+# def colorize(im,colors=None,color_weights=None,offset=0):
+#     N = len(im)
+#     if colors is None:
+#         angle = np.arange(0,1,1/N)*2*np.pi+offset
+#         angles = np.stack((angle,angle+2*np.pi/3,angle+4*np.pi/3),axis=-1)
+#         colors = (np.cos(angles)+1)/2
+        
+#     if color_weights is not None:
+#         colors *= color_weights
+        
+#     rgb = np.zeros((im.shape[1], im.shape[2], 3))
+#     for i in range(N):
+#         for j in range(3):
+#             rgb[..., j] += im[i] * colors[i, j] 
+#     rgb /= N
+#     return rgb
+
+# @njit
+def colorize(im, colors=None, color_weights=None, offset=0, channel_axis=-1):
     N = len(im)
     if colors is None:
-        angle = np.arange(0,1,1/N)*2*np.pi+offset
-        angles = np.stack((angle,angle+2*np.pi/3,angle+4*np.pi/3),axis=-1)
-        colors = (np.cos(angles)+1)/2
-        
+        angle = np.arange(0, 1, 1/N) * 2 * np.pi + offset
+        angles = np.stack((angle, angle + 2 * np.pi / 3, angle + 4 * np.pi / 3), axis=-1)
+        colors = (np.cos(angles) + 1) / 2
+
     if color_weights is not None:
-        colors *= color_weights
-        
-    rgb = np.zeros((im.shape[1], im.shape[2], 3))
-    for i in range(N):
-        for j in range(3):
-            rgb[..., j] += im[i] * colors[i, j] 
-    rgb /= N
+        colors *= np.expand_dims(color_weights,-1)
+
+    rgb_shape = im.shape[1:] + (colors.shape[1],)
+    if channel_axis == 0:
+        rgb_shape = rgb_shape[::-1]
+    rgb = np.zeros(rgb_shape)
+
+    # Use broadcasting to multiply im and colors and sum along the 0th dimension
+    rgb = (np.expand_dims(im, axis=-1) * colors.reshape(colors.shape[0], 1, 1, colors.shape[1])).mean(axis=0)
+
     return rgb
 
+import torch
+def colorize_GPU(im, colors=None, color_weights=None, offset=0,channel_axis=-1):
+    N = im.shape[0]
+    device = im.device
+
+    if colors is None:
+        angle = torch.linspace(0, 1, N, device=device) * 2 * np.pi + offset
+        angles = torch.stack((angle, angle + 2 * np.pi / 3, angle + 4 * np.pi / 3), dim=-1)
+        colors = (torch.cos(angles) + 1) / 2
+
+    if color_weights is not None:
+        colors *= color_weights.unsqueeze(-1)
+
+    rgb_shape = im.shape[1:]+(colors.shape[1],)
+    if channel_axis == 0:
+        rgb_shape = tuple(rgb_shape[::-1])
+    rgb = torch.zeros(rgb_shape, device=device)
+
+    # Use broadcasting to multiply im and colors and sum along the 0th dimension
+    rgb = (im.unsqueeze(-1) * colors.view(colors.shape[0], 1, 1, colors.shape[1])).mean(dim=0)
+    return rgb
+    
+    
 import ncolor
 def apply_ncolor(masks,offset=0,cmap=None,max_depth=20,expand=True):
     m,n = ncolor.label(masks,
@@ -182,7 +226,7 @@ from mpl_toolkits.axes_grid1 import ImageGrid
 import matplotlib.pyplot as plt
 
 def imshow(imgs, figsize=2, ax=None, hold=False, titles=None, title_size=None, spacing=0.05, 
-           textcolor=[0.5]*3, **kwargs):
+           textcolor=[0.5]*3, dpi=300, **kwargs):
     text_scale = 10
     
     if isinstance(imgs, list):
@@ -205,7 +249,7 @@ def imshow(imgs, figsize=2, ax=None, hold=False, titles=None, title_size=None, s
         if title_size is None:
             title_size = figsize[0] * text_scale
         if ax is None:
-            fig, ax = plt.subplots(frameon=False, figsize=figsize, facecolor =[0]*4)
+            fig, ax = plt.subplots(frameon=False, figsize=figsize, facecolor =[0]*4,dpi=dpi)
         else:
             hold = True
         ax.imshow(imgs, **kwargs)
@@ -692,5 +736,16 @@ def colored_line(x, y, ax, z=None, line_width=1, MAP='jet'):
     cm = plt.get_cmap(MAP)
     ax.pcolormesh(xs, ys, zs, shading='gouraud', cmap=cm)
 
-
-
+def plot_color_swatches(colors,figsize=0.5,dpi=100):
+    # Convert colors to a numpy array
+    colors = np.array(colors)
+    
+    # If colors is a 1D array (single color), reshape it to a 2D array
+    if colors.ndim == 1:
+        colors = colors.reshape(1, -1)
+    
+    # Create a list of swatches
+    swatches = [np.full((1, 1, 3), color, dtype=np.float32) for color in colors]
+    
+    # Display the swatches
+    imshow(swatches, figsize=figsize,dpi=dpi)

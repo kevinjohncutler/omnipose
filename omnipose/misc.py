@@ -1031,11 +1031,71 @@ def export_gif(frames, basename, basedir, scale=1, fps=15, loop=0, bounce=True):
         p.wait()
 
 
-import sys
 def get_size(var, unit='GB'):
     units = {'B': 0, 'KB': 1, 'MB': 2, 'GB': 3}
     return var.nbytes / (1024 ** units[unit])
     
+from collections.abc import Iterable
+
+def get_slice_tuple(start, stop, shape, axis=None):
+    ndim = len(shape)
+
+    # Create a list of slices for each axis
+    slices = [slice(None)] * ndim 
+    
+    if axis is None:
+        axis = list(range(ndim))
+
+    # Check if start and stop are iterable
+    if isinstance(start, Iterable) and isinstance(stop, Iterable):
+        # Check that start and stop are the same length
+        if len(start) != len(stop):
+            raise ValueError("start and stop must be the same length")
+
+        # Check if axis is iterable
+        if isinstance(axis, Iterable):
+            # Check that axis is the same length as start and stop
+            if len(axis) != len(start):
+                raise ValueError("axis must be the same length as start and stop")
+        else:
+            # If axis is not iterable, use it for all slices
+            axis = [axis] * len(start)
+
+        # Replace the slice at each axis index
+        for a, s, e in zip(axis, start, stop):
+            slices[a] = slice(s, e, None)
+    else:
+        # If start and stop are not iterable, use them as integers
+        slices[axis] = slice(start, stop, None)
+
+    # Convert the list to a tuple
+    return tuple(slices)
     
 
-    
+import ipywidgets as widgets
+from IPython.display import display
+def explore_object(obj):
+    output = widgets.Output()
+
+    def on_change(change):
+        if change['type'] == 'change' and change['name'] == 'value':
+            output.clear_output()
+            with output:
+                try:
+                    next_obj = getattr(obj, change['new'])
+                    print(f"Selected: {change['new']}")
+                    print(dir(next_obj))
+                    if hasattr(next_obj, '__dict__'):
+                        explore_object(next_obj)
+                except Exception as e:
+                    print(str(e))
+
+    dropdown = widgets.Dropdown(
+        options=[attr for attr in dir(obj) if not attr.startswith("__")],
+        description='Attributes:',
+    )
+
+    dropdown.observe(on_change)
+    display(widgets.HBox([dropdown, output]))
+
+

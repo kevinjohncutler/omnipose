@@ -221,9 +221,8 @@ class eval_set(torch.utils.data.Dataset):
                                dim=None if self.normalize_stack else 0) # much faster on GPU now
         
         
-        # ADD RESCALE CODE HERE? 
-        # if self.rescale:
-        if self.rescale != 1.0 and not no_rescale:
+        # ADD RESCALE CODE HERE?
+        if self.rescale is not None and self.rescale != 1.0 and not no_rescale:
             imgs = torch_zoom(imgs, self.rescale, mode=self.interp_mode)
             
             
@@ -248,6 +247,7 @@ class eval_set(torch.utils.data.Dataset):
             subs = [np.arange(lower_pad[k],lower_pad[k]+shape[k]) for k in range(self.dim)]
                         
             # mode = 'constant'
+            # print(imgs.shape,'ggg')
             # # value = torch.mean(imgs) if mode=='constant' else 0  
             # value = 0 # turns out performance on sparse cells much better if padding is zero 
             I = torch.nn.functional.pad(imgs, pads, mode=self.pad_mode, value=None)            
