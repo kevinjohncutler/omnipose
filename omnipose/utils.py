@@ -698,76 +698,77 @@ def phase_cross_correlation_GPU(image_stack,
 
     return shifts
 
+# ### below two functions an experiment 
+# def pairwise_registration(image_stack, upsample_factor=10):
+
+#     im_to_reg = torch.stack([i/apply_gaussian_blur(i, 5, 5) for i in image_stack])
+
+#     # Upsample the images
+#     image_stack = F.interpolate(im_to_reg.unsqueeze(1).float(), scale_factor=upsample_factor, mode='bilinear', align_corners=False).squeeze(1)
+
+#     num_images = len(image_stack)
+#     shifts = torch.zeros((num_images, num_images, 2), device=image_stack.device)
+
+#     for i in range(num_images):
+#         for j in range(i+1, num_images):
+#             target_image = image_stack[i]
+#             moving_image = image_stack[j]
+
+#             target_fft = torch.fft.fftn(target_image.unsqueeze(0), dim=[-2, -1])
+#             moving_fft = torch.fft.fftn(moving_image.unsqueeze(0), dim=[-2, -1])
+
+#             cross_corr = torch.fft.ifftn(target_fft * moving_fft.conj(), dim=[-2, -1]).real
+
+#             max_index = torch.argmax(cross_corr.view(-1))
+
+#             height = cross_corr.shape[-2]
+#             width = cross_corr.shape[-1]
+#             shift_y = max_index // width
+#             shift_x = max_index % width
+
+#             shift_y =  height // 2 - (shift_y + height // 2) % height
+#             shift_x =  width // 2 - (shift_x + width // 2) % width
+
+#             # Convert shifts back to original pixel grid
+#             shift_y = shift_y / upsample_factor
+#             shift_x = shift_x / upsample_factor
+
+#             shifts[i, j] = torch.tensor([shift_y, shift_x])
+#             shifts[j, i] = torch.tensor([-shift_y, -shift_x])  # Reverse shift for the opposite direction
+
+#     # return shifts
+#     # Compute final shifts
+#     final_shifts = compute_final_shifts(shifts)
+#     final_shifts = torch.cumsum(final_shifts, dim=0)
+#     return final_shifts
     
-def pairwise_registration(image_stack, upsample_factor=10):
+# import networkx as nx
+# def compute_final_shifts(pairwise_shifts):
+#     # Create a graph where each node is an image and each edge is a shift
+#     G = nx.Graph()
 
-    im_to_reg = torch.stack([i/apply_gaussian_blur(i, 5, 5) for i in image_stack])
+#     num_images = pairwise_shifts.shape[0]
+#     for i in range(num_images):
+#         for j in range(i+1, num_images):
+#             shift = pairwise_shifts[i, j]
+#             # Add an edge between image i and image j with weight equal to the magnitude of the shift
+#             G.add_edge(i, j, weight=torch.norm(shift), shift=shift)
 
-    # Upsample the images
-    image_stack = F.interpolate(im_to_reg.unsqueeze(1).float(), scale_factor=upsample_factor, mode='bilinear', align_corners=False).squeeze(1)
+#     # Compute the minimum spanning tree of the graph
+#     mst = nx.minimum_spanning_tree(G)
 
-    num_images = len(image_stack)
-    shifts = torch.zeros((num_images, num_images, 2), device=image_stack.device)
+#     # Initialize final shifts with zeros
+#     final_shifts = torch.zeros((num_images, 2), device=pairwise_shifts.device)
 
-    for i in range(num_images):
-        for j in range(i+1, num_images):
-            target_image = image_stack[i]
-            moving_image = image_stack[j]
+#     # Use a DFS to compute the shifts of all images relative to the reference
+#     for edge in nx.dfs_edges(mst, source=0):
+#         i, j = edge
+#         shift = mst.edges[i, j]['shift']
+#         final_shifts[j] = final_shifts[i] + shift
 
-            target_fft = torch.fft.fftn(target_image.unsqueeze(0), dim=[-2, -1])
-            moving_fft = torch.fft.fftn(moving_image.unsqueeze(0), dim=[-2, -1])
-
-            cross_corr = torch.fft.ifftn(target_fft * moving_fft.conj(), dim=[-2, -1]).real
-
-            max_index = torch.argmax(cross_corr.view(-1))
-
-            height = cross_corr.shape[-2]
-            width = cross_corr.shape[-1]
-            shift_y = max_index // width
-            shift_x = max_index % width
-
-            shift_y =  height // 2 - (shift_y + height // 2) % height
-            shift_x =  width // 2 - (shift_x + width // 2) % width
-
-            # Convert shifts back to original pixel grid
-            shift_y = shift_y / upsample_factor
-            shift_x = shift_x / upsample_factor
-
-            shifts[i, j] = torch.tensor([shift_y, shift_x])
-            shifts[j, i] = torch.tensor([-shift_y, -shift_x])  # Reverse shift for the opposite direction
-
-    # return shifts
-    # Compute final shifts
-    final_shifts = compute_final_shifts(shifts)
-    final_shifts = torch.cumsum(final_shifts, dim=0)
-    return final_shifts
+#     return final_shifts
     
-import networkx as nx
-
-def compute_final_shifts(pairwise_shifts):
-    # Create a graph where each node is an image and each edge is a shift
-    G = nx.Graph()
-
-    num_images = pairwise_shifts.shape[0]
-    for i in range(num_images):
-        for j in range(i+1, num_images):
-            shift = pairwise_shifts[i, j]
-            # Add an edge between image i and image j with weight equal to the magnitude of the shift
-            G.add_edge(i, j, weight=torch.norm(shift), shift=shift)
-
-    # Compute the minimum spanning tree of the graph
-    mst = nx.minimum_spanning_tree(G)
-
-    # Initialize final shifts with zeros
-    final_shifts = torch.zeros((num_images, 2), device=pairwise_shifts.device)
-
-    # Use a DFS to compute the shifts of all images relative to the reference
-    for edge in nx.dfs_edges(mst, source=0):
-        i, j = edge
-        shift = mst.edges[i, j]['shift']
-        final_shifts[j] = final_shifts[i] + shift
-
-    return final_shifts
+# ### 
 
 # def apply_shifts(moving_images, shifts):
 #     # Assuming moving_images is a 3D tensor [num_images, height, width]
@@ -1347,7 +1348,6 @@ def crop_bbox(mask, pad=10, iterations=3, im_pad=0, area_cutoff=0,
     return slices
 
 
-    
 def get_boundary(mask):
     """ND binary mask boundary using mahotas.
     

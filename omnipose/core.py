@@ -1,14 +1,10 @@
 import numpy as np
 from numba import njit, prange
-import numba
-import cv2
 import edt
 from scipy.ndimage import affine_transform, binary_dilation, binary_opening, binary_closing, label, shift, uniform_filter # I need to test against skimage labeling
 from skimage.morphology import remove_small_objects
-from sklearn.utils.extmath import cartesian
 from skimage.segmentation import find_boundaries
 import networkit as nk # for connected components
-
 
 import torch.nn.functional as F
 
@@ -3829,14 +3825,6 @@ def boundary_to_affinity(masks,boundaries):
     self-contact cells. 
     
     """
-
-#     d = masks.ndim
-#     coords = np.nonzero(masks)
-#     idx = (3**d)//2 # the index of the center pixel is placed here when considering the neighbor kernel 
-
-#     neigh = [[-1,0,1] for i in range(d)]
-#     steps = cartesian(neigh) # all the possible step sequences in ND
-#     neighbors = np.array([np.add.outer(coords[i],steps[:,i]) for i in range(d)]).swapaxes(-1,-2)
     d = masks.ndim
     steps, inds, idx, fact, sign = utils.kernel_setup(d)
     coords = np.nonzero(masks)

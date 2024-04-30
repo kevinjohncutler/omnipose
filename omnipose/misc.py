@@ -1072,9 +1072,17 @@ def get_slice_tuple(start, stop, shape, axis=None):
     return tuple(slices)
     
 
-import ipywidgets as widgets
-from IPython.display import display
+import subprocess
 def explore_object(obj):
+    try:
+        import ipywidgets as widgets
+        from IPython.display import display
+    except ImportError:
+        print("ipywidgets is not installed. Installing now...")
+        subprocess.check_call(["pip", "install", "ipywidgets"])
+        import ipywidgets as widgets
+        from IPython.display import display
+
     output = widgets.Output()
 
     def on_change(change):
