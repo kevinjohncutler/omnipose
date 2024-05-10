@@ -1042,12 +1042,13 @@ def get_slice_tuple(start, stop, shape, axis=None):
 
     # Create a list of slices for each axis
     slices = [slice(None)] * ndim 
-    
-    if axis is None:
-        axis = list(range(ndim))
+
 
     # Check if start and stop are iterable
     if isinstance(start, Iterable) and isinstance(stop, Iterable):
+        if axis is None:
+            axis = list(range(ndim))
+    
         # Check that start and stop are the same length
         if len(start) != len(stop):
             raise ValueError("start and stop must be the same length")
@@ -1065,6 +1066,8 @@ def get_slice_tuple(start, stop, shape, axis=None):
         for a, s, e in zip(axis, start, stop):
             slices[a] = slice(s, e, None)
     else:
+        if axis is None:
+            axis = 0
         # If start and stop are not iterable, use them as integers
         slices[axis] = slice(start, stop, None)
 

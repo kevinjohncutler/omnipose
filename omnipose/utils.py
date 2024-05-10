@@ -283,19 +283,35 @@ def generate_slices(image_shape, crop_size):
             
     return slices, num_crops
 
-def shifts_to_slice(shifts,shape):
-    """
-    Find the minimal crop box from time lapse registraton shifts.
-    """
-#     max_shift = np.max(shifts,axis=0)
-#     min_shift = np.min(shifts,axis=0)
-#     slc = tuple([slice(np.maximum(0,0+int(mn)),np.minimum(s,s-int(mx))) for mx,mn,s in zip(np.flip(max_shift),np.flip(min_shift),shape)])
-    # slc = tuple([slice(np.maximum(0,0+int(mn)),np.minimum(s,s-int(mx))) for mx,mn,s in zip(max_shift,min_shift,shape)])
-    upper_shift = np.min(shifts,axis=0)
-    lower_shift = np.max(shifts,axis=0)
-    slc = tuple([slice(np.maximum(0,0+int(l)),np.minimum(s,s-int(u))) for u,l,s in zip(upper_shift,lower_shift,shape)])
-    return slc
+# def shifts_to_slice(shifts,shape):
+#     """
+#     Find the minimal crop box from time lapse registration shifts.
+#     """
+# #     max_shift = np.max(shifts,axis=0)
+# #     min_shift = np.min(shifts,axis=0)
+# #     slc = tuple([slice(np.maximum(0,0+int(mn)),np.minimum(s,s-int(mx))) for mx,mn,s in zip(np.flip(max_shift),np.flip(min_shift),shape)])
+#     # slc = tuple([slice(np.maximum(0,0+int(mn)),np.minimum(s,s-int(mx))) for mx,mn,s in zip(max_shift,min_shift,shape)])
+#     upper_shift = np.min(shifts,axis=0)
+#     lower_shift = np.max(shifts,axis=0)
+#     slc = tuple([slice(np.maximum(0,0+int(l)),np.minimum(s,s-int(u))) for u,l,s in zip(upper_shift,lower_shift,shape)])
+#     return slc
 
+
+import numpy as np
+
+def shifts_to_slice(shifts, shape):
+    """
+    Find the minimal crop box from time lapse registration shifts.
+    """    
+    # Convert shifts to integers
+    shifts = np.round(shifts).astype(int)
+    
+    # Create a slice for each dimension
+    slices = tuple(slice(max(0, np.max(shifts[:, dim])), min(shape[dim], shape[dim] + np.min(shifts[:, dim])))
+                   for dim in range(shifts.shape[1]))
+    
+    return slices
+    
 def make_unique(masks):
     """Relabel stack of label matrices such that there is no repeated label across slices."""
     masks = masks.copy().astype(np.uint32)
