@@ -1109,4 +1109,15 @@ def explore_object(obj):
     dropdown.observe(on_change)
     display(widgets.HBox([dropdown, output]))
 
+from scipy.ndimage import uniform_filter
+def find_highest_density_box(label_matrix, box_size):
+    # Compute the cell density for each box in the image
+    cell_density = uniform_filter((label_matrix > 0).astype(float), size=box_size, mode='constant')
 
+    # Find the coordinates of the box with the highest cell density
+    max_density_coords = np.unravel_index(np.argmax(cell_density), cell_density.shape)
+
+    # Compute the coordinates of the box
+    box_coords = tuple(slice(max_coord - box_size // 2, max_coord + box_size // 2) for max_coord in max_density_coords)
+
+    return box_coords

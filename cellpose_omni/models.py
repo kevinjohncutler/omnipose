@@ -1147,6 +1147,7 @@ class CellposeModel(UnetModel):
                                                                                       stitch_threshold=stitch_threshold,
                                                                                       omni=omni,
                                                                                       calc_trace=calc_trace,
+                                                                                      show_progress=show_progress,
                                                                                       verbose=verbose)
             
             # the flow list stores: 
@@ -1173,7 +1174,7 @@ class CellposeModel(UnetModel):
                 min_size=15, max_size=None,
                 interp=True, cluster=False, suppress=None, boundary_seg=False, affinity_seg=False, despur=True,
                 anisotropy=1.0, do_3D=False, stitch_threshold=0.0,
-                omni=False, calc_trace=False, verbose=False, pad=0):
+                omni=False, calc_trace=False,  show_progress=True, verbose=False, pad=0):
         # by this point, the image(s) will already have been formatted with channels, batch, etc 
 
         tic = time.time()
@@ -1235,7 +1236,6 @@ class CellposeModel(UnetModel):
                 # but actually, not really useful in the end...
                 if pad>0:
                     img = np.pad(img,pad_seq,'edge')
-
 
                 if rescale != 1.0:
                     # if self.dim>2:

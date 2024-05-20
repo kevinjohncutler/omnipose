@@ -194,14 +194,26 @@ def colorize_GPU(im, colors=None, color_weights=None, offset=0,channel_axis=-1):
     if color_weights is not None:
         colors *= color_weights.unsqueeze(-1)
 
-    rgb_shape = im.shape[1:]+(colors.shape[1],)
-    if channel_axis == 0:
-        rgb_shape = tuple(rgb_shape[::-1])
-    rgb = torch.zeros(rgb_shape, device=device)
+    # rgb_shape = im.shape[1:]+(colors.shape[1],)
+    # if channel_axis == 0:
+    #     rgb_shape = tuple(rgb_shape[::-1])
+    # rgb = torch.ones(rgb_shape, device=device)
 
     # Use broadcasting to multiply im and colors and sum along the 0th dimension
-    rgb = (im.unsqueeze(-1) * colors.view(colors.shape[0], 1, 1, colors.shape[1])).mean(dim=0)
+    # rgb = (im.unsqueeze(-1) * colors.view(colors.shape[0], 1, 1, colors.shape[1])).mean(dim=0)
+    
+    im = im.unsqueeze(-1)  # Add an extra dimension to `im`
+    # colors = colors.view(colors.shape[0], 1, 1, colors.shape[1])  # Reshape `colors`
+
+    # print(im.shape,colors.shape)
+    # Compute the mean and assign the result to `rgb`
+    # rgb = (im*colors).mean(dim=0)
+    
+    # Perform the multiplication and mean computation using `einsum` - way faster 
+    rgb = torch.einsum('ijkl,il->jkl', im.double(), colors.double()) / N
+
     return rgb
+
     
     
 import ncolor
@@ -223,8 +235,8 @@ from mpl_toolkits.axes_grid1 import ImageGrid
 import matplotlib.pyplot as plt
 
 def imshow(imgs, figsize=2, ax=None, hold=False, titles=None, title_size=None, spacing=0.05, 
-           textcolor=[0.5]*3, dpi=300, **kwargs):
-    text_scale = 10
+           textcolor=[0.5]*3, dpi=300, text_scale = 1, **kwargs):
+
     
     if isinstance(imgs, list):
         if titles is None:
@@ -440,6 +452,10 @@ def color_from_RGB(im,rgb,m,bd=None, mode='inner',connectivity=2):
                               )
     return overlay
     
+    
+def split_list(lst, N):
+    return [lst[i:i + N] for i in range(0, len(lst), N)]
+        
 def image_grid(images, column_titles=None, row_titles=None,
                plot_labels=None, 
                 xticks=[], yticks=[], 
