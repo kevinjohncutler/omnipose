@@ -213,8 +213,6 @@ def colorize_GPU(im, colors=None, color_weights=None, offset=0,channel_axis=-1):
     rgb = torch.einsum('ijkl,il->jkl', im.double(), colors.double()) / N
 
     return rgb
-
-    
     
 import ncolor
 def apply_ncolor(masks,offset=0,cmap=None,max_depth=20,expand=True):
@@ -263,6 +261,8 @@ def imshow(imgs, figsize=2, ax=None, hold=False, titles=None, title_size=None, s
             hold = True
         ax.imshow(imgs, **kwargs)
         ax.axis("off")
+        ax.set_frame_on(False)
+        ax.set_facecolor([0]*4)
         if titles is not None:
             ax.set_title(titles, fontsize=title_size, color=textcolor)
     if not hold:
@@ -461,7 +461,7 @@ def image_grid(images, column_titles=None, row_titles=None,
                 xticks=[], yticks=[], 
                 outline=False, outline_color=[0.5]*3, 
                 padding=0.05, 
-                fontsize=10, fontcolor=[0.5]*3,
+                fontsize=8, fontcolor=[0.5]*3,
                 fig_scale=6, dpi=300,
                 order='ij',
                 lpad = 0.05,

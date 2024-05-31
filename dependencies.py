@@ -4,7 +4,7 @@ install_deps = ['numpy>=1.22.4', 'scipy', 'numba',
                 'mahotas>=1.4.13',
                 'mgen','matplotlib',
                 'networkit',
-                'torchvf','tqdm', 'natsort','aicsimageio',
+                'torchvf','tqdm', 'natsort', 'aicsimageio',
                 'numexpr'
                 ]
 
