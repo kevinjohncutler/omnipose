@@ -1403,12 +1403,13 @@ def compute_masks(dP, dist, affinity_graph=None, bd=None, p=None, coords=None, i
                                             calc_trace=calc_trace, verbose=verbose)
             else:
                 tr = []
-                coords = np.stack(np.nonzero(iscell_pad))
                 if verbose:
                     omnipose_logger.info('p given')
+                print('a2',shape,p.shape,coords.shape,p.max(), p[:,~iscell_pad].shape)
+                
+                # set the points that are background to not move
+                p[:,~iscell_pad] = np.stack(np.nonzero(~iscell_pad))
                     
-            # print('a2',shape,p.shape,coords.shape)
-
 
             #calculate masks
             if (omni and OMNI_INSTALLED) or override:
@@ -1506,6 +1507,7 @@ def compute_masks(dP, dist, affinity_graph=None, bd=None, p=None, coords=None, i
         
         
         # need to reconsider this for self-contact... ended up just disabling with hole size 0
+        # print('dd',iscell_pad.shape,labels.shape)
         masks = fill_holes_and_remove_small_masks(labels, min_size=min_size, max_size=max_size, ##### utils.fill_holes_and_remove_small_masks
                                                  hole_size=hole_size, dim=dim)*iscell_pad 
         # masks = labels
@@ -1994,7 +1996,7 @@ def follow_flows(dP, dist, inds, niter=None, interp=True, use_gpu=True,
     if niter is None:
         niter = 200
     
-    niter = np.uint32(niter) 
+    niter = np.uint32(niter)
     cell_px = (Ellipsis,)+tuple(inds)
 
    # got rid of the interp vs not interp branch in favor of just using nearest interpolation in the
@@ -2013,6 +2015,8 @@ def follow_flows(dP, dist, inds, niter=None, interp=True, use_gpu=True,
     initial_points = initial_points.repeat(init_shape).float()
 
     final_points = initial_points.clone()
+
+    
     
     if inds.ndim < 2 or inds.shape[0] < dim:
         omnipose_logger.warning('WARNING: no mask pixels found')
@@ -2028,8 +2032,10 @@ def follow_flows(dP, dist, inds, niter=None, interp=True, use_gpu=True,
                                 verbose=verbose)
         
         final_points[cell_px] = final_p.squeeze()
-        
+    
     p = final_points.squeeze().cpu().numpy()
+    if verbose:
+        omnipose_logger.info('done follow_flows')
     return p, inds, tr
 
 def remove_bad_flow_masks(masks, flows, coords=None, affinity_graph=None, threshold=0.4, use_gpu=False, device=None, omni=True):

@@ -1031,6 +1031,8 @@ class CellposeModel(UnetModel):
             iterator = trange(nimg, file=tqdm_out,disable=not show_progress) if nimg>1 else range(nimg)
             # note: ~ is bitwise flip, overloaded to act as elementwise not for numpy arrays
             # but for boolean variables, must use "not" operator isstead 
+            if verbose:
+                models_logger.info('Evaluating one image at a time')
             
             for i in iterator:
                 dia = diameter[i] if isinstance(diameter, list) or isinstance(diameter, np.ndarray) else diameter
@@ -1090,29 +1092,40 @@ class CellposeModel(UnetModel):
 
                 # whether or not we are using dataparallel 
                 if self.torch and self.gpu:
-                    models_logger.info('using dataparallel')
+                    models_logger.info(f'using dataparallel')
                     net = self.net.module
+                    
+                    if ARM:
+                        models_logger.info('On ARM, OMP_NUM_THREADS set to 1')
+                        os.environ['OMP_NUM_THREADS'] = '1'
+                        
                 else:
                     net = self.net
                     models_logger.info('not using dataparallel')
                     
+                if verbose: 
+                    models_logger.info(f'network initialized.')
                 
                 net.load_model(self.pretrained_model[0], cpu=(not self.gpu))
                 if not self.torch:
                     net.collect_params().grad_req = 'null'
 
-            if verbose: models_logger.info('shape before transforms.convert_image(): {}'.format(x.shape))
+            if verbose: 
+                models_logger.info('shape before transforms.convert_image(): {}'.format(x.shape))
 
             # This takes care of the special case of grasycale, padding with zeros if the model was trained like that
             x = transforms.convert_image(x, channels, channel_axis=channel_axis, z_axis=z_axis,
                                          do_3D=(do_3D or stitch_threshold>0), normalize=False, 
                                          invert=False, nchan=self.nchan, dim=self.dim, omni=omni)
             
-            if verbose: models_logger.info('shape after transforms.convert_image(): {}'.format(x.shape))
+            if verbose: 
+                models_logger.info('shape after transforms.convert_image(): {}'.format(x.shape))
+                
             if x.ndim < self.dim+2: # we need (nimg, *dims, nchan), so 2D has 4, 3D has 5, etc. 
                 x = x[np.newaxis]
 
-                if verbose: models_logger.info('shape now {}'.format(x.shape))
+                if verbose: 
+                    models_logger.info('shape now {}'.format(x.shape))
 
             self.batch_size = batch_size
             rescale = self.diam_mean / diameter if (rescale is None and (diameter is not None and diameter>0)) else rescale

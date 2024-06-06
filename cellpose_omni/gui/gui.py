@@ -8,6 +8,9 @@ from PyQt6.QtCore import Qt, QTimer, pyqtSlot, QCoreApplication
 from PyQt6.QtWidgets import QMainWindow, QApplication, QSizePolicy, QWidget, QScrollBar, QSlider, QComboBox, QGridLayout, QPushButton, QFrame, QCheckBox, QLabel, QProgressBar, QLineEdit, QMessageBox, QGroupBox, QDoubleSpinBox, QPlainTextEdit, QScrollArea
 from PyQt6.QtGui import QColor, QPalette
 import pyqtgraph as pg
+
+from pyqtgraph import ViewBox
+
 # from pyqtgraph import GraphicsScene
 
 os.environ['QT_AUTO_SCREEN_SCALE_FACTOR'] = '1'
@@ -1662,14 +1665,18 @@ class MainW(QMainWindow):
             self.gamma = val
             self.update_plot()
             
+
     def make_viewbox(self):
-        self.p0 = guiparts.ViewBoxNoRightDrag(
-            parent=self,
+        # self.p0 = guiparts.ViewBoxNoRightDrag(
+            # parent=self,
+            
+        self.p0 = ViewBox(
             lockAspect=True,
             # name="plot1",
             # border=[100, 100, 100],
             invertY=True
         )
+        
         
         
         self.p0.setCursor(QtCore.Qt.CrossCursor)
@@ -1913,7 +1920,7 @@ class MainW(QMainWindow):
         self.RGBDropDown.setCurrentIndex(self.color)
         self.view = 0
         self.RGBChoose.button(self.view).setChecked(True)
-        self.BrushChoose.setCurrentIndex(1)
+        self.BrushChoose.setCurrentIndex(0)
         self.SCheckBox.setChecked(True)
         self.SCheckBox.setEnabled(False)
         self.restore_masks = 0
@@ -2749,7 +2756,13 @@ class MainW(QMainWindow):
         
         # needed to be replaced with recompute_masks
         # rerun = False
-        have_enough_px = self.probslider.value() < self.cellprob # slider moves down
+        have_enough_px = self.probslider.value() > self.cellprob # slider moves up
+        print('debug',have_enough_px,self.probslider.value(),self.cellprob)
+        
+        # update thresholds
+        self.threshold, self.cellprob = self.get_thresholds()
+
+        
         # if self.cellprob != self.probslider.value():
         #     rerun = True
         #     self.cellprob = self.probslider.value()
@@ -2757,10 +2770,9 @@ class MainW(QMainWindow):
         # if self.threshold != self.threshslider.value():
         #     rerun = True
         #     self.threshold = self.threshslider.value()
-
-        # print('bbbbbb', self.recompute_masks,self.cellprob, self.threshold)
-        if not self.recompute_masks:
-            return
+        
+        # if not self.recompute_masks:
+        #     return
         
         self.threshold, self.cellprob = self.get_thresholds()
         
@@ -2800,10 +2812,13 @@ class MainW(QMainWindow):
         else:
             #self.flows[3] is p, self.flows[-1] is dP, self.flows[5] is dist/prob, self.flows[6] is bd
             
-            # must recompute flows if we add pixels, because p does not contain them
+            # must recompute flows trajectory if we add pixels, because p does not contain them
             # an alternate approach would be to compute p for the lowest allowed threshold
-            # and then never ecompute (the threshold prodces a mask that selects from existing trajectories, see get_masks)
-            p = self.flows[-2].copy() if have_enough_px else None 
+            # and then never recompute (the threshold prodces a mask that selects from existing trajectories, see get_masks)
+            # seems like the dbscanm method breaks with this, but affinity is fine... 
+            # p = self.flows[-2].copy() if have_enough_px  else None 
+            p = self.flows[-2].copy() if have_enough_px and self.affinity.isChecked() else None 
+        
             
             dP = self.flows[-1][:-self.model.dim]
             dist = self.flows[-1][self.model.dim]
@@ -2865,7 +2880,7 @@ class MainW(QMainWindow):
     def compute_model(self):
         self.progress.setValue(10)
         QApplication.processEvents() 
-
+        print('here 2a')
         try:
             tic=time.time()
             self.clear_all()
@@ -2929,7 +2944,7 @@ class MainW(QMainWindow):
                              omni)
                 self.runstring.setPlainText(s)
                 self.progress.setValue(30)
-                print
+                print('here 1a')
                 masks, flows = self.model.eval(data, channels=channels,
                                                mask_threshold=self.cellprob,
                                                flow_threshold=self.threshold,
@@ -2942,6 +2957,7 @@ class MainW(QMainWindow):
                                                progress=self.progress,
                                                verbose=self.verbose.isChecked(),
                                                omni=omni, 
+                                               tile=False,
                                                affinity_seg=self.affinity.isChecked(),
                                                cluster = self.cluster.isChecked(),
                                                transparency=True,
@@ -2952,7 +2968,7 @@ class MainW(QMainWindow):
                 print('GUI.py: NET ERROR: %s'%e)
                 self.progress.setValue(0)
                 return
-
+            print('here 1b')
             self.progress.setValue(75)
             QApplication.processEvents() 
             #if not do_3D:

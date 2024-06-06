@@ -262,7 +262,8 @@ class UnetModel():
             styles: list of 1D arrays of length 64, or single 1D array (if do_3D=True)
                 style vector summarizing each image, also used to estimate size of objects in image
 
-        """        
+        """
+        print('Broken branch',channel_axis)
         x = [transforms.convert_image(xi, channels, channel_axis, z_axis, do_3D, 
                                     normalize, invert, nchan=self.nchan) for xi in x]
         nimg = len(x)
