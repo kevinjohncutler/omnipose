@@ -680,20 +680,26 @@ class CellposeModel(UnetModel):
         
         # images are given has a list, especially when heterogeneous in shape
         is_grey = np.sum(channels)==0
-        slice_ndim = self.dim+(self.nchan>1 and not is_grey)+(channel_axis is not None)
-        # the logic here needs to be updated to account for the fact that images may not alreay match the expected dims
+        slice_ndim = self.dim+do_3D+(self.nchan>1 and not is_grey)+(channel_axis is not None)
+        # the logic here needs to be updated to account for the fact that images may not already match the expected dims
         # and channels, namely mono channel might have a 2-channel model. I should just check for if the number of channels could
-        # possibly match, and warn that intenral conversion will happen or may break...
+        # possibly match, and warn that internal conversion will happen or may break...
         is_list = isinstance(x, list)
         is_stack = is_image = False
+        
+        if verbose:
+            models_logger.info(f'is_grey {is_grey}, slice_ndim {slice_ndim}, dim {self.dim}, nchan {self.nchan}, is_list {is_list}')
         
         if isinstance(x, np.ndarray):
             # [0,0] is a special instance where we want to run the model on a single channel
             dim_diff = x.ndim-slice_ndim
             opt = np.array([0,1])#-is_grey
             is_image, is_stack = [dim_diff==i for i in opt]
-            correct_shape = dim_diff in opt          
-            
+            correct_shape = dim_diff in opt     
+                    
+        
+        if verbose:
+            models_logger.info(f'is_image {is_image}, is_stack {is_stack}, is_list {is_list}')
         # print('a1',interp,hysteresis,calc_trace)
         
         # allow for a dataset to be passed so that we can do batches 
@@ -706,18 +712,20 @@ class CellposeModel(UnetModel):
             models_logger.warning('input images must be a list of images, array of images, or dataloader')
         else:
             if is_list:
-                correct_shape = np.all([x[i].squeeze().ndim==slice_ndim] for i in range(len(x)))
-
+                correct_shape = np.all([x[i].squeeze().ndim == slice_ndim for i in range(len(x))])
+   
             if not correct_shape:
-                print(slice_ndim,x.ndim,is_list,is_stack)
-                models_logger.warning('input images do not match the expected number of dimensions ({}) and channels ({}) of model.'.format(self.dim,self.nchan))
+                # print(slice_ndim,x.ndim,is_list,is_stack)
+                models_logger.warning('input images do not match the expected number of dimensions ({}) \nand channels ({}) of model.'.format(self.dim,self.nchan))
+
+
 
         if verbose and (is_dataset or not (is_list or is_stack)):
             models_logger.info('Evaluating with flow_threshold %0.2f, mask_threshold %0.2f'%(flow_threshold, mask_threshold))
             if omni:
                 models_logger.info(f'using omni model, cluster {cluster}')
 
-
+        
         # Note: dataset is finetuned for basic omnipose usage. No styles are returned, some options may not be supported. 
         if is_dataset:
         
@@ -1119,11 +1127,14 @@ class CellposeModel(UnetModel):
 
             if verbose: 
                 models_logger.info('shape before transforms.convert_image(): {}'.format(x.shape))
+                models_logger.info(f'model dim: {self.dim}')
+                
 
             # This takes care of the special case of grasycale, padding with zeros if the model was trained like that
             x = transforms.convert_image(x, channels, channel_axis=channel_axis, z_axis=z_axis,
                                          do_3D=(do_3D or stitch_threshold>0), normalize=False, 
                                          invert=False, nchan=self.nchan, dim=self.dim, omni=omni)
+            
             
             if verbose: 
                 models_logger.info('shape after transforms.convert_image(): {}'.format(x.shape))
