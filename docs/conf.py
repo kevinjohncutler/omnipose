@@ -12,17 +12,17 @@
 # documentation root, use os.path.abspath to make it absolute, like shown here.
 #
 import sys, os, re
-sys.path.insert(0, os.path.abspath('.'))
+# sys.path.insert(0, os.path.abspath('.'))
 
-# sys.path.insert(0, os.path.abspath('..'))
+sys.path.insert(0, os.path.abspath('..'))
 
 
 # Add all the modules that can't be installed in the RTD environment
 # autodoc_mock_imports = ["networkit"]
 
-# from dependencies import install_deps, gui_deps, distributed_deps
-# autodoc_mock_imports = install_deps + gui_deps + distributed_deps
-autodoc_mock_imports = ["cv2", "tqdm", "skimage", "numba"]
+from dependencies import install_deps, gui_deps, distributed_deps
+autodoc_mock_imports = install_deps + gui_deps + distributed_deps
+autodoc_mock_imports += ["cv2", "tqdm", "skimage", "numba"]
 
 
 # pygments
