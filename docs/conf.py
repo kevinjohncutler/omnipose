@@ -16,7 +16,7 @@ sys.path.insert(0, os.path.abspath('.'))
 
 
 # Add all the modules that can't be installed in the RTD environment
-autodoc_mock_imports = ["networkit"]
+# autodoc_mock_imports = ["networkit"]
 
 
 # pygments
