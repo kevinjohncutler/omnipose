@@ -222,3 +222,11 @@ for (var i = 0; i < images.length; i++) {
         });
     }
 }
+
+
+document.addEventListener("DOMContentLoaded", function() {
+    var adElement = document.getElementById("readthedocs-ea");
+    if (adElement) {
+        adElement.style.display = "none";
+    }
+});

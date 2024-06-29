@@ -39,9 +39,6 @@ def strip_versions(dep_list):
 # Apply the corrected function to autodoc_mock_imports
 autodoc_mock_imports = strip_versions(autodoc_mock_imports)
 
-print(autodoc_mock_imports)
-
-
 # pygments
 sys.path.append(os.path.abspath("./_pygments"))
 pygments_style = 'style.CustomStyle'
