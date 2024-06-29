@@ -22,7 +22,8 @@ sys.path.insert(0, os.path.abspath('.'))
 
 # from dependencies import install_deps, gui_deps, distributed_deps
 # autodoc_mock_imports = install_deps + gui_deps + distributed_deps
-# autodoc_mock_imports += ["cv2", "tqdm", "skimage"]
+autodoc_mock_imports = ["cv2", "tqdm", "skimage", "numba"]
+
 
 # pygments
 sys.path.append(os.path.abspath("./_pygments"))
