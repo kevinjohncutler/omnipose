@@ -207,6 +207,7 @@ html_css_files = [
 
 # from omnipose.plot import sinebow
 # for simplicity, just copy the function here
+import numpy as np
 def sinebow(N,bg_color=[0,0,0,0], offset=0):
     """ Generate a color dictionary for use in visualizing N-colored labels. Background color 
     defaults to transparent black. 
