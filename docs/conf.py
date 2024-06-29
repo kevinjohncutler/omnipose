@@ -501,6 +501,7 @@ html_sidebars = {
         "sidebar/navigation.html",
         "sidebar/scroll-end.html",
         "sidebar/variant-selector.html",
-        "sidebar/ethical-ads.html",
+        # "sidebar/ethical-ads.html",
+        "ethicalads.html",
     ]
 }
