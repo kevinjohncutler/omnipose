@@ -536,6 +536,6 @@ body {
 
 
 /* Hide the ads */
-#readthedocs-ea {
+.readthedocs-ea {
   display: none !important;
 }
