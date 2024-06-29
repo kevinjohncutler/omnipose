@@ -16,8 +16,8 @@ formats:
 python:
    install:
       - requirements: docs/requirements.txt
-      - method: pip
-        path: .
+    script: 
+      - bash docs/install.sh
 
 build:
   os: ubuntu-22.04  # specify the operating system here
