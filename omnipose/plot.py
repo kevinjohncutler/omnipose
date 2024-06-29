@@ -232,7 +232,7 @@ def apply_ncolor(masks,offset=0,cmap=None,max_depth=20,expand=True):
 from mpl_toolkits.axes_grid1 import ImageGrid
 import matplotlib.pyplot as plt
 
-def imshow(imgs, figsize=2, ax=None, hold=False, titles=None, title_size=None, spacing=0.05, 
+def imshow(imgs, figsize=2, ax=None, hold=False, titles=None, title_size=8, spacing=0.05, 
            textcolor=[0.5]*3, dpi=300, text_scale = 1, **kwargs):
 
     

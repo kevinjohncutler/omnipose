@@ -1065,15 +1065,22 @@ def compute_density(x, y, bw_method=None):
     return symmetric_density
     
     
-def qnorm(X, 
+def qnorm(Y, 
             nbins=100,
             bw_method=2, 
             density_cutoff=None, 
             density_quantile=[.001,.999],
             debug=False, 
+            dx = None,
             log=False,eps=1):
+
+    if dx is not None:
+        X = Y[:,::dx,::dx]
+    else:
+        X = Y
+        
     # make it into an integer form that fasrtremap can work on  
-    if X.dtype not in [np.uint8,np.uint16]:
+    if X.dtype not in [np.uint8,np.uint16,np.uint32,np.uint64]:
         X = to_16_bit(X)
     counts, unique = bin_counts(X,nbins)
     # print('uu',np.std(unique)/np.mean(unique)) # curious this is the same for all images at same nbin 
@@ -1084,8 +1091,6 @@ def qnorm(X,
     if log:
         # x = np.log(unique+(unique==0))
         # y = np.log(counts+(counts==0))
-        
-        
         # x = np.log(unique+eps)
         y = np.log(counts+eps)
     else:
@@ -1103,20 +1108,27 @@ def qnorm(X,
     elif not isinstance(density_cutoff,list):
         density_cutoff = [density_cutoff,density_cutoff]
         
-    
     imin = np.argwhere(d>density_cutoff[0])[0][0]
     imax = np.argwhere(d>density_cutoff[1])[-1][0]
     vmin, vmax = unique[imin], unique[imax]
     
-    scale_factor = 1.0 / (vmax - vmin) if vmax>vmin else 1.0
-    r = X.astype(np.float32, copy=False)
-    np.multiply(r, scale_factor, out=r)
-    np.clip(r, 0, 1, out=r)
+    if vmax>vmin:
+        scale_factor = np.float16(1.0 / (vmax - vmin))
+        # r = ne.evaluate('Y * scale_factor')
+        # ne.evaluate("where(r > 1, 1, r)", out=r) 
+        r = ne.evaluate('where(Y * scale_factor > 1, 1, Y * scale_factor)')
+    else:
+        r = X
 
     if debug:
         return r, x, y, d, imin, imax, vmin, vmax
     else:
         return r
+        
+        
+
+
+
 
 
 def normalize99(Y, lower=0.01, upper=99.99, contrast_limits=None, dim=None):

@@ -816,7 +816,7 @@ class MainW(QMainWindow):
         
         # CELL DIAMETER text field
         b+=1
-        self.diameter = 30
+        self.diameter = 0
         label = QLabel('cell diameter:')
         label.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
         label.setStyleSheet(label_style)
@@ -935,6 +935,8 @@ class MainW(QMainWindow):
         self.ModelChoose.setStyleSheet(self.dropdowns(width=WIDTH_5))
         self.ModelChoose.setFont(self.smallfont)
         self.ModelChoose.setCurrentIndex(current_index)
+        self.ModelChoose.activated.connect(self.model_choose)
+        
         self.l0.addWidget(self.ModelChoose, b, TOOLBAR_WIDTH//2,1,TOOLBAR_WIDTH-TOOLBAR_WIDTH//2)
 
 
@@ -1518,8 +1520,17 @@ class MainW(QMainWindow):
         if index > 0:
             logger.info(f'selected model {self.ModelChoose.currentText()}, loading now')
             self.initialize_model()
-            self.diameter = self.model.diam_labels
-            self.Diameter.setText('%0.2f'%self.diameter)
+            # self.diameter = self.model.diam_labels
+            
+            # only set this when selected, not if user chooses a new value 
+            bacterial = 'bact' in self.current_model
+            if bacterial:
+                self.diameter = 0.
+                self.Diameter.setText('%0.1f'%self.diameter)
+            else:
+                self.diameter = float(self.Diameter.text())
+            
+            
             logger.info(f'diameter set to {self.diameter: 0.2f} (but can be changed)')
 
     # two important things: invert size added, and initialize model takes care of selecting a model
@@ -2623,6 +2634,12 @@ class MainW(QMainWindow):
                                                   model_type=self.current_model,                                             
                                                   nchan=self.nchan,
                                                   nclasses=self.nclasses)
+            
+            omni_model = 'omni' in self.current_model
+            bacterial = 'bact' in self.current_model
+            if omni_model or bacterial:
+                self.NetAvg.setCurrentIndex(1) #one run net
+                
         else:
             self.nclasses = 2 + self.boundary.isChecked()
             self.model = models.CellposeModel(gpu=self.useGPU.isChecked(), 
@@ -2896,9 +2913,10 @@ class MainW(QMainWindow):
             else:
                 data = self.stack[0].copy() # maybe chanchoose here 
             channels = self.get_channels()
+            
             self.diameter = float(self.Diameter.text())
             
-            # print('heredebug',self.stack.shape,data.shape, channels)
+            print('heredebug',self.diameter)
             
             ### will either have to put in edge cases for worm etc or just generalize model loading to respect what is there 
             try:
@@ -2906,9 +2924,9 @@ class MainW(QMainWindow):
                 bacterial = 'bact' in self.current_model
                 if omni_model or bacterial:
                     self.NetAvg.setCurrentIndex(1) #one run net
-                if bacterial:
-                    self.diameter = 0.
-                    self.Diameter.setText('%0.1f'%self.diameter)
+                # if bacterial:
+                #     self.diameter = 0.
+                #     self.Diameter.setText('%0.1f'%self.diameter)
 
                 # allow omni to be togged manually or forced by model
                 if OMNI_INSTALLED:
@@ -2968,7 +2986,7 @@ class MainW(QMainWindow):
                 print('GUI.py: NET ERROR: %s'%e)
                 self.progress.setValue(0)
                 return
-            print('here 1b')
+            print('here 1b',self.diameter)
             self.progress.setValue(75)
             QApplication.processEvents() 
             #if not do_3D:

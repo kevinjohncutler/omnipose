@@ -26,8 +26,8 @@ from torchvf.numerics import interp_vf, ivp_solver
 
 # from torchvf.utils import cluster
 
-# _MODEL_URL = 'https://www.cellpose.org/models'
-_MODEL_URL = 'https://raw.githubusercontent.com/kevinjohncutler/omnipose-models/main'
+_MODEL_URL = 'https://www.cellpose.org/models'
+# _MODEL_URL = 'https://raw.githubusercontent.com/kevinjohncutler/omnipose-models/main'
 _MODEL_DIR_ENV = os.environ.get("CELLPOSE_LOCAL_MODELS_PATH")
 _MODEL_DIR_DEFAULT = pathlib.Path.home().joinpath('.cellpose', 'models')
 MODEL_DIR = pathlib.Path(_MODEL_DIR_ENV) if _MODEL_DIR_ENV else _MODEL_DIR_DEFAULT
@@ -394,8 +394,10 @@ class CellposeModel(UnetModel):
                  model_type=None, net_avg=True, use_torch=True,
                  diam_mean=30., device=None,
                  residual_on=True, style_on=True, concatenation=False,
-                 nchan=1, nclasses=2, dim=2, omni=True, 
+                 nchan=1, nclasses=None, dim=2, omni=True, logits=False,
+                 nsample=4, # number of up/downsampling layers
                  checkpoint=False, dropout=False, kernel_size=2):
+    
         if not torch:
             if not MXNET_ENABLED:
                 use_torch = True
@@ -409,7 +411,9 @@ class CellposeModel(UnetModel):
         # initialize according to arguments 
         # these are overwritten if a model requires it (bact_omni the most restrictive)
         self.omni = omni
-        self.nclasses = nclasses 
+        self.nclasses = nclasses
+        self.logits = logits # whether to do binary classification for all classes 
+        self.nsample = nsample
         self.diam_mean = diam_mean
         self.dim = dim # 2D vs 3D
         self.nchan = nchan 
@@ -447,7 +451,6 @@ class CellposeModel(UnetModel):
             if model_type in C2_MODEL_NAMES:
                 self.nchan = 2
 
-            
             # for now, omni models cannot do net_avg 
             if self.omni:
                 net_avg = False
@@ -467,9 +470,12 @@ class CellposeModel(UnetModel):
         if pretrained_model_string is not None:
             self.omni = 'omni' in os.path.splitext(Path(pretrained_model_string).name)[0] if self.omni is None else self.omni 
 
-        # convert abstract prediction classes number to actual count
-        # flow field components increase this by dim-1
-        self.nclasses = self.nclasses + (self.dim-1)
+        
+        if not self.logits:
+            # convert abstract prediction classes number to actual count
+            # flow field components increase this by dim-1
+            self.nclasses = self.nclasses + (self.dim-1)
+
 
         # initialize network
         super().__init__(gpu=gpu, pretrained_model=False,
@@ -477,6 +483,7 @@ class CellposeModel(UnetModel):
                          residual_on=residual_on, style_on=style_on, concatenation=concatenation,
                          nclasses=self.nclasses, use_torch=self.torch, nchan=self.nchan, 
                          dim=self.dim, checkpoint=self.checkpoint, dropout=self.dropout,
+                         nsample=self.nsample,
                          kernel_size=self.kernel_size)
 
 

@@ -170,7 +170,7 @@ def dist_to_diam(dt_pos,n):
     return 2*(n+1)*np.mean(dt_pos)
 #     return np.exp(3/2)*gmean(dt_pos[dt_pos>=gmean(dt_pos)])
 
-def diameters(masks, dt=None, dist_threshold=0):
+def diameters(masks, dt=None, dist_threshold=0, pill=False,return_length=False):
     
     """
     Calculate the mean cell diameter from a label matrix. 
@@ -196,12 +196,31 @@ def diameters(masks, dt=None, dist_threshold=0):
     if dt is None and np.any(masks):
         dt = edt.edt(np.int32(masks))
     dt_pos = np.abs(dt[dt>dist_threshold])
+          
+    
+    # omnipose_logger.info(dt_pos.shape)
+    A = np.count_nonzero(dt_pos)
+    D = np.sum(dt_pos)
+    
     if np.any(dt_pos):
-        diam = dist_to_diam(np.abs(dt_pos),n=masks.ndim)
+        if not pill:
+            diam = dist_to_diam(np.abs(dt_pos),n=masks.ndim)
+            if return_length:
+                return diam, A/diam
+        else:
+            return pill_decomposition(A,D)
     else:
         diam = 0
+        
     return diam
+    
+def pill_decomposition(A,D):
+    R = np.sqrt((np.sqrt(A**2 + 24*np.pi*D) - A) / (2*np.pi))
+    L = (3*D - np.pi*(R**4)) / (R**3)
+    return R, L
+    
 
+    
 # ## Section II: ground-truth flow computation  
 
 # It is possible that flows can be eliminated in place of the distance field. The current distance field may not be smooth 
@@ -257,7 +276,7 @@ def labels_to_flows(labels, links=None, files=None, use_gpu=False, device=None,
         omnipose_logger.info('NOTE: computing flows for labels (could be done before to save time)')
         
         # compute flows; labels are fixed in masks_to_flows, so they need to be passed back
-        labels, dist, heat, veci = map(list,zip(*[masks_to_flows(labels[n], links=links[n], use_gpu=use_gpu, 
+        labels, dist, bd, heat, veci = map(list,zip(*[masks_to_flows(labels[n], links=links[n], use_gpu=use_gpu, 
                                                                  device=device, omni=omni, dim=dim) 
                                                   for n in trange(nimg)])) 
         
@@ -1172,9 +1191,8 @@ def _gradient(T,d,steps,fact,
     cvals = T[central_inds]
     for ax,(ind,f) in enumerate(zip(inds[1:],fact[1:])):
 
-        vals = T[neigh_inds[ind]] # maybe go bakc to passing neigh_vals
-        vals[~isneigh[ind]] = 0
-        # T[]*mask prevent bleedover / boundary issues, big problem in stock Cellpose that got reverted!
+        vals = T[neigh_inds[ind]] # maybe go back to passing neigh_vals
+        vals[~isneigh[ind]] = 0 # T[]*mask prevent bleedover / boundary issues, big problem in stock Cellpose that got reverted!
 
         mid = len(ind)//2
         r = torch.arange(mid)
@@ -1688,7 +1706,7 @@ def divergence(f,sp=None):
 
 
 def get_masks(p, bd, dist, mask, inds, nclasses=2,cluster=False,
-              diam_threshold=12., eps=None, hdbscan=False, verbose=False):
+              diam_threshold=12., eps=None, min_samples=5, hdbscan=False, verbose=False):
     """Omnipose mask recontruction algorithm.
     
     This function is called after dynamics are run. The final pixel coordinates are provided, 
@@ -1760,11 +1778,12 @@ def get_masks(p, bd, dist, mask, inds, nclasses=2,cluster=False,
     if verbose:
         omnipose_logger.info('cluster: {}, SKLEARN_ENABLED: {}'.format(cluster,SKLEARN_ENABLED))
         
+    
     if cluster and SKLEARN_ENABLED:
         if verbose:
             startTime = time.time()
             alg = ['','H']
-            omnipose_logger.info('Doing {}DBSCAN clustering with eps={}'.format(alg[hdbscan],eps))
+            omnipose_logger.info('Doing {}DBSCAN clustering with eps={}, min_samples={}'.format(alg[hdbscan],eps,min_samples))
 
         if hdbscan and not HDBSCAN_ENABLED:
             omnipose_logger.warning('HDBSCAN clustering requested but not installed. Defaulting to DBSCAN')
@@ -1772,9 +1791,9 @@ def get_masks(p, bd, dist, mask, inds, nclasses=2,cluster=False,
         if hdbscan and HDBSCAN_ENABLED:
             clusterer = HDBSCAN(cluster_selection_epsilon=eps,
                                 # allow_single_cluster=True,
-                                min_samples=3)
+                                min_samples=min_samples)
         else:
-            clusterer = DBSCAN(eps=eps, min_samples=5, n_jobs=-1)
+            clusterer = DBSCAN(eps=eps, min_samples=min_samples, n_jobs=-1)
         
         clusterer.fit(newinds)
         labels = clusterer.labels_
@@ -1788,25 +1807,35 @@ def get_masks(p, bd, dist, mask, inds, nclasses=2,cluster=False,
         
         if verbose:
             executionTime = (time.time() - startTime)
-            
             omnipose_logger.info('Execution time in seconds: ' + str(executionTime))
             omnipose_logger.info('{} unique labels found'.format(len(np.unique(labels))-1))
 
-        #### snapping outliers to nearest cluster 
-        snap = True
+        #### snapping outliers to nearest cluster
+        # there was a bug where small clusters counted as outliers, and were snapped to a very distant cluster
+        # I will fix this by enfocing a limit on distance to the enarest cluster
+        # min_samples coould also be reduced... 
+        snap = 1
         if snap:
-            nearest_neighbors = NearestNeighbors(n_neighbors=50)
+            nearest_neighbors = NearestNeighbors(n_neighbors=5) # maybe should be 5 instead of 50 
             neighbors = nearest_neighbors.fit(newinds)
             o_inds = np.where(labels==-1)[0]
             if len(o_inds):
                 outliers = [newinds[i] for i in o_inds]
-                distances, indices = neighbors.kneighbors(outliers)
-
-                ns = labels[indices]
-                # if len(ns)>0:
-                l = [n[np.where(n!=-1)[0][0] if np.any(n!=-1) else 0] for n in ns]
-                # l = [n[(np.where(n!=-1)+(0,))[0][0] ] for n in ns]
+                nearest_dists, nearest_indices = neighbors.kneighbors(outliers)
+                
+                # get the labels of the nearest neighbors
+                nearest_labels = labels[nearest_indices]
+                
+                # find the first instance that is not in reference to other ouliers
+                nearest_idx = [np.where(n!=-1)[0][0] if np.any(n!=-1) else 0 for n in nearest_labels]
+                dist_thresh = eps
+                l = [nl[i] if nd[i]<dist_thresh else -1 for i,nl,nd in zip(nearest_idx,nearest_labels,nearest_dists)]
                 labels[o_inds] = l
+                if verbose:
+                    omnipose_logger.info(f'Outlier cleanup with dist threshold {dist_thresh:.2f}:')
+                    distances = [nd[i] for i,nd in zip(nearest_idx,nearest_dists)]
+                    omnipose_logger.info(f'\tmin and max distance to nearest cluster: {np.min(distances):.2f},{np.max(distances):.2f}')
+                    omnipose_logger.info('\tSnapped {} of {} outliers to nearest cluster'.format(np.sum(np.array(l)!=-1),len(o_inds)))
 
         ###
         mask[cell_px] = labels+1 # outliers have label -1
@@ -2351,9 +2380,23 @@ def random_crop_warp(img, Y, tyx, v1, v2, nchan, rescale, scale_range, gamma_ran
             # else:
             #     # continue on, this filter helps get rid of orphaned pixels  (not perfect though)
             #     lbl = mode_filter(lbl)
+            
+    # boundary instead - fast way to check is number of unique labels 
+    if len(fastremap.unique(lbl))<2:# or cellpx==numpx: # had to disable the overdense feature for cyto2
+                    # may not actually be a problem now anyway
+        # skimage.io.imsave('/home/kcutler/DataDrive/debug/img'+str(depth)+'.png',img[0])
+        # skimage.io.imsave('/home/kcutler/DataDrive/debug/training'+str(depth)+'.png',lbl[0])
+        return random_crop_warp(img, Y, tyx, v1, v2, nchan, rescale, scale_range, 
+                                gamma_range, do_flip, ind, do_labels, depth=depth+1)
+        
+        
+    else:
+        # continue on, this filter helps get rid of orphaned pixels  (not perfect though)
+        lbl = mode_filter(lbl)
     
-    if np.any(lbl):
-        lbl = mode_filter(lbl)  
+    
+    # if np.any(lbl):
+    #     lbl = mode_filter(lbl)  
             
     #flows now computed in parallel in masks_to_flows_batch
     # it occurs to me that maybe we could parallelize this image augmentation too if we compromise 
@@ -2479,13 +2522,16 @@ def loss(self, lbl, y):
         y[:,D] distance fields at D
         y[:,D+1] boundary fields at D+1
     
-    """    
+    """   
+    
     cellmask = lbl[:,1]>0
-
-    if self.nclasses==1: # semantic segmentation
-        loss1 = self.criterion(y[:,0],cellmask) #MSE        
-        loss2 = self.criterion2(y[:,0],cellmask) #BCElogits 
-        return loss1+loss2
+    if self.nclasses==1: # semantic segmentation, generalize to logits 
+        cm = cellmask.float()
+        loss1 = self.criterion(y[:,0],cm) #MSE        
+        loss2 = self.criterion2(y[:,0],cm) #BCElogits 
+        return loss1+loss2/20
+        # return loss1
+        
     
     else:   
         # flow components are stored as the last self.dim slices 

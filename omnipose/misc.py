@@ -1121,3 +1121,40 @@ def find_highest_density_box(label_matrix, box_size):
     box_coords = tuple(slice(max_coord - box_size // 2, max_coord + box_size // 2) for max_coord in max_density_coords)
 
     return box_coords
+    
+    
+def create_pill_mask(R, L, f = np.sqrt(2)):
+    # Determine the size of the image
+    height = 2 * R# +2 for 1px boundary at top and bottom
+    width = L + 2*R  # +2 for 1px boundary on left and right
+    
+    # Create an empty image
+    pad = 3
+    imh = height+2*pad + 1
+    imw = width+2*pad +1
+    # imh = 2*(imh//2)+1 # make odd
+    # imw = 2*(imw//2)+1
+    
+    mask = np.zeros((imh,imw), dtype=np.uint8)
+    
+    # Calculate the center of the pill shape
+    center_x = imw // 2
+    center_y = imh // 2
+    
+    # Draw the rectangular part of the pill
+    mask[center_y - R:center_y + R+1, R+pad:L+R+pad+1] = 1
+    
+    # Create a grid of coordinates
+    y, x = np.ogrid[:imh, :imw]
+    
+    # Draw the left semicircle
+    left_center_x = R+pad
+    left_circle = (x - left_center_x) ** 2 + (y - center_y) ** 2 <= f*(R ** 2)
+    mask[left_circle] = 1
+    
+    # Draw the right semicircle
+    right_center_x = L+R+pad
+    right_circle = (x - right_center_x) ** 2 + (y - center_y) ** 2 <= f*(R ** 2)
+    mask[right_circle] = 1
+    
+    return mask

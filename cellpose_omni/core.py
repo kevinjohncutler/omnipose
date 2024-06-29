@@ -118,7 +118,9 @@ class UnetModel():
                  diam_mean=30., net_avg=True, device=None,
                  residual_on=False, style_on=False, concatenation=True,
                  nclasses=3, use_torch=True, nchan=2, dim=2, 
+                 nsample=4,
                  checkpoint=False, dropout=False, kernel_size=2):
+        self.nsample = nsample
         self.unet = True
         if use_torch:
             if not TORCH_ENABLED:
@@ -164,7 +166,9 @@ class UnetModel():
         # print('torch is ffff', torch) # duplicated in unetmodel class
         
         if self.torch:
-            self.nbase = [nchan, 32, 64, 128, 256]
+            # self.nbase = [nchan, 32, 64, 128, 256]
+            self.nbase = [nchan]+[32*(2**i) for i in range(self.nsample)]
+            
             self.net = CPnet(self.nbase, 
                               self.nclasses, 
                               sz=3,
@@ -176,6 +180,7 @@ class UnetModel():
                               checkpoint=self.checkpoint,
                               dropout=self.dropout,
                               kernel_size=self.kernel_size).to(self.device)
+            core_logger.info(f'u-net config: {self.nbase, self.nclasses, self.dim}')
         else:
             self.net = resnet_style.CPnet(self.nbase, nout=self.nclasses,
                                         residual_on=residual_on, 
@@ -922,7 +927,7 @@ class UnetModel():
 
                 # self.criterionACB = ACBLoss(zero_weighting, nonzero_weighting)
                 # self.ivp_loss =  ivp_loss.IVPLoss(dx=0.25,n_steps=8,device=self)
-                # self.criterion17 = nn.SoftmaxCrossEntropyLoss(axis=1)
+                # self.criterion18 = nn.SoftmaxCrossEntropyLoss(axis=1)
                 # self.criterion17 = FocalLoss()
                 
             else:
@@ -1302,7 +1307,7 @@ class UnetModel():
                         
                         file_name = os.path.join(file_path, file_name)
                         ksave += 1
-                        core_logger.info(f'saving network parameters to {file_name}')
+                        core_logger.info(f'saving network parameters to file://{file_name}')
 
                         # self.net.save_model(file_name)
                         # whether or not we are using dataparallel 
