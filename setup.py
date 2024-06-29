@@ -1,6 +1,11 @@
 from setuptools import setup, find_packages
 
-from dependencies import install_deps, gui_deps, doc_deps, distributed_deps
+from dependencies import install_deps, gui_deps, distributed_deps
+
+with open('docs/requirements.txt') as f:
+    doc_deps = [line.strip() for line in f if line.strip() and not line.startswith('#') and '-e .' not in line]
+print(doc_deps)
+print('gg')
     
 with open("README.rst", "r") as fh:
     long_description = fh.read() 

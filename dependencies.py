@@ -17,18 +17,9 @@ gui_deps = [
         'superqt','darkdetect'
         ]
 
-# doc_deps = ['sphinx-autobuild',
-#             'sphinx_automodapi',
-#             'sphinx_copybutton',
-#             'sphinx-argparse',
-#             'sphinx_design',
-#             'furo',
-#             'myst_nb']
-
 distributed_deps = [
         'dask',
         'dask_image',
         'scikit-learn',
         ]
 
-doc_deps = [line.strip() for line in open('docs/requirements.txt') if line.strip() and not line.startswith('#')]
