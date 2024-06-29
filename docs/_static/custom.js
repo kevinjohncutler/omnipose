@@ -224,9 +224,45 @@ for (var i = 0; i < images.length; i++) {
 }
 
 
+// document.addEventListener("DOMContentLoaded", function() {
+//     var adElement = document.getElementById("readthedocs-ea");
+//     if (adElement) {
+//         adElement.style.display = "none";
+//     }
+// });
+
 document.addEventListener("DOMContentLoaded", function() {
-    var adElement = document.getElementById("readthedocs-ea");
-    if (adElement) {
-        adElement.style.display = "none";
+    var adPlacementId = "ethical-ad-placement";
+    var adSidebarId = "rtd-sidebar";
+
+    // Function to hide ad elements
+    function hideAdElement(id) {
+        var adElement = document.getElementById(id);
+        if (adElement) {
+            adElement.style.width = "0";
+            adElement.style.height = "0";
+            adElement.style.overflow = "hidden";
+        }
     }
+
+    // Hide the explicit placement ad
+    hideAdElement(adPlacementId);
+
+    // Hide the sidebar ad
+    hideAdElement(adSidebarId);
+
+    // Listen for the creation of new ad elements and hide them
+    var observer = new MutationObserver(function(mutations) {
+        mutations.forEach(function(mutation) {
+            if (mutation.addedNodes) {
+                mutation.addedNodes.forEach(function(node) {
+                    if (node.id === adPlacementId || node.id === adSidebarId) {
+                        hideAdElement(node.id);
+                    }
+                });
+            }
+        });
+    });
+
+    observer.observe(document.body, { childList: true, subtree: true });
 });
