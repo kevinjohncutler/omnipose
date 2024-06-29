@@ -14,13 +14,12 @@ formats:
 
 # specify dependencies
 python:
-   install:
-      - requirements: docs/requirements.txt
-    script: 
-      - bash docs/install.sh
+  install:
+    - requirements: docs/requirements.txt
 
 build:
   os: ubuntu-22.04  # specify the operating system here
   tools:
     python: "3.9"  # specify the Python version here
-    
+  commands:
+    - bash docs/install.sh
