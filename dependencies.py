@@ -1,10 +1,19 @@
-install_deps = ['numpy>=1.22.4', 'scipy', 'numba', 
-                'edt','scikit-image','ncolor>=1.2.1',
-                'scikit-learn','torch>=1.10',
+install_deps = ['numpy>=1.22.4', 
+                'scipy', 
+                'numba', 
+                'edt',
+                'scikit-image',
+                'ncolor>=1.2.1',
+                'scikit-learn',
+                'torch>=1.10',
                 'mahotas>=1.4.13',
-                'mgen','matplotlib',
+                'mgen',
+                'matplotlib',
                 'networkit',
-                'torchvf','tqdm', 'natsort', 'aicsimageio',
+                'torchvf',
+                'tqdm', 
+                'natsort', 
+                'aicsimageio',
                 'numexpr'
                 ]
 
@@ -14,7 +23,8 @@ gui_deps = [
         'PyQt6',
         'google-cloud-storage',
         'omnipose-theme',
-        'superqt','darkdetect'
+        'superqt',
+        'darkdetect'
         ]
 
 distributed_deps = [

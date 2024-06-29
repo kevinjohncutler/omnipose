@@ -12,7 +12,6 @@
 # documentation root, use os.path.abspath to make it absolute, like shown here.
 #
 import sys, os, re
-# sys.path.insert(0, os.path.abspath('.'))
 
 sys.path.insert(0, os.path.abspath('..'))
 
@@ -22,7 +21,21 @@ sys.path.insert(0, os.path.abspath('..'))
 
 from dependencies import install_deps, gui_deps, distributed_deps
 autodoc_mock_imports = install_deps + gui_deps + distributed_deps
-autodoc_mock_imports += ["cv2", "tqdm", "skimage", "numba"]
+autodoc_mock_imports += ["cv2", "tqdm", "skimage", "numba", "torch"]
+# Function to strip version specifiers from package names
+def strip_versions(dep_list):
+    # Updated function to correctly process and strip version specifiers from package names
+    stripped_list = []
+    for dep in dep_list:
+        # Split the dependency string on version specifiers and take the first part (the package name)
+        dep_name = re.split(r'>=|==|<|<=|>', dep)[0]
+        stripped_list.append(dep_name)
+    return stripped_list
+
+# Apply the corrected function to autodoc_mock_imports
+autodoc_mock_imports = strip_versions(autodoc_mock_imports)
+
+print(autodoc_mock_imports)
 
 
 # pygments
