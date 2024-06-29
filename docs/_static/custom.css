@@ -533,3 +533,9 @@ body {
 /* input:focus {
   border-color: green;
 } */
+
+
+/* Hide the ads */
+#readthedocs-ea {
+  display: none !important;
+}
