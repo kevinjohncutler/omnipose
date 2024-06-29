@@ -4,3 +4,13 @@
     collapse=theme_collapse_navigation|tobool,
     includehidden=theme_includehidden|tobool,
     titles_only=theme_titles_only|tobool) %}
+
+
+{% block extrahead %}
+    {{ super() }}
+<!-- Add any additional head elements here -->
+{% endblock %}
+
+{% block ethicalads %}
+<!-- Intentionally left blank to disable ethical ads -->
+{% endblock %}
