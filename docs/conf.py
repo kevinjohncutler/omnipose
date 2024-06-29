@@ -24,6 +24,7 @@ from dependencies import install_deps, gui_deps, distributed_deps
 autodoc_mock_imports = install_deps + gui_deps + distributed_deps
 autodoc_mock_imports += ["cv2", "tqdm", "skimage", "numba", "torch", 
                          "sklearn", #this one in particular is a problem because it registers different than the package name 
+                         "torchvision", # may remove from imports 
                          ]
 # Function to strip version specifiers from package names
 def strip_versions(dep_list):

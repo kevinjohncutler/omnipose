@@ -6,6 +6,7 @@ install_deps = ['numpy>=1.22.4',
                 'ncolor>=1.2.1',
                 'scikit-learn',
                 'torch>=1.10',
+                'torchvision',
                 'mahotas>=1.4.13',
                 'mgen',
                 'matplotlib',
@@ -16,8 +17,8 @@ install_deps = ['numpy>=1.22.4',
                 'aicsimageio',
                 'numexpr',
                 
-                'tifffile',
-                'fastremap'
+                'tifffile', # might be dependency of aicsimageio
+                'fastremap' # not sure how I missed this one 
                 ]
 
 gui_deps = [
