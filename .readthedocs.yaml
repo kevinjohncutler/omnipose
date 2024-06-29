@@ -24,6 +24,3 @@ build:
   tools:
     python: "3.9"  # specify the Python version here
     
-commands:
-  - pip install --upgrade numpy
-  - pip install --upgrade networkit
