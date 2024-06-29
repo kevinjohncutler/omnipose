@@ -22,7 +22,7 @@ build:
   tools:
     python: "3.9"  # specify the Python version here
   commands:
-    - echo "Current directory: $(pwd)"
+    - echo "Current directory: \$(pwd)"
     - echo "Listing files in current directory"
     - ls -la
     - echo "Listing files in docs directory"
