@@ -1629,8 +1629,11 @@ def compute_masks(dP, dist, affinity_graph=None, bd=None, p=None, coords=None, i
     if verbose:
         executionTime0 = (time.time() - startTime0)
         omnipose_logger.info('compute_masks() execution time: {:.3g} sec'.format(executionTime0))
-        omnipose_logger.info('\texecution time per pixel: {:.6g} sec/px'.format(executionTime0/np.prod(labels.shape)))
-        omnipose_logger.info('\texecution time per cell pixel: {:.6g} sec/px'.format(np.nan if not np.count_nonzero(labels) else executionTime0/np.count_nonzero(labels)))
+        if labels is not None:
+            omnipose_logger.info('\texecution time per pixel: {:.6g} sec/px'.format(executionTime0/np.prod(labels.shape)))
+            omnipose_logger.info('\texecution time per cell pixel: {:.6g} sec/px'.format(np.nan if not np.count_nonzero(labels) else executionTime0/np.count_nonzero(labels)))
+        else:
+            omnipose_logger.info('\tno objects found')
 
     return (*ret,)
 
