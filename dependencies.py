@@ -15,8 +15,9 @@ install_deps = ['numpy>=1.22.4',
                 'natsort', 
                 'aicsimageio',
                 'numexpr',
+                
                 'tifffile',
-                'fastremap',
+                'fastremap'
                 ]
 
 gui_deps = [

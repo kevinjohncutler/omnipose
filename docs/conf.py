@@ -22,7 +22,9 @@ sys.path.insert(0, os.path.abspath('..'))
 
 from dependencies import install_deps, gui_deps, distributed_deps
 autodoc_mock_imports = install_deps + gui_deps + distributed_deps
-autodoc_mock_imports += ["cv2", "tqdm", "skimage", "numba", "torch"]
+autodoc_mock_imports += ["cv2", "tqdm", "skimage", "numba", "torch", 
+                         "sklearn", #this one in particular is a problem because it registers different than the package name 
+                         ]
 # Function to strip version specifiers from package names
 def strip_versions(dep_list):
     # Updated function to correctly process and strip version specifiers from package names
