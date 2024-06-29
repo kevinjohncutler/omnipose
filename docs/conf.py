@@ -202,7 +202,7 @@ html_css_files = [
 ]
 
 
-from omnipose.utils import sinebow
+from omnipose.plot import sinebow
 from matplotlib.colors import rgb2hex
 N = 42
 c = sinebow(N)

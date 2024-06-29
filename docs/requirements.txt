@@ -1,4 +1,3 @@
--e .
 sphinx_copybutton
 sphinx_automodapi
 sphinx_design
@@ -9,3 +8,6 @@ sphinx==5.0.2
 docutils==0.17.1
 sphinx_rtd_theme>=0.3.1
 matplotlib
+
+# Local package installation without dependencies
+-e . --no-deps
