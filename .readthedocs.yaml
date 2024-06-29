@@ -22,9 +22,11 @@ build:
   tools:
     python: "3.9"  # specify the Python version here
   commands:
+    - pwd
     - echo "Listing files in current directory"
     - ls -la
     - echo "Listing files in docs directory"
     - ls -la docs
     - bash docs/install.sh
     - echo "Finished running install.sh"
+    - sphinx-build -b html docs/ _readthedocs/html
