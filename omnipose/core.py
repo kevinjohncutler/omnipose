@@ -666,20 +666,20 @@ def get_links(masks,labels,bd,connectivity=1):
     return links
 
 
-import networkx as nx
-def links_to_mask(masks,links):
-    """
-    Convert linked masks to stitched masks. 
-    """
-    G = nx.from_edgelist(links)
-    l = list(nx.connected_components(G))
-    # after that we create the map dict, for get the unique id for each nodes
-    mapdict={z:x for x, y in enumerate(l) for z in y }
-    # increment the dict keys to not conflict with any existing labels
-    m = np.max(masks)+1
-    mapdict = {k:v+m for k,v in mapdict.items()}
-    # remap
-    return fastremap.remap(masks,mapdict,preserve_missing_labels=True, in_place=False)
+# import networkx as nx
+# def links_to_mask(masks,links):
+#     """
+#     Convert linked masks to stitched masks. 
+#     """
+#     G = nx.from_edgelist(links)
+#     l = list(nx.connected_components(G))
+#     # after that we create the map dict, for get the unique id for each nodes
+#     mapdict={z:x for x, y in enumerate(l) for z in y }
+#     # increment the dict keys to not conflict with any existing labels
+#     m = np.max(masks)+1
+#     mapdict = {k:v+m for k,v in mapdict.items()}
+#     # remap
+#     return fastremap.remap(masks,mapdict,preserve_missing_labels=True, in_place=False)
 
 @njit(parallel=True)
 def get_link_matrix(links, piece_masks, inds, idx, is_link):
