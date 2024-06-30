@@ -535,7 +535,7 @@ body {
 } */
 
 
-/* Hide the ads */
-.readthedocs-ea {
+/* Hide the Read the Docs flyout */
+body > readthedocs-flyout {
   display: none !important;
 }
