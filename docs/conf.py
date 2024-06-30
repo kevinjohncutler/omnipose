@@ -175,6 +175,20 @@ master_doc = 'index'
 # Add any paths that contain templates here, relative to this directory.
 templates_path = ['_templates']
 
+
+# Set the canonical URL for the latest version
+html_baseurl = 'https://omnipose.org/en/latest/'
+
+# Configure HTML context for the canonical URL
+html_context = {
+    'canonical_url': html_baseurl
+}
+
+# Add the SEO template to your HTML templates
+html_extra_path = ['_templates/seo.html']
+
+
+
 # List of patterns, relative to source directory, that match files and
 # directories to ignore when looking for source files.
 # This pattern also affects html_static_path and html_extra_path.
@@ -505,3 +519,4 @@ html_sidebars = {
         "ethicalads.html",
     ]
 }
+
