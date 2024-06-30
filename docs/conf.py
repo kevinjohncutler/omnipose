@@ -177,7 +177,7 @@ templates_path = ['_templates']
 
 
 # Set the canonical URL for the latest version
-html_baseurl = 'https://omnipose.org/en/latest/'
+html_baseurl = 'https://omnipose.readthedocs.io/'
 
 # Configure HTML context for the canonical URL
 html_context = {
