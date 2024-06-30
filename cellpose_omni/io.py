@@ -59,8 +59,7 @@ def logger_setup(verbose=False):
     logger = logging.getLogger(__name__)
     
     # logger.setLevel(logging.DEBUG) # does not fix CLI
-
-    logger.info(f'WRITING LOG OUTPUT TO {log_file}')
+    # logger.info(f'WRITING LOG OUTPUT TO {log_file}')
     #logger.handlers[1].stream = sys.stdout
 
     return logger, log_file
