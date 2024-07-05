@@ -5,7 +5,7 @@ os.environ['NUMEXPR_MAX_THREADS'] = str(multiprocessing.cpu_count())
 
 
 # controlled import to prevent MIP print statement 
-import mip
+# import mip
 # from aicsimageio import AICSImage 
 
 # Use of sets...
