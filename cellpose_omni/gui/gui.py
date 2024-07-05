@@ -2916,7 +2916,7 @@ class MainW(QMainWindow):
             
             self.diameter = float(self.Diameter.text())
             
-            print('heredebug',self.diameter)
+            # print('heredebug',self.diameter)
             
             ### will either have to put in edge cases for worm etc or just generalize model loading to respect what is there 
             try:
@@ -2962,7 +2962,7 @@ class MainW(QMainWindow):
                              omni)
                 self.runstring.setPlainText(s)
                 self.progress.setValue(30)
-                print('here 1a')
+                
                 masks, flows = self.model.eval(data, channels=channels,
                                                mask_threshold=self.cellprob,
                                                flow_threshold=self.threshold,
@@ -2986,7 +2986,7 @@ class MainW(QMainWindow):
                 print('GUI.py: NET ERROR: %s'%e)
                 self.progress.setValue(0)
                 return
-            print('here 1b',self.diameter)
+            
             self.progress.setValue(75)
             QApplication.processEvents() 
             #if not do_3D:

@@ -10,10 +10,9 @@ from csv import reader, writer
 import re
 
 try:
-    from omnipose.utils import format_labels
     from omnipose.logger import LOGGER_FORMAT
-    import ncolor
     OMNI_INSTALLED = True
+    import ncolor
 except Exception as e:
     print(f"Error when importing omnipose or ncolor: {e}")
     OMNI_INSTALLED = False
@@ -571,7 +570,7 @@ def save_masks(images, masks, flows, file_names, png=True, tif=False,
 
     # format_labels will also automatically use lowest bit depth possible
     if OMNI_INSTALLED:
-        masks = format_labels(masks) 
+        masks = ncolor.format_labels(masks) 
 
     # save masks
     with warnings.catch_warnings():

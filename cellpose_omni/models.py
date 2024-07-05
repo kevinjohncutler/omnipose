@@ -21,6 +21,7 @@ from .core import UnetModel, assign_device, check_mkl, MXNET_ENABLED, parse_mode
 from .io import OMNI_INSTALLED
 from omnipose.gpu import empty_cache, ARM #, custom_nonzero_cuda
 from omnipose.utils import hysteresis_threshold
+import ncolor
 
 from torchvf.numerics import interp_vf, ivp_solver
 
@@ -1595,7 +1596,7 @@ class CellposeModel(UnetModel):
         # for now, just skip this for any labels that come with a link file 
         for i,(labels,links) in enumerate(zip(train_labels,train_links)):
             if links is None:
-                train_labels[i] = omnipose.utils.format_labels(labels)
+                train_labels[i] = ncolor.format_labels(labels)
         
         # nmasks is inflated when using multi-label objects, so keep that in mind if you care about min_train_masks 
         nmasks = np.array([label.max() for label in train_labels])

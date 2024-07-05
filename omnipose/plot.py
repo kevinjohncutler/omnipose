@@ -1,17 +1,23 @@
-from . import core, utils
+from .utils import rescale, torch_norm
+from .color import sinebow
 
 import matplotlib as mpl
-import matplotlib.pyplot as plt
+from matplotlib.figure import Figure
+from matplotlib.backends.backend_agg import FigureCanvasAgg as FigureCanvas
 
 import types
 
 import numpy as np
-import torch
 from matplotlib.backend_bases import GraphicsContextBase, RendererBase
-from matplotlib.collections import LineCollection
-# from matplotlib.patches import Rectangle
-# from matplotlib.transforms import Bbox
-# from matplotlib.path import Path
+
+from mpl_toolkits.axes_grid1 import ImageGrid
+
+from skimage import img_as_ubyte
+
+def subplots(**kwargs):
+    fig = Figure(**kwargs)
+    ax = fig.add_subplot(111)
+    return fig, ax
 
 class GC(GraphicsContextBase):
     def __init__(self):
@@ -26,19 +32,24 @@ def plot_edges(shape,affinity_graph,neighbors,coords,
                edgecol=[.75]*3+[.5],linewidth=0.15,step_inds=None,
                cmap='inferno',origin='lower',bounds=None):
     
+    # import core here because that can take a while to load
+    from .core import affinity_to_edges
+    from .utils import get_neigh_inds 
+    from matplotlib.collections import LineCollection
+    
 
     nstep,npix = affinity_graph.shape 
     coords = tuple(coords)
-    indexes, neigh_inds, ind_matrix = utils.get_neigh_inds(tuple(neighbors),coords,shape)
+    indexes, neigh_inds, ind_matrix = get_neigh_inds(tuple(neighbors),coords,shape)
     
     if step_inds is None:
         step_inds = np.arange(nstep) 
     px_inds = np.arange(npix)
     
-    edge_list = core.affinity_to_edges(affinity_graph.astype(bool),
-                                       neigh_inds,
-                                       step_inds,
-                                       px_inds)
+    edge_list = affinity_to_edges(affinity_graph.astype(bool),
+                                    neigh_inds,
+                                    step_inds,
+                                    px_inds)
     
     aff_coords = np.array(coords).T
     segments = np.stack([[aff_coords[:,::-1][e]+0.5  for e in edge] for edge in edge_list])
@@ -49,8 +60,9 @@ def plot_edges(shape,affinity_graph,neighbors,coords,
     if newfig:
         if type(figsize) is not (list or tuple):
             figsize = (figsize,figsize)
-        fig, ax = plt.subplots(figsize=figsize)
-    
+        # fig, ax = plt.subplots(figsize=figsize)
+        fig, ax = subplots(figsize=figsize)
+        
     # ax.invert_yaxis()
     if extent is None:
         extent = np.array([0,shape[1],0,shape[0]])
@@ -107,40 +119,15 @@ def plot_edges(shape,affinity_graph,neighbors,coords,
     ax.add_collection(line_segments)
     
     if newfig:
-        plt.axis('off')
+        # plt.axis('off')
+        ax.set_axis_off()
         ax.invert_yaxis()
-        plt.show()
+        # plt.show()
+        canvas = FigureCanvas(fig)
+        canvas.draw()
     
     if nopic:
         return summed_affinity, affinity_cmap
-    
-    
-def sinebow(N,bg_color=[0,0,0,0], offset=0):
-    """ Generate a color dictionary for use in visualizing N-colored labels. Background color 
-    defaults to transparent black. 
-    
-    Parameters
-    ----------
-    N: int
-        number of distinct colors to generate (excluding background)
-        
-    bg_color: ndarray, list, or tuple of length 4
-        RGBA values specifying the background color at the front of the  dictionary.
-    
-    Returns
-    --------------
-    Dictionary with entries {int:RGBA array} to map integer labels to RGBA colors. 
-    
-    """
-    colordict = {0:bg_color}
-    for j in range(N): 
-        k = j+offset
-        angle = k*2*np.pi / (N) 
-        r = ((np.cos(angle)+1)/2)
-        g = ((np.cos(angle+2*np.pi/3)+1)/2)
-        b = ((np.cos(angle+4*np.pi/3)+1)/2)
-        colordict.update({j+1:[r,g,b,1]})
-    return colordict
 
 # @njit
 # def colorize(im,colors=None,color_weights=None,offset=0):
@@ -181,8 +168,11 @@ def colorize(im, colors=None, color_weights=None, offset=0, channel_axis=-1):
 
     return rgb
 
-import torch
-def colorize_GPU(im, colors=None, color_weights=None, offset=0,channel_axis=-1):
+
+def colorize_GPU(im, colors=None, color_weights=None, offset=0, channel_axis=-1):
+
+    import torch 
+    
     N = im.shape[0]
     device = im.device
 
@@ -193,7 +183,7 @@ def colorize_GPU(im, colors=None, color_weights=None, offset=0,channel_axis=-1):
 
     if color_weights is not None:
         colors *= color_weights.unsqueeze(-1)
-
+        # colors /= color_weights.sum()
     # rgb_shape = im.shape[1:]+(colors.shape[1],)
     # if channel_axis == 0:
     #     rgb_shape = tuple(rgb_shape[::-1])
@@ -214,8 +204,10 @@ def colorize_GPU(im, colors=None, color_weights=None, offset=0,channel_axis=-1):
 
     return rgb
     
-import ncolor
 def apply_ncolor(masks,offset=0,cmap=None,max_depth=20,expand=True):
+
+    import ncolor
+
     m,n = ncolor.label(masks,
                        max_depth=max_depth,
                        return_n=True,
@@ -227,21 +219,21 @@ def apply_ncolor(masks,offset=0,cmap=None,max_depth=20,expand=True):
         cmap = mpl.colors.ListedColormap(colors)
         return cmap(m)
     else:
-        return cmap(utils.rescale(m))
+        return cmap(rescale(m))
 
-from mpl_toolkits.axes_grid1 import ImageGrid
-import matplotlib.pyplot as plt
 
 def imshow(imgs, figsize=2, ax=None, hold=False, titles=None, title_size=8, spacing=0.05, 
            textcolor=[0.5]*3, dpi=300, text_scale = 1, **kwargs):
 
-    
     if isinstance(imgs, list):
         if titles is None:
             titles = [None] * len(imgs)
         if title_size is None:
             title_size = figsize / len(imgs) * text_scale
-        fig = plt.figure(figsize=(figsize * len(imgs), figsize),frameon=False, facecolor = [0]*4)
+        # fig = plt.figure(figsize=(figsize * len(imgs), figsize),frameon=False, facecolor = [0]*4)
+        fig = Figure(figsize=(figsize * len(imgs), figsize),frameon=False, facecolor = [0]*4)
+        # canvas = FigureCanvas(fig)
+        
         grid = ImageGrid(fig, 111, nrows_ncols=(1, len(imgs)), axes_pad=spacing, share_all=True)
         for ax, img, title in zip(grid, imgs, titles):
             ax.imshow(img, **kwargs)
@@ -256,7 +248,16 @@ def imshow(imgs, figsize=2, ax=None, hold=False, titles=None, title_size=8, spac
         if title_size is None:
             title_size = figsize[0] * text_scale
         if ax is None:
-            fig, ax = plt.subplots(frameon=False, figsize=figsize, facecolor =[0]*4,dpi=dpi)
+            # fig, ax = plt.subplots(frameon=False, figsize=figsize, facecolor =[0]*4,dpi=dpi)
+            subplot_args = {'frameon': False,
+                            'figsize': figsize,
+                            'facecolor': [0, 0, 0, 0],
+                            'dpi': dpi
+                        }
+            fig, ax = subplots(**subplot_args)
+            # canvas = FigureCanvas(fig)
+            
+        
         else:
             hold = True
         ax.imshow(imgs, **kwargs)
@@ -265,8 +266,11 @@ def imshow(imgs, figsize=2, ax=None, hold=False, titles=None, title_size=8, spac
         ax.set_facecolor([0]*4)
         if titles is not None:
             ax.set_title(titles, fontsize=title_size, color=textcolor)
-    if not hold:
-        plt.show()
+    # if not hold:
+        # plt.show()
+        # canvas.draw()
+        # print('fff')
+    return fig 
 
 # def get_cmap(masks):
 #     lut = ncolor.get_lut(masks)
@@ -369,14 +373,20 @@ def imshow(imgs, figsize=2, ax=None, hold=False, titles=None, title_size=8, spac
 #     return im
 
 
-def rgb_flow(dP, transparency=True, mask=None, norm=True, device=torch.device('cpu')):
+def rgb_flow(dP, transparency=True, mask=None, norm=True, device=None):
     """Meant for stacks of dP, unsqueeze if using on a single plane."""
+    
+    import torch
+    
+    if device is None:
+        device = torch.device('cpu')
+    
     if isinstance(dP,torch.Tensor):
         device = dP.device
     else:
         dP = torch.from_numpy(dP).to(device)
         
-    mag = utils.torch_norm(dP,dim=1)
+    mag = torch_norm(dP,dim=1)
     vecs = dP[:,0] + dP[:,1]*1j
     roots = torch.exp(1j * np.pi * (2  * torch.arange(3, device=device) / 3 +1)) 
     rgb = (torch.real(vecs.unsqueeze(-1)*roots.view(1, 1, 1, -1) / torch.max(mag)) + 1 ) / 2 
@@ -398,9 +408,6 @@ def rgb_flow(dP, transparency=True, mask=None, norm=True, device=torch.device('c
     return im 
 
 
-from skimage import img_as_ubyte
-from skimage import color
-from skimage.segmentation import find_boundaries
 
 def create_colormap(image, labels):
     """
@@ -433,8 +440,10 @@ def create_colormap(image, labels):
     
 
 def color_from_RGB(im,rgb,m,bd=None, mode='inner',connectivity=2):
+    from skimage import color
     
     if bd is None:
+        from skimage.segmentation import find_boundaries
         bd = find_boundaries(m,mode=mode,connectivity=connectivity)
     
     alpha = (m>0)*.5
@@ -442,7 +451,7 @@ def color_from_RGB(im,rgb,m,bd=None, mode='inner',connectivity=2):
     alpha = np.stack([alpha]*3,axis=-1)
     m = ncolor.format_labels(m)
     cmap = create_colormap(rgb,m)
-    clrs = utils.rescale(cmap[1:])
+    clrs = rescale(cmap[1:])
     overlay = color.label2rgb(m,im,clrs,
                               bg_label=0,
                               alpha=alpha
@@ -462,6 +471,7 @@ def image_grid(images, column_titles=None, row_titles=None,
                 outline=False, outline_color=[0.5]*3, 
                 padding=0.05, 
                 fontsize=8, fontcolor=[0.5]*3,
+                facecolor=None,
                 fig_scale=6, dpi=300,
                 order='ij',
                 lpad = 0.05,
@@ -522,7 +532,10 @@ def image_grid(images, column_titles=None, row_titles=None,
     height /= max_h
     
     # Create the figure
-    fig = plt.figure(figsize=(fig_scale,fig_scale*max_h/max_w), frameon=False, dpi=dpi)
+    fig = Figure(figsize=(fig_scale,fig_scale*max_h/max_w), 
+                 frameon=False if facecolor is None else True, 
+                 facecolor=[0]*4 if facecolor is None else facecolor,
+                 dpi=dpi)
     
     # here m and n need to represent the actual grid layout rather than indexing 
     if ij:
@@ -556,7 +569,8 @@ def image_grid(images, column_titles=None, row_titles=None,
         # Display the image
         j,k = np.unravel_index(i,grid_dims)
         if k < ncol[j]: # not all nows may have the same number of images 
-            ax.imshow(images[j][k],**kwargs)
+            if images[j][k] is not None:
+                ax.imshow(images[j][k],**kwargs)
             if plot_labels is not None and plot_labels[j][k] is not None:
                 coords = label_positions[lpos]['coords']
                 va = label_positions[lpos]['va']
@@ -564,7 +578,7 @@ def image_grid(images, column_titles=None, row_titles=None,
                 ax.text(coords[0],coords[1], plot_labels[j][k], fontsize=fontsize, color=fontcolor, 
                         va=va, ha=ha, transform=ax.transAxes)
 
-        
+            
         # Set the column titles
         if column_titles is not None:
             if ij and i < m:
@@ -589,18 +603,43 @@ def image_grid(images, column_titles=None, row_titles=None,
             if idx is not None:
                 ax.text(-p, 0.5, row_titles[idx], rotation=0, fontsize=fontsize, color=fontcolor, 
                         va='center', ha='right', transform=ax.transAxes)
-    return fig
     
+    return fig
+
+
+def color_grid(colors, **kwargs):
+    # Convert colors to a numpy array
+    colors = np.array(colors)
+    
+    # If colors is a 1D array (single color), reshape it to a 2D array
+    if colors.ndim == 1:
+        colors = colors.reshape(1, -1)
+    
+    # Ensure colors have 3 components (RGB)
+    if colors.shape[-1] == 4:
+        # If colors have 4 components (RGBA), remove the alpha component
+        colors = colors[:, :3]
+    
+    # Create a list of 1x1 images
+    images = [[np.full((1, 1, 3), color, dtype=np.float32)] for color in colors]
+    
+    # Display the image grid
+    return image_grid(images, **kwargs)
+
+
+
+
+
     
 # from https://stackoverflow.com/a/63530703/13326811
-import numpy as np
-from matplotlib.collections import LineCollection as lc
-from mpl_toolkits.mplot3d.art3d import Line3DCollection as lc3d
 
-from scipy.interpolate import interp1d
-from matplotlib.colors import colorConverter
+
 
 def colored_line_segments(xs,ys,zs=None,color='k',mid_colors=False):
+
+    from scipy.interpolate import interp1d
+    from matplotlib.colors import colorConverter
+
     if isinstance(color,str):
         color = colorConverter.to_rgba(color)[:-1]
         color = np.array([color for i in range(len(xs))])   
@@ -630,7 +669,9 @@ def colored_line_segments(xs,ys,zs=None,color='k',mid_colors=False):
     colors = [(*color,1) for color in seg_colors]    
     return segs, colors
 
-def segmented_resample(xs,ys,zs=None,color='k',n_resample=100,mid_colors=False):    
+def segmented_resample(xs,ys,zs=None,color='k',n_resample=100,mid_colors=False):   
+    from scipy.interpolate import interp1d
+    from matplotlib.colors import colorConverter 
     n_points = len(xs)
     if isinstance(color,str):
         color = colorConverter.to_rgba(color)[:-1]
@@ -765,7 +806,9 @@ def colored_line(x, y, ax, z=None, line_width=1, MAP='jet'):
         ys[i][1] = new_pt[1]
 
     # fig, ax = plt.subplots()
-    cm = plt.get_cmap(MAP)
+    # cm = cm.get_cmap(MAP)
+    cm = mpl.colormaps[MAP]
+    
     ax.pcolormesh(xs, ys, zs, shading='gouraud', cmap=cm)
 
 def plot_color_swatches(colors,figsize=0.5,dpi=100):
@@ -782,11 +825,28 @@ def plot_color_swatches(colors,figsize=0.5,dpi=100):
     # Display the swatches
     imshow(swatches, figsize=figsize,dpi=dpi)
     
-from matplotlib.colors import LinearSegmentedColormap
 def truncate_colormap(cmap, minval=0.0, maxval=1.0, n=100):
+
+    from matplotlib.colors import LinearSegmentedColormap
+
     cmap=mpl.colormaps[cmap] if isinstance(cmap, str) else cmap
 
     new_cmap = LinearSegmentedColormap.from_list(
         'trunc({n},{a:.2f},{b:.2f})'.format(n=cmap.name, a=minval, b=maxval),
         cmap(np.linspace(minval, maxval, n)))
     return new_cmap
+
+
+from operator import sub
+def get_aspect(ax):
+    # Total figure size
+    figW, figH = ax.get_figure().get_size_inches()
+    # Axis size on figure
+    _, _, w, h = ax.get_position().bounds
+    # Ratio of display units
+    disp_ratio = (figH * h) / (figW * w)
+    # Ratio of data units
+    # Negative over negative because of the order of subtraction
+    data_ratio = sub(*ax.get_ylim()) / sub(*ax.get_xlim())
+
+    return disp_ratio / data_ratio

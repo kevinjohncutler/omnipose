@@ -12,12 +12,16 @@ import colorsys
 import io
 
 from . import metrics
-try:
-    import omnipose, ncolor
-    OMNI_INSTALLED = True
-except:
-    OMNI_INSTALLED = False
-    print('omnipose not installed')
+# try:
+#     import omnipose, ncolor
+#     OMNI_INSTALLED = True
+# except:
+#     OMNI_INSTALLED = False
+#     print('omnipose not installed')
+
+import omnipose, ncolor
+OMNI_INSTALLED = True
+
 
 try:
     from skimage.morphology import remove_small_holes

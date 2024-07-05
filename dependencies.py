@@ -16,7 +16,7 @@ install_deps = ['numpy>=1.22.4',
                 'natsort', 
                 'aicsimageio',
                 'numexpr',
-                
+                'torch_optimizer',
                 'tifffile', # might be dependency of aicsimageio
                 'fastremap' # not sure how I missed this one 
                 ]

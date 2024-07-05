@@ -4,7 +4,7 @@ import torch
 import numpy as np
 import tifffile
 from tqdm import trange
-from numba import njit, float32, int32, vectorize
+# from numba import njit, float32, int32, vectorize # disable to speed up import time, didn't help?
 import cv2
 import fastremap
 
@@ -41,7 +41,7 @@ try:
 except:
     SKIMAGE_ENABLED = False
 
-@njit('(float64[:], int32[:], int32[:], int32, int32, int32, int32)', nogil=True)
+# @njit('(float64[:], int32[:], int32[:], int32, int32, int32, int32)', nogil=True)
 def _extend_centers(T,y,x,ymed,xmed,Lx, niter):
     """ run diffusion from center of mask (ymed, xmed) on mask pixels (y, x)
     Parameters
@@ -351,8 +351,8 @@ def labels_to_flows(labels, files=None, use_gpu=False, device=None, redo_flows=F
     return flows
 
 
-@njit(['(int16[:,:,:], float32[:], float32[:], float32[:,:])', 
-        '(float32[:,:,:], float32[:], float32[:], float32[:,:])'], cache=True)
+# @njit(['(int16[:,:,:], float32[:], float32[:], float32[:,:])', 
+#         '(float32[:,:,:], float32[:], float32[:], float32[:,:])'], cache=True)
 def map_coordinates(I, yc, xc, Y):
     """
     bilinear interpolation of image 'I' in-place with ycoordinates yc and xcoordinates xc to Y
@@ -456,7 +456,7 @@ def steps2D_interp(p, dP, niter, use_gpu=False, device=None, omni=False, calc_tr
         return p, tr
 
 
-@njit('(float32[:,:,:,:],float32[:,:,:,:], int32[:,:], int32)', nogil=True)
+# @njit('(float32[:,:,:,:],float32[:,:,:,:], int32[:,:], int32)', nogil=True)
 def steps3D(p, dP, inds, niter):
     """ run dynamics of pixels to recover masks in 3D
     
@@ -497,7 +497,7 @@ def steps3D(p, dP, inds, niter):
             p[2,z,y,x] = min(shape[2]-1, max(0, p[2,z,y,x] + dP[2,p0,p1,p2]))
     return p, None
 
-@njit('(float32[:,:,:], float32[:,:,:], int32[:,:], int32, boolean, boolean)', nogil=True)
+# @njit('(float32[:,:,:], float32[:,:,:], int32[:,:], int32, boolean, boolean)', nogil=True)
 def steps2D(p, dP, inds, niter, omni=False, calc_trace=False):
     """ run dynamics of pixels to recover masks in 2D
     

@@ -35,7 +35,7 @@ class AffinityLoss(torch.nn.Module):
 
     def forward(self,flow_pred,dist_pred,flow_gt,dist_gt): # y is GT, x is predicted 
     
-        torch.autograd.set_detect_anomaly(True)
+        # torch.autograd.set_detect_anomaly(True) # this is a problem on MPS
 
         mask_threshold = 0
         # foreground must be union of x and y foregrounds             

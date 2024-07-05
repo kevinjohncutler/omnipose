@@ -1,6 +1,5 @@
 import os
 import numpy as np
-import cv2
 from scipy.ndimage import gaussian_filter
 from . import utils, io, transforms
 from omnipose.utils import rescale
@@ -185,6 +184,7 @@ def show_segmentation(fig, img, maski, flowi, bdi=None, channels=None, file_name
         c = [0.5]*3 # use gray color that will work for both dark and light themes 
         if not MATPLOTLIB_ENABLED:
             raise ImportError("matplotlib not installed, install with 'pip install matplotlib'")
+            
         ax = fig.add_subplot(1,4,1)
         ax.imshow(img0,interpolation=interpolation)
         ax.set_title('original image',c=c,fontsize=fontsize)

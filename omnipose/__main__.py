@@ -1,4 +1,5 @@
-from cellpose_omni import main as cellpose_omni_main
+from . import gpu # initialize torch 
+from cellpose_omni.__main__ import main as cellpose_omni_main
 from .cli import get_arg_parser
 import traceback
 
@@ -10,6 +11,9 @@ def main():
     cellpose_omni_main(args)
 
 if __name__ == '__main__':
+
+    print('running main')
+    
     try:
         main()
     except Exception:

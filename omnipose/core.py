@@ -6,26 +6,21 @@ from skimage.morphology import remove_small_objects
 from skimage.segmentation import find_boundaries
 import networkit as nk # for connected components
 
-import torch.nn.functional as F
+# import torch.nn.functional as F
 
 import fastremap
 import os, tifffile
 import time
 import mgen #ND rotation matrix
 from . import utils
-from ncolor.format_labels import delete_spurs
-from .plot import rgb_flow
+# from ncolor.format_labels import delete_spurs
+# from .plot import rgb_flow
 
 from .gpu import empty_cache # for clearing memory after follow_flows
 
-# Use of sets...
-from numba.core.errors import NumbaDeprecationWarning, NumbaPendingDeprecationWarning
-import warnings
-warnings.simplefilter('ignore', category=NumbaPendingDeprecationWarning)
-
-from torchvf.losses import ivp_loss
-from typing import Any, Dict, List, Set, Tuple, Union, Callable
-
+# from torchvf.losses import ivp_loss
+# from typing import Any, Dict, List, Set, Tuple, Union, Callable
+from typing import List
 
 # define the lists of unique omnipose models 
 # Some were trained with 2 channel input (C2)
@@ -49,8 +44,8 @@ C1_BD_MODELS = ['plant_omni']
 C1_MODELS = []
 
 import torch
-mse = torch.nn.MSELoss()
-from .utils import torch_GPU, torch_CPU, ARM
+# mse = torch.nn.MSELoss()
+from .gpu import torch_GPU, torch_CPU, ARM
 
 # try:
 #     from sklearn.cluster import DBSCAN
@@ -1642,7 +1637,7 @@ def compute_masks(dP, dist, affinity_graph=None, bd=None, p=None, coords=None, i
 
 # no reason to use njit here except for compatibility with jitted fuctions that call it 
 # this way, the same factor is used everywhere (CPU with/without interp, GPU)
-@njit()
+# @njit()
 def step_factor(t):
     """ Euler integration suppression factor.
     
@@ -2612,6 +2607,8 @@ def loss(self, lbl, y):
 
             lossA, lossE, lossB = self.criterionA(flow,dt,veci,dist)
             lossA *=100
+            
+            
             # print(lossA.item(),lossE.item(),lossB.item())
             
             # print(lossA, self.criterion0(flow,veci)) lossA much bigger than ivp... that deserves debugging
@@ -2623,12 +2620,12 @@ def loss(self, lbl, y):
             # lossS = self.criterionS((dist+5)/5,(dt+5)/5) # with 1
             
             
-            # the fistance field has wird stuff happening, I hope
+            # the distance field has wird stuff happening, I hope
             # that making its gradient explicitly equal to the GT flow will help
             # dims = [k for k in range(-self.dim,0)]
             
-            dims = [k for k in range(1,self.dim+1)]
-            grad = torch.stack(torch.gradient(dt,dim=dims),axis=1)
+            # dims = [k for k in range(1,self.dim+1)]
+            # grad = torch.stack(torch.gradient(dt,dim=dims),axis=1)
             
             
             
@@ -2667,7 +2664,7 @@ def loss(self, lbl, y):
             # N =  torch.square(S-torch.sum(dt>0))
             # fg_loss = N/S if S > 0 else N
                         
-            euler_loss = self.criterion0(flow,veci) / 2
+            # euler_loss = self.criterion0(flow,veci) / 2
             div = divergence_torch(veci)
             # div *= boundary 
             # div = (div-div.min())/(div.max()-div.min())
@@ -3231,9 +3228,12 @@ def get_contour(labels,affinity_graph,coords=None,neighbors=None,cardinal_only=T
 
 
 # @njit('(int64[:,:], int32[:], int32[:], int64[:,:], float64[:,:])', nogil=True)
-@njit
+# @njit #
 def parametrize_contours(steps, labs, unique_L, neigh_inds, step_ok, csum):
     """Helper function to sort 2D contours into cyclic paths. See get_contour()."""
+    print('enable njit for this')
+    
+    
     sign = np.sum(np.abs(steps),axis=1)
     contours = []
     s0 = 4
@@ -3775,28 +3775,7 @@ def _despur(connect, neigh_inds, indexes, steps, non_self,
     return connect
 
 
-#5x speedup using njit
-# @njit()
-# def affinity_to_edges(affinity_graph,neigh_inds,step_inds,px_inds):
-#     """Convert affinity graph to list of edge tuples for connected components labeling."""
-#     edge_list = []
-#     for s in step_inds:
-#         for p in px_inds:
-#             if affinity_graph[s,p]: 
-#                 edge_list.append((p,neigh_inds[s][p]))
-#     return edge_list
-
-# @njit()
-# def affinity_to_edges(affinity_graph,neigh_inds,step_inds,px_inds):
-#     """Convert symmetric affinity graph to list of edge tuples for connected components labeling."""
-#     edge_list = []
-#     for s in step_inds:
-#         for p in px_inds:
-#             if p <= neigh_inds[s][p] and affinity_graph[s,p]:  # upper triangular 
-#                 edge_list.append((p,neigh_inds[s][p]))
-#     return edge_list
-
-# this version is a lot faster. 
+# this version is a lot faster.
 @njit()
 def affinity_to_edges(affinity_graph,neigh_inds,step_inds,px_inds):
     """Convert symmetric affinity graph to list of edge tuples for connected components labeling."""
@@ -3811,7 +3790,8 @@ def affinity_to_edges(affinity_graph,neigh_inds,step_inds,px_inds):
                 edge_list[idx] = (p,neigh_inds[s][p])
                 idx += 1
     return edge_list[:idx] # return only the portion edge_list that contins edges 
-    
+
+
 def affinity_to_masks(affinity_graph,neigh_inds,iscell, coords,
                       cardinal=True,
                       exclude_interior=False,

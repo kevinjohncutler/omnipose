@@ -7,8 +7,6 @@ from cellpose_omni import utils, models, io
 
 from .models import MODEL_NAMES, C2_MODEL_NAMES, BD_MODEL_NAMES, CP_MODELS
 
-import torch
-
 try:
     from cellpose_omni.gui import gui 
     GUI_ENABLED = True 
@@ -23,11 +21,12 @@ except Exception as err:
     raise
     
 
-
 from dependencies import gui_deps
     
 import logging
 logger = logging.getLogger(__name__)
+tqdm_out = utils.TqdmToLogger(logger, level=logging.INFO)
+
 
 def confirm_prompt(question):
     reply = None
@@ -80,13 +79,13 @@ def main(args):
                 print('GUI dependencies may not be installed (normal for first run).')
                 confirm = confirm_prompt('Install GUI dependencies? (Note: uses PyQt6.)')
                 if confirm:
-                    current_dir = os.path.abspath(os.path.dirname(__file__))
-                    cellpose_omni_path = os.path.dirname(current_dir)
+                    # current_dir = os.path.abspath(os.path.dirname(__file__))
+                    # cellpose_omni_path = os.path.dirname(current_dir)
                     # print('cellpose_omni_path',cellpose_omni_path)
                     # next_command = ['&&', 'omnipose'] # run omnipose again
                     # install('cellpose-omni[gui] @ file://{}#egg=cellpose-omni'.format(cellpose_omni_path)) # local version) 
                     
-                    # no need to resintall, jsut do the extras
+                    # no need to resinstall, just do the extras
                     for dep in gui_deps:
                         install(dep)
                 
@@ -149,10 +148,12 @@ def main(args):
 
         # Handle channel assignemnt for 2 vs 1 channels
         # For >2 channels, use None. 
-        if args.nchan is not None and args.nchan>1:
+        if args.nchan is not None and args.nchan==2 and not args.all_channels:
             channels = [args.chan, args.chan2]
         else:
             channels = None
+            
+        
 
         # print('ddd', args.nchan, channels)
 

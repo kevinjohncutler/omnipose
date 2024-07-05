@@ -12,20 +12,24 @@ from omnipose.plot import rgb_flow
 # print('need to add acb_mse to deps')
 
 import omnipose
+from omnipose.gpu import use_gpu
 
 # from multiprocessing import Pool, cpu_count
 # from functools import partial
 # from focal_loss.focal_loss import FocalLoss
 
-try:
-    from mxnet import gluon, nd
-    import mxnet as mx
-    from . import resnet_style
-    MXNET_ENABLED = True 
-    mx_GPU = mx.gpu()
-    mx_CPU = mx.cpu()
-except:
-    MXNET_ENABLED = False
+# try:
+#     from mxnet import gluon, nd
+#     import mxnet as mx
+#     from . import resnet_style
+#     MXNET_ENABLED = True 
+#     mx_GPU = mx.gpu()
+#     mx_CPU = mx.cpu()
+# except:
+#     MXNET_ENABLED = False
+
+MXNET_ENABLED = False
+
 
 try:
     import torch
@@ -59,23 +63,6 @@ def parse_model_string(pretrained_model):
     concatenation = ostrs[2]=='on'
     return residual_on, style_on, concatenation
 
-def use_gpu(gpu_number=0, use_torch=True):
-    """ check if gpu works """
-    if use_torch:
-        return _use_gpu_torch(gpu_number)
-    else:
-        raise ValueError('cellpose only runs with pytorch now')
-
-def _use_gpu_torch(gpu_number=0):
-    try:
-        # device = torch.device('cuda:' + str(gpu_number))
-        device = torch.device(f'mps:{gpu_number}') if ARM else torch.device(f'cuda:{gpu_number}')
-        _ = torch.zeros([1, 2, 3]).to(device)
-        core_logger.info('** TORCH GPU version installed and working. **')
-        return True
-    except:# Exception as e:
-        core_logger.info('TORCH GPU version not installed/working.')#, e)
-        return False
 
 def assign_device(use_torch=True, gpu=False, device=0):
     if gpu and use_gpu(use_torch=True):
@@ -916,10 +903,14 @@ class UnetModel():
                 self.criterion17 = omnipose.loss.SineSquaredLoss()
                 # self.criterion0 = ivp_loss.IVPLoss(dx=0.2, # consider increasing t0 np.sqrt(2)/5 for diagonals 
                 self.criterion0 = omnipose.loss.EulerLoss(self.device,self.dim)
+                
+                
                 self.criterionA = omnipose.loss.AffinityLoss(self.device,self.dim)
-                self.criterionB  = nn.BCELoss(reduction='mean')
-                self.criterionD = omnipose.loss.DerivativeLoss()
-                self.criterionC = omnipose.loss.CorrelationLoss()
+                # self.criterionB  = nn.BCELoss(reduction='mean')
+                # self.criterionD = omnipose.loss.DerivativeLoss()
+                # self.criterionC = omnipose.loss.CorrelationLoss()
+                
+                
                 # self.criterionS =  omnipose.loss.MSSSIMLoss()
                 # Select weighting for each class if not wanting to use the defualt 1:1 weighting
                 # zero_weighting = 1.0
