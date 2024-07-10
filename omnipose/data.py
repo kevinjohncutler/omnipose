@@ -23,8 +23,6 @@ def torch_zoom(img, scale_factor=1.0, dim=2, size=None, mode='bilinear'):
 
     return img
 
-
-
 class eval_loader(torch.utils.data.DataLoader):
     def __init__(self, dataset, model, postprocess_fn, **kwargs):
         super().__init__(dataset, **kwargs)
@@ -489,7 +487,10 @@ class train_set(torch.utils.data.Dataset):
         X = out[:-1]
         slices = out[-1]
         masks,bd,T,mu = [torch.stack([x[(Ellipsis,)+slc] for slc in slices]) for x in X]
-        lbl = batch_labels(masks,bd,T,mu,
+        lbl = batch_labels(masks,
+                           bd,
+                           T,
+                           mu,
                            self.tyx,
                            dim=self.dim,
                            nclasses=self.nclasses,

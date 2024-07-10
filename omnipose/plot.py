@@ -14,10 +14,17 @@ from mpl_toolkits.axes_grid1 import ImageGrid
 
 from skimage import img_as_ubyte
 
-def subplots(**kwargs):
+def figure(nrow=None, ncol=None, **kwargs):
     fig = Figure(**kwargs)
-    ax = fig.add_subplot(111)
-    return fig, ax
+    if nrow is not None and ncol is not None:
+        axs = []
+        for i in range(nrow * ncol):
+            ax = fig.add_subplot(nrow, ncol, i + 1)
+            axs.append(ax)
+        return fig, axs
+    else:
+        ax = fig.add_subplot(111)
+        return fig, ax
 
 class GC(GraphicsContextBase):
     def __init__(self):
@@ -61,7 +68,7 @@ def plot_edges(shape,affinity_graph,neighbors,coords,
         if type(figsize) is not (list or tuple):
             figsize = (figsize,figsize)
         # fig, ax = plt.subplots(figsize=figsize)
-        fig, ax = subplots(figsize=figsize)
+        fig, ax = figure(figsize=figsize)
         
     # ax.invert_yaxis()
     if extent is None:
@@ -231,11 +238,11 @@ def imshow(imgs, figsize=2, ax=None, hold=False, titles=None, title_size=8, spac
         if title_size is None:
             title_size = figsize / len(imgs) * text_scale
         # fig = plt.figure(figsize=(figsize * len(imgs), figsize),frameon=False, facecolor = [0]*4)
-        fig = Figure(figsize=(figsize * len(imgs), figsize),frameon=False, facecolor = [0]*4)
-        # canvas = FigureCanvas(fig)
+        # fig = Figure(figsize=(figsize * len(imgs), figsize),frameon=False, facecolor = [0]*4)
         
-        grid = ImageGrid(fig, 111, nrows_ncols=(1, len(imgs)), axes_pad=spacing, share_all=True)
-        for ax, img, title in zip(grid, imgs, titles):
+        # grid = ImageGrid(fig, 111, nrows_ncols=(1, len(imgs)), axes_pad=spacing, share_all=False)
+        fig, axes = figure(nrow=1, ncol=len(imgs), figsize=(figsize * len(imgs), figsize), frameon=False, facecolor = [0]*4)
+        for ax, img, title in zip(axes, imgs, titles):
             ax.imshow(img, **kwargs)
             ax.axis("off")
             ax.set_frame_on(False)
@@ -254,7 +261,7 @@ def imshow(imgs, figsize=2, ax=None, hold=False, titles=None, title_size=8, spac
                             'facecolor': [0, 0, 0, 0],
                             'dpi': dpi
                         }
-            fig, ax = subplots(**subplot_args)
+            fig, ax = figure(**subplot_args)
             # canvas = FigureCanvas(fig)
             
         
@@ -476,6 +483,7 @@ def image_grid(images, column_titles=None, row_titles=None,
                 order='ij',
                 lpad = 0.05,
                 lpos='top_middle',
+                return_axes=False,
                 **kwargs):
     """Display a grid of images with uniform spacing.
     Accepts a neested list of images, with each sublist having cosnsitent YXC diemnsions. 
@@ -532,7 +540,7 @@ def image_grid(images, column_titles=None, row_titles=None,
     height /= max_h
     
     # Create the figure
-    fig = Figure(figsize=(fig_scale,fig_scale*max_h/max_w), 
+    fig = Figure(figsize=(fig_scale,fig_scale*max_h/max_w),                    
                  frameon=False if facecolor is None else True, 
                  facecolor=[0]*4 if facecolor is None else facecolor,
                  dpi=dpi)
@@ -603,9 +611,10 @@ def image_grid(images, column_titles=None, row_titles=None,
             if idx is not None:
                 ax.text(-p, 0.5, row_titles[idx], rotation=0, fontsize=fontsize, color=fontcolor, 
                         va='center', ha='right', transform=ax.transAxes)
-    
-    return fig
-
+    if return_axes:
+        return fig, axes
+    else:   
+        return fig
 
 def color_grid(colors, **kwargs):
     # Convert colors to a numpy array

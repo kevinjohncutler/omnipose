@@ -2897,7 +2897,6 @@ class MainW(QMainWindow):
     def compute_model(self):
         self.progress.setValue(10)
         QApplication.processEvents() 
-        print('here 2a')
         try:
             tic=time.time()
             self.clear_all()

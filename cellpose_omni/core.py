@@ -1125,9 +1125,6 @@ class UnetModel():
 
                     tic = time.time()
 
-                    # print('\t Batch number',batch_idx)
-                    # print('yoyoyo',batch_data.shape,batch_inds)
-
                     nbatch = len(batch_data)
                     dt = tic-toc
                     datatime += [dt]
