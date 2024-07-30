@@ -207,7 +207,7 @@ def colorize_GPU(im, colors=None, color_weights=None, offset=0, channel_axis=-1)
     # rgb = (im*colors).mean(dim=0)
     
     # Perform the multiplication and mean computation using `einsum` - way faster 
-    rgb = torch.einsum('ijkl,il->jkl', im.double(), colors.double()) / N
+    rgb = torch.einsum('ijkl,il->jkl', im.float(), colors.float()) / N
 
     return rgb
     
@@ -267,12 +267,15 @@ def imshow(imgs, figsize=2, ax=None, hold=False, titles=None, title_size=8, spac
         
         else:
             hold = True
+            
         ax.imshow(imgs, **kwargs)
         ax.axis("off")
         ax.set_frame_on(False)
         ax.set_facecolor([0]*4)
         if titles is not None:
             ax.set_title(titles, fontsize=title_size, color=textcolor)
+        
+        fig = ax.get_figure()
     # if not hold:
         # plt.show()
         # canvas.draw()
@@ -832,7 +835,7 @@ def plot_color_swatches(colors,figsize=0.5,dpi=100):
     swatches = [np.full((1, 1, 3), color, dtype=np.float32) for color in colors]
     
     # Display the swatches
-    imshow(swatches, figsize=figsize,dpi=dpi)
+    return imshow(swatches, figsize=figsize,dpi=dpi)
     
 def truncate_colormap(cmap, minval=0.0, maxval=1.0, n=100):
 

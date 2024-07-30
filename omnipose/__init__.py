@@ -15,7 +15,7 @@ warnings.simplefilter('ignore', category=NumbaPendingDeprecationWarning)
 
 
 import pkg_resources
-__all__ = ['core', 'utils', 'loss', 'plot', 'misc', 'cli', 'data', 'gpu', 'stacks']
+__all__ = ['core', 'utils', 'loss', 'plot', 'misc', 'cli', 'data', 'gpu', 'stacks', 'measure']
 __version__ = pkg_resources.get_distribution("omnipose").version
 def __getattr__(name):
     if name in __all__:

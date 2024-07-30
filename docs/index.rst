@@ -70,6 +70,7 @@ For support, submit an `issue`_ on the Omnipose repo. For more on the workings o
                     :maxdepth: 2
 
                     affinity
+                    contours
                     ncolor
                     diameter
                     gamma

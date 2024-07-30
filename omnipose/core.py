@@ -3228,10 +3228,10 @@ def get_contour(labels,affinity_graph,coords=None,neighbors=None,cardinal_only=T
 
 
 # @njit('(int64[:,:], int32[:], int32[:], int64[:,:], float64[:,:])', nogil=True)
-# @njit #
+@njit #
 def parametrize_contours(steps, labs, unique_L, neigh_inds, step_ok, csum):
     """Helper function to sort 2D contours into cyclic paths. See get_contour()."""
-    print('enable njit for this')
+    # print('enable njit for this')
     
     
     sign = np.sum(np.abs(steps),axis=1)
