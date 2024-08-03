@@ -12,6 +12,8 @@ from mahotas.morph import hitmiss as mh_hitmiss
 import math
 import os
 import re
+from pathlib import Path
+
 
 import mgen
 import fastremap

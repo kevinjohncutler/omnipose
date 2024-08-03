@@ -1418,7 +1418,7 @@ def compute_masks(dP, dist, affinity_graph=None, bd=None, p=None, coords=None, i
                 tr = []
                 if verbose:
                     omnipose_logger.info('p given')
-                print('a2',shape,p.shape,coords.shape,p.max(), p[:,~iscell_pad].shape)
+                # print('a2',shape,p.shape,coords.shape,p.max(), p[:,~iscell_pad].shape)
                 
                 # set the points that are background to not move
                 p[:,~iscell_pad] = np.stack(np.nonzero(~iscell_pad))

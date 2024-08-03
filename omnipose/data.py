@@ -127,7 +127,7 @@ class eval_set(torch.utils.data.Dataset):
         
         if self.stack:
             # data is in memory, index it
-            imgs = torch.tensor(self.data[inds].astype(float), device=self.device)
+            imgs = torch.tensor(self.data[inds].astype(np.float32), device=self.device)
             
         elif self.list:   
             
@@ -144,14 +144,14 @@ class eval_set(torch.utils.data.Dataset):
                 if self.files:
                     file = self.data[index]
                     # img = AICSImage(file).data.squeeze().astype(float)
-                    img = AICSImage(file).get_image_data("YX", out_of_memory=True).squeeze().astype(float)
+                    img = AICSImage(file).get_image_data("YX", out_of_memory=True).squeeze()
                     # print('here',img.shape, AICSImage(file).shape,  AICSImage(file).dims, AICSImage(file).get_image_data("CYX", out_of_memory=True).shape)
                     
                     # img = tifffile.imread()
                 else:
-                    img = self.data[index].astype(float)
+                    img = self.data[index]
                     
-                imgs[i] = torch.tensor(img,device=self.device)
+                imgs[i] = torch.tensor(img.astype(np.float32),device=self.device)
                 
             
             # I would like to be able to handle different shapes... perhaps by padding

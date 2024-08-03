@@ -823,7 +823,10 @@ def colored_line(x, y, ax, z=None, line_width=1, MAP='jet'):
     
     ax.pcolormesh(xs, ys, zs, shading='gouraud', cmap=cm)
 
-def plot_color_swatches(colors,figsize=0.5,dpi=100):
+def color_swatches(colors, figsize=0.5, dpi=150, fontsize=5, padding=0.05, 
+                   titles=None, ncol=None):
+    if ncol is None:
+        ncol = len(colors)
     # Convert colors to a numpy array
     colors = np.array(colors)
     
@@ -835,7 +838,12 @@ def plot_color_swatches(colors,figsize=0.5,dpi=100):
     swatches = [np.full((1, 1, 3), color, dtype=np.float32) for color in colors]
     
     # Display the swatches
-    return imshow(swatches, figsize=figsize,dpi=dpi)
+    # return imshow(swatches, figsize=figsize, dpi=dpi, titles=titles)
+    return image_grid(split_list(swatches,ncol),
+                        plot_labels=split_list(titles,ncol) if titles is not None else None,
+                      padding=0.05, fontsize=fontsize, 
+                      fontcolor='w',
+                      facecolor=[0]*4, fig_scale=figsize*ncol, dpi=dpi)
     
 def truncate_colormap(cmap, minval=0.0, maxval=1.0, n=100):
 
