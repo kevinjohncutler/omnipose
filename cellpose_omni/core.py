@@ -33,7 +33,7 @@ MXNET_ENABLED = False
 
 try:
     import torch
-    from torch.cuda.amp import autocast, GradScaler
+    from torch.amp import autocast, GradScaler
     from torch import nn
     from torch.utils import mkldnn as mkldnn_utils
     TORCH_ENABLED = True

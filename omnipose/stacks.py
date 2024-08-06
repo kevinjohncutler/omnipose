@@ -1,10 +1,14 @@
 from skimage.registration import phase_cross_correlation
 from scipy.ndimage import shift as im_shift
+from scipy.ndimage import gaussian_filter
+
 import fastremap 
 import numpy as np
 from .gpu import torch_GPU, torch_CPU
+import dask
 
-def shifts_to_slice(shifts, shape):
+
+def shifts_to_slice(shifts, shape, pad=0):
     """
     Find the minimal crop box from time lapse registration shifts.
     """    
@@ -12,7 +16,8 @@ def shifts_to_slice(shifts, shape):
     shifts = np.round(shifts).astype(int)
     
     # Create a slice for each dimension
-    slices = tuple(slice(max(0, np.max(shifts[:, dim])), min(shape[dim], shape[dim] + np.min(shifts[:, dim])))
+    slices = tuple(slice(max(0, np.max(shifts[:, dim])-pad), 
+                         min(shape[dim], shape[dim] + np.min(shifts[:, dim])+pad))
                    for dim in range(shifts.shape[1]))
     
     return slices
@@ -91,44 +96,74 @@ def normalize_stack(vol,mask,bg=0.5,bright_foreground=None,
 
     
 # import imreg_dft 
-def cross_reg(imstack,upsample_factor=100,order=1,
+def cross_reg(imstack,upsample_factor=100,
               normalization=None,
-              reverse=True, localnorm=True):
+              reverse=False, 
+              localnorm=True, 
+              max_shift=50, 
+              order=1,
+              moving_reference=False, ):
     """
     Find the transformation matrices for all images in a time series to align to the beginning frame. 
     """
     dim = imstack.ndim - 1 # dim is spatial, assume first dimension is t
     s = np.zeros(dim)
     shape = imstack.shape[-dim:]
-    regstack = np.zeros_like(imstack)
-    shifts = np.zeros((len(imstack),dim))
-    
     
     images_to_register = imstack if not reverse else imstack[::-1]
 
     # Now images_to_register[i] is the sum of image_stack over the interval slices[i]
     if localnorm: 
         images_to_register = images_to_register/gaussian_filter(images_to_register,sigma=[0,1,1])
+    
+    
+    if moving_reference:
+        shift_vectors = [[]]*len(images_to_register)
+    
+        for i,im in enumerate(images_to_register):
+            if i==0:
+                ref = im
+                shift_vectors[i] = np.zeros(dim)
+            else:
+                shift = phase_cross_correlation(ref, 
+                                                im, 
+                                                upsample_factor = upsample_factor,
+                                                normalization=normalization)[0] 
+    
+                if np.linalg.norm(shift) > max_shift:
+                    shift = np.zeros_like(shift)
                     
-    shift_vectors = [phase_cross_correlation(images_to_register[i], 
-                                            images_to_register[i+1], 
-                                            upsample_factor = upsample_factor,
-                                            normalization=normalization)[0] for i in range(len(images_to_register)-1)]
+                shift_vectors[i] = shift
+                ref = im_shift(im,shift,cval=np.mean(im),order=order)
+
     
-    
-    shift_vectors.insert(0, np.asarray([0.0,0.0]))  
+    else:  
+        shift_vectors = [phase_cross_correlation(images_to_register[i], 
+                                                images_to_register[i+1], 
+                                                upsample_factor = upsample_factor,
+                                                normalization=normalization)[0] for i in range(len(images_to_register)-1)]
+        
+    if not moving_reference:
+        shift_vectors.insert(0, np.asarray([0.0,0.0]))  
+        
     shift_vectors = np.stack(shift_vectors)
-
-    shift_vectors = np.where(np.abs(shift_vectors) > 50, 0, shift_vectors)
-    shift_vectors = np.cumsum(shift_vectors, axis=0)
-        
- 
+    
     if reverse:
-        shift_vectors = -shift_vectors[::-1]
-        
-    return shift_vectors
+        shift_vectors = shift_vectors[::-1] * (-1 if not moving_reference else 1)
 
-def shift_stack(imstack, shift_vectors, order=1, cval=None, prefilter=True):
+
+    if not moving_reference:
+
+        shift_vectors = np.where(np.linalg.norm(shift_vectors,axis=1, keepdims=1) > max_shift, 0, shift_vectors)
+        shift_vectors = np.cumsum(shift_vectors, axis=0)
+        
+    
+    shift_vectors -= np.mean(shift_vectors,axis=0)
+    
+
+    return shift_vectors 
+
+def shift_stack(imstack, shift_vectors, order=1, cval=None, prefilter=True, mode='nearest'):
     """
     Shift each time slice of imstack according to list of nD shifts. 
     """
@@ -140,7 +175,7 @@ def shift_stack(imstack, shift_vectors, order=1, cval=None, prefilter=True):
     ndim = imstack.ndim
     axes = tuple(range(-(ndim-1),0))
     cvals = np.nanmean(imstack,axis=axes) if cval is None else [cval]*len(shift_vectors)
-    mode = 'nearest' if cval is None else 'constant'
+    mode = mode if cval is None else 'constant'
     
     # Apply the shift to each image
     shifted_images = [dask.delayed(im_shift)(image,

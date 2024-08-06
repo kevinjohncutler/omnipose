@@ -85,13 +85,15 @@ def load_links(filename):
     """
     if filename is not None and os.path.exists(filename):
         links = set()
-        file = open(filename,"r")
-        lines = reader(file)
-        for l in lines: 
-            links.add(tuple([int(num) for num in l]))
+        with open(filename, "r") as file:
+            lines = reader(file)
+            for l in lines:
+                # Check if the line is not empty before processing
+                if l:
+                    links.add(tuple(int(num) for num in l))
         return links
     else:
-        return []
+        return set()
 
 def write_links(savedir,basename,links):
     """
@@ -684,3 +686,68 @@ def save_server(parent=None, filename=None):
             )
         )
 
+from collections import defaultdict
+def delete_old_models(directory, keep_last=10):
+    # Dictionary to store lists of files by prefix
+    files_by_prefix = defaultdict(list)
+
+    # Create a search pattern for the model files
+    pattern = os.path.join(directory, "*_epoch_*")
+    
+    # Get a list of all model files matching the pattern
+    model_files = glob.glob(pattern)
+    
+    # Organize files by prefix
+    for file in model_files:
+        # Extract prefix (everything before '_epoch_')
+        base_name = os.path.basename(file)
+        prefix = base_name.split('_epoch_')[0]
+        files_by_prefix[prefix].append(file)
+    
+    # Process each prefix
+    for prefix, files in files_by_prefix.items():
+        # Sort files by epoch number
+        files.sort(key=lambda x: int(x.split('_epoch_')[-1]))
+        
+        # Determine how many files to delete
+        num_files_to_delete = len(files) - keep_last
+        
+        # If there are files to delete, proceed
+        if num_files_to_delete > 0:
+            files_to_delete = files[:num_files_to_delete]
+
+            for file in files_to_delete:
+                os.remove(file)
+                print(f"Deleted {file}")
+        else:
+            print(f"No files to delete for prefix '{prefix}', fewer than or equal to the last {keep_last} files are already present.")
+        
+    print("Deletion process completed.")
+    
+    
+import platform
+
+def adjust_file_path(file_path):
+    """
+    Adjust the file path based on the operating system.
+    On macOS, replace '/Volumes' with the detected home directory path.
+    On Linux, replace the home directory path with '/Volumes'.
+
+    Args:
+        file_path (str): The original file path.
+
+    Returns:
+        str: The adjusted file path.
+    """
+    system = platform.system()
+    
+    if system == 'Darwin':  # macOS
+        home_dir = os.path.expanduser('~')
+        adjusted_path = re.sub(r'^/home/\w+|^/Volumes', home_dir, file_path)
+    elif system == 'Linux':  # Linux
+        home_dir = os.path.expanduser('~')
+        adjusted_path = re.sub(r'^/Volumes|^' + re.escape(home_dir), '/home/' + os.getlogin(), file_path)
+    else:
+        raise ValueError(f"Unsupported operating system: {system}")
+    
+    return adjusted_path
