@@ -359,12 +359,12 @@ def disk(med, r, Ly, Lx):
 
 def outline_view(img0, maski, boundaries=None, color=[1,0,0], 
                  channels=None, channel_axis=-1, 
-                 mode='inner',connectivity=2,skip_formatting=False):
+                 mode='inner',connectivity=2, skip_formatting=False):
     """
     Generates a red outline overlay onto image.
     """
 #     img0 = utils.rescale(img0)
-    if np.max(color)<=1:
+    if np.max(color)<=1 and not skip_formatting:
         color = np.array(color)*(2**8-1)
     
     if not skip_formatting:
@@ -380,6 +380,6 @@ def outline_view(img0, maski, boundaries=None, color=[1,0,0],
         outlines = boundaries
     outY, outX = np.nonzero(outlines)
     imgout = img0.copy()
+    
     imgout[outY, outX] = color
-
     return imgout

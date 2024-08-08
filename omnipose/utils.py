@@ -417,7 +417,8 @@ def qnorm(Y,
             density_quantile=[.001,.999],
             debug=False, 
             dx = None,
-            log=False,eps=1):
+            log=False,
+            eps=1):
 
     if dx is not None:
         X = Y[:,::dx,::dx]
@@ -461,7 +462,7 @@ def qnorm(Y,
         scale_factor = np.float16(1.0 / (vmax - vmin))
         # r = ne.evaluate('Y * scale_factor')
         # ne.evaluate("where(r > 1, 1, r)", out=r) 
-        r = ne.evaluate('where(Y * scale_factor > 1, 1, Y * scale_factor)')
+        r = ne.evaluate('where(X * scale_factor > 1, 1, X * scale_factor)')
     else:
         r = X
 

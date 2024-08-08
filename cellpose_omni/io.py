@@ -730,8 +730,8 @@ import platform
 def adjust_file_path(file_path):
     """
     Adjust the file path based on the operating system.
-    On macOS, replace '/Volumes' with the detected home directory path.
-    On Linux, replace the home directory path with '/Volumes'.
+    On macOS, replace '/home/user' with '/Volumes'.
+    On Linux, replace '/Volumes' with the home directory path.
 
     Args:
         file_path (str): The original file path.
@@ -740,14 +740,12 @@ def adjust_file_path(file_path):
         str: The adjusted file path.
     """
     system = platform.system()
-    
     if system == 'Darwin':  # macOS
-        home_dir = os.path.expanduser('~')
-        adjusted_path = re.sub(r'^/home/\w+|^/Volumes', home_dir, file_path)
+        adjusted_path = re.sub(r'^/home/\w+', '/Volumes', file_path)
     elif system == 'Linux':  # Linux
         home_dir = os.path.expanduser('~')
-        adjusted_path = re.sub(r'^/Volumes|^' + re.escape(home_dir), '/home/' + os.getlogin(), file_path)
+        adjusted_path = re.sub(r'^/Volumes', home_dir, file_path)
     else:
         raise ValueError(f"Unsupported operating system: {system}")
-    
+    print(system, adjusted_path)
     return adjusted_path

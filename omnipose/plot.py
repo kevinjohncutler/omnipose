@@ -478,7 +478,7 @@ def split_list(lst, N):
 def image_grid(images, column_titles=None, row_titles=None,
                plot_labels=None, 
                 xticks=[], yticks=[], 
-                outline=False, outline_color=[0.5]*3, 
+                outline=False, outline_color=[0.5]*3, outline_width=.5,
                 padding=0.05, 
                 fontsize=8, fontcolor=[0.5]*3,
                 facecolor=None,
@@ -566,29 +566,36 @@ def image_grid(images, column_titles=None, row_titles=None,
     
     # add outline around each image, remove ticks
     for i,ax in enumerate(axes):
-        if outline:
-            for s in ax.spines.values():
-                s.set_color(outline_color)
-                s.set_linewidth(1)
-        else:
-            ax.axis('off')
-        
+
         ax.set_xticks(xticks)
         ax.set_yticks(yticks)
         ax.patch.set_alpha(0)
         
         # Display the image
-        j,k = np.unravel_index(i,grid_dims)
+        j,k = np.unravel_index(i,grid_dims)        
         if k < ncol[j]: # not all nows may have the same number of images 
             if images[j][k] is not None:
                 ax.imshow(images[j][k],**kwargs)
+                # for s in ax.spines.values():
+                #     if outline:
+                #         s.set_color(outline_color)
+                #         s.set_linewidth(outline_width)
+                #     # else:
+                #     #     s.set_visible(False)
+                    
+            if outline:
+                for s in ax.spines.values():
+                    s.set_color(outline_color)
+                    s.set_linewidth(outline_width)
+
             if plot_labels is not None and plot_labels[j][k] is not None:
                 coords = label_positions[lpos]['coords']
                 va = label_positions[lpos]['va']
                 ha = label_positions[lpos]['ha']
                 ax.text(coords[0],coords[1], plot_labels[j][k], fontsize=fontsize, color=fontcolor, 
                         va=va, ha=ha, transform=ax.transAxes)
-
+        else:
+            ax.set_visible(False)
             
         # Set the column titles
         if column_titles is not None:
@@ -614,6 +621,8 @@ def image_grid(images, column_titles=None, row_titles=None,
             if idx is not None:
                 ax.text(-p, 0.5, row_titles[idx], rotation=0, fontsize=fontsize, color=fontcolor, 
                         va='center', ha='right', transform=ax.transAxes)
+                
+    
     if return_axes:
         return fig, axes
     else:   
@@ -823,7 +832,7 @@ def colored_line(x, y, ax, z=None, line_width=1, MAP='jet'):
     
     ax.pcolormesh(xs, ys, zs, shading='gouraud', cmap=cm)
 
-def color_swatches(colors, figsize=0.5, dpi=150, fontsize=5, padding=0.05, 
+def color_swatches(colors, figsize=0.5, dpi=150, fontsize=5, fontcolor='w', padding=0.05, 
                    titles=None, ncol=None):
     if ncol is None:
         ncol = len(colors)
@@ -842,7 +851,7 @@ def color_swatches(colors, figsize=0.5, dpi=150, fontsize=5, padding=0.05,
     return image_grid(split_list(swatches,ncol),
                         plot_labels=split_list(titles,ncol) if titles is not None else None,
                       padding=0.05, fontsize=fontsize, 
-                      fontcolor='w',
+                      fontcolor=fontcolor,
                       facecolor=[0]*4, fig_scale=figsize*ncol, dpi=dpi)
     
 def truncate_colormap(cmap, minval=0.0, maxval=1.0, n=100):
@@ -870,3 +879,69 @@ def get_aspect(ax):
     data_ratio = sub(*ax.get_ylim()) / sub(*ax.get_xlim())
 
     return disp_ratio / data_ratio
+    
+from .utils import kernel_setup, get_neighbors
+from .core import boundary_to_masks, masks_to_affinity, get_contour
+import matplotlib.patches as mpatches
+import matplotlib.path as mpath
+from skimage.segmentation import find_boundaries
+from scipy.interpolate import splprep, splev
+from matplotlib.collections import PatchCollection
+
+def vector_contours(fig,ax,mask, smooth_factor=5, color = 'r', linewidth=1):
+    pad = 1
+    msk = np.pad(mask,pad,mode='constant')
+
+
+    # set up dimensions
+    dim = msk.ndim
+    shape = msk.shape
+    steps,inds,idx,fact,sign = kernel_setup(dim)
+
+    # remove spur points - this method is way easier than running core._despur() on the priginal affinity graph
+    bd = find_boundaries(msk,mode='inner',connectivity=2)
+    msk, bounds, _ = boundary_to_masks(bd,binary_mask=msk>0,connectivity=1) 
+
+    # generate affinity graph
+    coords = np.nonzero(msk)
+    affinity_graph =  masks_to_affinity(msk, coords, steps, inds, idx, fact, sign, dim)
+    neighbors = get_neighbors(tuple(coords),steps,dim,shape) # shape (d,3**d,npix)
+
+    # find contours 
+    contour_map, contour_list, unique_L = get_contour(msk,
+                                                    affinity_graph,
+                                                    coords,
+                                                    neighbors,
+                                                    cardinal_only=1)
+
+    # List to hold patches
+    patches = []
+    for contour in contour_list:
+        if len(contour) > 1:
+            pts = np.stack([c[contour] for c in coords]).T
+            tck, u = splprep(pts.T, u=None, s=len(pts)/smooth_factor, per=1) 
+            u_new = np.linspace(u.min(), u.max(), len(pts))
+            x_new, y_new = splev(u_new, tck, der=0) 
+
+            # Define the points of the polygon
+            points = np.column_stack([y_new-pad, x_new-pad])
+            
+            # Create a Path from the points
+            path = mpath.Path(points, closed=True)
+            
+            # Create a PathPatch from the Path
+            patch = mpatches.PathPatch(path, fill=None, edgecolor=color, 
+                                    #    linewidth= fig.dpi/72, 
+                                        linewidth=linewidth,
+                                       capstyle='round')
+            
+            # ax.add_patch(patch)
+            
+            # Add patch to list
+            patches.append(patch)
+
+    # Create a PatchCollection from the list of patches
+    patch_collection = PatchCollection(patches, match_original=True)
+    
+    # Add the PatchCollection to the axis
+    ax.add_collection(patch_collection)
