@@ -7,6 +7,73 @@ import subprocess
 from skimage.morphology import skeletonize
 from scipy.interpolate import splprep, splev
 
+import cv2
+import edt
+import torch
+
+def argmin_cdist(X, labels):
+    # Get unique labels and determine the boundaries where each label starts and ends
+    unique_labels, label_starts = torch.unique_consecutive(labels, return_inverse=False, return_counts=True)
+    label_ends = torch.cumsum(label_starts, dim=0)
+    label_starts = label_ends - label_starts
+
+    # Prepare a list to store the indices of the minimum summed distances
+    argmin_indices = []
+    summed_distances_all = torch.full((len(X),), float('nan'), device=X.device)
+    
+    for i, label in enumerate(unique_labels):
+        # Use the precomputed start and end indices
+        start_idx = label_starts[i]
+        end_idx = label_ends[i]
+        label_indices = torch.arange(start_idx, end_idx, device=X.device)
+        
+        # Extract the relevant coordinates
+        X_label = X[label_indices]
+        
+        if X_label.ndim > 1:  # Only compute if there is more than one point
+            # Compute pairwise distances using cdist
+            distances = torch.cdist(X_label, X_label)
+            
+            # Sum the distances for each point within the block
+            summed_distances = torch.nansum(distances, dim=1)
+            
+            # Store the summed distances for all entries
+            summed_distances_all[label_indices] = summed_distances
+            
+            # Find the index of the minimum summed distance within the block
+            argmin_index_in_block = torch.argmin(summed_distances)
+            
+            # Map this index back to the original index in the contact map
+            argmin_indices.append(label_indices[argmin_index_in_block])
+    
+    return torch.tensor(argmin_indices, device=X.device), summed_distances_all
+
+def get_medoids(labels):
+
+    # need to remove boundary for skeleton to work on binary image
+    dt = edt.edt(labels)
+    inner = dt>1
+    
+    # need to pad for edges to be treated properly with cv2 function
+    pad = 1
+    padded_image = np.pad(inner,pad).astype(np.uint8)*255
+    skel = cv2.ximgproc.thinning(padded_image,
+                                 thinningType=cv2.ximgproc.THINNING_GUOHALL)[pad:-pad,pad:-pad].astype(bool)
+
+    masks = labels*skel
+    
+    coords = np.argwhere(masks>0)
+    labels = masks[tuple(coords.T)]
+    sort = np.argsort(labels)
+    sort_coords = coords[sort]
+    sort_labels = labels[sort]
+    
+    inds, dists = argmin_cdist(torch.tensor(sort_coords).float(),torch.tensor(sort_labels).float())
+    medoids = sort_coords[inds]
+    if medoids.ndim==1:
+        medoids = medoids[None]
+    return medoids
+
 
 def project_to_skeletons(images,labels,augmented_affinity, device, interp, 
                          use_gpu, omni, reference, interp_skel=0, n_step=None,log=True):
@@ -1112,7 +1179,8 @@ def explore_object(obj):
 from scipy.ndimage import uniform_filter
 def find_highest_density_box(label_matrix, box_size, mode='constant'):
     if box_size == -1:
-        return tuple([slice(None)]*label_matrix.ndim)
+        # return tuple([slice(None)]*label_matrix.ndim)
+        return tuple([slice(0,s) for s in label_matrix.shape])
     else:
         # Compute the cell density for each box in the image
         cell_density = uniform_filter((label_matrix > 0).astype(float), size=box_size, mode=mode)

@@ -4,6 +4,7 @@ from .color import sinebow
 import matplotlib as mpl
 from matplotlib.figure import Figure
 from matplotlib.backends.backend_agg import FigureCanvasAgg as FigureCanvas
+import matplotlib.pyplot as plt
 
 import types
 
@@ -16,6 +17,7 @@ from skimage import img_as_ubyte
 
 def figure(nrow=None, ncol=None, **kwargs):
     fig = Figure(**kwargs)
+    # fig = plt.figure(**kwargs)
     if nrow is not None and ncol is not None:
         axs = []
         for i in range(nrow * ncol):
@@ -211,9 +213,11 @@ def colorize_GPU(im, colors=None, color_weights=None, offset=0, channel_axis=-1)
 
     return rgb
     
-def apply_ncolor(masks,offset=0,cmap=None,max_depth=20,expand=True):
+def apply_ncolor(masks,offset=0,cmap=None,max_depth=20,expand=True, maxv=1):
 
     import ncolor
+    from cmap import Colormap
+    cmap = Colormap(cmap) if isinstance(cmap, str) else cmap
 
     m,n = ncolor.label(masks,
                        max_depth=max_depth,
@@ -226,7 +230,7 @@ def apply_ncolor(masks,offset=0,cmap=None,max_depth=20,expand=True):
         cmap = mpl.colors.ListedColormap(colors)
         return cmap(m)
     else:
-        return cmap(rescale(m))
+        return cmap(rescale(m)/maxv)
 
 
 def imshow(imgs, figsize=2, ax=None, hold=False, titles=None, title_size=8, spacing=0.05, 
@@ -587,6 +591,9 @@ def image_grid(images, column_titles=None, row_titles=None,
                 for s in ax.spines.values():
                     s.set_color(outline_color)
                     s.set_linewidth(outline_width)
+            else:
+                for s in ax.spines.values():
+                    s.set_visible(False)
 
             if plot_labels is not None and plot_labels[j][k] is not None:
                 coords = label_positions[lpos]['coords']

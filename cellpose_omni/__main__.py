@@ -303,7 +303,7 @@ def main(args):
                                 anisotropy=args.anisotropy,
                                 verbose=args.verbose,
                                 min_size=args.min_size,
-                                max_size=args.max_size,
+                                max_size=args.T,
                                 transparency=args.transparency, # RGB flows made in the eval step
                                 model_loaded=True)
                 masks, flows = out[:2]

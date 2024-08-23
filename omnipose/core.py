@@ -3212,7 +3212,8 @@ def get_contour(labels,affinity_graph,coords=None,neighbors=None,cardinal_only=T
     labs = labels[coords]
     unique_L = fastremap.unique(labs)
 
-    np.argmin(csum)
+    # np.argmin(csum)
+    # print('ff',len(fastremap.unique(labels)))
     
     contours = parametrize_contours(steps,np.int32(labs),np.int32(unique_L),neigh_inds,step_ok, csum)
     

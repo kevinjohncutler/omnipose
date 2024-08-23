@@ -148,13 +148,13 @@ Pyenv versus Conda
 
 Pyenv also works great for creating an environment for installing
 Omnipose (and it also works a lot better for installing Napari alongside
-it, in my experience). Simply set your global version anywhere from
+it, in my experience - use `pip install "napari[pyqt6]"`` to ensure no Qt conflicts). 
+Simply set your global version anywhere from
 3.8.5-3.10.11 and run ``pip install omnipose``. I've had no problems
 with GPU compatibility with this method on Linux, as pip collects all
-the required packages. Conda is much more reproducible, but often
-finicky. You can use pyenv on Windows and macOS too, but you will need a
-conda environment for Apple Silicon GPU support (PyPi still lacks many
-package versions built for Apple Silicon).
+the required packages. Conda is technically more reproducible, but often
+finicky. You can use pyenv on Windows and macOS too, and as of mid 2024, 
+it works perfectly on Apple Silicon (better than conda!).
 
 .. _pyenv_stop:
 

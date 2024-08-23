@@ -146,16 +146,28 @@ def imread(filename):
 
 
 def imwrite(filename, arr, **kwargs):
-    ext = os.path.splitext(filename)[-1]
-    if ext== '.tif' or ext=='tiff':
+    ext = os.path.splitext(filename)[-1].lower()
+    if ext in ['.tif', '.tiff']:
         tifffile.imwrite(filename, arr, **kwargs)
-    elif ext=='.npy':    
+    elif ext == '.npy':
         np.save(filename, arr, **kwargs)
     else:
-        if len(arr.shape)>2:
+        # Handle PNG compression via kwargs
+        compression = kwargs.pop('compression', 9)
+        quality = kwargs.pop('quality', 95)
+        
+        if ext == '.png':
+            compression_params = [cv2.IMWRITE_PNG_COMPRESSION, compression]
+        elif ext == '.jpg' or ext == '.jpeg' or ext == '.jp2':
+            compression_params = [cv2.IMWRITE_JPEG_QUALITY, quality]
+        else:
+            compression_params = []
+
+        if len(arr.shape) > 2:# and ext != '.png':
             arr = cv2.cvtColor(arr, cv2.COLOR_BGR2RGB)
-        cv2.imwrite(filename, arr, **kwargs)
-#         skimage.io.imwrite(filename, arr.astype()) #cv2 doesn't handle transparency
+            
+        cv2.imwrite(filename, arr, compression_params + list(kwargs.items()))
+        
 
 def imsave(filename, arr):
     io_logger.warning('WARNING: imsave is deprecated, use io.imwrite instead')
@@ -622,7 +634,7 @@ def save_masks(images, masks, flows, file_names, png=True, tif=False,
         imgout = plot.outline_view(img0,masks,color=outline_col, 
                                    channel_axis=channel_axis, 
                                    channels=channels)
-        imwrite(os.path.join(outlinedir, basename + '_outlines' + suffix + '.png'),  imgout)
+        imwrite(os.path.join(outlinedir, basename + '_outlines' + suffix + '.jpeg'),  imgout)
     
     # ncolor labels (ready for color map application)
     if masks.ndim < 3 and OMNI_INSTALLED and save_ncolor:
@@ -747,5 +759,4 @@ def adjust_file_path(file_path):
         adjusted_path = re.sub(r'^/Volumes', home_dir, file_path)
     else:
         raise ValueError(f"Unsupported operating system: {system}")
-    print(system, adjusted_path)
     return adjusted_path

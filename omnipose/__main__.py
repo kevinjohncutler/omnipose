@@ -2,6 +2,7 @@ from . import gpu # initialize torch
 from cellpose_omni.__main__ import main as cellpose_omni_main
 from .cli import get_arg_parser
 import traceback
+import sys
 
 parser = get_arg_parser()
 
