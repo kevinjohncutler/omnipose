@@ -443,10 +443,10 @@ def masks_to_flows_batch(batch, links=[None], device=torch.device('cpu'),
     # calculate affinity graph for the entire concatenated stack
     steps, inds, idx, fact, sign = utils.kernel_setup(dim)
     shape = batch[0].shape
-    # edges = [np.array([-1]+[i*dL for i in range(1,nsample+1)])]+[np.array([-1,s]) for s in shape[1:]]
-    # edges = [np.array([i*dL for i in range(nsample+1)])]+[np.array([0,s]) for s in shape[1:]]
-#     edges = [np.concatenate([[-1]]+[[i*dL,i*dL-1] for i in range(1,nsample)]+[[dL*nsample]])]+[np.array([-1,s]) for s in shape[1:]]
-    edges = [np.concatenate([[i*dL,i*dL-1] for i in range(0,nsample+1)])]+[np.array([-1,s]) for s in shape[1:]]
+    # edges = [np.concatenate([[i*dL,i*dL-1] for i in range(0,nsample+1)])]+[np.array([-1,0,s-1,s]) for s in shape[1:]]
+    edges = [np.concatenate([[i*dL-1,i*dL] for i in range(0,nsample+1)])]+[np.array([-1,s]) for s in shape[1:]]
+    
+    # print('s',clabels.shape,[c.max() for c in ccoords])
 
     affinity_graph = masks_to_affinity(clabels, ccoords, steps, inds, idx, fact, sign, dim, 
                                        links=clinks, edges=edges)#, dists=cdists)
@@ -462,7 +462,8 @@ def masks_to_flows_batch(batch, links=[None], device=torch.device('cpu'),
                                  edges=edges, verbose=verbose)
 
     slices = [tuple([slice(i*dL,(i+1)*dL)]+[slice(None,None)]*(dim-1)) for i in range(nsample)]
-    return torch.tensor(clabels.astype(int),device=device), torch.tensor(boundaries,device=device), T, mu, slices, clinks, ccoords
+    print('remove or update pass of affinity graph)')
+    return torch.tensor(clabels.astype(int),device=device), torch.tensor(boundaries,device=device), T, mu, slices, clinks, ccoords, affinity_graph
 
 # from numba import jit
 # def concatenate_labels(masks,links,nsample):
@@ -2301,7 +2302,8 @@ def random_crop_warp(img, Y, tyx, v1, v2, nchan, rescale, scale_range, gamma_ran
         # ds = scale_range/2
         # scale = np.random.uniform(low=1-ds,high=1+ds,size=dim) #anisotropic scaling 
         # scale = np.random.uniform(low=1/scale_range,high=scale_range,size=dim) #anisotropic scaling 
-        scale = np.random.triangular(left=1/scale_range, mode=1, right=scale_range, size=dim) # weight to 1
+        eps = 1e-8
+        scale = np.random.triangular(left=1/(scale_range+eps), mode=1, right=scale_range+eps, size=dim) # weight to 1
         # I need to make sure the scaling does not apply to time dimension...
         if rescale is not None:
             scale *= 1. / rescale
@@ -2970,6 +2972,7 @@ def fill_holes_and_remove_small_masks(masks, min_size=None, max_size=None, hole_
 
 def get_boundary(mu,mask,bd=None,affinity_graph=None,contour=False,use_gpu=False,device=None,desprue=False):
     """One way to get boundaries by considering flow dot products. Will be deprecated."""
+    
     d = mu.shape[0]
     pad = 1
     pad_seq = [(0,)*2]+[(pad,)*2]*d

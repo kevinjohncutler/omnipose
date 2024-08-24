@@ -46,7 +46,7 @@ def plot_edges(shape,affinity_graph,neighbors,coords,
     from .utils import get_neigh_inds 
     from matplotlib.collections import LineCollection
     
-
+    print('adjust this to make edges appear even on edges or when target is 0')
     nstep,npix = affinity_graph.shape 
     coords = tuple(coords)
     indexes, neigh_inds, ind_matrix = get_neigh_inds(tuple(neighbors),coords,shape)

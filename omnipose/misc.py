@@ -4,7 +4,6 @@ import subprocess
 
 # a bunch of development functions 
 
-from skimage.morphology import skeletonize
 from scipy.interpolate import splprep, splev
 
 import cv2
@@ -51,14 +50,8 @@ def argmin_cdist(X, labels):
 def get_medoids(labels):
 
     # need to remove boundary for skeleton to work on binary image
-    dt = edt.edt(labels)
-    inner = dt>1
     
-    # need to pad for edges to be treated properly with cv2 function
-    pad = 1
-    padded_image = np.pad(inner,pad).astype(np.uint8)*255
-    skel = cv2.ximgproc.thinning(padded_image,
-                                 thinningType=cv2.ximgproc.THINNING_GUOHALL)[pad:-pad,pad:-pad].astype(bool)
+    skel = skeletonize(labels)
 
     masks = labels*skel
     
@@ -73,6 +66,7 @@ def get_medoids(labels):
     if medoids.ndim==1:
         medoids = medoids[None]
     return medoids
+
 
 
 def project_to_skeletons(images,labels,augmented_affinity, device, interp, 
@@ -116,8 +110,10 @@ def project_to_skeletons(images,labels,augmented_affinity, device, interp,
         
 
     # get the skeletons
-    inner = dt>2
-    skel = skeletonize(inner, method='lee')
+    # inner = dt>2
+    # skel = skeletonize(inner, method='lee')
+    skel = skeletonize(labels, dt_thresh=2, dt=dt)
+    
 
     # label skeletons and compute affinity for parametrization
     skel_labels = (skel>0)*labels    
@@ -494,10 +490,11 @@ from skimage.feature import peak_local_max, corner_peaks
 from omnipose.utils import rescale
 from scipy.ndimage import center_of_mass, binary_erosion, binary_dilation
 from skimage import measure
-from skimage.morphology import skeletonize, medial_axis
 
 def overseg_seeds(msk, bd, mu, T, ks=1.5, 
                   rskel=True,extra_peaks=None):
+    from skimage.morphology import skeletonize, medial_axis
+
     skel = skeletonize(np.logical_xor(msk,bd))
     
     # div = divergence(mu.unsqueeze(0)).squeeze().cpu().numpy()

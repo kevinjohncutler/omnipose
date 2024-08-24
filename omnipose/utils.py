@@ -852,20 +852,93 @@ def is_integer(var):
     return isinstance(var, int) or isinstance(var, np.integer) or (isinstance(var, torch.Tensor) and var.is_integer())
 
 
-def get_boundary(mask):
-    """ND binary mask boundary using mahotas.
+# def get_boundary(mask):
+#     """ND binary mask boundary using mahotas.
     
-    Parameters
-    ----------
-    mask: ND array, bool
-        binary mask
+#     Parameters
+#     ----------
+#     mask: ND array, bool
+#         binary mask
     
-    Returns
-    --------------
-    Binary boundary map
+#     Returns
+#     --------------
+#     Binary boundary map
     
+#     """
+#     return np.logical_xor(mask,mh.morph.erode(mask))
+
+import cv2
+def skeletonize(labels, dt_thresh=1, dt=None):
+    # if dt is None:
+    #     dt = edt.edt(labels)
+    
+    # inner = dt>dt_thresh
+    
+    bd = find_boundaries(labels,connectivity=2)
+    inner = np.logical_xor(labels,bd)
+    
+    # need to pad for edges to be treated properly with cv2 function
+    pad = 1
+    padded_image = np.pad(inner,pad).astype(np.uint8)*255
+    skel = cv2.ximgproc.thinning(padded_image,
+                                # thinningType=cv2.ximgproc.THINNING_GUOHALL)[pad:-pad,pad:-pad].astype(bool)
+                                thinningType=cv2.ximgproc.THINNING_ZHANGSUEN)[pad:-pad,pad:-pad].astype(bool)
+
+    return skel*labels
+    
+
+
+def find_boundaries(labels, connectivity=1, use_symmetry=False):
     """
-    return np.logical_xor(mask,mh.morph.erode(mask))
+    Compute boundaries of labeled instances in an N-dimensional array.
+    Replicates the behavior of skimage.segmentation.find_boundaries with mode='inner', but is much faster. 
+    
+    Decreasing the steps by leveraging symmetry seems not to matter, as we still end up with two logical operations 
+    and two updates to the boundary matrix. Keeping for further testing. 
+    """
+    boundaries = np.zeros_like(labels, dtype=bool)
+    ndim = labels.ndim
+    shape = labels.shape
+
+    # Generate all possible shifts based on connectivity
+    steps, inds, idx, fact, sign = kernel_setup(ndim)
+    
+    if use_symmetry:
+        allowed_inds = []
+        for i in range(1,1+connectivity):
+            j = inds[i][:len(inds[i]) // 2]
+            allowed_inds.append(j)
+        
+        allowed_inds = np.concatenate(allowed_inds)
+    else:
+        allowed_inds = np.concatenate(inds[1:1+connectivity])
+    
+    
+    shifts = steps[allowed_inds]
+  
+    if use_symmetry:
+        # Process each shift
+        for shift in shifts:
+            slices_main = tuple(slice(max(-s, 0), min(shape[d] - s, shape[d])) for d, s in enumerate(shift))
+            slices_shifted = tuple(slice(max(s, 0), min(shape[d] + s, shape[d])) for d, s in enumerate(shift))
+
+            # Detect boundaries using symmetric property
+            boundary_main = (labels[slices_main] != labels[slices_shifted]) & (labels[slices_main] != 0)
+            boundary_shifted = (labels[slices_shifted] != labels[slices_main]) & (labels[slices_shifted] != 0)
+            
+            # Apply boundary detection symmetrically
+            boundaries[slices_main] |= boundary_main
+            boundaries[slices_shifted] |= boundary_shifted
+    else:
+        # Process each shift
+        for shift in shifts:
+            slices_main = tuple(slice(max(-s, 0), min(shape[d] - s, shape[d])) for d, s in enumerate(shift))
+            slices_shifted = tuple(slice(max(s, 0), min(shape[d] + s, shape[d])) for d, s in enumerate(shift))
+
+            # Detect boundaries in the valid region defined by the slices
+            boundaries[slices_main] |= (labels[slices_main] != labels[slices_shifted]) & (labels[slices_main] != 0)
+
+    return boundaries.astype(np.uint8)
 
 # Omnipose version of remove_edge_masks, need to merge (this one is more flexible)
 def clean_boundary(labels, boundary_thickness=3, area_thresh=30, cutoff=0.5):
@@ -1002,33 +1075,78 @@ def border_indices(tyx):
 
 
 # slightly faster than the jit code!
+# def get_neighbors(coords, steps, dim, shape, edges=None, pad=0):
+#     """
+#     Get the coordinates of all neighbor pixels. 
+#     Coordinates of pixels that are out-of-bounds get clipped. 
+#     """
+#     if edges is None:
+#         edges = [np.array([-1+pad,s-pad]) for s in shape]
+        
+#     # print('edges',edges,'\n')
+        
+#     npix = coords[0].shape[-1]
+#     neighbors = np.empty((dim, len(steps), npix), dtype=np.int64)
+    
+#     for d in range(dim):        
+#         S = steps[:,d].reshape(-1, 1)
+#         X = coords[d] + S
+#         # mask = np.logical_and(np.isin(X, edges[d]), ~np.isin(X+S, edges[d]))
+
+#         # out of bounds is where the shifted coordinate X is in the edges list
+#         # that second criterion might have been for my batched stuff 
+#         oob = np.logical_and(np.isin(X, edges[d]), ~np.isin(X+S, edges[d]))
+#         # above check was compeltelty necessary for batched 
+#         # print('debug before release, there is probably a way to map into bool array to filter edge connections')
+        
+#         # oob = np.isin(X, edges[d])
+#         # print('checkme f', pad,np.sum(oob))
+
+#         C = np.broadcast_to(coords[d], X.shape)
+#         neighbors[d] = np.where(oob, C, X)
+#         # neighbors[d] = X
+
+#     return neighbors
+
+
+
+# 2x as fast as the above 
 def get_neighbors(coords, steps, dim, shape, edges=None, pad=0):
     """
-    Get the coordinates of all neighbor pixels. 
-    Coordinates of pixels that are out-of-bounds get clipped. 
+    Get the coordinates of all neighbor pixels.
+    Coordinates of pixels that are out-of-bounds get clipped.
     """
     if edges is None:
-        edges = [np.array([-1+pad,s-pad]) for s in shape]
-        
+        edges = [np.array([-1+pad, s-pad]) for s in shape]
+
     npix = coords[0].shape[-1]
     neighbors = np.empty((dim, len(steps), npix), dtype=np.int64)
-    
-    for d in range(dim):        
-        S = steps[:,d].reshape(-1, 1)
-        X = coords[d] + S
-        # mask = np.logical_and(np.isin(X, edges[d]), ~np.isin(X+S, edges[d]))
 
-        # out of bounds is where the shifted coordinate X is in the edges list
-        # that second criterion might have been for my batched stuff 
-        # oob = np.logical_and(np.isin(X, edges[d]), ~np.isin(X+S, edges[d]))
-        oob = np.isin(X, edges[d])
-        # print('checkme f', pad,np.sum(oob))
+    # Create edge masks for each dimension
+    edge_masks = []
+    for d in range(dim):
+        mask = np.zeros(shape[d], dtype=bool)
+        valid_edges = edges[d][(edges[d] >= 0) & (edges[d] < shape[d])]
+        mask[valid_edges] = True
+        edge_masks.append(mask)
+
+    for d in range(dim):
+        S = steps[:, d].reshape(-1, 1)
+        X = coords[d] + S
+
+        # Ensure that both X and X + S do not exceed the bounds
+        X_clipped = np.clip(X, 0, shape[d] - 1)
+        X_shifted_clipped = np.clip(X + S, 0, shape[d] - 1)
+
+        # Use the edge mask to determine out-of-bounds coordinates
+        current_mask = edge_masks[d]
+        oob = np.logical_and(current_mask[X_clipped], ~current_mask[X_shifted_clipped])
 
         C = np.broadcast_to(coords[d], X.shape)
-        neighbors[d] = np.where(oob, C, X)
-        # neighbors[d] = X
+        neighbors[d] = np.where(oob, C, X_clipped)
 
     return neighbors
+
     
 def get_neighbors_torch(input, steps):
     """This version not yet used/tested."""
@@ -1199,6 +1317,10 @@ def get_steps(dim):
     """
     neigh = [[-1,0,1] for i in range(dim)]
     steps = cartesian(neigh) # all the possible step sequences in ND
+    
+    # a new function I learned about, np.ndindex, could be used here instead, 
+    # np.stack([s for s in np.ndindex(*(3,) * ndim)])-1, 
+    # but it runs in microseconds rather than nanoseconds... 
     return steps
 
 # @functools.lru_cache(maxsize=None)

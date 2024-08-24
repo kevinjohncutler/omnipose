@@ -482,10 +482,11 @@ class train_set(torch.utils.data.Dataset):
                                    omni=self.omni,
                                    dim=self.dim,
                                    affinity_field=self.affinity_field
-                                  )[:-2]
+                                  )
 
-        X = out[:-1]
-        slices = out[-1]
+        X = out[:-4]
+        slices = out[-4]
+        affinity_graph = out[-1]
         masks,bd,T,mu = [torch.stack([x[(Ellipsis,)+slc] for slc in slices]) for x in X]
         lbl = batch_labels(masks,
                            bd,
