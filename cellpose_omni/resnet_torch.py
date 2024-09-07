@@ -12,6 +12,7 @@ import torch.utils.checkpoint as cp
 
 from . import transforms, io, dynamics, utils
 
+
 # I wanted to try out an ND implementation, so this is just for testing 
 CONVND = False
 # CONVND = True
@@ -322,7 +323,7 @@ class CPnet(nn.Module):
                           self.checkpoint,
                           self.do_dropout,
                           self.kernel_size)
-            state_dict = torch.load(filename, map_location=torch_CPU)
+            state_dict = torch.load(filename, map_location=torch_CPU, weights_only=True)
             # print('ggg',state_dict)
             try:
 #                 from collections import OrderedDict

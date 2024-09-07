@@ -542,7 +542,7 @@ class CellposeModel(UnetModel):
     def eval(self, x, batch_size=8, indices=None, channels=None, channel_axis=None, 
              z_axis=None, normalize=True, invert=False, 
              rescale=None, diameter=None, do_3D=False, anisotropy=None, net_avg=True, 
-             augment=False, tile=True, tile_overlap=0.1, bsize=224, num_workers=8,
+             augment=False, tile=False, tile_overlap=0.1, bsize=224, num_workers=8,
              resample=True, interp=True, cluster=False, suppress=None, 
              boundary_seg=False, affinity_seg=False, despur=True,
              flow_threshold=0.4, mask_threshold=0.0, diam_threshold=12., niter=None,
@@ -1201,7 +1201,7 @@ class CellposeModel(UnetModel):
 
     def _run_cp(self, x, compute_masks=True, normalize=True, invert=False,
                 rescale=1.0, net_avg=True, resample=True,
-                augment=False, tile=True, tile_overlap=0.1, bsize=224,
+                augment=False, tile=False, tile_overlap=0.1, bsize=224,
                 mask_threshold=0.0, diam_threshold=12., flow_threshold=0.4, niter=None, flow_factor=5.0, 
                 min_size=15, max_size=None,
                 interp=True, cluster=False, suppress=None, boundary_seg=False, affinity_seg=False, despur=True,
@@ -1217,7 +1217,7 @@ class CellposeModel(UnetModel):
         # note that this is not the same padding as what you need for the network to run 
         pad_seq = [(pad,)*2]*self.dim + [(0,)*2] # do not pad channel axis 
         unpad = tuple([slice(pad,-pad) if pad else slice(None,None)]*self.dim) # works in case pad is zero
-        
+                
         if do_3D:
             img = np.asarray(x)
             if normalize or invert: # possibly make normalize a vector of upper-lower values  
@@ -1686,7 +1686,7 @@ class SizeModel():
             raise ValueError(error_message)
         
     def eval(self, x, channels=None, channel_axis=None, 
-             normalize=True, invert=False, augment=False, tile=True,
+             normalize=True, invert=False, augment=False, tile=False,
              batch_size=8, progress=None, interp=True, omni=False):
         """ Evaluation for SizeModel. Use images x to produce style or use style input to predict size of objects in image.
 

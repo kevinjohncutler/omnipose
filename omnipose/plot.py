@@ -15,6 +15,44 @@ from mpl_toolkits.axes_grid1 import ImageGrid
 
 from skimage import img_as_ubyte
 
+
+def setup():
+    # make them global so they can be used outside the function
+    global mpl, plt, widgets, display 
+
+    # Import necessary libraries
+    import matplotlib as mpl
+    import matplotlib.pyplot as plt
+    import ipywidgets as widgets
+    from IPython.display import display
+
+    # Set matplotlib inline for Jupyter notebooks
+    try:
+        get_ipython().run_line_magic('matplotlib', 'inline')
+    except NameError:
+        pass  # This means we are not in an IPython environment
+    
+    # Define rc_params
+    rc_params = {
+        'figure.dpi': 300,
+        'image.cmap': 'gray',
+        'image.interpolation': 'nearest',
+        'figure.frameon': False,
+        'axes.grid': False,
+        'axes.facecolor': 'none',      # Transparent axes
+        'figure.facecolor': 'none',    # Transparent figure background
+        'savefig.facecolor': 'none',   # Transparent save background
+        'text.color': 'gray',          # Gray text for flexibility
+        'axes.labelcolor': 'gray',
+        'xtick.color': 'gray',
+        'ytick.color': 'gray',
+        'axes.edgecolor': 'gray'
+    }
+
+    # Update rcParams
+    mpl.rcParams.update(rc_params)
+    
+
 def figure(nrow=None, ncol=None, **kwargs):
     fig = Figure(**kwargs)
     # fig = plt.figure(**kwargs)

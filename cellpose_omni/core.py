@@ -31,16 +31,14 @@ from omnipose.gpu import use_gpu
 MXNET_ENABLED = False
 
 
-try:
-    import torch
-    from torch.amp import autocast, GradScaler
-    from torch import nn
-    from torch.utils import mkldnn as mkldnn_utils
-    TORCH_ENABLED = True
-    from .resnet_torch import torch_GPU, torch_CPU, CPnet, ARM, empty_cache
-except Exception as e:
-    TORCH_ENABLED = False
-    print('core.py torch import error',e)
+import torch
+from torch.amp import autocast, GradScaler
+from torch import nn
+from torch.utils import mkldnn as mkldnn_utils
+from .resnet_torch import torch_GPU, torch_CPU, CPnet, ARM, empty_cache
+# torch.serialization.add_safe_globals(CPnet)
+
+
 
 core_logger = logging.getLogger(__name__)
 tqdm_out = utils.TqdmToLogger(core_logger, level=logging.INFO)
@@ -63,18 +61,18 @@ def parse_model_string(pretrained_model):
     concatenation = ostrs[2]=='on'
     return residual_on, style_on, concatenation
 
-
-def assign_device(use_torch=True, gpu=False, device=0):
-    if gpu and use_gpu(use_torch=True):
-        # device = torch.device(f'cuda:{device}')
-        device = torch_GPU
-        gpu = True
-        core_logger.info('>>>> using GPU')
-    else:
+def assign_device(gpu=True, gpu_number=None):
+    device, gpu_available = use_gpu(gpu_number)
+    if gpu and gpu_available:
+        core_logger.info('Using GPU.')
+    elif gpu and not gpu_available:
+        core_logger.info('No GPU available or pytorch not configured, using CPU.')
         device = torch_CPU
-        core_logger.info('>>>> using CPU')
-        gpu=False
-    return device, gpu
+    else:
+        core_logger.info('Using CPU.')
+        device = torch_CPU
+    return device, gpu_available
+    
 
 def check_mkl(use_torch=True):
     #core_logger.info('Running test snippet to check if MKL-DNN working')
@@ -109,22 +107,17 @@ class UnetModel():
                  checkpoint=False, dropout=False, kernel_size=2):
         self.nsample = nsample
         self.unet = True
-        if use_torch:
-            if not TORCH_ENABLED:
-                use_torch = False
+                
         self.torch = use_torch
         self.mkldnn = None
-        if device is None:
-            sdevice, gpu = assign_device(torch, gpu)
-        self.device = device if device is not None else sdevice
+        
+        # assign GPU
         if device is not None:
-            if use_torch:
-                # device_gpu = self.device.type=='cuda'
-                device_gpu = self.device.type=='mps' if ARM else self.device.type=='cuda'
-                
-            else:
-                device_gpu = self.device.device_type=='gpu'
-        self.gpu = gpu if device is None else device_gpu
+            self.device = device
+            self.gpu = self.device.type=='mps' if ARM else self.device.type=='cuda'
+        else:
+            self.device, self.gpu = assign_device(gpu)
+        
         if use_torch and not self.gpu:
             self.mkldnn = check_mkl(self.torch)
         self.pretrained_model = pretrained_model
@@ -181,7 +174,7 @@ class UnetModel():
 
     def eval(self, x, batch_size=8, channels=None, channels_last=False, invert=False, normalize=True,
              rescale=None, do_3D=False, anisotropy=None, net_avg=True, augment=False,
-             tile=True, cell_threshold=None, boundary_threshold=None, min_size=15):
+             tile=False, cell_threshold=None, boundary_threshold=None, min_size=15):
         """ segment list of images x
 
             Parameters
@@ -370,7 +363,7 @@ class UnetModel():
         
         return y, style
                 
-    def _run_nets(self, img, net_avg=True, augment=False, tile=True, tile_overlap=0.1, bsize=224, 
+    def _run_nets(self, img, net_avg=True, augment=False, tile=False, tile_overlap=0.1, bsize=224, 
                   return_conv=False, progress=None):
         """ run network (if more than one, loop over networks and average results
 

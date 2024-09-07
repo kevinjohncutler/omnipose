@@ -100,11 +100,7 @@ def main(args):
             logger, log_file = logger_setup(args.verbose)
             print('log file',log_file)
         else:
-            print('!NEW LOGGING SETUP! To see cellpose progress, set --verbose')
-            print('No --verbose => no progress or info printed')
             logger = logging.getLogger(__name__)
-
-        use_gpu = False
 
         # find images
         if len(args.img_filter)>0:
@@ -121,9 +117,10 @@ def main(args):
                 confirm = confirm_prompt('Proceed Anyway?')
                 if not confirm:
                     exit()
-                    
-        device, gpu = models.assign_device((not args.mxnet), args.use_gpu)
         
+
+        device, gpu_available = models.assign_device(args.use_gpu, args.gpu_number)
+                
         #define available model names, right now we have three broad categories 
         builtin_model = np.any([args.pretrained_model==s for s in MODEL_NAMES])
         cellpose_model = np.any([args.pretrained_model==s for s in CP_MODELS])
@@ -230,12 +227,12 @@ def main(args):
                         logger.warning('omnipose models not available in mxnet, using pytorch')
                         args.mxnet = False
                 if cellpose_model: # ones with a size model, also never true 3d etc.                 
-                    model = models.Cellpose(gpu=gpu, device=device, model_type=args.pretrained_model, 
+                    model = models.Cellpose(gpu=args.use_gpu, device=device, model_type=args.pretrained_model, 
                                             use_torch=(not args.mxnet), omni=args.omni, 
                                             net_avg=(not args.fast_mode and not args.no_net_avg))
                 else:
                     cpmodel_path = models.model_path(args.pretrained_model, 0, True)
-                    model = models.CellposeModel(gpu=gpu, device=device, 
+                    model = models.CellposeModel(gpu=args.use_gpu, device=device, 
                                                  pretrained_model=cpmodel_path,
                                                  use_torch=True,
                                                  nclasses=args.nclasses,
@@ -248,7 +245,7 @@ def main(args):
             else:
                 if args.all_channels:
                     channels = None  
-                model = models.CellposeModel(gpu=gpu, device=device, 
+                model = models.CellposeModel(gpu=args.use_gpu, device=device, 
                                              pretrained_model=cpmodel_path,
                                              use_torch=True,
                                              nclasses=args.nclasses, 
@@ -303,7 +300,7 @@ def main(args):
                                 anisotropy=args.anisotropy,
                                 verbose=args.verbose,
                                 min_size=args.min_size,
-                                max_size=args.T,
+                                max_size=args.max_size,
                                 transparency=args.transparency, # RGB flows made in the eval step
                                 model_loaded=True)
                 masks, flows = out[:2]
@@ -423,8 +420,8 @@ def main(args):
                                         nchan=args.nchan)
             else:
                 model = models.CellposeModel(device=device,
-                                             gpu=gpu, # why was this not being passed in before?
-                                             use_torch=(not args.mxnet),
+                                             gpu=args.use_gpu, # why was this not being passed in before?
+                                            #  use_torch=(not args.mxnet),
                                              pretrained_model=cpmodel_path,
                                              diam_mean=szmean,
                                              residual_on=args.residual_on,

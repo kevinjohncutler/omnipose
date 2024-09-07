@@ -43,14 +43,15 @@ def use_gpu(gpu_number=0, use_torch=True):
 
 def _use_gpu_torch(gpu_number=0):
     try:
-        # device = torch.device('cuda:' + str(gpu_number))
+        if gpu_number is None:
+            gpu_number = 0
         device = torch.device(f'mps:{gpu_number}') if ARM else torch.device(f'cuda:{gpu_number}')
         _ = torch.zeros([1, 2, 3]).to(device)
-        gpu_logger.info('** TORCH GPU version installed and working. **')
-        return True
+        return device, True
     except:# Exception as e:
         gpu_logger.info('TORCH GPU version not installed/working.')#, e)
-        return False
+        device = torch_CPU
+        return device, False
 
 
 # @torch.jit.script

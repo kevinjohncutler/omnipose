@@ -1501,7 +1501,7 @@ class MainW(QMainWindow):
         self.torch = use_torch
         self.useGPU.setChecked(False)
         self.useGPU.setEnabled(False)    
-        if self.torch and core.use_gpu(use_torch=True):
+        if self.torch and core.use_gpu(use_torch=True)[-1]:
             self.useGPU.setEnabled(True)
             self.useGPU.setChecked(True)
         else:

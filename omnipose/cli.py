@@ -152,7 +152,8 @@ def get_arg_parser():
     
     # settings for CPU vs GPU
     hardware_args = parser.add_argument_group("hardware arguments")
-    hardware_args.add_argument('--use_gpu', action='store_true', help='use gpu if torch or mxnet with cuda installed')
+    hardware_args.add_argument('--use_gpu', action='store_true', help='use gpu if torch installed')
+    hardware_args.add_argument('--gpu_number', default=None, type=int, help='set gpu number (if multiple are available)')
     hardware_args.add_argument('--check_mkl', action='store_true', help='check if mkl working')
     hardware_args.add_argument('--mkldnn', action='store_true', help='for mxnet, force MXNET_SUBGRAPH_BACKEND = "MKLDNN"')
     
