@@ -10,7 +10,7 @@ logging.getLogger('xmlschema').setLevel(logging.WARNING)
 
 logging.getLogger('bfio').setLevel(logging.ERROR) # probably from cv2
 logging.getLogger('OpenGL').setLevel(logging.ERROR) # not sure what uses this
-logging.getLogger('qdarktheme').setLevel(logging.WARNING)
+logging.getLogger('qdarktheme').setLevel(logging.ERROR)
 
 
 # LOGGER_FORMAT = "%(asctime)-20s\t[%(levelname)-5s]\t[%(filename)-10s %(lineno)-5d%(funcName)-18s]\t%(message)s"
