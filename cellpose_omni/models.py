@@ -790,8 +790,10 @@ class CellposeModel(UnetModel):
                 # run the network on the batch 
                 # yf, style = self.network(batch)
                 
-                with torch.no_grad():
-                    self.net.eval() # was missing this - some layers behave differently without it 
+                with torch.no_grad(): # this should also be in self.network, redundant?
+                    # self.net.eval() # was missing this - some layers behave differently without it 
+                    # actually, self.network should have it now
+
                     if tile:
                         yf = x._run_tiled(batch,self,
                                           batch_size=batch_size,
@@ -799,7 +801,9 @@ class CellposeModel(UnetModel):
                                           augment=augment,
                                           tile_overlap=tile_overlap).unsqueeze(0)
                     else:
-                        yf = self.net(batch)[0]
+                        yf = self.network(batch)[0]
+                        # yf = self.net(batch)[0] go back to this if error 
+
                         
                     del batch
                     # print('need to add normalization / invert /rescale options in dataloader')
@@ -1207,6 +1211,8 @@ class CellposeModel(UnetModel):
                 interp=True, cluster=False, suppress=None, boundary_seg=False, affinity_seg=False, despur=True,
                 anisotropy=1.0, do_3D=False, stitch_threshold=0.0,
                 omni=False, calc_trace=False,  show_progress=True, verbose=False, pad=0):
+        
+        
         # by this point, the image(s) will already have been formatted with channels, batch, etc 
 
         tic = time.time()
@@ -1280,6 +1286,7 @@ class CellposeModel(UnetModel):
                         img = zoom(img,rescale,order=1)
                 yf, style = self._run_nets(img, net_avg=net_avg,
                                            augment=augment, tile=tile,
+                                           normalize=normalize, 
                                            tile_overlap=tile_overlap, 
                                            bsize=bsize)
                 # unpadding 

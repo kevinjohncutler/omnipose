@@ -1811,8 +1811,8 @@ def get_masks(p, bd, dist, mask, inds, nclasses=2,cluster=False,
 
         #### snapping outliers to nearest cluster
         # there was a bug where small clusters counted as outliers, and were snapped to a very distant cluster
-        # I will fix this by enfocing a limit on distance to the enarest cluster
-        # min_samples coould also be reduced... 
+        # I will fix this by enfocing a limit on distance to the nearest cluster
+        # min_samples could also be reduced... 
         snap = 1
         if snap:
             nearest_neighbors = NearestNeighbors(n_neighbors=5) # maybe should be 5 instead of 50 
@@ -1838,6 +1838,7 @@ def get_masks(p, bd, dist, mask, inds, nclasses=2,cluster=False,
 
         ###
         mask[cell_px] = labels+1 # outliers have label -1
+        
     else: #this branch can have issues near edges 
         newinds = np.rint(newinds.T).astype(int)
         new_px = tuple(newinds)

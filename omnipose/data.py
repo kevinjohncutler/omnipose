@@ -253,12 +253,14 @@ class eval_set(torch.utils.data.Dataset):
             
     def _run_tiled(self, batch, model, 
                    batch_size=8, augment=False, bsize=224, 
+                   normalize=True, 
                    tile_overlap=0.1, return_conv=False):
     
         for imgi in batch:
             IMG, subs, shape, inds = make_tiles_ND(imgi,
                                                 bsize=bsize,
                                                 augment=augment,
+                                                normalize=normalize,
                                                 tile_overlap=tile_overlap) 
             # IMG now always returned in the form (ny*nx, nchan, ly, lx) 
             # for either tiling or augmenting

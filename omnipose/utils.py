@@ -257,7 +257,7 @@ def make_tiles_ND(imgi, bsize=224, augment=False, tile_overlap=0.1,
         if return_tiles:
             IMG = module.stack([imgi[(Ellipsis,)+slc] for slc in subs])
             if normalize:
-                omnipose_logger.info('Running on tiles. Now normalizing each tile separately.')
+                omnipose_logger.info('Now normalizing each tile separately.')
                 IMG = normalize99(IMG,dim=0)
             else:
                 omnipose_logger.info('rescaling stack as a whole')
@@ -494,7 +494,6 @@ def normalize99(Y, lower=0.01, upper=99.99, contrast_limits=None, dim=None):
     normalized array/tensor with a minimum of 0 and maximum of 1
     
     """
-    
     module = get_module(Y)
     
     if contrast_limits is None:
@@ -1423,7 +1422,7 @@ def curve_filter(im,filterWidth=1.5):
            G_ : Gaussian curvature of the image without negative values
            C1_ : Principal curvature 1 of the image without negative values
            C2_ : Principal curvature 2 of the image without negative values
-           M : Mean curvature of the ima ge
+           M : Mean curvature of the image
            G : Gaussian curvature of the image
            C1 : Principal curvature 1 of the image
            C2 : Principal curvature 2 of the image

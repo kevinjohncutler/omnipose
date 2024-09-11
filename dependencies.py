@@ -1,4 +1,4 @@
-install_deps = ['numpy>=1.22.4', 
+install_deps = ['numpy>=1.22.4,<=1.26.4', # will need to wait a bit for cythonized packages to catch up to numpy 2.0
                 'scipy', 
                 'numba', 
                 'edt',

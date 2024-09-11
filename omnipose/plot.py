@@ -17,21 +17,22 @@ from skimage import img_as_ubyte
 
 
 def setup():
-    # make them global so they can be used outside the function
-    global mpl, plt, widgets, display 
-
     # Import necessary libraries
     import matplotlib as mpl
     import matplotlib.pyplot as plt
     import ipywidgets as widgets
     from IPython.display import display
+    
+    # Inject into the global namespace of the notebook
+    ipython = get_ipython()  # Get the IPython instance
+    ipython.user_global_ns['mpl'] = mpl
+    ipython.user_global_ns['plt'] = plt
+    ipython.user_global_ns['widgets'] = widgets
+    ipython.user_global_ns['display'] = display
 
     # Set matplotlib inline for Jupyter notebooks
-    try:
-        get_ipython().run_line_magic('matplotlib', 'inline')
-    except NameError:
-        pass  # This means we are not in an IPython environment
-    
+    ipython.run_line_magic('matplotlib', 'inline')
+
     # Define rc_params
     rc_params = {
         'figure.dpi': 300,

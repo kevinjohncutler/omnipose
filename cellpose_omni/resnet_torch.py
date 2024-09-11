@@ -297,6 +297,7 @@ class CPnet(nn.Module):
                                             map_location=torch_GPU,
                                             weights_only=True))
             
+
             # checkpoint = torch.load(filename, map_location=torch_GPU,  weights_only=False)
 
             # # Extract the state dictionary

@@ -458,7 +458,7 @@ def convert_image(x, channels, channel_axis=None, z_axis=None,
                   do_3D=False, normalize=True, invert=False,
                   nchan=2, dim=2, omni=False):
     """ return image with z first, channels last and normalized intensities """
-        
+    
     # squeeze image, and if channel_axis or z_axis given, transpose image
     if x.ndim > 3:
         to_squeeze = np.array([int(isq) for isq,s in enumerate(x.shape) if s==1])
