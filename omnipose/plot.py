@@ -518,72 +518,274 @@ def color_from_RGB(im,rgb,m,bd=None, mode='inner',connectivity=2):
 def split_list(lst, N):
     return [lst[i:i + N] for i in range(0, len(lst), N)]
         
-def image_grid(images, column_titles=None, row_titles=None,
-               plot_labels=None, 
-                xticks=[], yticks=[], 
-                outline=False, outline_color=[0.5]*3, outline_width=.5,
-                padding=0.05, 
-                fontsize=8, fontcolor=[0.5]*3,
-                facecolor=None,
-                fig_scale=6, dpi=300,
-                order='ij',
-                lpad = 0.05,
-                lpos='top_middle',
-                return_axes=False,
-                **kwargs):
-    """Display a grid of images with uniform spacing.
-    Accepts a neested list of images, with each sublist having cosnsitent YXC diemnsions. 
+
+# def image_grid(images, column_titles=None, row_titles=None,
+               
+#                plot_labels=None, 
+#                 xticks=[], yticks=[], 
+#                 outline=False, outline_color=[0.5]*3, outline_width=.5,
+#                 padding=0.05, 
+#                 fontsize=8, fontcolor=[0.5]*3,
+#                 facecolor=None,
+#                 fig_scale=6, dpi=300,
+#                 order='ij',
+#                 lpad = 0.05,
+#                 lpos='top_middle',
+#                 return_axes=False,
+#                 append_fig=None,
+#                 append_axes=None,
+#                 **kwargs):
+#     """Display a grid of images with uniform spacing.
+#     Accepts a neested list of images, with each sublist having cosnsitent YXC diemnsions. 
     
+#     """
+    
+#     label_positions = {'top_middle': {'coords': (0.5, 1-lpad), 'va': 'top', 'ha': 'center'},
+#                         'bottom_left': {'coords': (lpad, lpad), 'va': 'bottom', 'ha': 'left'},
+#                         'bottom_middle': {'coords': (0.5, lpad), 'va': 'bottom', 'ha': 'center'},
+#                         'top_left': {'coords': (lpad, 1-lpad), 'va': 'top', 'ha': 'left'},
+#                         # Add more positions as needed
+#                     }
+
+#     # get the dimensions of the grid
+#     nrow = len(images)
+#     ncol = [len(i) for i in images]
+#     grid_dims = [nrow,max(ncol)]
+#     ij = order=='ij'
+#     ji = order=='ji'
+
+#     n,m = grid_dims 
+#     # Get the shapes of the images in each row 
+#     # (we assume each row has consistent xy dims, hence use the first [0] entry sets the shape, and that the images are YXC)
+#     # image_shapes = np.stack([i[0].shape[:2] for i in images])
+#     image_shapes = np.stack([i[0].shape[:2] for i in images if i is not None and i[0] is not None])
+#     # Padding between images
+#     p = padding
+    
+#     # normalize dimension along row or column 
+#     a = list(image_shapes[:,0] / image_shapes[:,1]) if ij else list(image_shapes[:,1] / image_shapes[:,0])
+#     b = np.ones_like(a) 
+    
+#     # Cumulative dimension
+#     ca = np.cumsum(a)
+    
+#     start_a = np.array([[0]*m]+[[(ca[i]+(i+1)*p)]*m for i in range(n-1)]).flatten().astype(float)
+#     start_b = np.array([[(bi+p)*i for i in range(m)] for bi in b]).flatten().astype(float)
+    
+#     # Calculate the positions and sizes of the images in the grid
+#     da = np.array([[ai]*m for ai in a]).flatten().astype(float)
+#     db = np.array([[bi]*m for bi in b]).flatten().astype(float)
+        
+#     # Map the variables to their values
+#     variables = {'ji': (start_a, start_b, da, db), 'ij': (start_b, start_a, db, da)}
+
+#     # Assign the values to the variables
+#     left, bottom, width, height = variables[order]
+
+#     # Normalize the positions and sizes
+#     max_w = left[-1]+width[-1]
+#     max_h = bottom[-1]+height[-1]
+#     left /= max_w
+#     bottom /= max_h
+#     width /= max_w
+#     height /= max_h
+    
+#     # Create the figure
+#     fig = Figure(figsize=(fig_scale,fig_scale*max_h/max_w),                    
+#                  frameon=False if facecolor is None else True, 
+#                  facecolor=[0]*4 if facecolor is None else facecolor,
+#                  dpi=dpi)
+    
+#     # here m and n need to represent the actual grid layout rather than indexing 
+#     if ij:
+#         n,m = grid_dims 
+#     elif ji:
+#         m,n = grid_dims
+#     else:
+#         raise ValueError('order must be "ij" or "ji"')
+    
+#     # Add the subplots
+#     axes = []
+#     for i in range(n*m):
+#         # ax = fig.add_axes([left[i], bottom[i], width[i], height[i]])
+#         ax = fig.add_axes([left[i], 1-bottom[i]-height[i], width[i], height[i]])
+
+#         axes.append(ax)
+    
+#     # add outline around each image, remove ticks
+#     for i,ax in enumerate(axes):
+
+#         ax.set_xticks(xticks)
+#         ax.set_yticks(yticks)
+#         ax.patch.set_alpha(0)
+        
+#         # Display the image
+#         j,k = np.unravel_index(i,grid_dims)        
+#         if k < ncol[j]: # not all nows may have the same number of images 
+#             if images[j][k] is not None:
+#                 ax.imshow(images[j][k],**kwargs)
+#                 # for s in ax.spines.values():
+#                 #     if outline:
+#                 #         s.set_color(outline_color)
+#                 #         s.set_linewidth(outline_width)
+#                 #     # else:
+#                 #     #     s.set_visible(False)
+                    
+#             if outline:
+#                 for s in ax.spines.values():
+#                     s.set_color(outline_color)
+#                     s.set_linewidth(outline_width)
+#             else:
+#                 for s in ax.spines.values():
+#                     s.set_visible(False)
+
+#             if plot_labels is not None and plot_labels[j][k] is not None:
+#                 coords = label_positions[lpos]['coords']
+#                 va = label_positions[lpos]['va']
+#                 ha = label_positions[lpos]['ha']
+#                 ax.text(coords[0],coords[1], plot_labels[j][k], fontsize=fontsize, color=fontcolor, 
+#                         va=va, ha=ha, transform=ax.transAxes)
+#         else:
+#             ax.set_visible(False)
+            
+#         # Set the column titles
+#         if column_titles is not None:
+#             if ij and i < m:
+#                 idx = i
+#             elif ji and i % n == 0:
+#                 idx = i // n
+#             else:
+#                 idx = None
+#             if idx is not None:
+#                 # ax.set_title(column_titles[idx], fontsize=fontsize, c=fontcolor)
+#                 ax.text(0.5, 1+p, column_titles[idx], rotation=0, fontsize=fontsize, color=fontcolor, 
+#                         va='bottom', ha='center', transform=ax.transAxes)
+    
+#         # Set the row titles
+#         if row_titles is not None:
+#             if ij and i % m == 0:
+#                 idx = i // m
+#             elif ji and i < n:
+#                 idx = i
+#             else:
+#                 idx = None
+#             if idx is not None:
+#                 ax.text(-p, 0.5, row_titles[idx], rotation=0, fontsize=fontsize, color=fontcolor, 
+#                         va='center', ha='right', transform=ax.transAxes)
+                
+    
+#     if return_axes:
+#         return fig, axes
+#     else:   
+#         return fig
+
+def image_grid(images, column_titles=None, row_titles=None, 
+               plot_labels=None, 
+               xticks=[], yticks=[], 
+               outline=False, outline_color=[0.5]*3, outline_width=.5,
+               padding=0.05, interset_padding=0.1,
+               fontsize=8, fontcolor=[0.5]*3,
+               facecolor=None,
+               fig_scale=6, dpi=300,
+               order='ij',
+               stack_direction='horizontal',  # New parameter for stack direction
+               lpad = 0.05,
+               lpos='top_middle',
+               return_axes=False,
+               **kwargs):
+
+    """Display a grid of images with uniform spacing.
+    Accepts a list or nested list of images, with each sublist having consistent YXC dimensions. 
+    If multiple sets of images are provided, extra padding will be added between sets.
+    stack_direction: 'horizontal' or 'vertical' controls how multiple sets are arranged.
     """
     
     label_positions = {'top_middle': {'coords': (0.5, 1-lpad), 'va': 'top', 'ha': 'center'},
                         'bottom_left': {'coords': (lpad, lpad), 'va': 'bottom', 'ha': 'left'},
                         'bottom_middle': {'coords': (0.5, lpad), 'va': 'bottom', 'ha': 'center'},
                         'top_left': {'coords': (lpad, 1-lpad), 'va': 'top', 'ha': 'left'},
-                        # Add more positions as needed
                     }
 
-    # get the dimensions of the grid
-    nrow = len(images)
-    ncol = [len(i) for i in images]
-    grid_dims = [nrow,max(ncol)]
-    ij = order=='ij'
-    ji = order=='ji'
-
-    n,m = grid_dims 
-    # Get the shapes of the images in eahc row (we assume each row cas consistent xy dims and the images are YXC)
-    image_shapes = np.stack([i[0].shape[:2] for i in images])
+    # Check if 'images' is a list of lists, meaning multiple image sets
+    if isinstance(images[0][0], list):
+        multiple_sets = True
+    else:
+        multiple_sets = False
+        images = [images]  # Treat single set as a list of one
+        plot_labels = [plot_labels] if plot_labels is not None else None
+        
+    # Compute grid dimensions
+    n_sets = len(images)
+    nrow = len(images[0])
+    ncol = [len(i) for i in images[0]]
+    grid_dims = [nrow, max(ncol)]
+    ij = order == 'ij'
     
+    # Get image shapes from the first set (allowing for variations in shape)
+    image_shapes = []
+    for i in images[0]:
+        if i and i[0] is not None:
+            image_shapes.append(i[0].shape[:2])
+        else:
+            # Assign a default shape (e.g., (1,1)) for missing images
+            image_shapes.append((1, 1))
+
     # Padding between images
     p = padding
     
-    # normalize dimension along row or column 
-    a = list(image_shapes[:,0] / image_shapes[:,1]) if ij else list(image_shapes[:,1] / image_shapes[:,0])
-    b = np.ones_like(a) 
+    # Calculate aspect ratios and cumulative dimensions for the grid
+    a = [img_shape[0] / img_shape[1] for img_shape in image_shapes] if ij else [img_shape[1] / img_shape[0] for img_shape in image_shapes]
+    b = np.ones_like(a)
     
-    # Cumulative dimension
+    # Cumulative dimensions for positioning
     ca = np.cumsum(a)
+    start_a = np.array([[0]*grid_dims[1]] + [[ca[i]+(i+1)*p]*grid_dims[1] for i in range(grid_dims[0]-1)]).flatten().astype(float)
+    start_b = np.array([[(bi + p)*i for i in range(grid_dims[1])] for bi in b]).flatten().astype(float)
     
-    start_a = np.array([[0]*m]+[[(ca[i]+(i+1)*p)]*m for i in range(n-1)]).flatten().astype(float)
-    start_b = np.array([[(bi+p)*i for i in range(m)] for bi in b]).flatten().astype(float)
+    # Positions and sizes for the first set
+    da = np.array([[ai]*grid_dims[1] for ai in a]).flatten().astype(float)
+    db = np.array([[bi]*grid_dims[1] for bi in b]).flatten().astype(float)
     
-    # Calculate the positions and sizes of the images in the grid
-    da = np.array([[ai]*m for ai in a]).flatten().astype(float)
-    db = np.array([[bi]*m for bi in b]).flatten().astype(float)
+    left = np.copy(start_b)
+    bottom = np.copy(start_a)
+    width = np.copy(db)
+    height = np.copy(da)
         
-    # Map the variables to their values
-    variables = {'ji': (start_a, start_b, da, db), 'ij': (start_b, start_a, db, da)}
+    def adjust_for_multiple_sets(left, bottom, width, height, stack_direction):
+        """ Adjust the positions for multiple image sets. """
+        if multiple_sets:
+            offsets = []
+            for i in range(1, n_sets):
+                if stack_direction == 'horizontal':
+                    set_offset = max(left + width) + interset_padding  # Add space between sets horizontally
+                    next_left = np.copy(left) + set_offset * i
+                    offsets.append((next_left, bottom, width, height))
+                elif stack_direction == 'vertical':
+                    set_offset = max(bottom + height) + interset_padding  # Add space between sets vertically
+                    next_bottom = np.copy(bottom) + set_offset * i
+                    offsets.append((left, next_bottom, width, height))
+            
+            # Combine positions across sets
+            left = np.concatenate([left] + [offset[0] for offset in offsets])
+            bottom = np.concatenate([bottom] + [offset[1] for offset in offsets])
+            width = np.concatenate([width] + [offset[2] for offset in offsets])
+            height = np.concatenate([height] + [offset[3] for offset in offsets])
+        
+        return left, bottom, width, height
+        
 
-    # Assign the values to the variables
-    left, bottom, width, height = variables[order]
+    # Adjust positions for multiple sets based on stack_direction
+    left, bottom, width, height = adjust_for_multiple_sets(left, bottom, width, height, stack_direction)
 
     # Normalize the positions and sizes
-    max_w = left[-1]+width[-1]
-    max_h = bottom[-1]+height[-1]
+    max_w = max(left + width)
+    max_h = max(bottom + height)
     left /= max_w
     bottom /= max_h
     width /= max_w
     height /= max_h
+    
+    pos = [left, bottom, width, height]
     
     # Create the figure
     fig = Figure(figsize=(fig_scale,fig_scale*max_h/max_w),                    
@@ -591,41 +793,28 @@ def image_grid(images, column_titles=None, row_titles=None,
                  facecolor=[0]*4 if facecolor is None else facecolor,
                  dpi=dpi)
     
-    # here m and n need to represent the actual grid layout rather than indexing 
-    if ij:
-        n,m = grid_dims 
-    elif ji:
-        m,n = grid_dims
-    else:
-        raise ValueError('order must be "ij" or "ji"')
-    
     # Add the subplots
     axes = []
-    for i in range(n*m):
-        # ax = fig.add_axes([left[i], bottom[i], width[i], height[i]])
+    for i in range(len(left)):
         ax = fig.add_axes([left[i], 1-bottom[i]-height[i], width[i], height[i]])
-
         axes.append(ax)
     
-    # add outline around each image, remove ticks
-    for i,ax in enumerate(axes):
-
+    # Add outline and remove ticks for each subplot
+    for i, ax in enumerate(axes):
         ax.set_xticks(xticks)
         ax.set_yticks(yticks)
         ax.patch.set_alpha(0)
         
-        # Display the image
-        j,k = np.unravel_index(i,grid_dims)        
-        if k < ncol[j]: # not all nows may have the same number of images 
-            if images[j][k] is not None:
-                ax.imshow(images[j][k],**kwargs)
-                # for s in ax.spines.values():
-                #     if outline:
-                #         s.set_color(outline_color)
-                #         s.set_linewidth(outline_width)
-                #     # else:
-                #     #     s.set_visible(False)
-                    
+        # Find the correct image based on the grid dimensions and number of sets
+        set_idx = i // (grid_dims[0] * grid_dims[1])
+        row_idx = (i % (grid_dims[0] * grid_dims[1])) // grid_dims[1]
+        col_idx = i % grid_dims[1]
+        
+        if col_idx < len(images[set_idx][row_idx]):
+            img = images[set_idx][row_idx][col_idx]
+            if img is not None:
+                ax.imshow(img, **kwargs)
+            
             if outline:
                 for s in ax.spines.values():
                     s.set_color(outline_color)
@@ -633,46 +822,34 @@ def image_grid(images, column_titles=None, row_titles=None,
             else:
                 for s in ax.spines.values():
                     s.set_visible(False)
-
-            if plot_labels is not None and plot_labels[j][k] is not None:
+            
+            # Add plot labels
+            if plot_labels is not None and plot_labels[set_idx][row_idx][col_idx] is not None:
                 coords = label_positions[lpos]['coords']
                 va = label_positions[lpos]['va']
                 ha = label_positions[lpos]['ha']
-                ax.text(coords[0],coords[1], plot_labels[j][k], fontsize=fontsize, color=fontcolor, 
-                        va=va, ha=ha, transform=ax.transAxes)
-        else:
-            ax.set_visible(False)
-            
-        # Set the column titles
-        if column_titles is not None:
-            if ij and i < m:
-                idx = i
-            elif ji and i % n == 0:
-                idx = i // n
-            else:
-                idx = None
-            if idx is not None:
-                # ax.set_title(column_titles[idx], fontsize=fontsize, c=fontcolor)
-                ax.text(0.5, 1+p, column_titles[idx], rotation=0, fontsize=fontsize, color=fontcolor, 
-                        va='bottom', ha='center', transform=ax.transAxes)
+                ax.text(coords[0], coords[1], plot_labels[set_idx][row_idx][col_idx], 
+                        fontsize=fontsize, color=fontcolor, va=va, ha=ha, transform=ax.transAxes)
     
-        # Set the row titles
-        if row_titles is not None:
-            if ij and i % m == 0:
-                idx = i // m
-            elif ji and i < n:
-                idx = i
-            else:
-                idx = None
-            if idx is not None:
-                ax.text(-p, 0.5, row_titles[idx], rotation=0, fontsize=fontsize, color=fontcolor, 
-                        va='center', ha='right', transform=ax.transAxes)
-                
+        # Set the column titles (only for the top row)
+        if column_titles is not None and row_idx == 0:
+            if ij and col_idx < grid_dims[1]:
+                if stack_direction != 'vertical' or set_idx == 0:
+                    ax.text(0.5, 1 + p, column_titles[col_idx], rotation=0, fontsize=fontsize, color=fontcolor, 
+                            va='bottom', ha='center', transform=ax.transAxes)
+
+        # Set the row titles (only for the first column and only if stacking is not horizontal or it's the first set)
+        if row_titles is not None and col_idx == 0:
+            if ij and row_idx < grid_dims[0]:
+                if stack_direction != 'horizontal' or set_idx == 0:
+                    ax.text(-p, 0.5, row_titles[row_idx], rotation=0, fontsize=fontsize, color=fontcolor, 
+                            va='center', ha='right', transform=ax.transAxes)
     
     if return_axes:
-        return fig, axes
-    else:   
+        return fig, axes, pos
+    else:
         return fig
+        
 
 def color_grid(colors, **kwargs):
     # Convert colors to a numpy array
@@ -946,7 +1123,7 @@ def vector_contours(fig,ax,mask, smooth_factor=5, color = 'r', linewidth=1):
 
     # remove spur points - this method is way easier than running core._despur() on the priginal affinity graph
     bd = find_boundaries(msk,mode='inner',connectivity=2)
-    msk, bounds, _ = boundary_to_masks(bd,binary_mask=msk>0,connectivity=1) 
+    msk, bounds, _ = boundary_to_masks(bd,binary_mask=msk>0,connectivity=1,min_size=0) 
 
     # generate affinity graph
     coords = np.nonzero(msk)
@@ -987,7 +1164,11 @@ def vector_contours(fig,ax,mask, smooth_factor=5, color = 'r', linewidth=1):
             patches.append(patch)
 
     # Create a PatchCollection from the list of patches
-    patch_collection = PatchCollection(patches, match_original=True)
-    
-    # Add the PatchCollection to the axis
-    ax.add_collection(patch_collection)
+    # Add the PatchCollection to the axis/axes
+    if isinstance(ax,list):
+        for a in ax:
+            patch_collection = PatchCollection(patches, match_original=True)
+            a.add_collection(patch_collection)
+    else:
+        patch_collection = PatchCollection(patches, match_original=True)
+        ax.add_collection(patch_collection)

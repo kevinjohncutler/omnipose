@@ -866,25 +866,42 @@ def is_integer(var):
 #     """
 #     return np.logical_xor(mask,mh.morph.erode(mask))
 
-import cv2
-def skeletonize(labels, dt_thresh=1, dt=None):
-    # if dt is None:
-    #     dt = edt.edt(labels)
+# import cv2
+import skimage.morphology
+def skeletonize(labels,method='zhang'):
+    # Find boundaries
+    bd = find_boundaries(labels, connectivity=2)
     
-    # inner = dt>dt_thresh
+    # Remove boundaries from labels to get inner regions
+    inner = np.logical_xor(labels > 0, bd)
+    # inner = (labels > 0) - bd
     
-    bd = find_boundaries(labels,connectivity=2)
-    inner = np.logical_xor(labels,bd)
+    skel = skimage.morphology.skeletonize(inner, method=method)
     
-    # need to pad for edges to be treated properly with cv2 function
-    pad = 1
-    padded_image = np.pad(inner,pad).astype(np.uint8)*255
-    skel = cv2.ximgproc.thinning(padded_image,
-                                # thinningType=cv2.ximgproc.THINNING_GUOHALL)[pad:-pad,pad:-pad].astype(bool)
-                                thinningType=cv2.ximgproc.THINNING_ZHANGSUEN)[pad:-pad,pad:-pad].astype(bool)
-
-    return skel*labels
+    # Retain original labels on the skeleton
+    skeleton = skel * labels
+            
+    # Identify labels present in the original labels
+    original_labels = fastremap.unique(labels)
+    original_labels = original_labels[original_labels != 0]  # Exclude background
     
+    # Identify labels present in the skeletonized image
+    skeleton_labels = fastremap.unique(skeleton)
+    skeleton_labels = skeleton_labels[skeleton_labels != 0]  # Exclude background
+    
+    # Find missing labels
+    missing_labels = np.setdiff1d(original_labels, skeleton_labels)
+        
+    # Create a mask for missing labels
+    missing_labels_mask = np.isin(labels, missing_labels)
+    missing_labels_mask = fastremap.mask_except(labels, list(missing_labels))
+        
+    # Add back missing labels to the skeleton
+    # skeleton += missing_labels_mask * labels using isin 
+    skeleton += missing_labels_mask 
+    
+    
+    return skeleton
 
 
 def find_boundaries(labels, connectivity=1, use_symmetry=False):
@@ -1746,3 +1763,81 @@ def correct_illumination(img,sigma=5):
 
     # Normalize the image
     return (img - blurred) / np.std(blurred)
+    
+    
+    
+# def skeletonize_old(labels, dt_thresh=1, dt=None):
+#     # if dt is None:
+#     #     dt = edt.edt(labels)
+    
+#     # inner = dt>dt_thresh
+    
+#     # this thresholding might actually be throwing out small objects 
+#     bd = find_boundaries(labels,connectivity=2)
+#     inner = np.logical_xor(labels,bd)
+    
+#     # need to pad for edges to be treated properly with cv2 function
+#     pad = 1
+#     padded_image = np.pad(inner,pad).astype(np.uint8)*255
+#     skel = cv2.ximgproc.thinning(padded_image,
+#                                 # thinningType=cv2.ximgproc.THINNING_GUOHALL)[pad:-pad,pad:-pad].astype(bool)
+#                                 thinningType=cv2.ximgproc.THINNING_ZHANGSUEN)[pad:-pad,pad:-pad].astype(bool)
+
+#     return skel*labels
+
+# import ncolor     
+# def skeletonize_1(labels):
+
+#     skel_labels = np.zeros_like(labels)
+#     ncolor_masks, num_labels = ncolor.label(labels,return_n=True)
+    
+#     for i in range(1,num_labels+1):
+#         bin0 = ncolor_masks == i
+    
+#         # need to pad for edges to be treated properly with cv2 function
+#         pad = 1
+#         padded_image = np.pad(bin0,pad).astype(np.uint8)*255
+#         skel = cv2.ximgproc.thinning(padded_image,
+#                                     # thinningType=cv2.ximgproc.THINNING_GUOHALL)[pad:-pad,pad:-pad].astype(bool)
+#                                     thinningType=cv2.ximgproc.THINNING_ZHANGSUEN)[pad:-pad,pad:-pad].astype(bool)
+        
+#         skel_labels[skel] = labels[skel]
+        
+#     return skel_labels
+    
+    
+  
+# from scipy.ndimage import zoom
+# from skimage.measure import block_reduce
+# def skeletonize_3(labels, scaling_factor=2):
+#     # Upsample the labeled image
+#     upsampled_labels = zoom(labels, scaling_factor, order=0)
+    
+#     # Find boundaries on the upsampled labels
+#     bd = find_boundaries(upsampled_labels, connectivity=2)
+    
+#     # Remove boundaries to get inner regions
+#     inner = np.logical_xor(upsampled_labels > 0, bd)
+    
+#     # Convert to binary image for skeletonization
+#     binary_image = inner.astype(np.uint8) * 255
+    
+#     # Pad the image to handle edge cases
+#     pad = 1
+#     padded_image = np.pad(binary_image, pad, mode='constant', constant_values=0)
+    
+#     # Apply skeletonization
+#     skel = cv2.ximgproc.thinning(
+#         padded_image,
+#         thinningType=cv2.ximgproc.THINNING_ZHANGSUEN
+#     )[pad:-pad, pad:-pad]
+    
+#     # Downsample the skeleton using maximum pooling
+#     block_size = (scaling_factor, scaling_factor)
+#     skeleton_downsampled = block_reduce(skel, block_size=block_size, func=np.max)
+#     skeleton_downsampled = (skeleton_downsampled > 0).astype(np.uint8) * 255
+    
+#     # Retain original labels on the skeleton
+#     skeleton_labels = (skeleton_downsampled > 0) * labels
+
+#     return skeleton_labels

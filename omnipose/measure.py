@@ -46,56 +46,123 @@ def bbox_to_slice(bbox,shape,pad=0,im_pad=0):
                   for n in range(len(bbox)//2)])
     
 
+# def crop_bbox(mask, pad=10, iterations=3, im_pad=0, area_cutoff=0, 
+#               max_dim=np.inf, get_biggest=False, binary=False):
+#     """Take a label matrix and return a list of bounding boxes identifying clusters of labels.
+    
+#     Parameters
+#     --------------
+
+#     mask: matrix of integer labels
+#     pad: amount of space in pixels to add around the label (does not extend beyond image edges, will shrink for consistency)
+#     iterations: number of dilation iterations to merge labels separated by this number of pixel or less
+#     im_pad: amount of space to subtract off the label matrix edges
+#     area_cutoff: label clusters below this area in square pixels will be ignored
+#     max_dim: if a cluster is above this cutoff, quit and return the original image bounding box
+    
+
+#     Returns
+#     ---------------
+
+#     slices: list of bounding box slices with padding 
+    
+#     """
+#     bw = binary_dilation(mask>0,iterations=iterations) if iterations> 0 else mask>0
+#     clusters = measure.label(bw)
+#     regions = measure.regionprops(clusters)
+#     sz = mask.shape
+#     d = mask.ndim
+#     # ylim = [im_pad,sz[0]-im_pad]
+#     # xlim = [im_pad,sz[1]-im_pad]
+    
+#     slices = []
+#     if get_biggest:
+#         w = np.argmax([props.area for props in regions])
+#         bbx = regions[w].bbox 
+#         minpad = min(pad,bbx[0],bbx[1],sz[0]-bbx[2],sz[1]-bbx[3])
+#         # print(pad,bbx[0],bbx[1],sz[0]-bbx[2],sz[1]-bbx[3])
+#         # print(minpad,sz,bbx)
+#         slices.append(bbox_to_slice(bbx,sz,pad=minpad,im_pad=im_pad))
+        
+#     else:
+#         for props in regions:
+#             if props.area>area_cutoff:
+#                 bbx = props.bbox 
+#                 minpad = min(pad,bbx[0],bbx[1],sz[0]-bbx[2],sz[1]-bbx[3])
+#                 # print(minpad,'m',im_pad)
+#                 slices.append(bbox_to_slice(bbx,sz,pad=minpad,im_pad=im_pad))
+    
+#     # merge into a single slice 
+#     if binary:
+#         start_xy = np.min([[slc[i].start for i in range(d)] for slc in slices],axis=0)
+#         stop_xy = np.max([[slc[i].stop for i in range(d)] for slc in slices],axis=0)
+#         slices = tuple([slice(start,stop) for start,stop in zip(start_xy,stop_xy)])
+    
+#     return slices
+    
+    
 def crop_bbox(mask, pad=10, iterations=3, im_pad=0, area_cutoff=0, 
-              max_dim=np.inf, get_biggest=False, binary=False):
+              max_dim=np.inf, get_biggest=False, binary=False, square=False):
     """Take a label matrix and return a list of bounding boxes identifying clusters of labels.
     
     Parameters
     --------------
-
     mask: matrix of integer labels
     pad: amount of space in pixels to add around the label (does not extend beyond image edges, will shrink for consistency)
-    iterations: number of dilation iterations to merge labels separated by this number of pixel or less
+    iterations: number of dilation iterations to merge labels separated by this number of pixels or less
     im_pad: amount of space to subtract off the label matrix edges
     area_cutoff: label clusters below this area in square pixels will be ignored
     max_dim: if a cluster is above this cutoff, quit and return the original image bounding box
+    get_biggest: if True, only return the largest cluster
+    binary: if True, merge all slices into a single bounding box slice
+    square: if True, expand the bounding box to make it square by increasing its dimensions symmetrically
     
-
     Returns
     ---------------
-
-    slices: list of bounding box slices with padding 
-    
+    slices: list of bounding box slices with padding
     """
-    bw = binary_dilation(mask>0,iterations=iterations) if iterations> 0 else mask>0
+    bw = binary_dilation(mask > 0, iterations=iterations) if iterations > 0 else mask > 0
     clusters = measure.label(bw)
     regions = measure.regionprops(clusters)
     sz = mask.shape
     d = mask.ndim
-    # ylim = [im_pad,sz[0]-im_pad]
-    # xlim = [im_pad,sz[1]-im_pad]
     
     slices = []
     if get_biggest:
         w = np.argmax([props.area for props in regions])
         bbx = regions[w].bbox 
-        minpad = min(pad,bbx[0],bbx[1],sz[0]-bbx[2],sz[1]-bbx[3])
-        # print(pad,bbx[0],bbx[1],sz[0]-bbx[2],sz[1]-bbx[3])
-        # print(minpad,sz,bbx)
-        slices.append(bbox_to_slice(bbx,sz,pad=minpad,im_pad=im_pad))
+        minpad = min(pad, bbx[0], bbx[1], sz[0] - bbx[2], sz[1] - bbx[3])
+        slices.append(bbox_to_slice(bbx, sz, pad=minpad, im_pad=im_pad))
         
     else:
         for props in regions:
-            if props.area>area_cutoff:
+            if props.area > area_cutoff:
                 bbx = props.bbox 
-                minpad = min(pad,bbx[0],bbx[1],sz[0]-bbx[2],sz[1]-bbx[3])
-                # print(minpad,'m',im_pad)
-                slices.append(bbox_to_slice(bbx,sz,pad=minpad,im_pad=im_pad))
+                minpad = min(pad, bbx[0], bbx[1], sz[0] - bbx[2], sz[1] - bbx[3])
+                
+                # Make the bounding box square if requested
+                if square:
+                    height = bbx[2] - bbx[0]
+                    width = bbx[3] - bbx[1]
+                    max_side = max(height, width)
+                    
+                    # Calculate padding needed to make the bbox square
+                    pad_h = (max_side - height) // 2
+                    pad_w = (max_side - width) // 2
+                    
+                    bbx = (
+                        max(bbx[0] - pad_h, 0), 
+                        max(bbx[1] - pad_w, 0),
+                        min(bbx[2] + pad_h + (max_side - height) % 2, sz[0]),
+                        min(bbx[3] + pad_w + (max_side - width) % 2, sz[1])
+                    )
+                
+                slices.append(bbox_to_slice(bbx, sz, pad=minpad, im_pad=im_pad))
     
-    # merge into a single slice 
+    # Merge into a single slice if binary is True
     if binary:
-        start_xy = np.min([[slc[i].start for i in range(d)] for slc in slices],axis=0)
-        stop_xy = np.max([[slc[i].stop for i in range(d)] for slc in slices],axis=0)
-        slices = tuple([slice(start,stop) for start,stop in zip(start_xy,stop_xy)])
+        start_xy = np.min([[slc[i].start for i in range(d)] for slc in slices], axis=0)
+        stop_xy = np.max([[slc[i].stop for i in range(d)] for slc in slices], axis=0)
+        slices = tuple([slice(start, stop) for start, stop in zip(start_xy, stop_xy)])
     
     return slices

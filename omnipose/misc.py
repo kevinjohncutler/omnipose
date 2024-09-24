@@ -10,58 +10,121 @@ import cv2
 import edt
 import torch
 
-def argmin_cdist(X, labels):
-    # Get unique labels and determine the boundaries where each label starts and ends
-    unique_labels, label_starts = torch.unique_consecutive(labels, return_inverse=False, return_counts=True)
-    label_ends = torch.cumsum(label_starts, dim=0)
-    label_starts = label_ends - label_starts
+# def argmin_cdist(X, labels):
+#     # Get unique labels and determine the boundaries where each label starts and ends
+#     unique_labels, label_starts = torch.unique_consecutive(labels, return_inverse=False, return_counts=True)
+#     label_ends = torch.cumsum(label_starts, dim=0)
+#     label_starts = label_ends - label_starts
 
-    # Prepare a list to store the indices of the minimum summed distances
-    argmin_indices = []
-    summed_distances_all = torch.full((len(X),), float('nan'), device=X.device)
+#     # Prepare a list to store the indices of the minimum summed distances
+#     argmin_indices = []
+#     summed_distances_all = torch.full((len(X),), float('nan'), device=X.device)
     
-    for i, label in enumerate(unique_labels):
+#     for i, label in enumerate(unique_labels):
+#         # Use the precomputed start and end indices
+#         start_idx = label_starts[i]
+#         end_idx = label_ends[i]
+#         label_indices = torch.arange(start_idx, end_idx, device=X.device)
+        
+#         # Extract the relevant coordinates
+#         X_label = X[label_indices]
+        
+#         if X_label.ndim > 1:  # Only compute if there is more than one point
+#             # Compute pairwise distances using cdist
+#             distances = torch.cdist(X_label, X_label)
+            
+#             # Sum the distances for each point within the block
+#             summed_distances = torch.nansum(distances, dim=1)
+            
+#             # Store the summed distances for all entries
+#             summed_distances_all[label_indices] = summed_distances
+            
+#             # Find the index of the minimum summed distance within the block
+#             argmin_index_in_block = torch.argmin(summed_distances)
+            
+#             # Map this index back to the original index in the contact map
+#             argmin_indices.append(label_indices[argmin_index_in_block])
+    
+#     return torch.tensor(argmin_indices, device=X.device), summed_distances_all
+
+import torch
+import numpy as np
+import edt  # Ensure this package is installed: pip install edt
+
+def argmin_cdist(X, labels, distance_values):
+    # Get unique labels and counts
+    unique_labels, label_counts = torch.unique_consecutive(labels, return_counts=True)
+    label_starts = torch.cumsum(torch.cat([torch.tensor([0], device=labels.device), label_counts[:-1]]), dim=0)
+    label_ends = torch.cumsum(label_counts, dim=0)
+    
+    # Prepare a list to store the indices of the minimum adjusted summed distances
+    argmin_indices = []
+    adjusted_summed_distances_all = torch.full((len(X),), float('nan'), device=X.device)
+    
+    for i in range(len(unique_labels)):
         # Use the precomputed start and end indices
         start_idx = label_starts[i]
         end_idx = label_ends[i]
         label_indices = torch.arange(start_idx, end_idx, device=X.device)
         
-        # Extract the relevant coordinates
+        # Extract the relevant coordinates and distance values
         X_label = X[label_indices]
+        distance_values_label = distance_values[label_indices]
         
-        if X_label.ndim > 1:  # Only compute if there is more than one point
+        if X_label.shape[0] > 1:  # Only compute if there is more than one point
             # Compute pairwise distances using cdist
             distances = torch.cdist(X_label, X_label)
             
-            # Sum the distances for each point within the block
-            summed_distances = torch.nansum(distances, dim=1)
+            # Sum the distances for each point within the label
+            summed_distances = torch.sum(distances, dim=1)
             
-            # Store the summed distances for all entries
-            summed_distances_all[label_indices] = summed_distances
+            # Adjust summed distances by subtracting the distance field values
+            adjusted_summed_distances = summed_distances/(distance_values_label**0.05) # the most centered 
+            # adjusted_summed_distances = summed_distances/(1+distance_values_label*summed_distances) # nice and centered, but dominated by distance values
+            # adjusted_summed_distances = summed_distances/distance_values_label # similar to above
+            # adjusted_summed_distances = 1/distance_values_label*summed_distances#/(1+distance_values_label/summed_distances) # nice and centered
             
-            # Find the index of the minimum summed distance within the block
-            argmin_index_in_block = torch.argmin(summed_distances)
+            adjusted_summed_distances = summed_distances/torch.sqrt(distance_values_label)
+            # adjusted_summed_distances = (summed_distances/distance_values_label)**0.5
             
-            # Map this index back to the original index in the contact map
-            argmin_indices.append(label_indices[argmin_index_in_block])
+            adjusted_summed_distances = summed_distances*(1+1/distance_values_label)
+            
+       
+            
+            # Store the adjusted summed distances for all entries
+            adjusted_summed_distances_all[label_indices] = adjusted_summed_distances
+                
+            # Find the index of the minimum adjusted summed distance within the label
+            argmin_index_in_label = torch.argmin(adjusted_summed_distances)
+                
+            # Map this index back to the original index in X
+            argmin_indices.append(label_indices[argmin_index_in_label])
+        else:
+            # If there's only one point, it's the medoid by default
+            argmin_indices.append(label_indices[0])
+            adjusted_summed_distances_all[label_indices] = 0  # Or the distance value itself
     
-    return torch.tensor(argmin_indices, device=X.device), summed_distances_all
+    return torch.tensor(argmin_indices, device=X.device), adjusted_summed_distances_all
 
-def get_medoids(labels):
-
-    # need to remove boundary for skeleton to work on binary image
-    
-    skel = skeletonize(labels)
-
-    masks = labels*skel
-    
+def get_medoids(labels,do_skel=True):
+    if do_skel:
+        masks = skeletonize(labels)
+        dists = np.ones_like(labels)        
+    else:
+        masks = labels
+        dists = edt.edt(labels)#,black_border=False)
+        
+        
     coords = np.argwhere(masks>0)
     labels = masks[tuple(coords.T)]
     sort = np.argsort(labels)
     sort_coords = coords[sort]
     sort_labels = labels[sort]
+    sort_dists = dists[tuple(coords.T)][sort]
     
-    inds, dists = argmin_cdist(torch.tensor(sort_coords).float(),torch.tensor(sort_labels).float())
+    inds, dists = argmin_cdist(torch.tensor(sort_coords).float(),
+                               torch.tensor(sort_labels).float(),
+                               torch.tensor(sort_dists).float())
     medoids = sort_coords[inds]
     if medoids.ndim==1:
         medoids = medoids[None]
