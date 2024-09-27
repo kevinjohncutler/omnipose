@@ -165,7 +165,7 @@ def dist_to_diam(dt_pos,n):
     return 2*(n+1)*np.mean(dt_pos)
 #     return np.exp(3/2)*gmean(dt_pos[dt_pos>=gmean(dt_pos)])
 
-def diameters(masks, dt=None, dist_threshold=0, pill=False,return_length=False):
+def diameters(masks, dt=None, dist_threshold=0, pill=False, return_length=False):
     
     """
     Calculate the mean cell diameter from a label matrix. 
