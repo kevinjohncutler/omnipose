@@ -192,7 +192,6 @@ def diameters(masks, dt=None, dist_threshold=0, pill=False, return_length=False)
         dt = edt.edt(np.int32(masks))
     dt_pos = np.abs(dt[dt>dist_threshold])
           
-    
     # omnipose_logger.info(dt_pos.shape)
     A = np.count_nonzero(dt_pos)
     D = np.sum(dt_pos)
@@ -462,7 +461,6 @@ def masks_to_flows_batch(batch, links=[None], device=torch.device('cpu'),
                                  edges=edges, verbose=verbose)
 
     slices = [tuple([slice(i*dL,(i+1)*dL)]+[slice(None,None)]*(dim-1)) for i in range(nsample)]
-    print('remove or update pass of affinity graph)')
     return torch.tensor(clabels.astype(int),device=device), torch.tensor(boundaries,device=device), T, mu, slices, clinks, ccoords, affinity_graph
 
 # from numba import jit
@@ -2226,7 +2224,7 @@ def random_rotate_and_resize(X, Y=None, scale_range=1., gamma_range=[.75,2.5], t
 # Now it is rerun on a per-image basis if a crop fails to capture .1 percent cell pixels (minimum). 
 # scale is just a placeholder, the point to to figure out what the true rescaling facor is
 def random_crop_warp(img, Y, tyx, v1, v2, nchan, rescale, scale_range, gamma_range, do_flip, ind, 
-                     do_labels=True, depth=0):
+                     do_labels=True, depth=0, augment=True):
     """
     This sub-fuction of `random_rotate_and_resize()` recursively performs random cropping until 
     a minimum number of cell pixels are found, then proceeds with augemntations. 
@@ -2258,6 +2256,8 @@ def random_crop_warp(img, Y, tyx, v1, v2, nchan, rescale, scale_range, gamma_ran
         nonegative value X for assigning -X to where distance=0 (deprecated, now adapts to field values)
     depth: int
         how many time this function has been called on an image 
+    augment: bool
+        whether or not to perform all non-morphological augmentations on the image (gamma, noise, etc.)
 
     Returns
     -------
@@ -2388,7 +2388,7 @@ def random_crop_warp(img, Y, tyx, v1, v2, nchan, rescale, scale_range, gamma_ran
         # skimage.io.imsave('/home/kcutler/DataDrive/debug/img'+str(depth)+'.png',img[0])
         # skimage.io.imsave('/home/kcutler/DataDrive/debug/training'+str(depth)+'.png',lbl[0])
         return random_crop_warp(img, Y, tyx, v1, v2, nchan, rescale, scale_range, 
-                                gamma_range, do_flip, ind, do_labels, depth=depth+1)
+                                gamma_range, do_flip, ind, do_labels, depth=depth+1, augment=augment)
         
         
     else:
@@ -2415,53 +2415,53 @@ def random_crop_warp(img, Y, tyx, v1, v2, nchan, rescale, scale_range, gamma_ran
         
         # gamma agumentation - simulates different contrast, the most important and preserves fine structure 
         gamma = np.random.triangular(left=gamma_range[0], mode=1, right=gamma_range[1])
-        imgi[k] = imgi[k] ** gamma
+        if augment:
+            imgi[k] = imgi[k] ** gamma
 
-        
-        # defocus augmentation (inaccurate, but effective)
-        if aug_choices[0]:
-            imgi[k] = gaussian_filter(imgi[k],np.random.uniform(0,2))
-        
-        # percentile clipping augmentation
-        if aug_choices[1]:
-            dp = .1 # changed this from 10 to .1, as usual pipleine uses 0.01, 10 was way too high for some images 
-            dpct = np.random.triangular(left=0, mode=0, right=dp, size=2) # weighted toward 0
-            imgi[k] = utils.normalize99(imgi[k],upper=100-dpct[0],lower=dpct[1])
+            # defocus augmentation (inaccurate, but effective)
+            if aug_choices[0]:
+                imgi[k] = gaussian_filter(imgi[k],np.random.uniform(0,2))
+            
+            # percentile clipping augmentation
+            if aug_choices[1]:
+                dp = .1 # changed this from 10 to .1, as usual pipleine uses 0.01, 10 was way too high for some images 
+                dpct = np.random.triangular(left=0, mode=0, right=dp, size=2) # weighted toward 0
+                imgi[k] = utils.normalize99(imgi[k],upper=100-dpct[0],lower=dpct[1])
 
-        # noise augmentation
-        if SKIMAGE_ENABLED and aug_choices[2]:
-            var_range = 1e-2
-            var = np.random.triangular(left=1e-8, mode=1e-8, right=var_range, size=1)
-            # imgi[k] = random_noise(utils.rescale(imgi[k]), mode="poisson")#, seed=None, clip=True)
-            # poisson is super slow... np.random.posson is faster
-            # also posson alwasy gave the same noise, which is very bad... this is 
-            # but gaussian speckle is MUCH faster,<1ms vs >4ms 
-            imgi[k] = random_noise(imgi[k], mode='speckle',var=var)
-            # imgi[k] = utils.add_gaussian_noise(imgi[k],0,var)
-            
-        # bit depth augmentation
-        if aug_choices[3]:
-            bit_shift = int(np.random.triangular(left=0, mode=8, right=14, size=1))
-            im = utils.to_16_bit(imgi[k])
-            # imgi[k] = utils.normalize99(im>>bit_shift)
-            imgi[k] = utils.rescale(im>>bit_shift)
-            
-        # edge / line artifact augmentation
-        # omnipose was hallucinating stuff at boundaries
-        if aug_choices[4]:
-            # border_mask = np.zeros(tyx, dtype=bool)
-            # border_mask = binary_dilation(border_mask, border_value=1, iterations=1)
-            # imgi[k][border_mask] = 1
+            # noise augmentation
+            if SKIMAGE_ENABLED and aug_choices[2]:
+                var_range = 1e-2
+                var = np.random.triangular(left=1e-8, mode=1e-8, right=var_range, size=1)
+                # imgi[k] = random_noise(utils.rescale(imgi[k]), mode="poisson")#, seed=None, clip=True)
+                # poisson is super slow... np.random.posson is faster
+                # also posson alwasy gave the same noise, which is very bad... this is 
+                # but gaussian speckle is MUCH faster,<1ms vs >4ms 
+                imgi[k] = random_noise(imgi[k], mode='speckle',var=var)
+                # imgi[k] = utils.add_gaussian_noise(imgi[k],0,var)
+                
+            # bit depth augmentation
+            if aug_choices[3]:
+                bit_shift = int(np.random.triangular(left=0, mode=8, right=14, size=1))
+                im = utils.to_16_bit(imgi[k])
+                # imgi[k] = utils.normalize99(im>>bit_shift)
+                imgi[k] = utils.rescale(im>>bit_shift)
+                
+            # edge / line artifact augmentation
+            # omnipose was hallucinating stuff at boundaries
+            if aug_choices[4]:
+                # border_mask = np.zeros(tyx, dtype=bool)
+                # border_mask = binary_dilation(border_mask, border_value=1, iterations=1)
+                # imgi[k][border_mask] = 1
 
-            border_inds = utils.border_indices(tyx)
-            imgi[k].flat[border_inds] *= np.random.uniform(0,1)
+                border_inds = utils.border_indices(tyx)
+                imgi[k].flat[border_inds] *= np.random.uniform(0,1)
+                
             
-        
-        # set some pixels randomly to 0 or 1         
-        # much faster than random_noise s&p 
-        if aug_choices[5]:
-            indices = np.random.rand(*tyx) < 0.001
-            imgi[k][indices] = np.random.choice([0, 1], size=np.count_nonzero(indices))
+            # set some pixels randomly to 0 or 1         
+            # much faster than random_noise s&p 
+            if aug_choices[5]:
+                indices = np.random.rand(*tyx) < 0.001
+                imgi[k][indices] = np.random.choice([0, 1], size=np.count_nonzero(indices))
 
 
         

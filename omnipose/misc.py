@@ -9,6 +9,22 @@ from scipy.interpolate import splprep, splev
 import cv2
 import edt
 import torch
+import fastremap
+
+def unique_nonzero(labels):
+    return np.array(list(set(fastremap.unique(labels))-set((0,))))
+
+
+def random_int(N, M=None, seed=None):
+
+    if seed is None:
+        seed = np.random.randint(0, 2**32 - 1)
+        print(f'Seed: {seed}')
+    # Generate a random integer between 0 and N-1
+    return np.random.randint(0, N, M)
+
+ 
+
 
 # def argmin_cdist(X, labels):
 #     # Get unique labels and determine the boundaries where each label starts and ends

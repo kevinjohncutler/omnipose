@@ -166,3 +166,63 @@ def crop_bbox(mask, pad=10, iterations=3, im_pad=0, area_cutoff=0,
         slices = tuple([slice(start, stop) for start, stop in zip(start_xy, stop_xy)])
     
     return slices
+    
+    
+def extract_patches(image, points, box_size, fill_value=0, point_order='yx'):
+    """
+    Extract patches centered around points from an image, even if the points are at the edge.
+    Out-of-bounds areas are filled with the given fill_value.
+    Works for both grayscale (yx) and RGB (yxc) images.
+
+    Args:
+    - image: 2D (grayscale) or 3D (RGB) numpy array representing the source image.
+    - points: List or array of (x, y) or (y, x) tuples representing the center points of each patch.
+    - box_size: Integer for square patches or tuple (height, width) for rectangular patches.
+    - fill_value: The value to fill for out-of-bounds areas (default is 0).
+    - point_order: String specifying whether the points are in 'yx' (default) or 'xy' order.
+
+    Returns:
+    - patches: A 4D (if RGB) or 3D (if grayscale) numpy array where each slice corresponds to a patch centered on a point.
+    """
+    
+    # If box_size is a single integer, convert it to a tuple (height, width)
+    if isinstance(box_size, int):
+        box_size = (box_size, box_size)
+
+    box_size = tuple([s + 1 - s%2 for s in box_size]) # make odd if not
+
+    half_height, half_width = box_size[0] // 2, box_size[1] // 2
+
+    shape = (len(points), box_size[0], box_size[1])
+    img_height, img_width = image.shape[:2]
+    if image.ndim == 3:
+        shape += (image.shape[2],)
+
+    # Pre-fill the output array with the fill_value, adding channel dimension if needed
+    patches = np.full(shape, fill_value, dtype=image.dtype)
+
+    for i, point in enumerate(points):
+        # Handle point order based on the argument 'point_order'
+        if point_order == 'yx':
+            y, x = point
+        elif point_order == 'xy':
+            x, y = point
+        else:
+            raise ValueError("point_order must be 'yx' or 'xy'")
+
+        # Define the source slice with clamping to image bounds
+        src_y_start = max(0, y - half_height)
+        src_y_end = min(img_height, y + half_height + 1)
+        src_x_start = max(0, x - half_width)
+        src_x_end = min(img_width, x + half_width + 1)
+
+        # Define the destination slice
+        dst_y_start = half_height - (y - src_y_start)
+        dst_y_end = dst_y_start + (src_y_end - src_y_start)
+        dst_x_start = half_width - (x - src_x_start)
+        dst_x_end = dst_x_start + (src_x_end - src_x_start)
+
+
+        patches[i, dst_y_start:dst_y_end, dst_x_start:dst_x_end] = image[src_y_start:src_y_end, src_x_start:src_x_end]
+
+    return patches

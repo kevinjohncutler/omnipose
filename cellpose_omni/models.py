@@ -801,7 +801,7 @@ class CellposeModel(UnetModel):
                                           augment=augment,
                                           tile_overlap=tile_overlap).unsqueeze(0)
                     else:
-                        yf = self.network(batch)[0]
+                        yf = self.network(batch,to_numpy=False)[0]
                         # yf = self.net(batch)[0] go back to this if error 
 
                         
@@ -813,7 +813,7 @@ class CellposeModel(UnetModel):
                 # slice out padding
                 yf = yf[(Ellipsis,)+slc]
                 
-                
+                print('yf',yf.shape, yf.dtype)
                 # rescale and resample
                 if resample and rescale!=1.0:
                     yf = omnipose.data.torch_zoom(yf, 1/rescale)

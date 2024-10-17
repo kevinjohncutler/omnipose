@@ -42,29 +42,24 @@ def get_module(x):
         raise ValueError("Input must be a numpy array, a tuple, a torch tensor, an integer, or a float")
     
 def rescale(T, floor=None, ceiling=None, exclude_dims=None):
-    """
-    Rescale data between 0 and 1.
-    exclude_dims is the axis or axes that will remain. 
-    """
-    
     module = get_module(T)
     if exclude_dims is not None:
         if isinstance(exclude_dims, int):
             exclude_dims = (exclude_dims,)
-        order = [1 if i not in exclude_dims else -1 for i in range(T.ndim)]
         axes = tuple(i for i in range(T.ndim) if i not in exclude_dims)
+        newshape = [T.shape[i] if i in exclude_dims else 1 for i in range(T.ndim)]
     else:
         axes = None
-                
+        newshape = T.shape  # If no axes are excluded, keep the original shape
+    
     if ceiling is None:
         ceiling = module.amax(T, axis=axes)
-        # print('\t',T.shape,ceiling,axes)
         if exclude_dims is not None:
-            ceiling = ceiling.reshape(*order)
+            ceiling = ceiling.reshape(*newshape)
     if floor is None:
         floor = module.amin(T, axis=axes)
         if exclude_dims is not None:
-            floor = floor.reshape(*order)
+            floor = floor.reshape(*newshape)
             
     T = safe_divide(T - floor, ceiling - floor)
 

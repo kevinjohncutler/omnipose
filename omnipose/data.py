@@ -117,7 +117,6 @@ class eval_set(torch.utils.data.Dataset):
 #             # if the channel axis is 0, then the default order is correct: B,C,Y,X
 #             # otherwise, we need to move it to position 1
 #             imgs = np.moveaxis(imgs,channel_axis,1)
-        
 
 
     def __getitem__(self, inds, no_pad=False, no_rescale=False):
@@ -374,6 +373,9 @@ class train_set(torch.utils.data.Dataset):
         self.links = links
         self.timing = timing
         
+        if not hasattr(self,'augment'):
+            self.augment = True
+            
         # random_rotate_and_resize setup now goes here 
         if self.tyx is None:
             n = 16
@@ -474,7 +476,8 @@ class train_set(torch.utils.data.Dataset):
                                                             scale_range=self.scale_range, 
                                                             gamma_range=self.gamma_range, 
                                                             do_flip=self.do_flip, 
-                                                            ind=idx
+                                                            ind=idx,
+                                                            augment=self.augment,
                                                            )
             # print('hey', self.data[idx].shape,self.labels[idx].shape)
             

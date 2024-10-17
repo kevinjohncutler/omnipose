@@ -323,13 +323,18 @@ class UnetModel():
         return masks, flows, styles
 
     def _to_device(self, x):
-        if self.torch:
+        if isinstance(x, torch.Tensor):
+            if self.device!=x.device:
+                return x.to(self.device)
+            else:
+                return x
+        elif self.torch:
             # X = torch.tensor(x,device=self.device).float()
-            X = torch.tensor(x,device=self.device,dtype=torch.float32) #specify float32 for mps                        
+            return torch.tensor(x,device=self.device,dtype=torch.float32) #specify float32 for mps                        
         else:
             #if x.dtype != 'bool':
-            X = nd.array(x.astype(np.float32), ctx=self.device)
-        return X
+            return np.array(x.astype(np.float32), ctx=self.device)
+
     
 
     def _from_device(self, X):
@@ -341,7 +346,7 @@ class UnetModel():
             x = X.asnumpy()
         return x
 
-    def network(self, x, return_conv=False):
+    def network(self, x, return_conv=False, to_numpy=True):
         """ convert imgs to torch/mxnet and run network model and return numpy """
         X = self._to_device(x)
         if self.torch:
@@ -354,11 +359,16 @@ class UnetModel():
         else:
             y, style = self.net(X)
         del X 
+        
         if self.mkldnn:
             self.net.to(torch_CPU)
-        y = self._from_device(y)
-        style = self._from_device(style)
+            
+        if to_numpy:
+            y = self._from_device(y)
+            style = self._from_device(style)
+            
         if return_conv: # conv is not even defined anywhere, why is this here?
+            print('cc')
             conv = self._from_device(conv)
             y = np.concatenate((y, conv), axis=1)
         
@@ -814,7 +824,7 @@ class UnetModel():
             self.optimizer.zero_grad()
             # https://towardsdatascience.com/optimize-pytorch-performance-for-speed-and-memory-efficiency-2022-84f453916ea6
             # self.optimizer.zero_grad(set_to_none=True) does nothing 
-            self.net.train()
+            self.net.train() # must put into train mode
             
             if self.autocast:
                 with autocast(): 
@@ -1022,7 +1032,7 @@ class UnetModel():
             core_logger.warning('WARNING: no save_path given, model not saving')
 
         ksave = 0
-        rsc = 1.0
+        rsc = 1.0 # initialize, redefiled below
 
         # cannot train with mkldnn
         self.net.mkldnn = False

@@ -21,7 +21,17 @@ def setup():
     import matplotlib as mpl
     import matplotlib.pyplot as plt
     import ipywidgets as widgets
-    from IPython.display import display
+    from IPython.display import display, HTML
+
+    # Custom CSS to center plots
+    display(HTML("""
+    <style>
+        .jp-OutputArea-output img {
+            display: block;
+            margin: 0 auto;
+        }
+    </style>
+    """))
     
     # Inject into the global namespace of the notebook
     ipython = get_ipython()  # Get the IPython instance
@@ -815,14 +825,6 @@ def image_grid(images, column_titles=None, row_titles=None,
             if img is not None:
                 ax.imshow(img, **kwargs)
             
-            if outline:
-                for s in ax.spines.values():
-                    s.set_color(outline_color)
-                    s.set_linewidth(outline_width)
-            else:
-                for s in ax.spines.values():
-                    s.set_visible(False)
-            
             # Add plot labels
             if plot_labels is not None and plot_labels[set_idx][row_idx][col_idx] is not None:
                 coords = label_positions[lpos]['coords']
@@ -845,6 +847,15 @@ def image_grid(images, column_titles=None, row_titles=None,
                     ax.text(-p, 0.5, row_titles[row_idx], rotation=0, fontsize=fontsize, color=fontcolor, 
                             va='center', ha='right', transform=ax.transAxes)
     
+    
+        if outline:
+            for s in ax.spines.values():
+                s.set_color(outline_color)
+                s.set_linewidth(outline_width)
+        else:
+            for s in ax.spines.values():
+                s.set_visible(False)
+                
     if return_axes:
         return fig, axes, pos
     else:
