@@ -696,7 +696,7 @@ def image_grid(images, column_titles=None, row_titles=None,
                padding=0.05, interset_padding=0.1,
                fontsize=8, fontcolor=[0.5]*3,
                facecolor=None,
-               fig_scale=6, dpi=300,
+               figsize=6, dpi=300,
                order='ij',
                stack_direction='horizontal',  # New parameter for stack direction
                lpad = 0.05,
@@ -798,7 +798,7 @@ def image_grid(images, column_titles=None, row_titles=None,
     pos = [left, bottom, width, height]
     
     # Create the figure
-    fig = Figure(figsize=(fig_scale,fig_scale*max_h/max_w),                    
+    fig = Figure(figsize=(figsize,figsize*max_h/max_w),                    
                  frameon=False if facecolor is None else True, 
                  facecolor=[0]*4 if facecolor is None else facecolor,
                  dpi=dpi)
@@ -1086,7 +1086,7 @@ def color_swatches(colors, figsize=0.5, dpi=150, fontsize=5, fontcolor='w', padd
                         plot_labels=split_list(titles,ncol) if titles is not None else None,
                       padding=0.05, fontsize=fontsize, 
                       fontcolor=fontcolor,
-                      facecolor=[0]*4, fig_scale=figsize*ncol, dpi=dpi)
+                      facecolor=[0]*4, figsize=figsize*ncol, dpi=dpi)
     
 def truncate_colormap(cmap, minval=0.0, maxval=1.0, n=100):
 
