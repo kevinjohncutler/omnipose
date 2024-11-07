@@ -813,7 +813,6 @@ class CellposeModel(UnetModel):
                 # slice out padding
                 yf = yf[(Ellipsis,)+slc]
                 
-                print('yf',yf.shape, yf.dtype)
                 # rescale and resample
                 if resample and rescale!=1.0:
                     yf = omnipose.data.torch_zoom(yf, 1/rescale)
@@ -1456,6 +1455,8 @@ class CellposeModel(UnetModel):
         else:
             #pass back zeros for masks and p if not compute_masks
             ret = [[], styles, dP, cellprob, [], bd, tr, affinity, bounds]
+            ret = [r.squeeze() if isinstance(r,np.ndarray) else r for r in ret]
+            
         
         empty_cache()
         return (*ret,)

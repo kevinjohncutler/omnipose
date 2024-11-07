@@ -168,6 +168,8 @@ def crop_bbox(mask, pad=10, iterations=3, im_pad=0, area_cutoff=0,
     return slices
     
     
+import numpy as np
+
 def extract_patches(image, points, box_size, fill_value=0, point_order='yx'):
     """
     Extract patches centered around points from an image, even if the points are at the edge.
@@ -183,13 +185,14 @@ def extract_patches(image, points, box_size, fill_value=0, point_order='yx'):
 
     Returns:
     - patches: A 4D (if RGB) or 3D (if grayscale) numpy array where each slice corresponds to a patch centered on a point.
+    - slices: A list of tuples, each containing slices for y and x dimensions, representing the slice in the original array.
     """
     
     # If box_size is a single integer, convert it to a tuple (height, width)
     if isinstance(box_size, int):
         box_size = (box_size, box_size)
 
-    box_size = tuple([s + 1 - s%2 for s in box_size]) # make odd if not
+    box_size = tuple([s + 1 - s % 2 for s in box_size])  # make odd if not
 
     half_height, half_width = box_size[0] // 2, box_size[1] // 2
 
@@ -200,6 +203,9 @@ def extract_patches(image, points, box_size, fill_value=0, point_order='yx'):
 
     # Pre-fill the output array with the fill_value, adding channel dimension if needed
     patches = np.full(shape, fill_value, dtype=image.dtype)
+    
+    # Initialize a list to store the slices
+    slices = []
 
     for i, point in enumerate(points):
         # Handle point order based on the argument 'point_order'
@@ -222,7 +228,13 @@ def extract_patches(image, points, box_size, fill_value=0, point_order='yx'):
         dst_x_start = half_width - (x - src_x_start)
         dst_x_end = dst_x_start + (src_x_end - src_x_start)
 
-
+        # Fill the patch array
         patches[i, dst_y_start:dst_y_end, dst_x_start:dst_x_end] = image[src_y_start:src_y_end, src_x_start:src_x_end]
 
-    return patches
+        # Record the slices for the original image
+        slices.append((
+            slice(src_y_start, src_y_end),
+            slice(src_x_start, src_x_end)
+        ))
+
+    return patches, slices

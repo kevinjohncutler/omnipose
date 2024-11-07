@@ -262,7 +262,7 @@ def colorize_GPU(im, colors=None, color_weights=None, offset=0, channel_axis=-1)
 
     return rgb
     
-def apply_ncolor(masks,offset=0,cmap=None,max_depth=20,expand=True, maxv=1):
+def apply_ncolor(masks,offset=0,cmap=None,max_depth=20,expand=True, maxv=1, greedy=False):
 
     import ncolor
     from cmap import Colormap
@@ -272,7 +272,8 @@ def apply_ncolor(masks,offset=0,cmap=None,max_depth=20,expand=True, maxv=1):
                        max_depth=max_depth,
                        return_n=True,
                        conn=2, 
-                       expand=expand)
+                       expand=expand, 
+                       greedy=greedy)
     if cmap is None:
         c = sinebow(n,offset=offset)
         colors = np.array(list(c.values()))
@@ -702,6 +703,9 @@ def image_grid(images, column_titles=None, row_titles=None,
                lpad = 0.05,
                lpos='top_middle',
                return_axes=False,
+               fig=None,
+               offset=[0,0],
+               supcolor=None,
                **kwargs):
 
     """Display a grid of images with uniform spacing.
@@ -709,6 +713,9 @@ def image_grid(images, column_titles=None, row_titles=None,
     If multiple sets of images are provided, extra padding will be added between sets.
     stack_direction: 'horizontal' or 'vertical' controls how multiple sets are arranged.
     """
+    
+    if supcolor is None:
+        supcolor = fontcolor
     
     label_positions = {'top_middle': {'coords': (0.5, 1-lpad), 'va': 'top', 'ha': 'center'},
                         'bottom_left': {'coords': (lpad, lpad), 'va': 'bottom', 'ha': 'left'},
@@ -787,6 +794,7 @@ def image_grid(images, column_titles=None, row_titles=None,
     # Adjust positions for multiple sets based on stack_direction
     left, bottom, width, height = adjust_for_multiple_sets(left, bottom, width, height, stack_direction)
 
+    
     # Normalize the positions and sizes
     max_w = max(left + width)
     max_h = max(bottom + height)
@@ -795,13 +803,38 @@ def image_grid(images, column_titles=None, row_titles=None,
     width /= max_w
     height /= max_h
     
+    
+    # Use the existing figure if provided; otherwise, create a new one
+    if fig is None:
+        fig = Figure(figsize=(figsize, figsize * max_h / max_w),
+                     frameon=False if facecolor is None else True,
+                     facecolor=[0] * 4 if facecolor is None else facecolor,
+                     dpi=dpi)
+    else:
+        fig_width, fig_height = fig.get_size_inches()
+        aspect = fig_height / fig_width    
+        new_aspect = (grid_dims[0]/grid_dims[1])/aspect
+        # left /= aspect
+        bottom *= new_aspect
+        # width /= aspect
+        height *= new_aspect
+
+
+
+    
+    # Apply offsets to the left and bottom positions
+    left += offset[0]
+    bottom += offset[1]
+    
     pos = [left, bottom, width, height]
     
     # Create the figure
-    fig = Figure(figsize=(figsize,figsize*max_h/max_w),                    
-                 frameon=False if facecolor is None else True, 
-                 facecolor=[0]*4 if facecolor is None else facecolor,
-                 dpi=dpi)
+    # fig = Figure(figsize=(figsize,figsize*max_h/max_w),                    
+    #              frameon=False if facecolor is None else True, 
+    #              facecolor=[0]*4 if facecolor is None else facecolor,
+    #              dpi=dpi)
+    
+
     
     # Add the subplots
     axes = []
@@ -830,21 +863,25 @@ def image_grid(images, column_titles=None, row_titles=None,
                 coords = label_positions[lpos]['coords']
                 va = label_positions[lpos]['va']
                 ha = label_positions[lpos]['ha']
-                ax.text(coords[0], coords[1], plot_labels[set_idx][row_idx][col_idx], 
+                text = ax.text(coords[0], coords[1], plot_labels[set_idx][row_idx][col_idx], 
                         fontsize=fontsize, color=fontcolor, va=va, ha=ha, transform=ax.transAxes)
     
+                if img is None:
+                    text.set_color([.5]*4)
+                    # text.set_alpha(.5)
+
         # Set the column titles (only for the top row)
         if column_titles is not None and row_idx == 0:
             if ij and col_idx < grid_dims[1]:
                 if stack_direction != 'vertical' or set_idx == 0:
-                    ax.text(0.5, 1 + p, column_titles[col_idx], rotation=0, fontsize=fontsize, color=fontcolor, 
+                    ax.text(0.5, 1 + p, column_titles[col_idx], rotation=0, fontsize=fontsize, color=supcolor, 
                             va='bottom', ha='center', transform=ax.transAxes)
 
         # Set the row titles (only for the first column and only if stacking is not horizontal or it's the first set)
         if row_titles is not None and col_idx == 0:
             if ij and row_idx < grid_dims[0]:
                 if stack_direction != 'horizontal' or set_idx == 0:
-                    ax.text(-p, 0.5, row_titles[row_idx], rotation=0, fontsize=fontsize, color=fontcolor, 
+                    ax.text(-p, 0.5, row_titles[row_idx], rotation=0, fontsize=fontsize, color=supcolor, 
                             va='center', ha='right', transform=ax.transAxes)
     
     

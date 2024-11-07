@@ -965,7 +965,7 @@ def clean_boundary(labels, boundary_thickness=3, area_thresh=30, cutoff=0.5):
         
     cutoff: float
         Fraction from 0 to 1 of the overlap with the boundary before the mask is removed. Default 0.5. 
-        Set to 0 if you want any mask touching the boundary to be removed. 
+        Set cutoff to 0 and are_thresh to np.inf if you want any mask touching the boundary to be removed. 
     
     Returns
     --------------

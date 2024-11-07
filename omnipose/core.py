@@ -266,9 +266,7 @@ def labels_to_flows(labels, links=None, files=None, use_gpu=False, device=None,
     no_flow = labels[0].ndim != 3+dim # (6,Lt,Ly,Lx) for 3D, masks + dist + boundary + flow components, then image dimensions 
     
     if no_flow or redo_flows:
-        
-        omnipose_logger.info('NOTE: computing flows for labels (could be done before to save time)')
-        
+            
         # compute flows; labels are fixed in masks_to_flows, so they need to be passed back
         labels, dist, bd, heat, veci = map(list,zip(*[masks_to_flows(labels[n], links=links[n], use_gpu=use_gpu, 
                                                                  device=device, omni=omni, dim=dim) 

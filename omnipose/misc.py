@@ -12,6 +12,9 @@ import torch
 import fastremap
 
 def unique_nonzero(labels):
+    """
+    Get unique nonzero labels
+    """
     return np.array(list(set(fastremap.unique(labels))-set((0,))))
 
 
@@ -122,29 +125,38 @@ def argmin_cdist(X, labels, distance_values):
     
     return torch.tensor(argmin_indices, device=X.device), adjusted_summed_distances_all
 
-def get_medoids(labels,do_skel=True):
+def get_medoids(labels,do_skel=True,return_dists=False):
     if do_skel:
         masks = skeletonize(labels)
         dists = np.ones_like(labels)        
     else:
         masks = labels
         dists = edt.edt(labels)#,black_border=False)
-        
-        
+    
     coords = np.argwhere(masks>0)
-    labels = masks[tuple(coords.T)]
+    slc = tuple(coords.T)
+    labels = masks[slc]
     sort = np.argsort(labels)
     sort_coords = coords[sort]
     sort_labels = labels[sort]
-    sort_dists = dists[tuple(coords.T)][sort]
+    sort_dists = dists[slc][sort]
     
     inds, dists = argmin_cdist(torch.tensor(sort_coords).float(),
                                torch.tensor(sort_labels).float(),
                                torch.tensor(sort_dists).float())
+    
     medoids = sort_coords[inds]
+    
     if medoids.ndim==1:
         medoids = medoids[None]
-    return medoids
+    
+    if return_dists:
+        dists = dists.cpu().numpy()
+        inner_dists = np.zeros(masks.shape,dtype=dists.dtype)
+        inner_dists[tuple(sort_coords.T)] = dists
+        return medoids, inner_dists
+    else:
+        return medoids
 
 
 
@@ -1303,3 +1315,59 @@ def create_pill_mask(R, L, f = np.sqrt(2)):
     mask[right_circle] = 1
     
     return mask
+    
+    
+import numpy as np
+from scipy.fft import dstn, idstn
+
+def compute_vector_field_from_divergence(divergence, grid_spacing=1):
+    """
+    Compute the vector field from its divergence using DST-based Poisson solver.
+    
+    Parameters:
+        divergence (ndarray): The divergence array (2D or 3D).
+        grid_spacing (float or sequence of floats): Grid spacing in each dimension.
+        
+    Returns:
+        vector_field (list of ndarrays): Components of the vector field.
+    """
+    # Ensure grid_spacing is a list for multi-dimensional grids
+    if np.isscalar(grid_spacing):
+        grid_spacing = [grid_spacing] * divergence.ndim
+    
+    # Get the shape of the divergence array
+    shape = divergence.shape
+    ndim = divergence.ndim
+    
+    # Grid spacings
+    d = grid_spacing
+    
+    # Create k vectors for each dimension
+    k = []
+    for n, delta in zip(shape, d):
+        k.append(np.pi * np.arange(1, n+1) / (n+1) / delta)
+    mesh = np.meshgrid(*k, indexing='ij')
+    
+    # Compute K squared
+    K_squared = sum((k_i)**2 for k_i in mesh)
+    
+    # Compute the DST of the divergence with normalization
+    divergence_dst = dstn(divergence, type=1, norm='ortho')
+    
+    # Solve Poisson's equation in DST space
+    Phi_dst = divergence_dst / K_squared
+    
+    # Handle division by zero (should not happen since k ranges from 1 to n)
+    # However, just in case, set any zero K_squared to a very large number
+    Phi_dst = np.nan_to_num(Phi_dst, nan=0.0, posinf=0.0, neginf=0.0)
+    
+    # Inverse DST to get the scalar potential Phi with normalization
+    Phi = idstn(Phi_dst, type=1, norm='ortho')
+    
+    # Compute the gradient of Phi to get the vector field components
+    gradient = np.gradient(Phi, *d, edge_order=2)
+    
+    # The vector field V = -∇Phi
+    vector_field = [-g for g in gradient]
+    
+    return np.stack(vector_field)
