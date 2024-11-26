@@ -227,38 +227,60 @@ def colorize(im, colors=None, color_weights=None, offset=0, channel_axis=-1):
     return rgb
 
 
-def colorize_GPU(im, colors=None, color_weights=None, offset=0, channel_axis=-1):
+# def colorize_GPU(im, colors=None, color_weights=None, offset=0, channel_axis=-1):
 
-    import torch 
+#     import torch 
     
-    N = im.shape[0]
+#     N = im.shape[0]
+#     device = im.device
+
+#     if colors is None:
+#         angle = torch.linspace(0, 1, N, device=device) * 2 * np.pi + offset
+#         angles = torch.stack((angle, angle + 2 * np.pi / 3, angle + 4 * np.pi / 3), dim=-1)
+#         colors = (torch.cos(angles) + 1) / 2
+
+#     if color_weights is not None:
+#         colors *= color_weights.unsqueeze(-1)
+#         # colors /= color_weights.sum()
+    
+#     im = im.unsqueeze(-1)  # Add an extra dimension to `im`
+    
+#     # Perform the multiplication and mean computation using `einsum` - way faster than using view
+#     rgb = torch.einsum('ijkl,il->jkl', im.float(), colors.float()) / N
+
+#     return rgb
+
+def colorize_GPU(im, colors=None, color_weights=None, offset=0):
+    import torch
+    import string
+    
+    N = im.shape[0]  # Number of channels
     device = im.device
 
     if colors is None:
         angle = torch.linspace(0, 1, N, device=device) * 2 * np.pi + offset
         angles = torch.stack((angle, angle + 2 * np.pi / 3, angle + 4 * np.pi / 3), dim=-1)
-        colors = (torch.cos(angles) + 1) / 2
+        colors = (torch.cos(angles) + 1) / 2  # Generate RGB colors
 
     if color_weights is not None:
-        colors *= color_weights.unsqueeze(-1)
-        # colors /= color_weights.sum()
-    # rgb_shape = im.shape[1:]+(colors.shape[1],)
-    # if channel_axis == 0:
-    #     rgb_shape = tuple(rgb_shape[::-1])
-    # rgb = torch.ones(rgb_shape, device=device)
+        colors *= color_weights.unsqueeze(-1)  # Apply color weights to colors
 
-    # Use broadcasting to multiply im and colors and sum along the 0th dimension
-    # rgb = (im.unsqueeze(-1) * colors.view(colors.shape[0], 1, 1, colors.shape[1])).mean(dim=0)
-    
-    im = im.unsqueeze(-1)  # Add an extra dimension to `im`
-    # colors = colors.view(colors.shape[0], 1, 1, colors.shape[1])  # Reshape `colors`
+    # Determine the number of spatial dimensions
+    num_spatial_dims = im.ndim - 1  # Exclude the channel dimension
 
-    # print(im.shape,colors.shape)
-    # Compute the mean and assign the result to `rgb`
-    # rgb = (im*colors).mean(dim=0)
-    
-    # Perform the multiplication and mean computation using `einsum` - way faster 
-    rgb = torch.einsum('ijkl,il->jkl', im.float(), colors.float()) / N
+    # Generate index letters for einsum (excluding 'c' and 'l')
+    idx_letters = ''.join(letter for letter in string.ascii_lowercase if letter not in {'c', 'l'})
+
+    spatial_indices = idx_letters[:num_spatial_dims]
+
+    # Build the einsum equation dynamically
+    im_indices = 'c' + spatial_indices
+    colors_indices = 'c l'  # 'l' corresponds to the RGB channels
+    output_indices = spatial_indices + 'l'
+    einsum_eq = f'{im_indices},{colors_indices}->{output_indices}'
+
+    # Perform the weighted sum across channels to produce the RGB image
+    rgb = torch.einsum(einsum_eq, im.float(), colors.float()) / N
 
     return rgb
     
@@ -819,23 +841,12 @@ def image_grid(images, column_titles=None, row_titles=None,
         # width /= aspect
         height *= new_aspect
 
-
-
     
     # Apply offsets to the left and bottom positions
     left += offset[0]
     bottom += offset[1]
-    
     pos = [left, bottom, width, height]
-    
-    # Create the figure
-    # fig = Figure(figsize=(figsize,figsize*max_h/max_w),                    
-    #              frameon=False if facecolor is None else True, 
-    #              facecolor=[0]*4 if facecolor is None else facecolor,
-    #              dpi=dpi)
-    
-
-    
+    print(pos)
     # Add the subplots
     axes = []
     for i in range(len(left)):
@@ -897,6 +908,239 @@ def image_grid(images, column_titles=None, row_titles=None,
         return fig, axes, pos
     else:
         return fig
+
+def image_grid(images, column_titles=None, row_titles=None, 
+               plot_labels=None, 
+               xticks=[], yticks=[], 
+               outline=False, outline_color=[0.5]*3, outline_width=.5,
+               padding=0.05, interset_padding=0.1,
+               fontsize=8, fontcolor=[0.5]*3,
+               facecolor=None,
+               figsize=6, dpi=300,
+               order='ij',
+               reverse_row=False,
+               stack_direction='horizontal',
+               lpad=0.05,
+               lpos='top_middle',
+               return_axes=False,
+               fig=None,
+               offset=[0, 0],
+               supcolor=None,
+               **kwargs):
+
+    """Display a grid of images with uniform spacing.
+    Accepts a list or nested list of images, with each sublist having consistent YXC dimensions.
+    If multiple sets of images are provided, extra padding will be added between sets.
+    `order` parameter can be 'ij' or 'ji' to control row-major or column-major ordering.
+    """
+    
+    if supcolor is None:
+        supcolor = fontcolor
+
+    label_positions = {
+        'top_middle': {'coords': (0.5, 1 - lpad), 'va': 'top', 'ha': 'center'},
+        'bottom_left': {'coords': (lpad, lpad), 'va': 'bottom', 'ha': 'left'},
+        'bottom_middle': {'coords': (0.5, lpad), 'va': 'bottom', 'ha': 'center'},
+        'top_left': {'coords': (lpad, 1 - lpad), 'va': 'top', 'ha': 'left'},
+    }
+
+    # Check if 'images' is a list of lists of lists, meaning multiple image sets
+    if isinstance(images[0][0], list):
+        multiple_sets = True
+    else:
+        multiple_sets = False
+        images = [images]  # Treat single set as a list of one
+        plot_labels = [plot_labels] if plot_labels is not None else None
+
+    n_sets = len(images)
+    ij = order == 'ij'
+
+    # Initialize lists to hold positions and sizes
+    all_left = []
+    all_bottom = []
+    all_width = []
+    all_height = []
+
+    # Initialize offset for stacking
+    total_offset_x = 0
+    total_offset_y = 0
+
+    for set_idx, image_set in enumerate(images):
+        # Determine grid dimensions based on order
+        if ij:
+            nrows = len(image_set)
+            ncols = max(len(row) for row in image_set)
+        else:
+            ncols = len(image_set)
+            nrows = max(len(col) for col in image_set)
+
+        grid_dims = [nrows, ncols]
+
+        # Padding between images
+        p = padding
+
+        # Positions and sizes
+        width = 1.0
+        height = 1.0
+
+        # Compute positions
+        positions = []
+        for idx in range(nrows * ncols):
+            if ij:
+                row_idx = idx // ncols
+                col_idx = idx % ncols
+            else:
+                col_idx = idx // nrows
+                row_idx = idx % nrows
+
+            left = (width + p) * col_idx + total_offset_x
+            bottom = (height + p) * row_idx + total_offset_y  # Adjusted calculation
+            positions.append((left, bottom, width, height))
+
+        # Adjust stacking offsets
+        if multiple_sets and set_idx < n_sets - 1:
+            if stack_direction == 'horizontal':
+                total_offset_x += (width + p) * ncols + interset_padding
+            elif stack_direction == 'vertical':
+                total_offset_y += (height + p) * nrows + interset_padding
+
+        # Collect positions
+        lefts, bottoms, widths, heights = zip(*positions)
+        all_left.extend(lefts)
+        all_bottom.extend(bottoms)
+        all_width.extend(widths)
+        all_height.extend(heights)
+
+    # Normalize positions
+    lefts = np.array(all_left)
+    bottoms = np.array(all_bottom)
+    widths = np.array(all_width)
+    heights = np.array(all_height)
+
+    max_w = max(lefts + widths)
+    max_h = max(bottoms + heights)
+    lefts /= max_w
+    widths /= max_w
+
+    # Adjust bottoms for top-down layout
+    bottoms = (max_h - bottoms - heights) / max_h
+    heights /= max_h
+
+    # Use the existing figure if provided; otherwise, create a new one
+    if fig is None:
+        fig = Figure(figsize=(figsize, figsize * max_h / max_w) if ij else (figsize * max_w / max_h, figsize),
+                     frameon=False if facecolor is None else True,
+                     facecolor=[0] * 4 if facecolor is None else facecolor,
+                     dpi=dpi)
+
+    # Apply offsets to the left and bottom positions
+    lefts += offset[0]
+    bottoms += offset[1]
+
+    # Add the subplots
+    axes = []
+    idx = 0
+    for set_idx, image_set in enumerate(images):
+        if ij:
+            nrows = len(image_set)
+            ncols = max(len(row) for row in image_set)
+        else:
+            ncols = len(image_set)
+            nrows = max(len(col) for col in image_set)
+
+        for i in range(nrows * ncols):
+            ax = fig.add_axes([lefts[idx], bottoms[idx], widths[idx], heights[idx]])  # Updated line
+            axes.append(ax)
+            idx += 1
+
+    # Add images to the subplots
+    idx = 0
+    reverse_rows = [i for i in range(nrows)][::-1]
+    for set_idx, image_set in enumerate(images):
+        if ij:
+            nrows = len(image_set)
+            ncols = max(len(row) for row in image_set)
+        else:
+            ncols = len(image_set)
+            nrows = max(len(col) for col in image_set)
+
+        for i in range(nrows * ncols):
+            if ij:
+                row_idx = i // ncols
+                col_idx = i % ncols
+            else:
+                col_idx = i // nrows
+                row_idx = i % nrows
+                if reverse_row:
+                    row_idx = reverse_rows[row_idx]
+
+            # Access the image
+            try:
+                if ij:
+                    img = image_set[row_idx][col_idx]
+                else:
+                    img = image_set[col_idx][row_idx]
+            except IndexError:
+                img = None
+
+            ax = axes[idx]
+            idx += 1
+
+            ax.set_xticks(xticks)
+            ax.set_yticks(yticks)
+            ax.patch.set_alpha(0)
+
+            if img is not None:
+                ax.imshow(img, **kwargs)
+
+            # Add plot labels
+            if plot_labels is not None:
+                try:
+                    if ij:
+                        label = plot_labels[set_idx][row_idx][col_idx]
+                    else:
+                        label = plot_labels[set_idx][col_idx][row_idx]
+                except IndexError:
+                    label = None
+
+                if label is not None:
+                    coords = label_positions[lpos]['coords']
+                    va = label_positions[lpos]['va']
+                    ha = label_positions[lpos]['ha']
+                    text = ax.text(coords[0], coords[1], label,
+                                   fontsize=fontsize, color=fontcolor, va=va, ha=ha, transform=ax.transAxes)
+                    if img is None:
+                        text.set_color([.5]*4)
+
+            ctitles = column_titles if ij else row_titles
+            rtitles = row_titles if ij else column_titles
+            # Set the column titles
+            if ctitles is not None and (row_idx==nrows-1 if ij else (i % nrows)==nrows-1) and col_idx < len(ctitles):
+                if stack_direction != 'vertical' or set_idx == 0:
+                    ax.text(0.5, 1 + p, ctitles[col_idx], rotation=0, fontsize=fontsize, color=supcolor, 
+                            va='bottom', ha='center', transform=ax.transAxes)
+
+            # Set the row titles
+            if rtitles is not None and col_idx == 0 and row_idx < len(rtitles):
+                if stack_direction != 'horizontal' or set_idx == 0:
+                    ax.text(-p, 0.5, rtitles[row_idx], rotation=0, fontsize=fontsize, color=supcolor, 
+                            va='center', ha='right', transform=ax.transAxes)
+
+            if outline:
+                for s in ax.spines.values():
+                    s.set_color(outline_color)
+                    s.set_linewidth(outline_width)
+            else:
+                for s in ax.spines.values():
+                    s.set_visible(False)
+
+    if return_axes:
+        pos = [lefts, bottoms, widths, heights]
+
+        return fig, axes, pos
+    else:
+        return fig
+        
         
 
 def color_grid(colors, **kwargs):
@@ -924,9 +1168,6 @@ def color_grid(colors, **kwargs):
 
     
 # from https://stackoverflow.com/a/63530703/13326811
-
-
-
 def colored_line_segments(xs,ys,zs=None,color='k',mid_colors=False):
 
     from scipy.interpolate import interp1d

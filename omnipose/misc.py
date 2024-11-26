@@ -10,12 +10,13 @@ import cv2
 import edt
 import torch
 import fastremap
-
+    
+    
 def unique_nonzero(labels):
     """
     Get unique nonzero labels
     """
-    return np.array(list(set(fastremap.unique(labels))-set((0,))))
+    return np.sort(np.array(list(set(fastremap.unique(labels))-set((0,)))))
 
 
 def random_int(N, M=None, seed=None):
@@ -25,6 +26,8 @@ def random_int(N, M=None, seed=None):
         print(f'Seed: {seed}')
     # Generate a random integer between 0 and N-1
     return np.random.randint(0, N, M)
+    
+    
 
  
 
@@ -146,6 +149,7 @@ def get_medoids(labels,do_skel=True,return_dists=False):
                                torch.tensor(sort_dists).float())
     
     medoids = sort_coords[inds]
+    mlabels = sort_labels[inds]
     
     if medoids.ndim==1:
         medoids = medoids[None]
@@ -154,9 +158,9 @@ def get_medoids(labels,do_skel=True,return_dists=False):
         dists = dists.cpu().numpy()
         inner_dists = np.zeros(masks.shape,dtype=dists.dtype)
         inner_dists[tuple(sort_coords.T)] = dists
-        return medoids, inner_dists
+        return medoids, mlabels, inner_dists
     else:
-        return medoids
+        return medoids, mlabels
 
 
 
