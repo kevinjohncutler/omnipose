@@ -712,202 +712,202 @@ def split_list(lst, N):
 #     else:   
 #         return fig
 
-def image_grid(images, column_titles=None, row_titles=None, 
-               plot_labels=None, 
-               xticks=[], yticks=[], 
-               outline=False, outline_color=[0.5]*3, outline_width=.5,
-               padding=0.05, interset_padding=0.1,
-               fontsize=8, fontcolor=[0.5]*3,
-               facecolor=None,
-               figsize=6, dpi=300,
-               order='ij',
-               stack_direction='horizontal',  # New parameter for stack direction
-               lpad = 0.05,
-               lpos='top_middle',
-               return_axes=False,
-               fig=None,
-               offset=[0,0],
-               supcolor=None,
-               **kwargs):
+# def image_grid(images, column_titles=None, row_titles=None, 
+#                plot_labels=None, 
+#                xticks=[], yticks=[], 
+#                outline=False, outline_color=[0.5]*3, outline_width=.5,
+#                padding=0.05, interset_padding=0.1,
+#                fontsize=8, fontcolor=[0.5]*3,
+#                facecolor=None,
+#                figsize=6, dpi=300,
+#                order='ij',
+#                stack_direction='horizontal',  # New parameter for stack direction
+#                lpad = 0.05,
+#                lpos='top_middle',
+#                return_axes=False,
+#                fig=None,
+#                offset=[0,0],
+#                supcolor=None,
+#                **kwargs):
 
-    """Display a grid of images with uniform spacing.
-    Accepts a list or nested list of images, with each sublist having consistent YXC dimensions. 
-    If multiple sets of images are provided, extra padding will be added between sets.
-    stack_direction: 'horizontal' or 'vertical' controls how multiple sets are arranged.
-    """
+#     """Display a grid of images with uniform spacing.
+#     Accepts a list or nested list of images, with each sublist having consistent YXC dimensions. 
+#     If multiple sets of images are provided, extra padding will be added between sets.
+#     stack_direction: 'horizontal' or 'vertical' controls how multiple sets are arranged.
+#     """
     
-    if supcolor is None:
-        supcolor = fontcolor
+#     if supcolor is None:
+#         supcolor = fontcolor
     
-    label_positions = {'top_middle': {'coords': (0.5, 1-lpad), 'va': 'top', 'ha': 'center'},
-                        'bottom_left': {'coords': (lpad, lpad), 'va': 'bottom', 'ha': 'left'},
-                        'bottom_middle': {'coords': (0.5, lpad), 'va': 'bottom', 'ha': 'center'},
-                        'top_left': {'coords': (lpad, 1-lpad), 'va': 'top', 'ha': 'left'},
-                    }
+#     label_positions = {'top_middle': {'coords': (0.5, 1-lpad), 'va': 'top', 'ha': 'center'},
+#                         'bottom_left': {'coords': (lpad, lpad), 'va': 'bottom', 'ha': 'left'},
+#                         'bottom_middle': {'coords': (0.5, lpad), 'va': 'bottom', 'ha': 'center'},
+#                         'top_left': {'coords': (lpad, 1-lpad), 'va': 'top', 'ha': 'left'},
+#                     }
 
-    # Check if 'images' is a list of lists, meaning multiple image sets
-    if isinstance(images[0][0], list):
-        multiple_sets = True
-    else:
-        multiple_sets = False
-        images = [images]  # Treat single set as a list of one
-        plot_labels = [plot_labels] if plot_labels is not None else None
+#     # Check if 'images' is a list of lists, meaning multiple image sets
+#     if isinstance(images[0][0], list):
+#         multiple_sets = True
+#     else:
+#         multiple_sets = False
+#         images = [images]  # Treat single set as a list of one
+#         plot_labels = [plot_labels] if plot_labels is not None else None
         
-    # Compute grid dimensions
-    n_sets = len(images)
-    nrow = len(images[0])
-    ncol = [len(i) for i in images[0]]
-    grid_dims = [nrow, max(ncol)]
-    ij = order == 'ij'
+#     # Compute grid dimensions
+#     n_sets = len(images)
+#     nrow = len(images[0])
+#     ncol = [len(i) for i in images[0]]
+#     grid_dims = [nrow, max(ncol)]
+#     ij = order == 'ij'
     
-    # Get image shapes from the first set (allowing for variations in shape)
-    image_shapes = []
-    for i in images[0]:
-        if i and i[0] is not None:
-            image_shapes.append(i[0].shape[:2])
-        else:
-            # Assign a default shape (e.g., (1,1)) for missing images
-            image_shapes.append((1, 1))
+#     # Get image shapes from the first set (allowing for variations in shape)
+#     image_shapes = []
+#     for i in images[0]:
+#         if i and i[0] is not None:
+#             image_shapes.append(i[0].shape[:2])
+#         else:
+#             # Assign a default shape (e.g., (1,1)) for missing images
+#             image_shapes.append((1, 1))
 
-    # Padding between images
-    p = padding
+#     # Padding between images
+#     p = padding
     
-    # Calculate aspect ratios and cumulative dimensions for the grid
-    a = [img_shape[0] / img_shape[1] for img_shape in image_shapes] if ij else [img_shape[1] / img_shape[0] for img_shape in image_shapes]
-    b = np.ones_like(a)
+#     # Calculate aspect ratios and cumulative dimensions for the grid
+#     a = [img_shape[0] / img_shape[1] for img_shape in image_shapes] if ij else [img_shape[1] / img_shape[0] for img_shape in image_shapes]
+#     b = np.ones_like(a)
     
-    # Cumulative dimensions for positioning
-    ca = np.cumsum(a)
-    start_a = np.array([[0]*grid_dims[1]] + [[ca[i]+(i+1)*p]*grid_dims[1] for i in range(grid_dims[0]-1)]).flatten().astype(float)
-    start_b = np.array([[(bi + p)*i for i in range(grid_dims[1])] for bi in b]).flatten().astype(float)
+#     # Cumulative dimensions for positioning
+#     ca = np.cumsum(a)
+#     start_a = np.array([[0]*grid_dims[1]] + [[ca[i]+(i+1)*p]*grid_dims[1] for i in range(grid_dims[0]-1)]).flatten().astype(float)
+#     start_b = np.array([[(bi + p)*i for i in range(grid_dims[1])] for bi in b]).flatten().astype(float)
     
-    # Positions and sizes for the first set
-    da = np.array([[ai]*grid_dims[1] for ai in a]).flatten().astype(float)
-    db = np.array([[bi]*grid_dims[1] for bi in b]).flatten().astype(float)
+#     # Positions and sizes for the first set
+#     da = np.array([[ai]*grid_dims[1] for ai in a]).flatten().astype(float)
+#     db = np.array([[bi]*grid_dims[1] for bi in b]).flatten().astype(float)
     
-    left = np.copy(start_b)
-    bottom = np.copy(start_a)
-    width = np.copy(db)
-    height = np.copy(da)
+#     left = np.copy(start_b)
+#     bottom = np.copy(start_a)
+#     width = np.copy(db)
+#     height = np.copy(da)
         
-    def adjust_for_multiple_sets(left, bottom, width, height, stack_direction):
-        """ Adjust the positions for multiple image sets. """
-        if multiple_sets:
-            offsets = []
-            for i in range(1, n_sets):
-                if stack_direction == 'horizontal':
-                    set_offset = max(left + width) + interset_padding  # Add space between sets horizontally
-                    next_left = np.copy(left) + set_offset * i
-                    offsets.append((next_left, bottom, width, height))
-                elif stack_direction == 'vertical':
-                    set_offset = max(bottom + height) + interset_padding  # Add space between sets vertically
-                    next_bottom = np.copy(bottom) + set_offset * i
-                    offsets.append((left, next_bottom, width, height))
+#     def adjust_for_multiple_sets(left, bottom, width, height, stack_direction):
+#         """ Adjust the positions for multiple image sets. """
+#         if multiple_sets:
+#             offsets = []
+#             for i in range(1, n_sets):
+#                 if stack_direction == 'horizontal':
+#                     set_offset = max(left + width) + interset_padding  # Add space between sets horizontally
+#                     next_left = np.copy(left) + set_offset * i
+#                     offsets.append((next_left, bottom, width, height))
+#                 elif stack_direction == 'vertical':
+#                     set_offset = max(bottom + height) + interset_padding  # Add space between sets vertically
+#                     next_bottom = np.copy(bottom) + set_offset * i
+#                     offsets.append((left, next_bottom, width, height))
             
-            # Combine positions across sets
-            left = np.concatenate([left] + [offset[0] for offset in offsets])
-            bottom = np.concatenate([bottom] + [offset[1] for offset in offsets])
-            width = np.concatenate([width] + [offset[2] for offset in offsets])
-            height = np.concatenate([height] + [offset[3] for offset in offsets])
+#             # Combine positions across sets
+#             left = np.concatenate([left] + [offset[0] for offset in offsets])
+#             bottom = np.concatenate([bottom] + [offset[1] for offset in offsets])
+#             width = np.concatenate([width] + [offset[2] for offset in offsets])
+#             height = np.concatenate([height] + [offset[3] for offset in offsets])
         
-        return left, bottom, width, height
+#         return left, bottom, width, height
         
 
-    # Adjust positions for multiple sets based on stack_direction
-    left, bottom, width, height = adjust_for_multiple_sets(left, bottom, width, height, stack_direction)
+#     # Adjust positions for multiple sets based on stack_direction
+#     left, bottom, width, height = adjust_for_multiple_sets(left, bottom, width, height, stack_direction)
 
     
-    # Normalize the positions and sizes
-    max_w = max(left + width)
-    max_h = max(bottom + height)
-    left /= max_w
-    bottom /= max_h
-    width /= max_w
-    height /= max_h
+#     # Normalize the positions and sizes
+#     max_w = max(left + width)
+#     max_h = max(bottom + height)
+#     left /= max_w
+#     bottom /= max_h
+#     width /= max_w
+#     height /= max_h
     
     
-    # Use the existing figure if provided; otherwise, create a new one
-    if fig is None:
-        fig = Figure(figsize=(figsize, figsize * max_h / max_w),
-                     frameon=False if facecolor is None else True,
-                     facecolor=[0] * 4 if facecolor is None else facecolor,
-                     dpi=dpi)
-    else:
-        fig_width, fig_height = fig.get_size_inches()
-        aspect = fig_height / fig_width    
-        new_aspect = (grid_dims[0]/grid_dims[1])/aspect
-        # left /= aspect
-        bottom *= new_aspect
-        # width /= aspect
-        height *= new_aspect
+#     # Use the existing figure if provided; otherwise, create a new one
+#     if fig is None:
+#         fig = Figure(figsize=(figsize, figsize * max_h / max_w),
+#                      frameon=False if facecolor is None else True,
+#                      facecolor=[0] * 4 if facecolor is None else facecolor,
+#                      dpi=dpi)
+#     else:
+#         fig_width, fig_height = fig.get_size_inches()
+#         aspect = fig_height / fig_width    
+#         new_aspect = (grid_dims[0]/grid_dims[1])/aspect
+#         # left /= aspect
+#         bottom *= new_aspect
+#         # width /= aspect
+#         height *= new_aspect
 
     
-    # Apply offsets to the left and bottom positions
-    left += offset[0]
-    bottom += offset[1]
-    pos = [left, bottom, width, height]
-    print(pos)
-    # Add the subplots
-    axes = []
-    for i in range(len(left)):
-        ax = fig.add_axes([left[i], 1-bottom[i]-height[i], width[i], height[i]])
-        axes.append(ax)
+#     # Apply offsets to the left and bottom positions
+#     left += offset[0]
+#     bottom += offset[1]
+#     pos = [left, bottom, width, height]
+#     print(pos)
+#     # Add the subplots
+#     axes = []
+#     for i in range(len(left)):
+#         ax = fig.add_axes([left[i], 1-bottom[i]-height[i], width[i], height[i]])
+#         axes.append(ax)
     
-    # Add outline and remove ticks for each subplot
-    for i, ax in enumerate(axes):
-        ax.set_xticks(xticks)
-        ax.set_yticks(yticks)
-        ax.patch.set_alpha(0)
+#     # Add outline and remove ticks for each subplot
+#     for i, ax in enumerate(axes):
+#         ax.set_xticks(xticks)
+#         ax.set_yticks(yticks)
+#         ax.patch.set_alpha(0)
         
-        # Find the correct image based on the grid dimensions and number of sets
-        set_idx = i // (grid_dims[0] * grid_dims[1])
-        row_idx = (i % (grid_dims[0] * grid_dims[1])) // grid_dims[1]
-        col_idx = i % grid_dims[1]
+#         # Find the correct image based on the grid dimensions and number of sets
+#         set_idx = i // (grid_dims[0] * grid_dims[1])
+#         row_idx = (i % (grid_dims[0] * grid_dims[1])) // grid_dims[1]
+#         col_idx = i % grid_dims[1]
         
-        if col_idx < len(images[set_idx][row_idx]):
-            img = images[set_idx][row_idx][col_idx]
-            if img is not None:
-                ax.imshow(img, **kwargs)
+#         if col_idx < len(images[set_idx][row_idx]):
+#             img = images[set_idx][row_idx][col_idx]
+#             if img is not None:
+#                 ax.imshow(img, **kwargs)
             
-            # Add plot labels
-            if plot_labels is not None and plot_labels[set_idx][row_idx][col_idx] is not None:
-                coords = label_positions[lpos]['coords']
-                va = label_positions[lpos]['va']
-                ha = label_positions[lpos]['ha']
-                text = ax.text(coords[0], coords[1], plot_labels[set_idx][row_idx][col_idx], 
-                        fontsize=fontsize, color=fontcolor, va=va, ha=ha, transform=ax.transAxes)
+#             # Add plot labels
+#             if plot_labels is not None and plot_labels[set_idx][row_idx][col_idx] is not None:
+#                 coords = label_positions[lpos]['coords']
+#                 va = label_positions[lpos]['va']
+#                 ha = label_positions[lpos]['ha']
+#                 text = ax.text(coords[0], coords[1], plot_labels[set_idx][row_idx][col_idx], 
+#                         fontsize=fontsize, color=fontcolor, va=va, ha=ha, transform=ax.transAxes)
     
-                if img is None:
-                    text.set_color([.5]*4)
-                    # text.set_alpha(.5)
+#                 if img is None:
+#                     text.set_color([.5]*4)
+#                     # text.set_alpha(.5)
 
-        # Set the column titles (only for the top row)
-        if column_titles is not None and row_idx == 0:
-            if ij and col_idx < grid_dims[1]:
-                if stack_direction != 'vertical' or set_idx == 0:
-                    ax.text(0.5, 1 + p, column_titles[col_idx], rotation=0, fontsize=fontsize, color=supcolor, 
-                            va='bottom', ha='center', transform=ax.transAxes)
+#         # Set the column titles (only for the top row)
+#         if column_titles is not None and row_idx == 0:
+#             if ij and col_idx < grid_dims[1]:
+#                 if stack_direction != 'vertical' or set_idx == 0:
+#                     ax.text(0.5, 1 + p, column_titles[col_idx], rotation=0, fontsize=fontsize, color=supcolor, 
+#                             va='bottom', ha='center', transform=ax.transAxes)
 
-        # Set the row titles (only for the first column and only if stacking is not horizontal or it's the first set)
-        if row_titles is not None and col_idx == 0:
-            if ij and row_idx < grid_dims[0]:
-                if stack_direction != 'horizontal' or set_idx == 0:
-                    ax.text(-p, 0.5, row_titles[row_idx], rotation=0, fontsize=fontsize, color=supcolor, 
-                            va='center', ha='right', transform=ax.transAxes)
+#         # Set the row titles (only for the first column and only if stacking is not horizontal or it's the first set)
+#         if row_titles is not None and col_idx == 0:
+#             if ij and row_idx < grid_dims[0]:
+#                 if stack_direction != 'horizontal' or set_idx == 0:
+#                     ax.text(-p, 0.5, row_titles[row_idx], rotation=0, fontsize=fontsize, color=supcolor, 
+#                             va='center', ha='right', transform=ax.transAxes)
     
     
-        if outline:
-            for s in ax.spines.values():
-                s.set_color(outline_color)
-                s.set_linewidth(outline_width)
-        else:
-            for s in ax.spines.values():
-                s.set_visible(False)
+#         if outline:
+#             for s in ax.spines.values():
+#                 s.set_color(outline_color)
+#                 s.set_linewidth(outline_width)
+#         else:
+#             for s in ax.spines.values():
+#                 s.set_visible(False)
                 
-    if return_axes:
-        return fig, axes, pos
-    else:
-        return fig
+#     if return_axes:
+#         return fig, axes, pos
+#     else:
+#         return fig
 
 def image_grid(images, column_titles=None, row_titles=None, 
                plot_labels=None, 
@@ -1091,7 +1091,7 @@ def image_grid(images, column_titles=None, row_titles=None,
             ax.patch.set_alpha(0)
 
             if img is not None:
-                ax.imshow(img, **kwargs)
+                ax.imshow(img, **kwargs)                
 
             # Add plot labels
             if plot_labels is not None:
@@ -1115,7 +1115,8 @@ def image_grid(images, column_titles=None, row_titles=None,
             ctitles = column_titles if ij else row_titles
             rtitles = row_titles if ij else column_titles
             # Set the column titles
-            if ctitles is not None and (row_idx==nrows-1 if ij else (i % nrows)==nrows-1) and col_idx < len(ctitles):
+            # if ctitles is not None and (row_idx==nrows-1 if ij else (i % nrows)==nrows-1) and col_idx < len(ctitles):
+            if ctitles is not None and (row_idx == 0) and col_idx < len(ctitles):
                 if stack_direction != 'vertical' or set_idx == 0:
                     ax.text(0.5, 1 + p, ctitles[col_idx], rotation=0, fontsize=fontsize, color=supcolor, 
                             va='bottom', ha='center', transform=ax.transAxes)

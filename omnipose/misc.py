@@ -16,7 +16,8 @@ def unique_nonzero(labels):
     """
     Get unique nonzero labels
     """
-    return np.sort(np.array(list(set(fastremap.unique(labels))-set((0,)))))
+    # return np.sort(np.array(list(set(fastremap.unique(labels))-set((0,)))))
+    return fastremap.unique(labels[labels > 0])
 
 
 def random_int(N, M=None, seed=None):
@@ -24,12 +25,11 @@ def random_int(N, M=None, seed=None):
     if seed is None:
         seed = np.random.randint(0, 2**32 - 1)
         print(f'Seed: {seed}')
+    else:
+        np.random.seed(seed)
     # Generate a random integer between 0 and N-1
     return np.random.randint(0, N, M)
-    
-    
 
- 
 
 
 # def argmin_cdist(X, labels):
