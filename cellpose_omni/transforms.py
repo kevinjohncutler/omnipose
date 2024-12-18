@@ -681,6 +681,7 @@ def reshape_train_test(train_data, train_labels, test_data, test_labels, channel
         test_data, test_labels = None, None
         
     if not np.all([dta.shape[-dim:] == lbl.shape[-dim:] for dta, lbl in zip(train_data,train_labels)]):
+        print([(dta.shape[-dim:],lbl.shape[-dim:]) for dta, lbl in zip(train_data,train_labels)])
         error_message = 'training data and labels are not the same shape, must be something wrong with preprocessing assumptions'
         transforms_logger.critical(error_message)
         raise ValueError(error_message)

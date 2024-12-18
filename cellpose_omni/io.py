@@ -269,7 +269,7 @@ def get_label_files(img_names, label_filter='_cp_masks', img_filter='', ext=None
     
     if ext is None:
         label_paths = []
-        extensions = ['.tif','.tiff','.png'] #order preference comes here 
+        extensions = ['.tif', '.tiff', '.png', '.npy', '.npz'] #order preference comes here 
 
         for p,b in zip(parent,label_base):            
             paths = [os.path.join(p,subfolder,b+label_filter+ext) for ext in extensions]
@@ -277,7 +277,7 @@ def get_label_files(img_names, label_filter='_cp_masks', img_filter='', ext=None
             nfound = np.sum(found)
             
             if nfound == 0:
-                io_logger.warning('No TIF, TIFF, or PNG labels of type {} found for image {}.'.format(label_filter, b))
+                io_logger.warning('No TIF, TIFF, PNG, NPY, or NPZ labels of type {} found for image {}.'.format(label_filter, b))
             else:
                 idx = np.nonzero(found)[0][0]
                 label_paths.append(paths[idx])
@@ -301,7 +301,7 @@ def get_label_files(img_names, label_filter='_cp_masks', img_filter='', ext=None
             nfound = np.sum(found)
 
             if nfound == 0:
-                io_logger.info('not all flows are present, will run flow generation for all images')
+                io_logger.info('not all flows are present, will run flow generation for all images') # this branch should be deprecated 
                 flow_paths = None
                 break
             else:
