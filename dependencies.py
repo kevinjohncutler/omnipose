@@ -19,13 +19,14 @@ install_deps = ['numpy>=1.22.4,<=1.26.4', # will need to wait a bit for cythoniz
                 'torch_optimizer',
                 'tifffile', # might be dependency of aicsimageio
                 'fastremap' # not sure how I missed this one 
+                'cmap' 
                 ]
 
 gui_deps = [
         'pyqtgraph>=0.12.4', 
         'PyQt6.sip', 
         'PyQt6',
-        'google-cloud-storage',
+        # 'google-cloud-storage',
         'omnipose-theme',
         'superqt',
         'darkdetect'

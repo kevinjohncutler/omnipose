@@ -1,17 +1,33 @@
-from PyQt6 import QtGui, QtCore, QtWidgets
-from PyQt6.QtGui import QPainter, QPixmap, QNativeGestureEvent
-from PyQt6.QtWidgets import QApplication, QRadioButton, QWidget, QDialog, QButtonGroup, QSlider, QStyle, QStyleOptionSlider, QGridLayout, QPushButton, QLabel, QLineEdit, QDialogButtonBox, QComboBox, QCheckBox
+from PyQt6 import QtGui, QtCore
+from PyQt6.QtGui import QPainter
+from PyQt6.QtWidgets import QApplication, QRadioButton, QWidget, QDialog, QButtonGroup, QSlider, QStyle, QStyleOptionSlider, QGridLayout, QPushButton, QLabel, QLineEdit, QDialogButtonBox, QComboBox
 import pyqtgraph as pg
-from pyqtgraph import functions as fn
 from pyqtgraph import Point
 import numpy as np
-import pathlib, os
+import os
 
-import superqt
+# import superqt
 
 TOOLBAR_WIDTH = 7
 SPACING = 3
 WIDTH_0 = 25
+
+from PyQt6.QtWidgets import QPlainTextEdit, QFrame
+
+class TextField(QPlainTextEdit):
+    clicked= QtCore.pyqtSignal()
+    def __init__(self,widget,parent=None):
+        super().__init__(widget)
+        # self.setStyleSheet(self.parent().textbox_style)
+    def mousePressEvent(self,QMouseEvent):
+        self.clicked.emit()
+
+class QHLine(QFrame):
+    def __init__(self):
+        super(QHLine, self).__init__()
+        self.setFrameShape(QFrame.Shape.HLine)
+        # self.setFrameShadow(QFrame.Shape.Sunken)
+
 
 def create_channel_choose():
     # choose channel
@@ -194,164 +210,6 @@ class QuadButton(QPushButton):
 
 
 
-class ExampleGUI(QDialog):
-    def __init__(self, parent=None):
-        super(ExampleGUI, self).__init__(parent)
-        self.setGeometry(100,100,1300,900)
-        self.setWindowTitle('GUI layout')
-        self.win = QWidget(self)
-        layout = QGridLayout()
-        self.win.setLayout(layout)
-        guip_path = pathlib.Path.home().joinpath('.cellpose', 'cellpose_gui.png')
-        guip_path = str(guip_path.resolve())
-        pixmap = QPixmap(guip_path)
-        label = QLabel(self)
-        label.setPixmap(pixmap)
-        pixmap.scaled
-        layout.addWidget(label, 0, 0, 1, 1)
-
-class HelpWindow(QDialog):
-    def __init__(self, parent=None):
-        super(HelpWindow, self).__init__(parent)
-        self.setGeometry(100,50,700,850)
-        self.setWindowTitle('cellpose help')
-        self.win = QWidget(self)
-        layout = QGridLayout()
-        self.win.setLayout(layout)
-        
-        text = ('''
-            <p class="has-line-data" data-line-start="5" data-line-end="6">Main GUI mouse controls:</p>
-            <ul>
-            <li class="has-line-data" data-line-start="7" data-line-end="8">Pan  = left-click  + drag</li>
-            <li class="has-line-data" data-line-start="8" data-line-end="9">Zoom = scroll wheel (or +/= and - buttons) </li>
-            <li class="has-line-data" data-line-start="9" data-line-end="10">Full view = double left-click</li>
-            <li class="has-line-data" data-line-start="10" data-line-end="11">Select mask = left-click on mask</li>
-            <li class="has-line-data" data-line-start="11" data-line-end="12">Delete mask = Ctrl (or COMMAND on Mac) + left-click</li>
-            <li class="has-line-data" data-line-start="11" data-line-end="12">Merge masks = Alt + left-click (will merge last two)</li>
-            <li class="has-line-data" data-line-start="12" data-line-end="13">Start draw mask = right-click</li>
-            <li class="has-line-data" data-line-start="13" data-line-end="15">End draw mask = right-click, or return to circle at beginning</li>
-            </ul>
-            <p class="has-line-data" data-line-start="15" data-line-end="16">Overlaps in masks are NOT allowed. If you draw a mask on top of another mask, it is cropped so that it doesn’t overlap with the old mask. Masks in 2D should be single strokes (single stroke is checked). If you want to draw masks in 3D (experimental), then you can turn this option off and draw a stroke on each plane with the cell and then press ENTER. 3D labeling will fill in planes that you have not labelled so that you do not have to as densely label.</p>
-            <p class="has-line-data" data-line-start="17" data-line-end="18">!NOTE!: The GUI automatically saves after you draw a mask in 2D but NOT after 3D mask drawing and NOT after segmentation. Save in the file menu or with Ctrl+S. The output file is in the same folder as the loaded image with <code>_seg.npy</code> appended.</p>
-            <table class="table table-striped table-bordered">
-            <br><br>
-            FYI there are tooltips throughout the GUI (hover over text to see)
-            <br>
-            <thead>
-            <tr>
-            <th>Keyboard shortcuts</th>
-            <th>Description</th>
-            </tr>
-            </thead>
-            <tbody>
-            <tr>
-            <td>=/+  button // - button</td>
-            <td>zoom in // zoom out</td>
-            </tr>
-            <tr>
-            <td>CTRL+Z</td>
-            <td>undo previously drawn mask/stroke</td>
-            </tr>
-            <tr>
-            <td>CTRL+Y</td>
-            <td>undo remove mask</td>
-            </tr>
-            <tr>
-            <td>CTRL+0</td>
-            <td>clear all masks</td>
-            </tr>
-            <tr>
-            <td>CTRL+L</td>
-            <td>load image (can alternatively drag and drop image)</td>
-            </tr>
-            <tr>
-            <td>CTRL+S</td>
-            <td>SAVE MASKS IN IMAGE to <code>_seg.npy</code> file</td>
-            </tr>
-            <tr>
-            <td>CTRL+T</td>
-            <td>train model using _seg.npy files in folder
-            </tr>
-            <tr>
-            <td>CTRL+P</td>
-            <td>load <code>_seg.npy</code> file (note: it will load automatically with image if it exists)</td>
-            </tr>
-            <tr>
-            <td>CTRL+M</td>
-            <td>load masks file (must be same size as image with 0 for NO mask, and 1,2,3… for masks)</td>
-            </tr>
-            <tr>
-            <td>A/D or LEFT/RIGHT</td>
-            <td>cycle through images in current directory</td>
-            </tr>
-            <tr>
-            <td>W/S or UP/DOWN</td>
-            <td>change color (RGB/gray/red/green/blue)</td>
-            </tr>
-            <tr>
-            <td>R / G / B </td>
-            <td>toggle between RGB and Red or Green or Blue</td>
-            </tr>
-            <tr>
-            <td>PAGE-UP / PAGE-DOWN</td>
-            <td>change to flows and cell prob views (if segmentation computed)</td>
-            </tr>
-            <tr>
-            <td>X</td>
-            <td>turn masks ON or OFF</td>
-            </tr>
-            <tr>
-            <td>Z</td>
-            <td>toggle outlines ON or OFF</td>
-            </tr>
-            <tr>
-            <td>, / .</td>
-            <td>increase / decrease brush size for drawing masks</td>
-            </tr>
-            </tbody>
-            </table>
-            <p class="has-line-data" data-line-start="36" data-line-end="37"><strong>Segmentation options (2D only) </strong></p>
-            <p class="has-line-data" data-line-start="38" data-line-end="39">SIZE: you can manually enter the approximate diameter for your cells, or press “calibrate” to let the model estimate it. The size is represented by a disk at the bottom of the view window (can turn this disk of by unchecking “scale disk on”).</p>
-            <p class="has-line-data" data-line-start="40" data-line-end="41">use GPU: if you have specially installed the cuda version of mxnet, then you can activate this, but it won’t give huge speedups when running single 2D images in the GUI.</p>
-            <p class="has-line-data" data-line-start="42" data-line-end="43">MODEL: there is a <em>cytoplasm</em> model and a <em>nuclei</em> model, choose what you want to segment</p>
-            <p class="has-line-data" data-line-start="44" data-line-end="45">CHAN TO SEG: this is the channel in which the cytoplasm or nuclei exist</p>
-            <p class="has-line-data" data-line-start="46" data-line-end="47">CHAN2 (OPT): if <em>cytoplasm</em> model is chosen, then choose the nuclear channel for this option</p>
-            ''')
-        label = QLabel(text)
-        label.setFont(QtGui.QFont("Arial", 8))
-        label.setWordWrap(True)
-        layout.addWidget(label, 0, 0, 1, 1)
-        self.show()
-
-
-class TrainHelpWindow(QDialog):
-    def __init__(self, parent=None):
-        super(TrainHelpWindow, self).__init__(parent)
-        self.setGeometry(100,50,700,300)
-        self.setWindowTitle('training instructions')
-        self.win = QWidget(self)
-        layout = QGridLayout()
-        self.win.setLayout(layout)
-        
-        text = ('''
-            Check out this <a href="https://youtu.be/3Y1VKcxjNy4">video</a> to learn the process.
-            <ol>
-                <li>Drag and drop an image from a folder of images with a similar style (like similar cell types).</li>
-                <li>Run the built-in models on one of the images using the "model zoo" and find the one that works best for your data. Make sure that if you have a nuclear channel you have selected it for CHAN2.</li>
-                <li>Fix the labeling by drawing new ROIs (right-click) and deleting incorrect ones (CTRL+click). The GUI autosaves any manual changes (but does not autosave after running the model, for that click CTRL+S). The segmentation is saved in a "_seg.npy" file.</li>
-                <li> Go to the "Models" menu in the File bar at the top and click "Train new model..." or use shortcut CTRL+T. </li>
-                <li> Choose the pretrained model to start the training from (the model you used in #2), and type in the model name that you want to use. The other parameters should work well in general for most data types. Then click OK. </li>
-                <li> The model will train (much faster if you have a GPU) and then auto-run on the next image in the folder. Next you can repeat #3-#5 as many times as is necessary. </li>
-                <li> The trained model is available to use in the future in the GUI in the "custom model" section and is saved in your image folder. </li>
-            </ol>
-            ''')
-        label = QLabel(text)
-        label.setFont(QtGui.QFont("Arial", 8))
-        label.setWordWrap(True)
-        layout.addWidget(label, 0, 0, 1, 1)
-        self.show()
-
-
 class TypeRadioButtons(QButtonGroup):
     def __init__(self, parent=None, row=0, col=0):
         super(TypeRadioButtons, self).__init__()
@@ -402,7 +260,7 @@ class RGBRadioButtons(QButtonGroup):
             self.parent.update_plot()
 
 
-class ViewBoxNoRightDrag(pg.ViewBox):
+class ViewBoxNoRightDrag(pg.ViewBox): # not used anymore 
     def __init__(self, parent=None, border=None, lockAspect=False, enableMouse=True, invertY=False, enableMenu=True, name=None, invertX=False):
         pg.ViewBox.__init__(self, None, border, lockAspect, enableMouse,
                             invertY, enableMenu, name, invertX)
@@ -466,226 +324,310 @@ class ViewBoxNoRightDrag(pg.ViewBox):
                         self.translateBy(x=x, y=y)
                     self.sigRangeChangedManually.emit(self.state['mouseEnabled'])
 
+# class ImageDraw(pg.ImageItem):
+#     """
+#     **Bases:** :class:`GraphicsObject <pyqtgraph.GraphicsObject>`
+#     GraphicsObject displaying an image. Optimized for rapid update (ie video display).
+#     This item displays either a 2D numpy array (height, width) or
+#     a 3D array (height, width, RGBa). This array is optionally scaled (see
+#     :func:`setLevels <pyqtgraph.ImageItem.setLevels>`) and/or colored
+#     with a lookup table (see :func:`setLookupTable <pyqtgraph.ImageItem.setLookupTable>`)
+#     before being displayed.
+#     ImageItem is frequently used in conjunction with
+#     :class:`HistogramLUTItem <pyqtgraph.HistogramLUTItem>` or
+#     :class:`HistogramLUTWidget <pyqtgraph.HistogramLUTWidget>` to provide a GUI
+#     for controlling the levels and lookup table used to display the image.
+#     """
+
+#     sigImageChanged = QtCore.pyqtSignal()
+
+#     def __init__(self, image=None, viewbox=None, parent=None, **kargs):
+#         super(ImageDraw, self).__init__()
+#         #self.image=None
+#         self.viewbox=viewbox
+#         self.levels = np.array([0,255])
+#         self.lut = None
+#         self.autoDownsample = False
+#         self.axisOrder = 'row-major'
+#         self.removable = False
+
+#         self.parent = parent
+#         #kernel[1,1] = 1
+#         # self.setDrawKernel(kernel_size=self.parent.brush_size)
+#         self.parent.current_stroke = []
+#         self.parent.in_stroke = False
+        
+
+#     def create_start(self, pos):
+#         self.scatter = pg.ScatterPlotItem([pos.x()], [pos.y()], pxMode=False,
+#                                         pen=pg.mkPen(color=(255,0,0), width=self.parent.brush_size),
+#                                         size=max(3*2, self.parent.brush_size*1.8*2), brush=None)
+#         self.parent.p0.addItem(self.scatter)
+
+#     def is_at_start(self, pos):
+#         thresh_out = max(6, self.parent.brush_size*3)
+#         thresh_in = max(3, self.parent.brush_size*1.8)
+#         # first check if you ever left the start
+#         if len(self.parent.current_stroke) > 3:
+#             stroke = np.array(self.parent.current_stroke)
+#             dist = (((stroke[1:,1:] - stroke[:1,1:][np.newaxis,:,:])**2).sum(axis=-1))**0.5
+#             dist = dist.flatten()
+#             #print(dist)
+#             has_left = (dist > thresh_out).nonzero()[0]
+#             if len(has_left) > 0:
+#                 first_left = np.sort(has_left)[0]
+#                 has_returned = (dist[max(4,first_left+1):] < thresh_in).sum()
+#                 if has_returned > 0:
+#                     return True
+#                 else:
+#                     return False
+#             else:
+#                 return False
+
+#     def end_stroke(self):
+#         self.parent.p0.removeItem(self.scatter)
+#         if not self.parent.stroke_appended:
+#             self.parent.strokes.append(self.parent.current_stroke)
+#             self.parent.stroke_appended = True
+#             self.parent.current_stroke = np.array(self.parent.current_stroke)
+#             ioutline = self.parent.current_stroke[:,3]==1
+#             self.parent.current_point_set.extend(list(self.parent.current_stroke[ioutline]))
+#             self.parent.current_stroke = []
+#             if self.parent.autosave:
+#                 self.parent.add_set()
+#         if len(self.parent.current_point_set) > 0 and self.parent.autosave:
+#             self.parent.add_set()
+#         self.parent.in_stroke = False
+
+#     def drawAt(self, pos, ev=None):
+#         mask = self.strokemask
+#         set = self.parent.current_point_set
+#         stroke = self.parent.current_stroke
+#         pos = [int(pos.y()), int(pos.x())]
+#         dk = self.drawKernel
+#         kc = self.drawKernelCenter
+#         sx = [0,dk.shape[0]]
+#         sy = [0,dk.shape[1]]
+#         tx = [pos[0] - kc[0], pos[0] - kc[0]+ dk.shape[0]]
+#         ty = [pos[1] - kc[1], pos[1] - kc[1]+ dk.shape[1]]
+#         kcent = kc.copy()
+#         if tx[0]<=0:
+#             sx[0] = 0
+#             sx[1] = kc[0] + 1
+#             tx    = sx
+#             kcent[0] = 0
+#         if ty[0]<=0:
+#             sy[0] = 0
+#             sy[1] = kc[1] + 1
+#             ty    = sy
+#             kcent[1] = 0
+#         if tx[1] >= self.parent.Ly-1:
+#             sx[0] = dk.shape[0] - kc[0] - 1
+#             sx[1] = dk.shape[0]
+#             tx[0] = self.parent.Ly - kc[0] - 1
+#             tx[1] = self.parent.Ly
+#             kcent[0] = tx[1]-tx[0]-1
+#         if ty[1] >= self.parent.Lx-1:
+#             sy[0] = dk.shape[1] - kc[1] - 1
+#             sy[1] = dk.shape[1]
+#             ty[0] = self.parent.Lx - kc[1] - 1
+#             ty[1] = self.parent.Lx
+#             kcent[1] = ty[1]-ty[0]-1
+
+
+#         ts = (slice(tx[0],tx[1]), slice(ty[0],ty[1]))
+#         ss = (slice(sx[0],sx[1]), slice(sy[0],sy[1]))
+#         self.image[ts] = mask[ss]
+
+#         for ky,y in enumerate(np.arange(ty[0], ty[1], 1, int)):
+#             for kx,x in enumerate(np.arange(tx[0], tx[1], 1, int)):
+#                 iscent = np.logical_and(kx==kcent[0], ky==kcent[1])
+#                 stroke.append([self.parent.currentZ, x, y, iscent])
+#         self.updateImage()
+
+#     def setDrawKernel(self, kernel_size=3):
+#         bs = kernel_size
+#         kernel = np.ones((bs,bs), np.uint8)
+#         self.drawKernel = kernel
+#         self.drawKernelCenter = [int(np.floor(kernel.shape[0]/2)),
+#                                  int(np.floor(kernel.shape[1]/2))]
+#         onmask = 255 * kernel[:,:,np.newaxis]
+#         offmask = np.zeros((bs,bs,1))
+#         opamask = 100 * kernel[:,:,np.newaxis]
+#         self.redmask = np.concatenate((onmask,offmask,offmask,onmask), axis=-1)
+#         self.strokemask = np.concatenate((onmask,offmask,onmask,opamask), axis=-1)
+
+
 class ImageDraw(pg.ImageItem):
-    """
-    **Bases:** :class:`GraphicsObject <pyqtgraph.GraphicsObject>`
-    GraphicsObject displaying an image. Optimized for rapid update (ie video display).
-    This item displays either a 2D numpy array (height, width) or
-    a 3D array (height, width, RGBa). This array is optionally scaled (see
-    :func:`setLevels <pyqtgraph.ImageItem.setLevels>`) and/or colored
-    with a lookup table (see :func:`setLookupTable <pyqtgraph.ImageItem.setLookupTable>`)
-    before being displayed.
-    ImageItem is frequently used in conjunction with
-    :class:`HistogramLUTItem <pyqtgraph.HistogramLUTItem>` or
-    :class:`HistogramLUTWidget <pyqtgraph.HistogramLUTWidget>` to provide a GUI
-    for controlling the levels and lookup table used to display the image.
-    """
-
-    sigImageChanged = QtCore.pyqtSignal()
-
-    def __init__(self, image=None, viewbox=None, parent=None, **kargs):
-        super(ImageDraw, self).__init__()
-        #self.image=None
-        #self.viewbox=viewbox
-        self.levels = np.array([0,255])
-        self.lut = None
-        self.autoDownsample = False
-        self.axisOrder = 'row-major'
-        self.removable = False
-
+    def __init__(self, data=None, parent=None):
+        """
+        data: 2D or 3D (H x W x RGBA) numpy array for the layer you want to paint on.
+        parent: any object that has:
+            - brush_size : int
+            - spacePressed : bool
+        """
+        super().__init__()
         self.parent = parent
-        #kernel[1,1] = 1
-        self.setDrawKernel(kernel_size=self.parent.brush_size)
-        self.parent.current_stroke = []
-        self.parent.in_stroke = False
+        self.parent.current_label = 0
+        
+        # Store the underlying layer data; display it
+        if data is None:
+            data = np.zeros((512, 512, 4), dtype=np.uint8)  # Dummy fallback
+        self._data = data
+        self.setImage(self._data)
 
-    # def mouseClickEvent(self, ev):
-    #     if self.parent.masksOn or self.parent.outlinesOn:
-    #         if  self.parent.loaded and (ev.button()==QtCore.Qt.RightButton or 
-    #                 ev.modifiers() == QtCore.Qt.ShiftModifier and not ev.double()):
-    #             if not self.parent.in_stroke:
-    #                 ev.accept()
-    #                 self.create_start(ev.pos())
-    #                 self.parent.stroke_appended = False
-    #                 self.parent.in_stroke = True
-    #                 self.drawAt(ev.pos(), ev)
-    #             else:
-    #                 ev.accept()
-    #                 self.end_stroke()
-    #                 self.parent.in_stroke = False
-    #         elif not self.parent.in_stroke:
-    #             y,x = int(ev.pos().y()), int(ev.pos().x())
-    #             if y>=0 and y<self.parent.Ly and x>=0 and x<self.parent.Lx:
-    #                 if ev.button()==QtCore.Qt.LeftButton and not ev.double():
-    #                     idx = self.parent.cellpix[self.parent.currentZ][y,x]
-    #                     if idx > 0:
-    #                         if ev.modifiers()==QtCore.Qt.ControlModifier:
-    #                             # delete mask selected
-    #                             self.parent.remove_cell(idx)
-    #                         elif ev.modifiers()==QtCore.Qt.AltModifier:
-    #                             self.parent.merge_cells(idx)
-    #                         elif self.parent.masksOn:
-    #                             self.parent.unselect_cell()
-    #                             self.parent.select_cell(idx)
-    #                     elif self.parent.masksOn:
-    #                         self.parent.unselect_cell()
+        self._drawing = False
+        self._lastPos = None
 
-    def mouseClickEvent(self, ev):	
-        if self.parent.masksOn or self.parent.outlinesOn:	
-            if  self.parent.loaded and (ev.button() == QtCore.Qt.RightButton or 	
-                    ev.modifiers() & QtCore.Qt.ShiftModifier and not ev.double()):	
-                if not self.parent.in_stroke:	
-                    ev.accept()	
-                    self.create_start(ev.pos())	
-                    self.parent.stroke_appended = False	
-                    self.parent.in_stroke = True	
-                    self.drawAt(ev.pos(), ev)	
-                else:	
-                    ev.accept()	
-                    self.end_stroke()	
-                    self.parent.in_stroke = False	
-            elif not self.parent.in_stroke:	
-                y,x = int(ev.pos().y()), int(ev.pos().x())	
-                if y>=0 and y<self.parent.Ly and x>=0 and x<self.parent.Lx:	
-                    if ev.button() == QtCore.Qt.LeftButton and not ev.double():	
-                        idx = self.parent.cellpix[self.parent.currentZ][y,x]	
-                        if idx > 0:	
-                            if ev.modifiers() & QtCore.Qt.ControlModifier:	
-                                # delete mask selected	
-                                self.parent.remove_cell(idx)	
-                            elif ev.modifiers() & QtCore.Qt.AltModifier:	
-                                self.parent.merge_cells(idx)	
-                            elif self.parent.masksOn:	
-                                self.parent.unselect_cell()	
-                                self.parent.select_cell(idx)	
-                        elif self.parent.masksOn:	
-                            self.parent.unselect_cell()
-
-    def mouseDragEvent(self, ev):
-        ev.ignore()
-        return
-
-    def hoverEvent(self, ev):
-        #QtWidgets.QApplication.setOverrideCursor(QtCore.Qt.CrossCursor)
-        if self.parent.in_stroke:
-            if self.parent.in_stroke:
-                # continue stroke if not at start
-                self.drawAt(ev.pos())
-                if self.is_at_start(ev.pos()):
-                    self.end_stroke()
-                    # self.parent.in_stroke = False
-                    
-        else:
-            ev.acceptClicks(QtCore.Qt.RightButton)
-            #ev.acceptClicks(QtCore.Qt.LeftButton)
-
-    def create_start(self, pos):
-        self.scatter = pg.ScatterPlotItem([pos.x()], [pos.y()], pxMode=False,
-                                        pen=pg.mkPen(color=(255,0,0), width=self.parent.brush_size),
-                                        size=max(3*2, self.parent.brush_size*1.8*2), brush=None)
-        self.parent.p0.addItem(self.scatter)
-
-    def is_at_start(self, pos):
-        thresh_out = max(6, self.parent.brush_size*3)
-        thresh_in = max(3, self.parent.brush_size*1.8)
-        # first check if you ever left the start
-        if len(self.parent.current_stroke) > 3:
-            stroke = np.array(self.parent.current_stroke)
-            dist = (((stroke[1:,1:] - stroke[:1,1:][np.newaxis,:,:])**2).sum(axis=-1))**0.5
-            dist = dist.flatten()
-            #print(dist)
-            has_left = (dist > thresh_out).nonzero()[0]
-            if len(has_left) > 0:
-                first_left = np.sort(has_left)[0]
-                has_returned = (dist[max(4,first_left+1):] < thresh_in).sum()
-                if has_returned > 0:
-                    return True
-                else:
-                    return False
-            else:
-                return False
-
-    def end_stroke(self):
-        self.parent.p0.removeItem(self.scatter)
-        if not self.parent.stroke_appended:
-            self.parent.strokes.append(self.parent.current_stroke)
-            self.parent.stroke_appended = True
-            self.parent.current_stroke = np.array(self.parent.current_stroke)
-            ioutline = self.parent.current_stroke[:,3]==1
-            self.parent.current_point_set.extend(list(self.parent.current_stroke[ioutline]))
-            self.parent.current_stroke = []
-            if self.parent.autosave:
-                self.parent.add_set()
-        if len(self.parent.current_point_set) > 0 and self.parent.autosave:
-            self.parent.add_set()
-        self.parent.in_stroke = False
+    def mousePressEvent(self, event):
     
+        # save state here initiallly
+        if self._canDraw(event) and not len(self.parent.undo_stack):
+            self.parent.update_layer(save_state=True)
+            
+        x, y = int(event.pos().x()), int(event.pos().y())
+        
 
-    def tabletEvent(self, ev):
-        pass
-        #print(ev.device())
-        #print(ev.pointerType())
-        #print(ev.pressure())
+        # Safely check for pick_label_enabled and flood_fill_enabled
+        if getattr(self.parent, 'pick_label_enabled', False):
+            self._pickLabel(x, y)
+            event.accept()
+        elif getattr(self.parent, 'flood_fill_enabled', False):
+            self._floodFill(x, y, getattr(self.parent, 'current_label', 0))  # Default label to 0
+            event.accept()
+        elif self._canDraw(event):
+            self._drawing = True
+            self._lastPos = event.pos()
+            self._drawPixel(x, y) 
+            event.accept()
+        else:
+            super().mousePressEvent(event)
 
-    def drawAt(self, pos, ev=None):
-        mask = self.strokemask
-        set = self.parent.current_point_set
-        stroke = self.parent.current_stroke
-        pos = [int(pos.y()), int(pos.x())]
-        dk = self.drawKernel
-        kc = self.drawKernelCenter
-        sx = [0,dk.shape[0]]
-        sy = [0,dk.shape[1]]
-        tx = [pos[0] - kc[0], pos[0] - kc[0]+ dk.shape[0]]
-        ty = [pos[1] - kc[1], pos[1] - kc[1]+ dk.shape[1]]
-        kcent = kc.copy()
-        if tx[0]<=0:
-            sx[0] = 0
-            sx[1] = kc[0] + 1
-            tx    = sx
-            kcent[0] = 0
-        if ty[0]<=0:
-            sy[0] = 0
-            sy[1] = kc[1] + 1
-            ty    = sy
-            kcent[1] = 0
-        if tx[1] >= self.parent.Ly-1:
-            sx[0] = dk.shape[0] - kc[0] - 1
-            sx[1] = dk.shape[0]
-            tx[0] = self.parent.Ly - kc[0] - 1
-            tx[1] = self.parent.Ly
-            kcent[0] = tx[1]-tx[0]-1
-        if ty[1] >= self.parent.Lx-1:
-            sy[0] = dk.shape[1] - kc[1] - 1
-            sy[1] = dk.shape[1]
-            ty[0] = self.parent.Lx - kc[1] - 1
-            ty[1] = self.parent.Lx
-            kcent[1] = ty[1]-ty[0]-1
+    def mouseMoveEvent(self, event):
+        if self._drawing:
+            event.accept()
+            self._paintLine(self._lastPos, event.pos())
+            self._lastPos = event.pos()
+        else:
+            super().mouseMoveEvent(event)
 
+    def mouseReleaseEvent(self, event):
+        if self._drawing:
+            event.accept()
+            self._paintLine(self._lastPos, event.pos())
+            self._drawing = False
+            self._lastPos = None
+            # self.parent.update_layer(save_state=True) # save state after completion
+        else:
+            super().mouseReleaseEvent(event)
+            
+    def _canDraw(self, event):
+        """Checks if conditions allow drawing instead of panning."""
+        # If brush_size is 0 or space is pressed, do not draw
+        if getattr(self.parent, 'brush_size', 0) == 0 or (not self.parent.SCheckBox.isChecked()):
+            return False
+        if getattr(self.parent, 'spacePressed', False):
+            return False
+        # Must be left mouse
+        if event.button() != QtCore.Qt.LeftButton and not (event.buttons() & QtCore.Qt.LeftButton):
+            return False
+        return True
 
-        ts = (slice(tx[0],tx[1]), slice(ty[0],ty[1]))
-        ss = (slice(sx[0],sx[1]), slice(sy[0],sy[1]))
-        self.image[ts] = mask[ss]
+    def _paintAt(self, pos):
+        """Draw a single point (useful for initial press)."""
+        self._drawPixel(pos.x(), pos.y())
 
-        for ky,y in enumerate(np.arange(ty[0], ty[1], 1, int)):
-            for kx,x in enumerate(np.arange(tx[0], tx[1], 1, int)):
-                iscent = np.logical_and(kx==kcent[0], ky==kcent[1])
-                stroke.append([self.parent.currentZ, x, y, iscent])
-        self.updateImage()
+    def _paintLine(self, startPos, endPos):
+        """Draw a line from start to end by interpolating points."""
+        if startPos is None or endPos is None:
+            return
+        x0, y0 = int(startPos.x()), int(startPos.y())
+        x1, y1 = int(endPos.x()),   int(endPos.y())
 
-    def setDrawKernel(self, kernel_size=3):
-        bs = kernel_size
-        kernel = np.ones((bs,bs), np.uint8)
-        self.drawKernel = kernel
-        self.drawKernelCenter = [int(np.floor(kernel.shape[0]/2)),
-                                 int(np.floor(kernel.shape[1]/2))]
-        onmask = 255 * kernel[:,:,np.newaxis]
-        offmask = np.zeros((bs,bs,1))
-        opamask = 100 * kernel[:,:,np.newaxis]
-        self.redmask = np.concatenate((onmask,offmask,offmask,onmask), axis=-1)
-        self.strokemask = np.concatenate((onmask,offmask,onmask,opamask), axis=-1)
+        # Simple linear interpolation or Bresenham’s line. Here’s a quick approach:
+        num_steps = max(abs(x1 - x0), abs(y1 - y0)) + 1
+        xs = np.linspace(x0, x1, num_steps, dtype=int)
+        ys = np.linspace(y0, y1, num_steps, dtype=int)
+        for x, y in zip(xs, ys):
+            self._drawPixel(x, y)
 
+    def _drawPixel(self, x, y):
+        """Draws a circular area or single pixel using a precomputed kernel."""
+        brush_size = getattr(self.parent, 'brush_size', 1)
+        label = getattr(self.parent, 'current_label', 0)
+        z = self.parent.currentZ
 
+        array = self.parent.cellpix[z]
+        height, width = array.shape
+
+        # If brush size is 1, draw a single pixel
+        if brush_size == 1:
+            if 0 <= y < height and 0 <= x < width:
+                array[int(y), int(x)] = label
+        else:
+            # Ensure the kernel is up to date
+            if not hasattr(self, '_kernel') or self._kernel.shape[0] != 2 * brush_size + 1:
+                self._generateKernel(brush_size)
+
+            kernel = self._kernel
+            kernel_radius = kernel.shape[0] // 2
+
+            # Define bounds for applying the kernel
+            x_min = max(0, int(x) - kernel_radius)
+            x_max = min(width, int(x) + kernel_radius + 1)
+            y_min = max(0, int(y) - kernel_radius)
+            y_max = min(height, int(y) + kernel_radius + 1)
+
+            # Define bounds within the kernel
+            kx_min = max(0, kernel_radius - int(x))
+            kx_max = kernel_radius + (x_max - int(x))
+            ky_min = max(0, kernel_radius - int(y))
+            ky_max = kernel_radius + (y_max - int(y))
+
+            # Apply the kernel to the array
+            array[y_min:y_max, x_min:x_max][kernel[ky_min:ky_max, kx_min:kx_max]] = label
+
+        self.parent.update_layer()  # Refresh the display
+        
+    def _floodFill(self, x, y, new_label):
+        """Perform flood fill starting at (x, y) with the given new_label."""
+        z = self.parent.currentZ
+        array = self.parent.cellpix[z]
+        old_label = array[int(y), int(x)]
+        
+        if old_label == new_label:
+            return  # Nothing to change
+
+        # Use an efficient queue-based flood fill
+        stack = [(int(y), int(x))]
+        while stack:
+            cy, cx = stack.pop()
+            if 0 <= cy < array.shape[0] and 0 <= cx < array.shape[1] and array[cy, cx] == old_label:
+                array[cy, cx] = new_label
+                # Add neighbors to the stack
+                stack.extend([(cy + 1, cx), (cy - 1, cx), (cy, cx + 1), (cy, cx - 1)])
+
+        self.parent.update_layer()  # Refresh display
+        
+    def _pickLabel(self, x, y):
+        """Set the current label to the value under the cursor."""
+        z = self.parent.currentZ
+        self.parent.current_label = self.parent.cellpix[z, int(y), int(x)]
+
+    def _generateKernel(self, brush_diameter):
+        """
+        Generates a circular kernel for the given brush diameter.
+        Ensures the diameter is the nearest odd number.
+        """
+        # Ensure the diameter is an odd number
+        diameter = int(round(brush_diameter))  # Round to the nearest integer
+        if diameter % 2 == 0:  # Make it odd if it's even
+            diameter += 1
+
+        radius = diameter // 2
+        y, x = np.ogrid[-radius:radius + 1, -radius:radius + 1]
+        self._kernel = (x**2 + y**2 <= radius**2)
+        
 class RangeSlider(QSlider):
     """ A slider for ranges.
 

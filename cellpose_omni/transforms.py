@@ -669,7 +669,6 @@ def reshape_train_test(train_data, train_labels, test_data, test_labels, channel
                                                                  normalize=normalize, 
                                                                  omni=omni, 
                                                                  dim=dim)
-    # print('reshape_train_test_2',train_data[0].shape)
 
     if train_data is None:
         error_message = 'training data do not all have the same number of channels'

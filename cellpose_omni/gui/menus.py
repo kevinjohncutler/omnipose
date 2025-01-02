@@ -2,8 +2,7 @@
 from PyQt6.QtGui import QAction
 
 from . import io
-from .. import models
-from ..io import save_server
+# from ..io import save_server
 
 def mainmenu(parent):
     main_menu = parent.menuBar()
@@ -47,23 +46,23 @@ def mainmenu(parent):
     file_menu.addAction(parent.saveOutlines)
     parent.saveOutlines.setEnabled(False)
     
-    parent.saveServer = QAction("Send manually labelled data to server", parent)
-    parent.saveServer.triggered.connect(lambda: save_server(parent))
-    file_menu.addAction(parent.saveServer)
-    parent.saveServer.setEnabled(False)
+    # parent.saveServer = QAction("Send manually labelled data to server", parent)
+    # parent.saveServer.triggered.connect(lambda: save_server(parent))
+    # file_menu.addAction(parent.saveServer)
+    # parent.saveServer.setEnabled(False)
 
 def editmenu(parent):
     main_menu = parent.menuBar()
     edit_menu = main_menu.addMenu("&Edit")
-    parent.undo = QAction('Undo previous mask/trace', parent)
+    parent.undo = QAction('Undo', parent)
     parent.undo.setShortcut("Ctrl+Z")
     parent.undo.triggered.connect(parent.undo_action)
     parent.undo.setEnabled(False)
     edit_menu.addAction(parent.undo)
 
-    parent.redo = QAction('Undo remove mask', parent)
+    parent.redo = QAction('Redo', parent)
     parent.redo.setShortcut("Ctrl+Y")
-    parent.redo.triggered.connect(parent.undo_remove_action)
+    parent.redo.triggered.connect(parent.redo_action)
     parent.redo.setEnabled(False)
     edit_menu.addAction(parent.redo)
 
@@ -73,15 +72,15 @@ def editmenu(parent):
     parent.ClearButton.setEnabled(False)
     edit_menu.addAction(parent.ClearButton)
 
-    parent.remcell = QAction('Remove selected cell (Ctrl+CLICK)', parent)
-    parent.remcell.setShortcut("Ctrl+Click")
-    parent.remcell.triggered.connect(parent.remove_action)
-    parent.remcell.setEnabled(False)
-    edit_menu.addAction(parent.remcell)
+    # parent.remcell = QAction('Remove selected cell (Ctrl+CLICK)', parent)
+    # parent.remcell.setShortcut("Ctrl+Click")
+    # parent.remcell.triggered.connect(parent.remove_action)
+    # parent.remcell.setEnabled(False)
+    # edit_menu.addAction(parent.remcell)
 
-    parent.mergecell = QAction('FYI: Merge cells by Alt+Click', parent)
-    parent.mergecell.setEnabled(False)
-    edit_menu.addAction(parent.mergecell)
+    # parent.mergecell = QAction('FYI: Merge cells by Alt+Click', parent)
+    # parent.mergecell.setEnabled(False)
+    # edit_menu.addAction(parent.mergecell)
 
 def modelmenu(parent):
     main_menu = parent.menuBar()
@@ -99,39 +98,40 @@ def modelmenu(parent):
     parent.removemodel.setEnabled(True)
     model_menu.addAction(parent.removemodel)
 
-    parent.newmodel = QAction('&Train new model with image+masks in folder', parent)
-    parent.newmodel.setShortcut("Ctrl+T")
-    parent.newmodel.triggered.connect(parent.new_model)
-    parent.newmodel.setEnabled(False)
-    model_menu.addAction(parent.newmodel)
+    # parent.newmodel = QAction('&Train new model with image+masks in folder', parent)
+    # parent.newmodel.setShortcut("Ctrl+T")
+    # parent.newmodel.triggered.connect(parent.new_model)
+    # parent.newmodel.setEnabled(False)
+    # model_menu.addAction(parent.newmodel)
 
-    openTrainHelp = QAction("Training instructions", parent)
-    openTrainHelp.triggered.connect(parent.train_help_window)
-    model_menu.addAction(openTrainHelp)
+    # openTrainHelp = QAction("Training instructions", parent)
+    # openTrainHelp.triggered.connect(parent.train_help_window)
+    # model_menu.addAction(openTrainHelp)
 
+# all of these need to be updated 
 def helpmenu(parent):
     main_menu = parent.menuBar()
     help_menu = main_menu.addMenu("&Help")
 
-    openHelp = QAction("&Help with GUI", parent)
-    openHelp.setShortcut("Ctrl+H")
-    openHelp.triggered.connect(parent.help_window)
-    help_menu.addAction(openHelp)
+    # openHelp = QAction("&Help with GUI", parent)
+    # openHelp.setShortcut("Ctrl+H")
+    # openHelp.triggered.connect(parent.help_window)
+    # help_menu.addAction(openHelp)
     
-    openGUI = QAction("&GUI layout", parent)
-    openGUI.setShortcut("Ctrl+G")
-    openGUI.triggered.connect(parent.gui_window)
-    help_menu.addAction(openGUI)
+    # openGUI = QAction("&GUI layout", parent)
+    # openGUI.setShortcut("Ctrl+G")
+    # openGUI.triggered.connect(parent.gui_window)
+    # help_menu.addAction(openGUI)
 
-    openTrainHelp = QAction("Training instructions", parent)
-    openTrainHelp.triggered.connect(parent.train_help_window)
-    help_menu.addAction(openTrainHelp)
+    # openTrainHelp = QAction("Training instructions", parent)
+    # openTrainHelp.triggered.connect(parent.train_help_window)
+    # help_menu.addAction(openTrainHelp)
 
 def omnimenu(parent):
     main_menu = parent.menuBar()
     omni_menu = main_menu.addMenu("&Omnipose")
     # use omnipose mask recontruction
-    parent.omni = QAction('use Omnipose mask recontruction algorithm (fix over-segmentation)', parent, checkable=True)
+    parent.omni = QAction('use Omnipose mask reconstruction algorithm (fix over-segmentation)', parent, checkable=True)
     parent.omni.setChecked(True)
     omni_menu.addAction(parent.omni)
 
