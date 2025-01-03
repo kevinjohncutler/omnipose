@@ -1,14 +1,10 @@
 import os, datetime, gc, warnings, glob, shutil, copy
-from natsort import natsorted
 import numpy as np
 import cv2
-import tifffile
-import logging
 import fastremap 
 
 from .. import utils, plot, transforms, models
 from ..io import imread, imsave, outlines_to_text, logger_setup
-from ..transforms import normalize99
 
 logger, log_file = logger_setup()
 

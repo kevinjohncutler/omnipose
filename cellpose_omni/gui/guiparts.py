@@ -327,7 +327,8 @@ class ImageDraw(pg.ImageItem):
     def _canDraw(self, event):
         """Checks if conditions allow drawing instead of panning."""
         # If brush_size is 0 or space is pressed, do not draw
-        if getattr(self.parent, 'brush_size', 0) == 0 or (not self.parent.SCheckBox.isChecked()):
+        print()
+        if not self.parent.SCheckBox.isChecked():
             return False
         if getattr(self.parent, 'spacePressed', False):
             return False
@@ -422,6 +423,7 @@ class ImageDraw(pg.ImageItem):
         """Set the current label to the value under the cursor."""
         z = self.parent.currentZ
         self.parent.current_label = self.parent.cellpix[z, int(y), int(x)]
+        self.parent.update_active_label_field()  # Ensure the input field is updated
 
     def _generateKernel(self, brush_diameter):
         """
@@ -741,3 +743,50 @@ class GradEditor(pg.GradientEditorItem):
 #         p.setHoverPen(self.hoverPen)
 #         p.drawPath(self.pg)
 
+from PyQt6.QtWidgets import QPushButton
+from PyQt6.QtGui import QPalette
+import qtawesome as qta
+
+class IconToggleButton(QPushButton):
+    def __init__(self, icon_active_name, icon_inactive_name, active_color=None, 
+                 inactive_color="gray", icon_size=20, parent=None):
+        super().__init__(parent)
+        self.icon_active_name = icon_active_name
+        self.icon_inactive_name = icon_inactive_name
+        self.active_color = active_color  # Custom active color
+        self.inactive_color = inactive_color
+        self.icon_size = icon_size
+
+        self.setCheckable(True)
+        self.update_icons()  # Set the initial icons
+
+        # Style for left-aligning the icon
+        self.setStyleSheet("""
+            QPushButton {
+                border: none;
+                background: none;
+                text-align: left;  /* Align text/icon to the left */
+                padding-left: 0px; /* Remove any left padding */
+            }
+        """)
+
+        self.toggled.connect(self.update_icons)
+
+    def update_icons(self):
+        """Update the icons dynamically based on the palette and state."""
+        # Use the provided active color or fallback to the highlight color
+        active_color = (
+            self.active_color or self.palette().brush(QPalette.ColorRole.Highlight).color().name()
+        )
+        
+        # Generate icons dynamically
+        icon_active = qta.icon(self.icon_active_name, color=active_color)
+        icon_inactive = qta.icon(self.icon_inactive_name, color=self.inactive_color)
+
+        # Set the appropriate icon
+        self.setIcon(icon_active if self.isChecked() else icon_inactive)
+        self.setIconSize(QtCore.QSize(self.icon_size, self.icon_size))
+
+    def _emit_toggled(self):
+        """Emit the toggled signal when the button is clicked."""
+        self.toggled.emit(self.isChecked())

@@ -12,7 +12,6 @@ os.environ['QT_AUTO_SCREEN_SCALE_FACTOR'] = '1'
 
 import numpy as np
 from scipy.stats import mode
-import cv2
 from scipy.ndimage import gaussian_filter
 
 from . import guiparts, menus, io
@@ -39,6 +38,7 @@ WIDTH_5 = 5*WIDTH_0+4*SPACING
 import darkdetect
 import qdarktheme
 import superqt
+import qtawesome as qta
 
 
 # no more matplotlib just for colormaps
@@ -80,6 +80,8 @@ if not ICON_PATH.is_file():
 # Not everyone with have a math font installed, so all this effort just to have
 # a cute little math-style gamma as a slider label...
 GAMMA_PATH = pathlib.Path.home().joinpath('.omnipose','gamma.svg')
+BRUSH_PATH = pathlib.Path.home().joinpath('.omnipose','brush.svg')
+
 GAMMA_URL = 'https://github.com/kevinjohncutler/omnipose/blob/main/gui/gamma.svg?raw=true'   
 if not GAMMA_PATH.is_file():
     print('downloading gamma icon from', GAMMA_URL,'to', GAMMA_PATH)
@@ -140,9 +142,12 @@ def run(image=PRELOAD_IMAGE):
         win.accent = win.palette().brush(QPalette.ColorRole.Highlight).color()
         if hasattr(win,'win'):
             win.win.setBackground("k" if win.darkmode else '#f0f0f0') #pull out real colors from theme here from example
+       
+       # explicitly set colors for items that don't change automatically with theme
         win.set_hist_colors()
         win.set_button_color()
         win.set_crosshair_colors()
+        win.SCheckBox.update_icons() 
         # win.update_plot()
     app.paletteChanged.connect(sync_theme_with_system)             
     sync_theme_with_system()
@@ -160,9 +165,9 @@ class MainW(QMainWindow):
         start_time = time.time()  # Record start time
 
         super(MainW, self).__init__()
-            # palette = app.palette()
-            # palette.setColor(QPalette.ColorRole.ColorRole.Link, dark_palette.link().color())
-            # app.setPalette(palette)
+        # palette = app.palette()
+        # palette.setColor(QPalette.ColorRole.ColorRole.Link, dark_palette.link().color())
+        # app.setPalette(palette)
 
         # print(qdarktheme.load_palette().link().color())
         self.darkmode = str(darkdetect.theme()).lower() in ['none','dark'] # have to initialize; str catches None on some systems
@@ -267,7 +272,6 @@ class MainW(QMainWindow):
         self.ScaleOn.setChecked(False)  # can only toggle off after make_viewbox is called 
 
         # hard-coded colormaps entirely replaced with pyqtgraph
-
 
         # Instantiate the Colormap object
         cmap = Colormap("gist_ncar")
@@ -577,7 +581,7 @@ class MainW(QMainWindow):
 
         # self.slider.setStyleSheet(guiparts.horizontal_slider_style())
 
-        
+        # CONSTRAST SLIDER
         self.slider.setMinimum(0.0)
         self.slider.setMaximum(100.0)
         self.slider.setValue((0.1,99.9))  
@@ -585,27 +589,45 @@ class MainW(QMainWindow):
         self.slider._min_label.setFont(self.medfont)
         self.l0.addWidget(self.slider, b,c+1,1,TOOLBAR_WIDTH-(c+1))
 
-        label = QLabel('\u2702') #scissors icon
+        
+        icon = qta.icon("ph.scissors-fill", color="#888888")  # Use scissors icon with color
+        label = QLabel()  # Create a QLabel to hold the icon
         label.setAlignment(Qt.AlignmentFlag.AlignCenter | Qt.AlignmentFlag.AlignVCenter)
-        label.setStyleSheet('color: #888888')
-        # self.iconfont = QtGui.QFont("Arial")
-        # self.iconfont.setPixelSize(18)
-        # self.iconfont.setWeight(QtGui.QFont.Weight.Bold)
-        # label.setFont(self.iconfont)
-        label.setFont(self.boldfont)
 
-        self.l0.addWidget(label, b,c,1,1)
+        # Set the QtAwesome icon as a pixmap
+        font_size = self.boldfont.pixelSize()+2
+        pixmap = icon.pixmap(font_size, font_size)  # Set size to match previous font size
+        label.setPixmap(pixmap)
+        label.setStyleSheet("margin-left: 50px;")  # Adjust '10px' to control the shift
+        # Add the label to the layout
+        self.l0.addWidget(label, b, c, 1, 1)
         
-        
+        # GAMMA SLIDER
         b+=1
-        button = QPushButton('')
-        button.setIcon(QtGui.QIcon(str(GAMMA_PATH)))
-        button.setStyleSheet("QPushButton {Text-align: middle; background-color: none;}")
-        button.setDefault(True)
-        self.l0.addWidget(button, b,c,1,1)
+        # button = QPushButton('')
+        # button.setIcon(QtGui.QIcon(str(GAMMA_PATH)))
+        # button.setStyleSheet("QPushButton {Text-align: middle; background-color: none;}")
+        # button.setDefault(True)
+        # self.l0.addWidget(button, b,c,1,1)
         
-        # self.l0.addWidget(label, b,c,1,1)
-        # self.l0.addWidget(svg, b,c,1,1)
+        # Create a QtAwesome icon
+        # icon = qta.icon("mdi6.gamma", color="#888888")  
+        # label = QLabel()
+        # label.setAlignment(Qt.AlignmentFlag.AlignCenter | Qt.AlignmentFlag.AlignVCenter)
+        # icon_size = 24  # Desired icon size
+        # label.setPixmap(icon.pixmap(icon_size, icon_size))  # Set the pixmap with the specified size
+        # label.setStyleSheet("margin-left: 50px;")  # Adjust '10px' to control the shift
+        # self.l0.addWidget(label, b, c, 1, 1) # Add the label to the layout
+
+        label = QLabel()
+        icon = QtGui.QIcon(str(GAMMA_PATH))  # Use your gamma SVG
+        pixmap = icon.pixmap(16, 16)  # Adjust size of the SVG rendering
+        label.setPixmap(pixmap)
+        label.setStyleSheet("margin-left: 50px;")  # Add left margin
+        label.setAlignment(Qt.AlignmentFlag.AlignCenter | Qt.AlignmentFlag.AlignVCenter)
+        self.l0.addWidget(label, b, c, 1, 1)
+
+
         
         self.gamma = 1.0
         self.gamma_slider = superqt.QLabeledDoubleSlider(QtCore.Qt.Orientation.Horizontal)
@@ -635,46 +657,121 @@ class MainW(QMainWindow):
         # line = QHLine()
         # line.setStyleSheet(self.linestyle)
         # self.l0.addWidget(line, b,0,1,TOOLBAR_WIDTH)
-        
-        b+=2
+        b += 2
         label = QLabel('Drawing:')
         label.setStyleSheet('color: {}'.format(COLORS[0]))
         label.setFont(self.boldfont)
-        self.l0.addWidget(label, b,0,1,TOOLBAR_WIDTH)
+        self.l0.addWidget(label, b, 0, 1, TOOLBAR_WIDTH)
+        
+        c = TOOLBAR_WIDTH // 2
+        
 
-        b+=1
-        c = TOOLBAR_WIDTH//2
-        label = QLabel('pen size:')
+        # Combine pen size and active checkbox into one row
+        b += 1
+        # label = QLabel('pen:')
+        # label.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+        # label.setStyleSheet(label_style)
+        # label.setFont(self.medfont)
+        # self.l0.addWidget(label, b, 0, 1, 1)
+
+        # Pen Active Checkbox
+        # self.SCheckBox = QCheckBox()
+        # self.SCheckBox.setStyleSheet(checkstyle(COLORS[0]))
+        # self.SCheckBox.setFont(self.medfont)
+        # self.SCheckBox.setChecked(True)  # Default pen active
+        # self.SCheckBox.toggled.connect(self.autosave_on)
+        # self.SCheckBox.toggled.connect(self.update_brush_slider_color)
+        # self.l0.addWidget(self.SCheckBox, b, 1, 1, 1)
+        
+      ### PENCIL 
+    # Define the active and inactive icons
+
+        # Create the IconToggleButton
+        self.SCheckBox = guiparts.IconToggleButton(
+            icon_active_name="mdi.draw",  # Active icon name
+            icon_inactive_name="mdi.draw",  # Active icon name
+            
+            # icon_inactive_name="mdi6.pencil-minus",  # Inactive icon name
+            # icon_inactive_name="mdi6.pencil-minus",  # Inactive icon name
+            inactive_color="#888",  # Custom inactive color
+            icon_size=36,
+            parent=self
+        )
+        
+        self.SCheckBox.setChecked(True)  # Default pen active
+        self.SCheckBox.setEnabled(True)  # Default pen active
+        
+        self.SCheckBox.toggled.connect(self.autosave_on)
+        # self.SCheckBox.toggled.connect(self.update_brush_slider_color)
+
+        # Add the button to your layout
+        self.l0.addWidget(self.SCheckBox, b, c, 1, 1)
+        
+
+        
+        # pencil width slider
+        self.brush_size = 1
+        self.brush_slider = superqt.QLabeledSlider(QtCore.Qt.Orientation.Horizontal)
+        self.brush_slider.setMinimum(1)
+        self.brush_slider.setMaximum(9) # could make this bigger, but people should not make crude masks 
+        self.brush_slider.setSingleStep(2)
+        self.brush_slider.setValue(self.brush_size) 
+        self.brush_slider.valueChanged.connect(self.brush_size_change)
+        
+    
+        # Set the text color based on self.SCheckBox state
+        # self.update_brush_slider_color()
+
+
+        # Add the slider to the layout
+        # self.l0.addWidget(self.pencil_label, b, c, 1, 1)  # Pencil icon on the left
+        self.l0.addWidget(self.brush_slider, b, c+1, 1, TOOLBAR_WIDTH-(c+1))
+
+ 
+        # Active Label Input
+        b += 1
+        self.current_label = 0  # Default active label
+        label = QLabel('active label:')
         label.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
         label.setStyleSheet(label_style)
         label.setFont(self.medfont)
-        self.l0.addWidget(label, b, c-1, 1,2)
-        c+=1
-        self.brush_size = 1
-        self.BrushChoose = QComboBox()
-        self.BrushChoose.addItems(["off","1px","3px","5px","7px","9px"])
-        self.BrushChoose.currentIndexChanged.connect(self.brush_choose)
-        # self.BrushChoose.setFixedWidth(60)
-        self.BrushChoose.setStyleSheet(self.dropdowns())
-        self.BrushChoose.setFont(self.medfont)
-        self.BrushChoose.setFixedWidth(WIDTH_3)
-        self.BrushChoose.setCurrentIndex(1)
-        self.l0.addWidget(self.BrushChoose, b, c,1, TOOLBAR_WIDTH-c)
+        text = (
+            'You can manually enter the active label for drawing.\n'
+            'Press the “P” key and click on the image to pick a label from the view.'
+        )
+        label.setToolTip(text)
 
+        self.LabelInput = QLineEdit()
+        self.LabelInput.setAlignment(Qt.AlignmentFlag.AlignCenter | Qt.AlignmentFlag.AlignVCenter)
+        self.LabelInput.setToolTip(text)
+        self.LabelInput.setText(str(self.current_label))  # Default to 0
+        self.LabelInput.setFont(self.medfont)
+        self.LabelInput.returnPressed.connect(self.update_active_label)
 
-        # turn off masks
+        # Add Label to Layout
+        c = TOOLBAR_WIDTH // 2
+        self.l0.addWidget(label, b, c - 1, 1, 3)  # Match `nchan` label position
+
+        # Add Input Field
+        c += 1
+        self.LabelInput.setFixedWidth(INPUT_WIDTH)  # Ensure consistent width
+        self.LabelInput.setFixedHeight(WIDTH_0)    # Ensure consistent height
+        self.l0.addWidget(self.LabelInput, b, TOOLBAR_WIDTH - 2, 1, 2)  # Match `nchan` input field position
+
+        # MASK TOGGLE
+        b -= 1
         self.layer_off = False
         self.masksOn = True
         self.MCheckBox = QCheckBox('masks')
-        self.MCheckBox.setToolTip('Press X or M to toggle masks')
+        self.MCheckBox.setToolTip('Press M to toggle masks')
         self.MCheckBox.setStyleSheet(self.checkstyle)
         self.MCheckBox.setFont(self.medfont)
         self.MCheckBox.setChecked(self.masksOn)
         self.MCheckBox.toggled.connect(self.toggle_masks)
-        self.l0.addWidget(self.MCheckBox, b,0,1,2)
-        
-        # turn on ncolor
-        b+=1
+        self.l0.addWidget(self.MCheckBox, b, 0, 1, 2)
+
+        # NCOLOR TOGGLE
+        b += 1
         self.ncolor = True
         self.NCCheckBox = QCheckBox('n-color')
         self.NCCheckBox.setToolTip('Press C or N to toggle n-color masks')
@@ -682,51 +779,35 @@ class MainW(QMainWindow):
         self.NCCheckBox.setFont(self.medfont)
         self.NCCheckBox.setChecked(self.ncolor)
         self.NCCheckBox.toggled.connect(self.toggle_ncolor)
-        self.l0.addWidget(self.NCCheckBox, b, 0,1,2)
+        self.l0.addWidget(self.NCCheckBox, b, 0, 1, 2)
 
-
-        b+=1
-        # turn off outlines
-        self.outlinesOn = False # turn off by default
+        # OUTLINE TOGGLE
+        b += 1
+        self.outlinesOn = False  # Turn off by default
         self.OCheckBox = QCheckBox('outlines')
         self.OCheckBox.setToolTip('Press Z or O to toggle outlines')
         self.OCheckBox.setStyleSheet(self.checkstyle)
         self.OCheckBox.setFont(self.medfont)
-        self.l0.addWidget(self.OCheckBox, b,0,1,2)
-        
         self.OCheckBox.setChecked(False)
-        self.OCheckBox.toggled.connect(self.toggle_masks) 
-        
-        # # cross-hair
-        # self.vLine = pg.InfiniteLine(angle=90, movable=False)
-        # self.hLine = pg.InfiniteLine(angle=0, movable=False)
+        self.OCheckBox.toggled.connect(self.toggle_masks)
+        self.l0.addWidget(self.OCheckBox, b, 0, 1, 2)
 
-        b-=1
-        c = TOOLBAR_WIDTH//2
-
-        # turn on draw mode
-        self.SCheckBox = QCheckBox('pen active')
-        self.SCheckBox.setStyleSheet(checkstyle(COLORS[0]))
-        self.SCheckBox.setFont(self.medfont)
-        self.SCheckBox.toggled.connect(self.autosave_on)
-        self.l0.addWidget(self.SCheckBox, b,c,1,TOOLBAR_WIDTH)
-
-        b+=1
-        # turn on crosshairs
+        # CROSSHAIR TOGGLE
+        # b -= 1  # Adjust layout row
+        c = TOOLBAR_WIDTH // 2 # reset column position
         self.CHCheckBox = QCheckBox('cross-hairs')
         self.CHCheckBox.setStyleSheet(self.checkstyle)
         self.CHCheckBox.setFont(self.medfont)
         self.CHCheckBox.toggled.connect(self.cross_hairs)
-        self.l0.addWidget(self.CHCheckBox, b,c,1,TOOLBAR_WIDTH)
-        
+        self.l0.addWidget(self.CHCheckBox, b, c, 1, TOOLBAR_WIDTH)
+
+#### The segmentation section is where a lot of rearrangement happened 
         
         b+=2
         label = QLabel('Segmentation:')
         label.setStyleSheet('color: {}'.format(COLORS[0]))
         label.setFont(self.boldfont)
         self.l0.addWidget(label, b,0,1,TOOLBAR_WIDTH)
-
-#### The segmentation section is where a lot of rearrangement happened 
 
         # I got rid of calibrate diameter, manual is far faster
 
@@ -742,7 +823,7 @@ class MainW(QMainWindow):
         self.dim = 2
         self.Dimension = QComboBox()
         self.Dimension.addItems(["2","3","4"])
-        self.Dimension.currentIndexChanged.connect(self.brush_choose)
+        # self.Dimension.currentIndexChanged.connect(self.brush_choose)
         self.Dimension.setStyleSheet(self.dropdowns())
         self.Dimension.setFont(self.medfont)
         self.Dimension.setFixedWidth(WIDTH_3)
@@ -939,7 +1020,6 @@ class MainW(QMainWindow):
         label.setFont(self.medfont)
         self.l0.addWidget(label, b, c-1,1,1)
         
-        # b+=1
         self.cellprob = 0.0
         self.probslider = superqt.QLabeledDoubleSlider(QtCore.Qt.Horizontal)
         self.probslider._label.setFont(self.smallfont)
@@ -1064,8 +1144,23 @@ class MainW(QMainWindow):
 
         
         return b
-
+        
     
+        
+    def update_brush_slider_color(self):
+        """Update brush slider text color based on pen active state."""
+        color = 'red' if self.SCheckBox.isChecked() else "gray"
+        # print('color',self.accent)
+        self.brush_slider.setStyleSheet(f"color: {color};")
+    
+            
+    def brush_size_change(self):
+        """Update the brush size based on slider value."""
+        if self.loaded:
+            val = self.brush_slider.value()
+            self.ops_plot = {'brush_size': val}
+            self.brush_size = val
+            
     def plot_clicked(self, event):
         if event.button()==QtCore.Qt.LeftButton and (event.modifiers() != QtCore.Qt.ShiftModifier and
                     event.modifiers() != QtCore.Qt.AltModifier):
@@ -1091,6 +1186,18 @@ class MainW(QMainWindow):
                         # 'selection-color: white; ',
                         'min-width: {};'.format(width),
                         '}'])
+        
+    def update_active_label(self):
+        """Update self.current_label from the input field."""
+        try:
+            self.current_label = int(self.LabelInput.text())
+            print(f"Active label updated to: {self.current_label}")
+        except ValueError:
+            print("Invalid label input.")
+            
+    def update_active_label_field(self):
+        """Sync the active label input field with the current label."""
+        self.LabelInput.setText(str(self.current_label))
         
     def keyReleaseEvent(self, event):
     
@@ -1127,8 +1234,6 @@ class MainW(QMainWindow):
             self.spacePressed = True  # Enable pan mode
         elif key == QtCore.Qt.Key_G:
             self.flood_fill_enabled = True  # Enable flood fill
-        elif key == QtCore.Qt.Key_P:
-            self.pick_label_enabled = True  # Enable label picking
         elif key == QtCore.Qt.Key_B:
             self.SCheckBox.toggle()  # Toggle brush tool
         elif key == QtCore.Qt.Key_M:
@@ -1165,17 +1270,33 @@ class MainW(QMainWindow):
             self.color = 1 if self.color != 1 else 0  # Toggle between 0 and 1
             self.RGBDropDown.setCurrentIndex(self.color)
 
-        # Brush size adjustment
+        # brush size adjustment
         elif key in {QtCore.Qt.Key_BracketLeft, QtCore.Qt.Key_BracketRight}:
-            count = self.BrushChoose.count()
-            gci = self.BrushChoose.currentIndex()
-            if key == QtCore.Qt.Key_BracketLeft:
-                gci = max(0, gci - 1)  # Decrease brush size
-            else:
-                gci = min(count - 1, gci + 1)  # Increase brush size
-            self.BrushChoose.setCurrentIndex(gci)
-            self.brush_choose()
+            current_value = self.brush_slider.value()
             
+            if key == QtCore.Qt.Key_BracketLeft:
+                new_value = max(self.brush_slider.minimum(), current_value - self.brush_slider.singleStep())
+                if new_value == self.brush_slider.minimum():
+                    # If we reach the minimum value, toggle off the drawing
+                    self.SCheckBox.setChecked(False)
+            else:
+                new_value = min(self.brush_slider.maximum(), current_value + self.brush_slider.singleStep())
+                # If we increase the size, ensure the drawing is active
+                if not self.SCheckBox.isChecked():
+                    self.SCheckBox.setChecked(True)
+
+            self.brush_slider.setValue(new_value)  # Update the slider directly
+    
+        # Active label selection / color picking 
+        elif event.key() in range(Qt.Key_0, Qt.Key_9 + 1):  # Numeric keys
+            self.current_label = event.key() - Qt.Key_0  # Map keys to numbers 0-9
+            self.update_active_label_field() # Sync with input field
+            
+            print(f"Active label set to: {self.current_label}")
+            
+        elif key == QtCore.Qt.Key_P or key == QtCore.Qt.Key_I:
+            self.pick_label_enabled = True  # Enable label picking
+                
         super().keyPressEvent(event)
 
     def check_gpu(self, use_torch=True):
@@ -1375,8 +1496,6 @@ class MainW(QMainWindow):
         
         
         self.p0.setCursor(QtCore.Qt.CrossCursor)
-        # self.brush_size=0
-        self.current_label = 1 # debugging 
         self.win.addItem(self.p0, 0, 0, rowspan=1, colspan=1)
         self.p0.setMenuEnabled(False)
         self.p0.setMouseEnabled(x=True, y=True)
@@ -1618,7 +1737,6 @@ class MainW(QMainWindow):
         self.RGBDropDown.setCurrentIndex(self.color)
         self.view = 0
         self.RGBChoose.button(self.view).setChecked(True)
-        self.BrushChoose.setCurrentIndex(1)
         self.SCheckBox.setChecked(True)
         # self.SCheckBox.setEnabled(False)
         self.restore_masks = 0
@@ -1650,17 +1768,7 @@ class MainW(QMainWindow):
         self.filename = []
         self.loaded = False
         self.recompute_masks = False
-        
 
-
-    def brush_choose(self):
-        if self.BrushChoose.currentIndex() > 0:
-            self.brush_size = (self.BrushChoose.currentIndex()-1)*2 + 1
-        else:
-            self.brush_size = 0
-        if self.loaded:
-            self.layer._generateKernel(self.brush_size)
-            # self.update_layer()
 
     def autosave_on(self):
         if self.SCheckBox.isChecked():
@@ -2506,7 +2614,7 @@ class MainW(QMainWindow):
         #     self.StyleButtons[i].setStyleSheet(self.styleUnpressed)
        
         # self.SizeButton.setEnabled(True)
-        self.SCheckBox.setEnabled(True)
+        # self.SCheckBox.setEnabled(True)
         # self.SizeButton.setStyleSheet(self.styleUnpressed)
         # self.newmodel.setEnabled(True)
         self.loadMasks.setEnabled(True)
@@ -2519,6 +2627,7 @@ class MainW(QMainWindow):
         
         self.threshslider.setEnabled(True)
         self.probslider.setEnabled(True)
+        
 
         self.update_plot()
         self.setWindowTitle(self.filename)

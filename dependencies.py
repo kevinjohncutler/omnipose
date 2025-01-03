@@ -29,7 +29,8 @@ gui_deps = [
         # 'google-cloud-storage',
         'omnipose-theme',
         'superqt',
-        'darkdetect'
+        'darkdetect',
+        'qtawesome',
         ]
 
 distributed_deps = [
