@@ -18,7 +18,7 @@ install_deps = ['numpy>=1.22.4,<=1.26.4', # will need to wait a bit for cythoniz
                 'numexpr',
                 'torch_optimizer',
                 'tifffile', # might be dependency of aicsimageio
-                'fastremap' # not sure how I missed this one 
+                'fastremap', # not sure how I missed this one 
                 'cmap' 
                 ]
 

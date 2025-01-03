@@ -260,204 +260,6 @@ class RGBRadioButtons(QButtonGroup):
             self.parent.update_plot()
 
 
-class ViewBoxNoRightDrag(pg.ViewBox): # not used anymore 
-    def __init__(self, parent=None, border=None, lockAspect=False, enableMouse=True, invertY=False, enableMenu=True, name=None, invertX=False):
-        pg.ViewBox.__init__(self, None, border, lockAspect, enableMouse,
-                            invertY, enableMenu, name, invertX)
-        self.parent = parent
-        self.axHistoryPointer = -1
-
-    def keyPressEvent(self, ev):
-        """
-        This routine should capture key presses in the current view box.
-        The following events are implemented:
-        +/= : moves forward in the zooming stack (if it exists)
-        - : moves backward in the zooming stack (if it exists)
-
-        """
-        ev.accept()
-        if ev.text() == '-':
-            self.scaleBy([1.1, 1.1])
-        elif ev.text() in ['+', '=']:
-            self.scaleBy([0.9, 0.9])
-        else:
-            ev.ignore()
-    
-    def mouseDragEvent(self, ev, axis=None):
-        ## if axis is specified, event will only affect that axis.
-        if self.parent is None or (self.parent is not None and not self.parent.in_stroke):
-            ev.accept()  ## we accept all buttons
-
-            pos = ev.pos()
-            lastPos = ev.lastPos()
-            dif = pos - lastPos
-            dif = dif * -1
-
-            ## Ignore axes if mouse is disabled
-            mouseEnabled = np.array(self.state['mouseEnabled'], dtype=np.float)
-            mask = mouseEnabled.copy()
-            if axis is not None:
-                mask[1-axis] = 0.0
-
-            ## Scale or translate based on mouse button
-            if ev.button() & (QtCore.Qt.LeftButton | QtCore.Qt.MiddleButton):
-                if self.state['mouseMode'] == pg.ViewBox.RectMode:
-                    if ev.isFinish():  ## This is the final move in the drag; change the view scale now
-                        #print "finish"
-                        self.rbScaleBox.hide()
-                        ax = QtCore.QRectF(Point(ev.buttonDownPos(ev.button())), Point(pos))
-                        ax = self.childGroup.mapRectFromParent(ax)
-                        self.showAxRect(ax)
-                        self.axHistoryPointer += 1
-                        self.axHistory = self.axHistory[:self.axHistoryPointer] + [ax]
-                    else:
-                        ## update shape of scale box
-                        self.updateScaleBox(ev.buttonDownPos(), ev.pos())
-                else:
-                    tr = dif*mask
-                    tr = self.mapToView(tr) - self.mapToView(Point(0,0))
-                    x = tr.x() if mask[0] == 1 else None
-                    y = tr.y() if mask[1] == 1 else None
-
-                    self._resetTarget()
-                    if x is not None or y is not None:
-                        self.translateBy(x=x, y=y)
-                    self.sigRangeChangedManually.emit(self.state['mouseEnabled'])
-
-# class ImageDraw(pg.ImageItem):
-#     """
-#     **Bases:** :class:`GraphicsObject <pyqtgraph.GraphicsObject>`
-#     GraphicsObject displaying an image. Optimized for rapid update (ie video display).
-#     This item displays either a 2D numpy array (height, width) or
-#     a 3D array (height, width, RGBa). This array is optionally scaled (see
-#     :func:`setLevels <pyqtgraph.ImageItem.setLevels>`) and/or colored
-#     with a lookup table (see :func:`setLookupTable <pyqtgraph.ImageItem.setLookupTable>`)
-#     before being displayed.
-#     ImageItem is frequently used in conjunction with
-#     :class:`HistogramLUTItem <pyqtgraph.HistogramLUTItem>` or
-#     :class:`HistogramLUTWidget <pyqtgraph.HistogramLUTWidget>` to provide a GUI
-#     for controlling the levels and lookup table used to display the image.
-#     """
-
-#     sigImageChanged = QtCore.pyqtSignal()
-
-#     def __init__(self, image=None, viewbox=None, parent=None, **kargs):
-#         super(ImageDraw, self).__init__()
-#         #self.image=None
-#         self.viewbox=viewbox
-#         self.levels = np.array([0,255])
-#         self.lut = None
-#         self.autoDownsample = False
-#         self.axisOrder = 'row-major'
-#         self.removable = False
-
-#         self.parent = parent
-#         #kernel[1,1] = 1
-#         # self.setDrawKernel(kernel_size=self.parent.brush_size)
-#         self.parent.current_stroke = []
-#         self.parent.in_stroke = False
-        
-
-#     def create_start(self, pos):
-#         self.scatter = pg.ScatterPlotItem([pos.x()], [pos.y()], pxMode=False,
-#                                         pen=pg.mkPen(color=(255,0,0), width=self.parent.brush_size),
-#                                         size=max(3*2, self.parent.brush_size*1.8*2), brush=None)
-#         self.parent.p0.addItem(self.scatter)
-
-#     def is_at_start(self, pos):
-#         thresh_out = max(6, self.parent.brush_size*3)
-#         thresh_in = max(3, self.parent.brush_size*1.8)
-#         # first check if you ever left the start
-#         if len(self.parent.current_stroke) > 3:
-#             stroke = np.array(self.parent.current_stroke)
-#             dist = (((stroke[1:,1:] - stroke[:1,1:][np.newaxis,:,:])**2).sum(axis=-1))**0.5
-#             dist = dist.flatten()
-#             #print(dist)
-#             has_left = (dist > thresh_out).nonzero()[0]
-#             if len(has_left) > 0:
-#                 first_left = np.sort(has_left)[0]
-#                 has_returned = (dist[max(4,first_left+1):] < thresh_in).sum()
-#                 if has_returned > 0:
-#                     return True
-#                 else:
-#                     return False
-#             else:
-#                 return False
-
-#     def end_stroke(self):
-#         self.parent.p0.removeItem(self.scatter)
-#         if not self.parent.stroke_appended:
-#             self.parent.strokes.append(self.parent.current_stroke)
-#             self.parent.stroke_appended = True
-#             self.parent.current_stroke = np.array(self.parent.current_stroke)
-#             ioutline = self.parent.current_stroke[:,3]==1
-#             self.parent.current_point_set.extend(list(self.parent.current_stroke[ioutline]))
-#             self.parent.current_stroke = []
-#             if self.parent.autosave:
-#                 self.parent.add_set()
-#         if len(self.parent.current_point_set) > 0 and self.parent.autosave:
-#             self.parent.add_set()
-#         self.parent.in_stroke = False
-
-#     def drawAt(self, pos, ev=None):
-#         mask = self.strokemask
-#         set = self.parent.current_point_set
-#         stroke = self.parent.current_stroke
-#         pos = [int(pos.y()), int(pos.x())]
-#         dk = self.drawKernel
-#         kc = self.drawKernelCenter
-#         sx = [0,dk.shape[0]]
-#         sy = [0,dk.shape[1]]
-#         tx = [pos[0] - kc[0], pos[0] - kc[0]+ dk.shape[0]]
-#         ty = [pos[1] - kc[1], pos[1] - kc[1]+ dk.shape[1]]
-#         kcent = kc.copy()
-#         if tx[0]<=0:
-#             sx[0] = 0
-#             sx[1] = kc[0] + 1
-#             tx    = sx
-#             kcent[0] = 0
-#         if ty[0]<=0:
-#             sy[0] = 0
-#             sy[1] = kc[1] + 1
-#             ty    = sy
-#             kcent[1] = 0
-#         if tx[1] >= self.parent.Ly-1:
-#             sx[0] = dk.shape[0] - kc[0] - 1
-#             sx[1] = dk.shape[0]
-#             tx[0] = self.parent.Ly - kc[0] - 1
-#             tx[1] = self.parent.Ly
-#             kcent[0] = tx[1]-tx[0]-1
-#         if ty[1] >= self.parent.Lx-1:
-#             sy[0] = dk.shape[1] - kc[1] - 1
-#             sy[1] = dk.shape[1]
-#             ty[0] = self.parent.Lx - kc[1] - 1
-#             ty[1] = self.parent.Lx
-#             kcent[1] = ty[1]-ty[0]-1
-
-
-#         ts = (slice(tx[0],tx[1]), slice(ty[0],ty[1]))
-#         ss = (slice(sx[0],sx[1]), slice(sy[0],sy[1]))
-#         self.image[ts] = mask[ss]
-
-#         for ky,y in enumerate(np.arange(ty[0], ty[1], 1, int)):
-#             for kx,x in enumerate(np.arange(tx[0], tx[1], 1, int)):
-#                 iscent = np.logical_and(kx==kcent[0], ky==kcent[1])
-#                 stroke.append([self.parent.currentZ, x, y, iscent])
-#         self.updateImage()
-
-#     def setDrawKernel(self, kernel_size=3):
-#         bs = kernel_size
-#         kernel = np.ones((bs,bs), np.uint8)
-#         self.drawKernel = kernel
-#         self.drawKernelCenter = [int(np.floor(kernel.shape[0]/2)),
-#                                  int(np.floor(kernel.shape[1]/2))]
-#         onmask = 255 * kernel[:,:,np.newaxis]
-#         offmask = np.zeros((bs,bs,1))
-#         opamask = 100 * kernel[:,:,np.newaxis]
-#         self.redmask = np.concatenate((onmask,offmask,offmask,onmask), axis=-1)
-#         self.strokemask = np.concatenate((onmask,offmask,onmask,opamask), axis=-1)
-
-
 class ImageDraw(pg.ImageItem):
     def __init__(self, data=None, parent=None):
         """
@@ -480,22 +282,21 @@ class ImageDraw(pg.ImageItem):
         self._lastPos = None
 
     def mousePressEvent(self, event):
-    
-        # save state here initiallly
-        if self._canDraw(event) and not len(self.parent.undo_stack):
-            self.parent.update_layer(save_state=True)
-            
-        x, y = int(event.pos().x()), int(event.pos().y())
         
+        x, y = int(event.pos().x()), int(event.pos().y())
 
         # Safely check for pick_label_enabled and flood_fill_enabled
         if getattr(self.parent, 'pick_label_enabled', False):
             self._pickLabel(x, y)
             event.accept()
+            
         elif getattr(self.parent, 'flood_fill_enabled', False):
+            self.parent.save_state()
             self._floodFill(x, y, getattr(self.parent, 'current_label', 0))  # Default label to 0
             event.accept()
+            
         elif self._canDraw(event):
+            self.parent.save_state()
             self._drawing = True
             self._lastPos = event.pos()
             self._drawPixel(x, y) 
@@ -505,21 +306,23 @@ class ImageDraw(pg.ImageItem):
 
     def mouseMoveEvent(self, event):
         if self._drawing:
-            event.accept()
             self._paintLine(self._lastPos, event.pos())
             self._lastPos = event.pos()
+            event.accept()
         else:
             super().mouseMoveEvent(event)
 
     def mouseReleaseEvent(self, event):
         if self._drawing:
-            event.accept()
             self._paintLine(self._lastPos, event.pos())
             self._drawing = False
             self._lastPos = None
-            # self.parent.update_layer(save_state=True) # save state after completion
+            self.parent.redo_stack.clear()
+            self.parent.update_layer()
+            event.accept()
         else:
             super().mouseReleaseEvent(event)
+            
             
     def _canDraw(self, event):
         """Checks if conditions allow drawing instead of panning."""
@@ -548,6 +351,7 @@ class ImageDraw(pg.ImageItem):
         num_steps = max(abs(x1 - x0), abs(y1 - y0)) + 1
         xs = np.linspace(x0, x1, num_steps, dtype=int)
         ys = np.linspace(y0, y1, num_steps, dtype=int)
+        
         for x, y in zip(xs, ys):
             self._drawPixel(x, y)
 
@@ -560,34 +364,39 @@ class ImageDraw(pg.ImageItem):
         array = self.parent.cellpix[z]
         height, width = array.shape
 
-        # If brush size is 1, draw a single pixel
         if brush_size == 1:
+            # Single pixel
             if 0 <= y < height and 0 <= x < width:
-                array[int(y), int(x)] = label
+                array[y, x] = label
+            # Region is just (x, x+1, y, y+1)
+            x_min, x_max = x, x+1
+            y_min, y_max = y, y+1
         else:
-            # Ensure the kernel is up to date
+            # Multi-pixel brush
             if not hasattr(self, '_kernel') or self._kernel.shape[0] != 2 * brush_size + 1:
                 self._generateKernel(brush_size)
 
             kernel = self._kernel
             kernel_radius = kernel.shape[0] // 2
 
-            # Define bounds for applying the kernel
-            x_min = max(0, int(x) - kernel_radius)
-            x_max = min(width, int(x) + kernel_radius + 1)
-            y_min = max(0, int(y) - kernel_radius)
-            y_max = min(height, int(y) + kernel_radius + 1)
+            # Outer bounds for the kernel stamp
+            x_min = max(0, x - kernel_radius)
+            x_max = min(width,  x + kernel_radius + 1)
+            y_min = max(0, y - kernel_radius)
+            y_max = min(height, y + kernel_radius + 1)
 
-            # Define bounds within the kernel
-            kx_min = max(0, kernel_radius - int(x))
-            kx_max = kernel_radius + (x_max - int(x))
-            ky_min = max(0, kernel_radius - int(y))
-            ky_max = kernel_radius + (y_max - int(y))
+            # Corresponding sub-kernel indices
+            kx_min = max(0, kernel_radius - x)
+            kx_max = kernel_radius + (x_max - x)
+            ky_min = max(0, kernel_radius - y)
+            ky_max = kernel_radius + (y_max - y)
 
-            # Apply the kernel to the array
+            # Apply kernel to cellpix
             array[y_min:y_max, x_min:x_max][kernel[ky_min:ky_max, kx_min:kx_max]] = label
 
-        self.parent.update_layer()  # Refresh the display
+        
+        # Update only the affected region of the overlay
+        self.parent.draw_layer(region=(x_min, x_max, y_min, y_max), z=z)
         
     def _floodFill(self, x, y, new_label):
         """Perform flood fill starting at (x, y) with the given new_label."""

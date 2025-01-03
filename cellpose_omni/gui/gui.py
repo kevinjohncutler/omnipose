@@ -288,7 +288,7 @@ class MainW(QMainWindow):
         self.max_undo_steps = 50  # Limit the number of undo steps
     
 
-        self.is_stack = True # always loading images of same FOV
+        self.is_stack = True # always loading images of same FOV? Not sure about this assumption...
         # if called with image, load it
         if image is not None:
             self.filename = image
@@ -316,45 +316,51 @@ class MainW(QMainWindow):
     def save_state(self):
         """Save the current state of cellpix for undo."""
         if len(self.undo_stack) >= self.max_undo_steps:
-            self.undo_stack.pop(0)  # Remove the oldest state if stack is full
+            self.undo_stack.pop(0)
         self.undo_stack.append(np.copy(self.cellpix))
-    
+
     def undo_action(self):
         """Undo the last action."""
         if self.undo_stack:
             # Save the current state for redo
             self.redo_stack.append(np.copy(self.cellpix))
-            if len(self.redo_stack) > self.max_undo_steps:
+            if len(self.redo_stack) >= self.max_undo_steps:
                 self.redo_stack.pop(0)  # Limit redo stack size
 
             # Restore the last state from the undo stack
-            self.cellpix = self.undo_stack.pop()
+            self.cellpix = self.undo_stack.pop()        
             self.update_layer()  # Refresh the display
+
+
         else:
             print("Nothing to undo.")
             
     def redo_action(self):
         """Redo the last undone action."""
         if self.redo_stack:
+
             # Save the current state for undo
             self.undo_stack.append(np.copy(self.cellpix))
-            if len(self.undo_stack) > self.max_undo_steps:
+            if len(self.undo_stack) >= self.max_undo_steps:
                 self.undo_stack.pop(0)  # Limit undo stack size
-
+                
             # Restore the last state from the redo stack
             self.cellpix = self.redo_stack.pop()
             self.update_layer()  # Refresh the display
+        
+
         else:
             print("Nothing to redo.")
-            
+    
+    def update_layer(self):
+        self.draw_layer()
+        self.update_roi_count()
+        self.win.show()
+        self.show()
         
     def make_buttons(self):
         label_style = ''
         COLORS[0] = '#545454'
-        # print( self.height(), self.width())
-        ftwt1 = self.height()//50
-        ftwt2 = self.height()//100
-        ftwt3 = self.height()//200
         self.boldfont = QtGui.QFont("Arial")
         self.boldfont.setPixelSize(18)
         self.boldfont.setWeight(QtGui.QFont.Weight.Bold)
@@ -638,7 +644,7 @@ class MainW(QMainWindow):
 
         b+=1
         c = TOOLBAR_WIDTH//2
-        label = QLabel('pen:')
+        label = QLabel('pen size:')
         label.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
         label.setStyleSheet(label_style)
         label.setFont(self.medfont)
@@ -652,7 +658,7 @@ class MainW(QMainWindow):
         self.BrushChoose.setStyleSheet(self.dropdowns())
         self.BrushChoose.setFont(self.medfont)
         self.BrushChoose.setFixedWidth(WIDTH_3)
-        self.BrushChoose.setCurrentIndex(0)
+        self.BrushChoose.setCurrentIndex(1)
         self.l0.addWidget(self.BrushChoose, b, c,1, TOOLBAR_WIDTH-c)
 
 
@@ -699,7 +705,7 @@ class MainW(QMainWindow):
         c = TOOLBAR_WIDTH//2
 
         # turn on draw mode
-        self.SCheckBox = QCheckBox('single stroke')
+        self.SCheckBox = QCheckBox('pen active')
         self.SCheckBox.setStyleSheet(checkstyle(COLORS[0]))
         self.SCheckBox.setFont(self.medfont)
         self.SCheckBox.toggled.connect(self.autosave_on)
@@ -1078,7 +1084,6 @@ class MainW(QMainWindow):
                                 self.xortho = x
                                 self.update_ortho()
 
-
     
     def dropdowns(self,width=WIDTH_0):
         return ''.join(['QComboBox QAbstractItemView {',
@@ -1088,6 +1093,8 @@ class MainW(QMainWindow):
                         '}'])
         
     def keyReleaseEvent(self, event):
+    
+        # drag / pan
         if event.key() == QtCore.Qt.Key_Space:
             self.spacePressed = False
         
@@ -1101,139 +1108,75 @@ class MainW(QMainWindow):
 
 
     def keyPressEvent(self, event):
-        if self.loaded:
-            #self.p0.setMouseEnabled(x=True, y=True)
-            if (event.modifiers() != QtCore.Qt.ControlModifier and
-                event.modifiers() != QtCore.Qt.ShiftModifier and
-                event.modifiers() != QtCore.Qt.AltModifier) and not self.in_stroke:
-                updated = False
-                if len(self.current_point_set) > 0:
-                    if event.key() == QtCore.Qt.Key_Return:
-                        # self.add_set()
-                        print('removed this branch')
-                    if self.NZ>1:
-                        if event.key() == QtCore.Qt.Key_Left:
-                            self.currentZ = max(0,self.currentZ-1)
-                            self.scroll.setValue(self.currentZ)
-                            updated = True
-                        elif event.key() == QtCore.Qt.Key_Right:
-                            self.currentZ = min(self.NZ-1, self.currentZ+1)
-                            self.scroll.setValue(self.currentZ)
-                            updated = True
+        if not self.loaded:
+            return  # Do nothing if not loaded
+
+        modifiers = event.modifiers()
+        key = event.key()
+    
+        # Modifier-based actions (e.g., Undo/Redo)
+        if modifiers & QtCore.Qt.ControlModifier:
+            if key == QtCore.Qt.Key_Z:  # Ctrl+Z: Undo
+                if modifiers & QtCore.Qt.ShiftModifier:  # Ctrl+Shift+Z: Redo
+                    self.redo_action()
                 else:
-                
-                    # let space enable pan while drawing
-                    if event.key() == QtCore.Qt.Key_Space:
-                        self.spacePressed = True
-                        
-                    # pick and fill 
-                    elif event.key() == QtCore.Qt.Key_G:
-                        self.flood_fill_enabled = True
-                    elif event.key() == QtCore.Qt.Key_P:
-                        self.pick_label_enabled = True
-                    # else:
-                    #     super().keyPressEvent(event)
-                    
-                    # brush size
-                    elif event.key() == QtCore.Qt.Key_B:
-                        self.SCheckBox.toggle()
-                
-                    # toggle masks with M
-                    if event.key() == QtCore.Qt.Key_M:
-                        self.MCheckBox.toggle()
-                    
-                    #toggle outlines O
-                    if event.key() == QtCore.Qt.Key_O:
-                        self.OCheckBox.toggle()
-                    
-                    # toggle ncolor with C or N
-                    if event.key() == QtCore.Qt.Key_C or event.key() == QtCore.Qt.Key_N:
-                        self.NCCheckBox.toggle()  
+                    self.undo_action()
 
-                    # if event.key() == QtCore.Qt.Key_Left:
-                    #     if self.NZ==1:
-                    #         self.get_prev_image()
-                    #     else:
-                    #         self.currentZ = max(0,self.currentZ-1)
-                    #         self.scroll.setValue(self.currentZ)
-                    #         updated = True
-                    # elif event.key() == QtCore.Qt.Key_Right:
-                    #     if self.NZ==1:
-                    #         self.get_next_image()
-                    #     else:
-                    #         self.currentZ = min(self.NZ-1, self.currentZ+1)
-                    #         self.scroll.setValue(self.currentZ)
-                    #         updated = True
-                    
-                    elif event.key() == QtCore.Qt.Key_A:
-                        if self.NZ==1:
-                            self.get_prev_image()
-                        else:
-                            self.currentZ = max(0,self.currentZ-1)
-                            self.scroll.setValue(self.currentZ)
-                            updated = True
-                    elif event.key() == QtCore.Qt.Key_D:
-                        if self.NZ==1:
-                            self.get_next_image()
-                        else:
-                            self.currentZ = min(self.NZ-1, self.currentZ+1)
-                            self.scroll.setValue(self.currentZ)
-                            updated = True
+        # Actions based on individual keys
+        elif key == QtCore.Qt.Key_Space:
+            self.spacePressed = True  # Enable pan mode
+        elif key == QtCore.Qt.Key_G:
+            self.flood_fill_enabled = True  # Enable flood fill
+        elif key == QtCore.Qt.Key_P:
+            self.pick_label_enabled = True  # Enable label picking
+        elif key == QtCore.Qt.Key_B:
+            self.SCheckBox.toggle()  # Toggle brush tool
+        elif key == QtCore.Qt.Key_M:
+            self.MCheckBox.toggle()  # Toggle masks
+        elif key == QtCore.Qt.Key_O:
+            self.OCheckBox.toggle()  # Toggle outlines
+        elif key == QtCore.Qt.Key_C or key == QtCore.Qt.Key_N:
+            self.NCCheckBox.toggle()  # Toggle ncolor
+        elif key == QtCore.Qt.Key_H:
+            self.CHCheckBox.toggle()  # Toggle crosshairs
 
-                    # elif event.key() == QtCore.Qt.Key_PageDown:
-                    #     self.view = (self.view+1)%(len(self.RGBChoose.bstr))
-                    #     self.RGBChoose.button(self.view).setChecked(True)
-                    # elif event.key() == QtCore.Qt.Key_PageUp:
-                    #     self.view = (self.view-1)%(len(self.RGBChoose.bstr))
-                    #     self.RGBChoose.button(self.view).setChecked(True)
+        # Navigation keys (Z-stack navigation)
+        elif key == QtCore.Qt.Key_A:
+            if self.NZ == 1:
+                self.get_prev_image()
+            else:
+                self.currentZ = max(0, self.currentZ - 1)
+                self.scroll.setValue(self.currentZ)
+        elif key == QtCore.Qt.Key_D:
+            if self.NZ == 1:
+                self.get_next_image()
+            else:
+                self.currentZ = min(self.NZ - 1, self.currentZ + 1)
+                self.scroll.setValue(self.currentZ)
 
-                # can change background or stroke size if cell not finished
-                if event.key() == QtCore.Qt.Key_Up or event.key() == QtCore.Qt.Key_W:
-                    self.color = (self.color-1)%(6)
-                    self.RGBDropDown.setCurrentIndex(self.color)
-                elif event.key() == QtCore.Qt.Key_Down or event.key() == QtCore.Qt.Key_S:
-                    self.color = (self.color+1)%(6)
-                    self.RGBDropDown.setCurrentIndex(self.color)
-                    
-                elif event.key() == QtCore.Qt.Key_R:
-                    if self.color!=1:
-                        self.color = 1
-                    else:
-                        self.color = 0
-                    self.RGBDropDown.setCurrentIndex(self.color)
-                    
-        
-                elif (event.key() == QtCore.Qt.Key_BracketLeft or
-                        event.key() == QtCore.Qt.Key_BracketRight):
-                    count = self.BrushChoose.count()
-                    gci = self.BrushChoose.currentIndex()
-                    if event.key() == QtCore.Qt.Key_BracketLeft:
-                        gci = max(0, gci-1)
-                    else:
-                        gci = min(count-1, gci+1)
-                    self.BrushChoose.setCurrentIndex(gci)
-                    self.brush_choose()
-                    
-                # if not updated: This appears not to be necessary 
-                #     self.update_plot()
-                
-                # elif event.modifiers() == QtCore.Qt.ControlModifier:
-                #     if event.key() == QtCore.Qt.Key_Z:
-                #         self.undo_action()
-                #     if event.key() == QtCore.Qt.Key_0:
-                #         self.clear_all()
-                
-                elif event.modifiers() == QtCore.Qt.ControlModifier:
-                    if event.key() == QtCore.Qt.Key_Z:  # Command-Z / Ctrl-Z: Undo
-                        self.undo_action()
-                elif (
-                    event.key() == QtCore.Qt.Key_Z and 
-                    (event.modifiers() & QtCore.Qt.ControlModifier and event.modifiers() & QtCore.Qt.ShiftModifier)
-                ):
-                    self.redo_action()  # Command-Shift-Z / Ctrl-Shift-Z: Redo
+        # Color cycling
+        elif key == QtCore.Qt.Key_W:
+            self.color = (self.color - 1) % len(self.cmaps)  # Cycle backward
+            self.RGBDropDown.setCurrentIndex(self.color)
+        elif key == QtCore.Qt.Key_S:
+            self.color = (self.color + 1) % len(self.cmaps)  # Cycle forward
+            self.RGBDropDown.setCurrentIndex(self.color)
+        elif key == QtCore.Qt.Key_R:
+            self.color = 1 if self.color != 1 else 0  # Toggle between 0 and 1
+            self.RGBDropDown.setCurrentIndex(self.color)
 
-        if event.key() == QtCore.Qt.Key_Minus or event.key() == QtCore.Qt.Key_Equal:
-            self.p0.keyPressEvent(event)
+        # Brush size adjustment
+        elif key in {QtCore.Qt.Key_BracketLeft, QtCore.Qt.Key_BracketRight}:
+            count = self.BrushChoose.count()
+            gci = self.BrushChoose.currentIndex()
+            if key == QtCore.Qt.Key_BracketLeft:
+                gci = max(0, gci - 1)  # Decrease brush size
+            else:
+                gci = min(count - 1, gci + 1)  # Increase brush size
+            self.BrushChoose.setCurrentIndex(gci)
+            self.brush_choose()
+            
+        super().keyPressEvent(event)
 
     def check_gpu(self, use_torch=True):
         # also decide whether or not to use torch
@@ -1431,9 +1374,9 @@ class MainW(QMainWindow):
         )
         
         
-        
         self.p0.setCursor(QtCore.Qt.CrossCursor)
-        self.brush_size=0
+        # self.brush_size=0
+        self.current_label = 1 # debugging 
         self.win.addItem(self.p0, 0, 0, rowspan=1, colspan=1)
         self.p0.setMenuEnabled(False)
         self.p0.setMouseEnabled(x=True, y=True)
@@ -1675,15 +1618,15 @@ class MainW(QMainWindow):
         self.RGBDropDown.setCurrentIndex(self.color)
         self.view = 0
         self.RGBChoose.button(self.view).setChecked(True)
-        self.BrushChoose.setCurrentIndex(0)
+        self.BrushChoose.setCurrentIndex(1)
         self.SCheckBox.setChecked(True)
-        self.SCheckBox.setEnabled(False)
+        # self.SCheckBox.setEnabled(False)
         self.restore_masks = 0
         self.states = [None for i in range(len(self.default_cmaps))] 
 
         # -- zero out image stack -- #
         self.opacity = 128 # how opaque masks should be
-        self.outcolor = [200,200,255,200]
+        self.outcolor = np.array([1,0,0,.5])*255
         self.NZ, self.Ly, self.Lx = 1,512,512
         self.saturation = [[0,255] for n in range(self.NZ)]
         self.gamma = 1
@@ -1707,6 +1650,7 @@ class MainW(QMainWindow):
         self.filename = []
         self.loaded = False
         self.recompute_masks = False
+        
 
 
     def brush_choose(self):
@@ -1716,7 +1660,7 @@ class MainW(QMainWindow):
             self.brush_size = 0
         if self.loaded:
             self.layer._generateKernel(self.brush_size)
-            self.update_layer()
+            # self.update_layer()
 
     def autosave_on(self):
         if self.SCheckBox.isChecked():
@@ -1733,12 +1677,13 @@ class MainW(QMainWindow):
             self.p0.removeItem(self.hLine)
 
     def clear_all(self):
+        self.save_state()
         self.prev_selected = 0
         self.selected = 0
         self.layerz = np.zeros((self.Ly,self.Lx,4), np.uint8)
         self.cellpix = np.zeros((self.NZ,self.Ly,self.Lx), np.uint32)
         self.outpix = np.zeros((self.NZ,self.Ly,self.Lx), np.uint32)
-        self.cellcolors = np.array([255,255,255])[np.newaxis,:]
+        # self.cellcolors = np.array([255,255,255])[np.newaxis,:]
         self.ncells = 0
         # self.toggle_removals()
         self.update_layer()
@@ -1782,9 +1727,12 @@ class MainW(QMainWindow):
         self.currentZ = max(0, min(self.NZ-1, zpos))
         self.zpos.setText(str(self.currentZ))
         self.scroll.setValue(self.currentZ)
+    
+    def update_shape(self): 
+        self.Ly, self.Lx, _ = self.stack[self.currentZ].shape
 
     def update_plot(self):
-        self.Ly, self.Lx, _ = self.stack[self.currentZ].shape
+        self.update_shape()
         
         # toggle off histogram for flow field 
         if self.view==1:
@@ -1878,28 +1826,7 @@ class MainW(QMainWindow):
         self.win.show()
         self.show()
 
-    def update_layer(self, save_state=False):
-        if save_state:
-            # Clear the redo stack because the history has changed
-            self.redo_stack.clear()
 
-            # Save the current state to the undo stack
-            if len(self.undo_stack) >= self.max_undo_steps:
-                self.undo_stack.pop(0)  # Remove the oldest state if stack is full
-            self.undo_stack.append(np.copy(self.cellpix))
-            
-            
-# self.refresh_display?
-
-
-        self.draw_layer()
-        # if (self.masksOn or self.outlinesOn) and self.view==0:
-        self.layer.setImage(self.layerz, autoLevels=False)
-            # self.layer.setImage(self.layerz[self.currentZ], autoLevels=False)
-            
-        self.update_roi_count()
-        self.win.show()
-        self.show()
 
     def update_roi_count(self):
         self.roi_count.setText(f'{self.ncells} ROIs')        
@@ -2007,37 +1934,62 @@ class MainW(QMainWindow):
     def draw_masks(self):
         self.draw_layer()
 
-    def draw_layer(self):
-        if self.masksOn and self.view==0: #disable masks for network outputs
-            self.layerz = np.zeros((self.Ly,self.Lx,4), np.uint8)
-            self.layerz[...,:3] = self.cellcolors[self.cellpix[self.currentZ],:]
-            self.layerz[...,3] = self.opacity * (self.cellpix[self.currentZ]>0).astype(np.uint8)
-            if self.selected>0:
-                self.layerz[self.cellpix[self.currentZ]==self.selected] = np.array([255,255,255,self.opacity])
-            cZ = self.currentZ
-            stroke_z = np.array([s[0][0] for s in self.strokes])
-            inZ = np.nonzero(stroke_z == cZ)[0]
-            if len(inZ) > 0:
-                for i in inZ:
-                    stroke = np.array(self.strokes[i])
-                    self.layerz[stroke[:,1], stroke[:,2]] = np.array([255,0,255,100]) # this is where the gross magenta comes in 
+    def draw_layer(self, region=None, z=None):
+        """
+        Re-colorize the overlay (self.layerz) based on self.cellpix[z].
+        If region is None, update the entire image. Otherwise, only update
+        the specified sub-region: (x_min, x_max, y_min, y_max).
+        """
+        if z is None:
+            z = self.currentZ
+
+        # Default to the entire image if region is None
+        if region is None:
+            region = (0, self.Lx, 0, self.Ly)
+            
+        x_min, x_max, y_min, y_max = region
+
+        # Clip the region to image bounds
+        x_min = max(0, x_min)
+        x_max = min(self.Lx, x_max)
+        y_min = max(0, y_min)
+        y_max = min(self.Ly, y_max)
+
+        # Ensure self.layerz is allocated and correct shape
+        if getattr(self, 'layerz', None) is None or self.layerz.shape[:2] != (self.Ly, self.Lx):
+            self.layerz = np.zeros((self.Ly, self.Lx, 4), dtype=np.uint8)
+
+        # Extract subarray of cellpix
+        sub_cellpix = self.cellpix[z, y_min:y_max, x_min:x_max]
+
+        # Prepare a subarray for color
+        sub_h = y_max - y_min
+        sub_w = x_max - x_min
+        sub_layerz = np.zeros((sub_h, sub_w, 4), dtype=np.uint8)
+        # 1) Color + Alpha
+        if self.masksOn and self.view == 0:
+            # Basic coloring
+            sub_layerz[..., :3] = self.cellcolors[sub_cellpix, :] if len(self.cellcolors) > 1 else [255,0,0]
+            sub_layerz[..., 3] = self.opacity * (sub_cellpix > 0).astype(np.uint8)
+
+            # Selected cell -> white
+            if self.selected > 0:
+                mask_sel = (sub_cellpix == self.selected)
+                sub_layerz[mask_sel] = np.array([255, 255, 255, self.opacity], dtype=np.uint8)
         else:
-            self.layerz[...,3] = 0
+            # No masks -> alpha=0
+            sub_layerz[..., 3] = 0
 
+        # 2) Outlines
         if self.outlinesOn:
-            self.layerz[self.outpix[self.currentZ]>0] = np.array(self.outcolor).astype(np.uint8)
+            sub_outpix = self.outpix[z, y_min:y_max, x_min:x_max]
+            sub_layerz[sub_outpix > 0] = np.array(self.outcolor, dtype=np.uint8)
 
-    # def compute_saturation(self):
-    #     # compute percentiles from stack
-    #     self.saturation = []
-    #     logger.info('auto-adjust enabled, computing saturation levels')
-    #     if self.NZ>10:
-    #         iterator = trange(self.NZ)
-    #     else:
-    #         iterator = range(self.NZ)
-    #     for n in iterator:
-    #         self.saturation.append([np.percentile(self.stack[n].astype(np.float32),1),
-    #                                 np.percentile(self.stack[n].astype(np.float32),99)])
+        # Put the subarray back into the main overlay
+        self.layerz[y_min:y_max, x_min:x_max] = sub_layerz
+
+        # Finally update the displayed image
+        self.layer.setImage(self.layerz, autoLevels=False)
 
     def compute_saturation(self):
         # compute percentiles from stack

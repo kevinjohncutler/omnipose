@@ -480,6 +480,7 @@ def _masks_to_gui(parent, masks, outlines=None, format_labels=False):
     else:
         # colors = parent.colormap[np.random.randint(0,1000,size=parent.ncells), :3]
         colors = parent.colormap[:parent.ncells, :3]
+        
     logger.info('creating cell colors and drawing masks')
     parent.cellcolors = np.concatenate((np.array([[255,255,255]]), colors), axis=0).astype(np.uint8)
     parent.draw_masks()
@@ -490,6 +491,7 @@ def _masks_to_gui(parent, masks, outlines=None, format_labels=False):
     parent.zdraw = list(-1*np.ones(parent.ncells, np.int16))
     parent.update_layer()
     # parent.update_plot()
+    parent.update_shape()
 
 
 def _save_png(parent):
