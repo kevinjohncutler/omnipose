@@ -711,6 +711,8 @@ def masks_to_affinity(masks, coords, steps, inds, idx, fact, sign, dim,
     # dim x steps x npix array of pixel coordinates 
     neighbors = utils.get_neighbors(coords,steps,dim,shape,edges)
     
+    print('masks_to_affinity',masks.shape,coords[0].shape,neighbors.shape)
+    
     # define where edges are, may be in the middle of concatenated images 
     is_edge = np.logical_and.reduce([neighbors[d]==neighbors[d][idx] for d in range(dim)]) 
     
@@ -718,7 +720,7 @@ def masks_to_affinity(masks, coords, steps, inds, idx, fact, sign, dim,
     piece_masks = masks[tuple(neighbors)]
     
     # see where the neighbor matches central pixel
-    is_self = piece_masks == piece_masks[idx] 
+    is_self = piece_masks == piece_masks[idx]
 
     # Pixels are linked if they share the same label or are next to an edge...
     conditions = [is_self,
@@ -737,7 +739,7 @@ def masks_to_affinity(masks, coords, steps, inds, idx, fact, sign, dim,
     # We may not want all masks to be reflected across the edge. Thresholding by distance field
     # is a good way to make sure that cells are not doubled up along their boundary. 
     if dists is not None:
-        print('hey')
+        print('debug: check this')
         affinity_graph[is_edge] = dists[tuple(neighbors)][idx][np.nonzero(is_edge)[-1]]>cutoff
     
     return affinity_graph
@@ -774,7 +776,15 @@ def affinity_to_boundary(masks,affinity_graph,coords):
     bd_matrix[tuple(coords)] = boundary 
     
     return bd_matrix
-
+    
+def spatial_affinity(affinity_graph, coords, shape):
+    """
+    Convert affinity graph in (S,N) format to (S,*DIMS) format. 
+    """
+    nsteps,npix = affinity_graph.shape
+    affinity = np.zeros((nsteps,)+shape)
+    affinity[(Ellipsis,)+tuple(coords)] = affinity_graph
+    return affinity
 
 def links_to_boundary(masks,links):
     """Deprecated. Use masks_to_affinity instead."""
@@ -1471,7 +1481,8 @@ def compute_masks(dP, dist, affinity_graph=None, bd=None, p=None, coords=None, i
                                                 ordinal, 
                                                 dim)
                         
-                        # I need to make sure that the masks/coords also get updated...
+                        # I need to make sure that the masks/coords also get updated... that's what affinity_to_masks does 
+                        # altertnatiely, the affinity_to_boundary then boundary_to_masks does this 
                   
                     bounds = affinity_to_boundary(iscell_pad,affinity_graph,tuple(coords))
                         
@@ -3283,45 +3294,45 @@ def parametrize_contours(steps, labs, unique_L, neigh_inds, step_ok, csum):
     return contours  
 
 # @njit
-def get_neigh_inds(coords,shape,steps):
-    """
-    For L pixels and S steps, find the neighboring pixel indexes 
-    0,1,...,L for each step. Background index is -1. Returns:
+# def get_neigh_inds(coords,shape,steps):
+#     """
+#     For L pixels and S steps, find the neighboring pixel indexes 
+#     0,1,...,L for each step. Background index is -1. Returns:
     
     
-    Parameters
-    ----------
-    coords: tuple or ND array
-        coordinates of nonzero pixels, <dim>x<npix>
+#     Parameters
+#     ----------
+#     coords: tuple or ND array
+#         coordinates of nonzero pixels, <dim>x<npix>
     
-    shape: tuple or list, int
-        shape of the image array
+#     shape: tuple or list, int
+#         shape of the image array
         
-    steps: ND array, int
-        list or array of ND steps to neighbors 
+#     steps: ND array, int
+#         list or array of ND steps to neighbors 
     
-    Returns
-    -------
-    indexes: 1D array
-        list of pixel indexes 0,1,...L-1
+#     Returns
+#     -------
+#     indexes: 1D array
+#         list of pixel indexes 0,1,...L-1
         
-    neigh_inds: 2D array
-        SxL array corresponding to affinity graph
+#     neigh_inds: 2D array
+#         SxL array corresponding to affinity graph
     
-    ind_matrix: ND array
-        indexes inserted into the ND image volume
-    """
-    npix = len(coords[1])
-    indexes = np.arange(npix)
-    ind_matrix = -np.ones(shape,int)
-    ind_matrix[tuple(coords)] = indexes
-    neigh_inds = []
-    for s in steps:
-        neigh = tuple(coords+s[np.newaxis].T)
-        neigh_indices = ind_matrix[neigh]
-        neigh_inds.append(neigh_indices)
-    neigh_inds = np.array(neigh_inds)
-    return indexes, neigh_inds, ind_matrix
+#     ind_matrix: ND array
+#         indexes inserted into the ND image volume
+#     """
+#     npix = len(coords[1])
+#     indexes = np.arange(npix)
+#     ind_matrix = -np.ones(shape,int)
+#     ind_matrix[tuple(coords)] = indexes
+#     neigh_inds = []
+#     for s in steps:
+#         neigh = tuple(coords+s[np.newaxis].T)
+#         neigh_indices = ind_matrix[neigh]
+#         neigh_inds.append(neigh_indices)
+#     neigh_inds = np.array(neigh_inds)
+#     return indexes, neigh_inds, ind_matrix
 
 
 def divergence_torch(y):
@@ -3561,7 +3572,7 @@ def _get_affinity(steps, mask_pad, mu_pad, dt_pad, p, p0,
     # we unfortunately cannot use just half the steps because directionality is not symmetrical
     # i.e. self-referencing does not work here with -1 targets and using the neighbor in the opposing
     # direction to lookup the right index. Unfortunately, quite a lot of the computation is duplicated...
-    # the point of this method is to stick to foregorund pixels, but that adds complexity. Doing this in
+    # the point of this method is to stick to foreground pixels, but that adds complexity. Doing this in
     # torch over all pixels at once would probably be faster. 
 
     # for i in range(S//2):
@@ -3886,7 +3897,7 @@ def boundary_to_affinity(masks,boundaries):
     coords = np.nonzero(masks)
     neighbor_bd = boundaries[tuple(neighbors)] #extract list of boundary values 
     neighbor_int = np.logical_xor(neighbor_masks,neighbor_bd) #internal pixels 
-    isneighbor = np.stack([neighbor_int[idx]]*len(steps)) # initialize with all interla pixels connected 
+    isneighbor = np.stack([neighbor_int[idx]]*len(steps)) # initialize with all internal pixels connected 
 
     subinds = np.concatenate(inds[1:])
     mags = np.array([np.linalg.norm(s) for s in steps])

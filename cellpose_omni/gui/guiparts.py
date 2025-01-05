@@ -6,6 +6,8 @@ from pyqtgraph import Point
 import numpy as np
 import os
 
+from omnipose import core
+
 # import superqt
 
 TOOLBAR_WIDTH = 7
@@ -361,43 +363,87 @@ class ImageDraw(pg.ImageItem):
         brush_size = getattr(self.parent, 'brush_size', 1)
         label = getattr(self.parent, 'current_label', 0)
         z = self.parent.currentZ
+        masks = self.parent.cellpix[z]
+        affinity = self.parent.affinity_graph
+        height, width = masks.shape
 
-        array = self.parent.cellpix[z]
-        height, width = array.shape
+        # Determine the radius of the kernel
+        kr = 0 if brush_size == 1 else brush_size // 2
+        if not hasattr(self, '_kernel') or self._kernel.shape[0] != 2 * kr + 1:
+            self._generateKernel(brush_size)
 
-        if brush_size == 1:
-            # Single pixel
-            if 0 <= y < height and 0 <= x < width:
-                array[y, x] = label
-            # Region is just (x, x+1, y, y+1)
-            x_min, x_max = x, x+1
-            y_min, y_max = y, y+1
-        else:
-            # Multi-pixel brush
-            if not hasattr(self, '_kernel') or self._kernel.shape[0] != 2 * brush_size + 1:
-                self._generateKernel(brush_size)
+        # Array slice (r - row, c - column)
+        r0, r1 = max(0, y - kr), min(y + kr + 1, height)
+        c0, c1 = max(0, x - kr), min(x + kr + 1, width)
+        arr_slc = (slice(r0, r1), slice(c0, c1))
 
-            kernel = self._kernel
-            kernel_radius = kernel.shape[0] // 2
+        # Kernel slice
+        kernel = self._kernel
+        kr0, kr1 = max(0, kr - y), kr + (r1 - y)
+        kc0, kc1 = max(0, kr - x), kr + (c1 - x)
+        ker_slc = (slice(kr0, kr1), slice(kc0, kc1))
 
-            # Outer bounds for the kernel stamp
-            x_min = max(0, x - kernel_radius)
-            x_max = min(width,  x + kernel_radius + 1)
-            y_min = max(0, y - kernel_radius)
-            y_max = min(height, y + kernel_radius + 1)
+        # Apply kernel
+        # masks[arr_slc][kernel[ker_slc]] = label
 
-            # Corresponding sub-kernel indices
-            kx_min = max(0, kernel_radius - x)
-            kx_max = kernel_radius + (x_max - x)
-            ky_min = max(0, kernel_radius - y)
-            ky_max = kernel_radius + (y_max - y)
 
-            # Apply kernel to cellpix
-            array[y_min:y_max, x_min:x_max][kernel[ky_min:ky_max, kx_min:kx_max]] = label
-
+        # similar to _get_affinity, should check that too for some facotring out
+        # spurce inds restricts to valid sources 
+        source_indices = self.parent.ind_matrix[arr_slc][kernel[ker_slc]]
+        # source_indices = source_indices[source_indices>-1]
+        source_coords = tuple([c[source_indices] for c in self.parent.coords])
+        targets = []
         
+        masks[source_coords] = label # apply it here
+        
+        
+        if np.any(source_indices==-1):
+            print('\n ERROR, negative index in source_indices')
+
+        for i in self.parent.non_self:
+        # for i in range(len(self.parent.steps)//2):
+
+            target_indices = self.parent.neigh_inds[i][source_indices]                
+            if np.any(target_indices==-1):
+                print('\n ERROR, negative index in target_indices')
+            # print('B', target_indices)            
+
+            target_coords = tuple(self.parent.neighbors[:,i,source_indices])
+            # print('C', target_coords)            
+            
+            # source_labels = masks[source_coords]
+            target_labels = masks[target_coords]
+            if label !=0:
+                connect = target_labels==label
+            else:
+                connect = False
+                
+            # print('connect?', connect)
+            affinity[i][source_indices] = affinity[-(i+1)][target_indices] = connect
+            
+            targets.append(target_indices)
+
+        # print('\n',self.parent.idx, affinity.shape)
+        
+        # affinity[self.parent.idx] = 0
+        # print('checl',np.any(affinity[self.parent.idx]!=0))
+         
+        # I need to update both the source and target indices!
+        # indices = np.unique(source_indices+targets)
+        # csum = affinity[:,indices].sum(axis=0)
+        # is_bd = np.logical_and(csum<(3**self.parent.dim-1),csum>0)
+        
+        # coords = tuple([c[indices] for c in self.parent.coords])
+        
+        # self.parent.outpix[z][coords] = is_bd
+        
+        # there is also some jind of update happening elewhere...?
+        # it seems like maybe the islands of affinity is an artifact of only updating the source indices vs
+        # the whole kernel
+        self.parent.outpix[z][arr_slc] = core.affinity_to_boundary( masks, affinity, tuple(self.parent.coords))[arr_slc]
+            
         # Update only the affected region of the overlay
-        self.parent.draw_layer(region=(x_min, x_max, y_min, y_max), z=z)
+        self.parent.draw_layer(region=(c0, c1, r0, r1), z=z)
         
     def _floodFill(self, x, y, new_label):
         """Perform flood fill starting at (x, y) with the given new_label."""

@@ -1,5 +1,21 @@
 import signal, sys, os, pathlib, warnings, datetime, time
 
+# def handle_exception(exc_type, exc_value, exc_traceback):
+#     if issubclass(exc_type, KeyboardInterrupt):
+#         sys.__excepthook__(exc_type, exc_value, exc_traceback)
+#         return
+#     print("Uncaught exception:", exc_type, exc_value)
+#     import traceback
+#     traceback.print_tb(exc_traceback)
+
+# sys.excepthook = handle_exception
+
+# os.environ["QT_DEBUG_PLUGINS"] = "1"
+
+import numpy as np
+# np.seterr(all='raise')  # Raise exceptions instead of warnings
+
+
 from PyQt6 import QtGui, QtCore, QtWidgets
 from PyQt6.QtCore import Qt, pyqtSlot, QCoreApplication
 from PyQt6.QtWidgets import QMainWindow, QApplication, QWidget, QScrollBar, QComboBox, QGridLayout, QPushButton, QCheckBox, QLabel, QProgressBar, QLineEdit, QScrollArea
@@ -10,18 +26,18 @@ from pyqtgraph import ViewBox
 
 os.environ['QT_AUTO_SCREEN_SCALE_FACTOR'] = '1'
 
-import numpy as np
 from scipy.stats import mode
-from scipy.ndimage import gaussian_filter
+# from scipy.ndimage import gaussian_filter
 
 from . import guiparts, menus, io
-from .. import models, core, dynamics
+from .. import models, dynamics
 from ..utils import download_url_to_file, masks_to_outlines, diameters 
 from ..io import get_image_files, imsave, imread, check_dir #OMNI_INSTALLED
 from ..transforms import resize_image #fixed import
 from ..plot import disk
 from omnipose.utils import normalize99, to_8_bit
-from omnipose.core import compute_masks
+from omnipose import core, gpu, utils, misc
+
 OMNI_INSTALLED = 1
 from .guiutils import checkstyle, get_unique_points, avg3d, interpZ
 
@@ -296,6 +312,7 @@ class MainW(QMainWindow):
         # if called with image, load it
         if image is not None:
             self.filename = image
+            print('loading', self.filename)
             io._load_image(self, self.filename)
 
         # training settings
@@ -886,13 +903,13 @@ class MainW(QMainWindow):
 
         # AFFINITY seg 
         b-=2
-        self.affinity = QCheckBox('affinity graph reconstruction')
-        self.affinity.setStyleSheet(self.checkstyle)
-        self.affinity.setFont(self.medfont)
-        self.affinity.setChecked(False)
-        self.affinity.setToolTip('sets whether or not to use affinity graph mask reconstruction')
-        self.affinity.toggled.connect(self.toggle_affinity)
-        self.l0.addWidget(self.affinity, b,0,1,2)
+        self.AffinityCheck = QCheckBox('affinity graph reconstruction')
+        self.AffinityCheck.setStyleSheet(self.checkstyle)
+        self.AffinityCheck.setFont(self.medfont)
+        self.AffinityCheck.setChecked(False)
+        self.AffinityCheck.setToolTip('sets whether or not to use affinity graph mask reconstruction')
+        self.AffinityCheck.toggled.connect(self.toggle_affinity)
+        self.l0.addWidget(self.AffinityCheck, b,0,1,2)
 
         # SCALE DISK toggle
         b+=1
@@ -1161,6 +1178,31 @@ class MainW(QMainWindow):
             self.ops_plot = {'brush_size': val}
             self.brush_size = val
             
+    #         self.update_brush_cursor()  # Update cursor with the new brush size
+
+    # def update_brush_cursor(self):
+    
+    #     from PyQt6.QtGui import QCursor, QPixmap, QPainter, QColor
+    #     from PyQt6.QtCore import Qt
+    #     """Update the mouse cursor to visually represent the drawing kernel."""
+    #     brush_size = getattr(self, 'brush_size', 1)
+        
+    #     # Create a pixmap for the cursor
+    #     size = 2 * brush_size + 1  # Kernel diameter
+    #     pixmap = QPixmap(size, size)
+    #     pixmap.fill(Qt.GlobalColor.transparent)  # Transparent background
+
+    #     # Draw the kernel
+    #     painter = QPainter(pixmap)
+    #     painter.setPen(Qt.PenStyle.NoPen)
+    #     painter.setBrush(QColor(255, 0, 0, 128))  # Semi-transparent red
+    #     painter.drawEllipse(0, 0, size - 1, size - 1)
+    #     painter.end()
+
+    #     # Set the custom cursor
+    #     cursor = QCursor(pixmap)
+    #     self.setCursor(cursor)
+                
     def plot_clicked(self, event):
         if event.button()==QtCore.Qt.LeftButton and (event.modifiers() != QtCore.Qt.ShiftModifier and
                     event.modifiers() != QtCore.Qt.AltModifier):
@@ -1304,7 +1346,7 @@ class MainW(QMainWindow):
         self.torch = use_torch
         self.useGPU.setChecked(False)
         self.useGPU.setEnabled(False)    
-        if self.torch and core.use_gpu(use_torch=True)[-1]:
+        if self.torch and gpu.use_gpu(use_torch=True)[-1]:
             self.useGPU.setEnabled(True)
             self.useGPU.setChecked(True)
         else:
@@ -1453,8 +1495,8 @@ class MainW(QMainWindow):
             self.ncolor = True
         else:
             self.ncolor = False
-        io._masks_to_gui(self, self.cellpix, outlines=self.outpix, format_labels=True)
-        self.redraw_masks(masks=self.masksOn, outlines=self.outlinesOn)
+        io._masks_to_gui(self, format_labels=True)
+        self.draw_layer()
         if self.loaded:
             # self.update_plot()
             self.update_layer()
@@ -1760,6 +1802,13 @@ class MainW(QMainWindow):
         self.radii = 0*np.ones((self.Ly,self.Lx,4), np.uint8)
         self.cellpix = np.zeros((1,self.Ly,self.Lx), np.uint32)
         self.outpix = np.zeros((1,self.Ly,self.Lx), np.uint32)
+        
+        self.masks = np.zeros((self.Ly,self.Lx), np.uint32)
+        self.bounds = np.zeros((self.Ly,self.Lx), np.uint32)
+        
+        self.initialize_seg()
+        print('reset',self.outpix.shape,self.affinity_graph.shape)
+        
         self.ismanual = np.zeros(0, 'bool')
         self.accent = self.palette().brush(QPalette.ColorRole.Highlight).color()
         self.update_plot()
@@ -1768,7 +1817,24 @@ class MainW(QMainWindow):
         self.filename = []
         self.loaded = False
         self.recompute_masks = False
+        
+ 
+        
 
+    def initialize_seg(self):
+        self.shape = self.masks.shape
+        self.dim = len(self.shape) 
+        self.steps, self.inds, self.idx, self.fact, self.sign = utils.kernel_setup(self.dim)
+        # self.meshgrid = misc.meshgrid(self.shape)
+        self.coords = misc.generate_flat_coordinates(self.shape)
+        self.neighbors = utils.get_neighbors(self.coords, self.steps, self.dim, self.shape)
+        self.indexes, self.neigh_inds, self.ind_matrix = utils.get_neigh_inds(tuple(self.neighbors),self.coords,self.shape)
+        self.non_self = np.array(list(set(np.arange(len(self.steps)))-{self.inds[0][0]})) 
+        self.affinity_graph = np.zeros(self.neighbors.shape[1:],bool)
+        
+        
+        
+        print('initializing segmentation', self.shape, self.affinity_graph.shape, np.sum(self.ind_matrix<0))
 
     def autosave_on(self):
         if self.SCheckBox.isChecked():
@@ -1838,6 +1904,7 @@ class MainW(QMainWindow):
     
     def update_shape(self): 
         self.Ly, self.Lx, _ = self.stack[self.currentZ].shape
+        self.shape = (self.Ly, self.Lx)
 
     def update_plot(self):
         self.update_shape()
@@ -2048,6 +2115,11 @@ class MainW(QMainWindow):
         If region is None, update the entire image. Otherwise, only update
         the specified sub-region: (x_min, x_max, y_min, y_max).
         """
+        
+        if region is None:
+        
+            print('drawing entire layer')
+            
         if z is None:
             z = self.currentZ
 
@@ -2066,7 +2138,7 @@ class MainW(QMainWindow):
         # Ensure self.layerz is allocated and correct shape
         if getattr(self, 'layerz', None) is None or self.layerz.shape[:2] != (self.Ly, self.Lx):
             self.layerz = np.zeros((self.Ly, self.Lx, 4), dtype=np.uint8)
-
+        
         # Extract subarray of cellpix
         sub_cellpix = self.cellpix[z, y_min:y_max, x_min:x_max]
 
@@ -2090,6 +2162,13 @@ class MainW(QMainWindow):
 
         # 2) Outlines
         if self.outlinesOn:
+            # there is something weird going on woith initializing the affinity graoh from the npy
+            # they need to be deleted I think, or need some workaround to overwrite masks and shape etc. 
+            # as they get reset as 512
+            
+            
+            # print(self.cellpix[z].shape, self.shape,self.affinity_graph.shape, len(self.coords), self.coords[0].shape)
+            # self.outpix = core.affinity_to_boundary( self.cellpix[z], self.affinity_graph, tuple(self.coords))[np.newaxis,:,:]
             sub_outpix = self.outpix[z, y_min:y_max, x_min:x_max]
             sub_layerz[sub_outpix > 0] = np.array(self.outcolor, dtype=np.uint8)
 
@@ -2355,6 +2434,7 @@ class MainW(QMainWindow):
         net_avg = self.NetAvg.currentIndex()==0 and self.current_model in models.MODEL_NAMES
         resample = self.NetAvg.currentIndex()<2
         omni = OMNI_INSTALLED and self.omni.isChecked()
+        
         # useful printout for easily copying parameters to a notebook etc. 
         s = ('channels={}, mask_threshold={:.2f}, '
              'flow_threshold={:.2f}, diameter={:.2f}, invert={}, cluster={}, net_avg={},'
@@ -2368,6 +2448,7 @@ class MainW(QMainWindow):
                      net_avg,
                      False,
                      omni)
+        
         self.runstring.setPlainText(s)
             
         if not omni:
@@ -2386,14 +2467,14 @@ class MainW(QMainWindow):
             # and then never recompute (the threshold prodces a mask that selects from existing trajectories, see get_masks)
             # seems like the dbscanm method breaks with this, but affinity is fine... 
             # p = self.flows[-2].copy() if have_enough_px  else None 
-            p = self.flows[-2].copy() if have_enough_px and self.affinity.isChecked() else None 
+            p = self.flows[-2].copy() if have_enough_px and self.AffinityCheck.isChecked() else None 
         
             
             dP = self.flows[-1][:-self.model.dim]
             dist = self.flows[-1][self.model.dim]
             bd = self.flows[-1][self.model.dim+1]
             # print('flow debug',self.model.dim,p.shape,dP.shape,dist.shape,bd.shape)
-            maski = compute_masks(dP=dP, 
+            ret = core.compute_masks(dP=dP, 
                                     dist=dist, 
                                     affinity_graph=None, 
                                     bd=bd,
@@ -2404,9 +2485,34 @@ class MainW(QMainWindow):
                                     cluster=self.cluster.isChecked(),
                                     verbose=self.verbose.isChecked(),
                                     nclasses=self.model.nclasses,
-                                    affinity_seg=self.affinity.isChecked(),
-                                    omni=omni)[0]
+                                    affinity_seg=self.AffinityCheck.isChecked(),
+                                    omni=omni)
+            
+            maski, p, tr, bounds, augmented_affinity = ret
+            
+            self.masks = maski
+            self.shape = maski.shape
+            self.dim = maski.ndim
+            # self.neighbors = augmented_affinity[:self.dim]
+            # self.affinity_graph = augmented_affinity[self.dim] need to cnvert indexing to update the full affinity
+            # or just flatten the spatial affinity 
+            coords = np.nonzero(self.masks) 
+            self.bounds = core.affinity_to_boundary(self.masks, self.affinity_graph, coords)
+            
+            # for the pruposes of the GUI, we may want to store the affinity graph as a
+            # (8,Y,X) array rather than a (9,N) array... unless N is always the same size 
+            
+            # slicing is probably going to be a lot easier if we use the spatial affinity format 
+            self.spatial_affinity = core.spatial_affinity(self.affinity_graph, self.coords, self.shape)
+            
+            # self.neighbors = core.get_neighbors(self.spatial_affinity, self.meshgrid, self.shape)
+            # self.meshgrid = misc.meshgrid(self.shape)
+            # self.indexes, self.neigh_inds, self.ind_matrix = utils.get_neigh_inds(tuple(self.neighbors),self.meshgrid,self.shape)
+            
+            # self.steps, self.inds, self.idx, self.fact, self.sign = utils.kernel_setup(self.dim)
+            # self.non_self = np.array(list(set(np.arange(len(self.steps)))-{self.inds[0][0]})) 
 
+            print('\n\nassgin the affinity tot he main one here \n')
         
         self.masksOn = True
         self.MCheckBox.setChecked(True)
@@ -2414,8 +2520,8 @@ class MainW(QMainWindow):
         # self.OCheckBox.setChecked(True)
         if maski.ndim<3:
             maski = maski[np.newaxis,...]
-        logger.info('%d cells found'%(len(np.unique(maski)[1:])))
-        io._masks_to_gui(self, maski, outlines=None) # replace this to show boundary emphasized masks
+        logger.info('%d cells found'%(len(misc.unique_nonzero(maski))))
+        io._masks_to_gui(self) # replace this to show boundary emphasized masks
         self.show()
 
 
@@ -2526,7 +2632,7 @@ class MainW(QMainWindow):
                                                verbose=self.verbose.isChecked(),
                                                omni=omni, 
                                                tile=False,
-                                               affinity_seg=self.affinity.isChecked(),
+                                               affinity_seg=self.AffinityCheck.isChecked(),
                                                cluster = self.cluster.isChecked(),
                                                transparency=True,
                                                channel_axis=-1
@@ -2550,6 +2656,14 @@ class MainW(QMainWindow):
                 self.flows[2] = to_8_bit(flows[4]) #boundary for plotting
             else:
                 self.flows[2] = np.zeros_like(self.flows[1])
+                
+            # boundary and affinity
+            self.bounds = flows[-1]
+            self.affinity_graph = flows[-2]
+            self.masks = masks
+            
+            
+            print('run assign here too')
 
             if not do_3D:
                 masks = masks[np.newaxis,...]
@@ -2589,7 +2703,8 @@ class MainW(QMainWindow):
             # self.outlinesOn = True #again, this option should persist and not get toggled by another GUI action 
             # self.OCheckBox.setChecked(True)
 
-            io._masks_to_gui(self, masks, outlines=None)
+            print('masks found, drawing now', self.masks.shape)
+            io._masks_to_gui(self)
             self.progress.setValue(100)
 
             # self.toggle_server(off=True)

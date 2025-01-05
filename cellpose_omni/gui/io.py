@@ -120,6 +120,7 @@ def _load_image(parent, filename=None, load_seg=True):
             )
         filename = name[0]
     manual_file = os.path.splitext(filename)[0]+'_seg.npy'
+    print('manual_file',manual_file)
     load_mask = False
     if load_seg:
         if os.path.isfile(manual_file) and not parent.autoloadMasks.isChecked():
@@ -140,6 +141,8 @@ def _load_image(parent, filename=None, load_seg=True):
     except Exception as e:
         print('ERROR: images not compatible')
         print(f'ERROR: {e}')
+        
+    print('A here',load_mask, load_seg)
 
     if parent.loaded:
         parent.reset()
@@ -238,6 +241,9 @@ def _initialize_images(parent, image, resize, X2):
 
 def _load_seg(parent, filename=None, image=None, image_file=None):
     """ load *_seg.npy with filename; if None, open QFileDialog """
+    
+    logger.info(f'loading segmentation: {filename}')
+    
     if filename is None:
         name = QFileDialog.getOpenFileName(
             parent, "Load labelled data", filter="*.npy"
@@ -391,6 +397,9 @@ def _load_seg(parent, filename=None, image=None, image_file=None):
     
     parent.enable_buttons()
     parent.update_layer()
+    
+
+    
     del dat
     gc.collect()
 
@@ -403,66 +412,136 @@ def _load_masks(parent, filename=None):
         filename = name[0]
     logger.info(f'loading masks: {filename}')
     masks = imread(filename)
-    outlines = None
-    if masks.ndim>3:
-        # Z x nchannels x Ly x Lx
-        if masks.shape[-1]>5:
-            parent.flows = list(np.transpose(masks[:,:,:,2:], (3,0,1,2)))
-            outlines = masks[...,1]
-            masks = masks[...,0]
-        else:
-            parent.flows = list(np.transpose(masks[:,:,:,1:], (3,0,1,2)))
-            masks = masks[...,0]
-    elif masks.ndim==3:
-        if masks.shape[-1]<5:
-            masks = masks[np.newaxis,:,:,0]
-    elif masks.ndim<3:
-        masks = masks[np.newaxis,:,:]
+    parent.masks = masks
+    parent.initialize_seg()
+    
+    # these liens appear to do nothing because masks is not used again
+    # USED TO BE passed to the _masks_to_gui function 
+    # outlines = None
+    # if masks.ndim>3:
+    #     # Z x nchannels x Ly x Lx
+    #     if masks.shape[-1]>5:
+    #         parent.flows = list(np.transpose(masks[:,:,:,2:], (3,0,1,2)))
+    #         outlines = masks[...,1]
+    #         masks = masks[...,0]
+    #     else:
+    #         parent.flows = list(np.transpose(masks[:,:,:,1:], (3,0,1,2)))
+    #         masks = masks[...,0]
+    # elif masks.ndim==3:
+    #     if masks.shape[-1]<5:
+    #         masks = masks[np.newaxis,:,:,0]
+    # elif masks.ndim<3:
+    #     masks = masks[np.newaxis,:,:]
     # masks should be Z x Ly x Lx
     if masks.shape[0]!=parent.NZ:
         print('ERROR: masks are not same depth (number of planes) as image stack')
         return
 
-    _masks_to_gui(parent, masks, outlines)
-    del masks 
+    _masks_to_gui(parent)
+    
+    # del masks 
     gc.collect()
     parent.update_layer()
     parent.update_plot()
-
-def _masks_to_gui(parent, masks, outlines=None, format_labels=False):
-    """ masks loaded into GUI """
-    shape = masks.shape
-    if format_labels:
-        masks = ncolor.format_labels(masks,clean=True)
-    else:
-        fastremap.renumber(masks, in_place=True)
     
+
+# def _masks_to_gui(parent, masks, outlines=None, format_labels=False):
+#     """ masks loaded into GUI """
+#     shape = masks.shape
+#     if format_labels:
+#         masks = ncolor.format_labels(masks,clean=True)
+#     else:
+#         fastremap.renumber(masks, in_place=True)
+    
+#     parent.ncells = masks.max() #try to grab the cell count before ncolor
+
+#     if parent.ncolor:
+#         masks = ncolor.label(masks) 
+#     else:
+#         masks = np.reshape(masks, shape)
+#         masks = masks.astype(np.uint16) if masks.max()<2**16-1 else masks.astype(np.uint32)
+        
+#     parent.cellpix = masks
+#     logger.info(f'{masks.max()} masks found')
+
+#     # get outlines
+#     if outlines is None: # parent.outlinesOn
+#         parent.outpix = np.zeros_like(masks)
+#         for z in range(parent.NZ):
+#             outlines = utils.masks_to_outlines(masks[z])
+#             parent.outpix[z] = outlines * masks[z]
+#             if z%50==0 and parent.NZ > 1:
+#                 logger.info('plane %d outlines processed'%z)
+#     else:
+#         parent.outpix = outlines
+#         shape = parent.outpix.shape
+#         _,parent.outpix = np.unique(parent.outpix, return_inverse=True)
+#         parent.outpix = np.reshape(parent.outpix, shape)
+        
+
+#     np.random.seed(42) #try to make a bit more stable 
+#     if parent.ncolor:
+#         # Approach 1: use a dictionary to color cells but keep their original label
+#         # Approach 2: actually change the masks to n-color
+#         # 2 is easier and more stable for editing. Only downside is that exporting will
+#         # require formatting and users may need to shuffle or add a color to avoid like
+#         # colors touching 
+#         # colors = parent.colormap[np.linspace(0,255,parent.ncells+1).astype(int), :3]
+#         c = sinebow(masks.max()+1)
+#         colors = (np.array(list(c.values()))[1:,:3] * (2**8-1) ).astype(np.uint8)
+
+#     else:
+#         # colors = parent.colormap[np.random.randint(0,1000,size=parent.ncells), :3]
+#         colors = parent.colormap[:parent.ncells, :3]
+        
+#     logger.info('creating cell colors and drawing masks')
+#     parent.cellcolors = np.concatenate((np.array([[255,255,255]]), colors), axis=0).astype(np.uint8)
+    
+    
+#     parent.draw_masks()
+#     parent.redraw_masks(masks=parent.masksOn, outlines=parent.outlinesOn) # add to obey outline/mask setting upon recomputing, missing outlines otherwise
+#     if parent.ncells>0:
+#         parent.toggle_mask_ops()
+#     parent.ismanual = np.zeros(parent.ncells, bool)
+#     parent.zdraw = list(-1*np.ones(parent.ncells, np.int16))
+#     parent.update_layer()
+#     # parent.update_plot()
+#     parent.update_shape()
+
+def _masks_to_gui(parent, format_labels=False):
+    """ masks loaded into GUI """
+    masks = parent.masks
+    shape = masks.shape 
+    ndim = masks.ndim
+    # if format_labels:
+    #     masks = ncolor.format_labels(masks,clean=True)
+    # else:
+    #     fastremap.renumber(masks, in_place=True)
+    logger.info(f'{parent.ncells} masks found')
+    
+    print('calling masks to gui',masks.shape)
     parent.ncells = masks.max() #try to grab the cell count before ncolor
 
+
+
+    print('yoyo',parent.cellpix.shape,parent.outpix.shape)
     if parent.ncolor:
-        masks = ncolor.label(masks) 
+        masks, ncol = ncolor.label(masks,return_n=True) 
     else:
         masks = np.reshape(masks, shape)
-        masks = masks.astype(np.uint16) if masks.max()<2**16-1 else masks.astype(np.uint32)
+        masks = masks.astype(np.uint16) if masks.max()<(2**16-1) else masks.astype(np.uint32)
         
-    parent.cellpix = masks
-    logger.info(f'{masks.max()} masks found')
+        # the intrinsic values are masks and bounds, but I will use the old lingo
+    # of cellpix and outpix for the draw_layer function expecting ZYX stacks 
+    if ndim==2:
+        print('reshaping masks to cellpix stack')
+        parent.cellpix = masks[np.newaxis,:,:]
+        parent.outpix = parent.bounds[np.newaxis,:,:]
 
-    # get outlines
-    if outlines is None: # parent.outlinesOn
-        parent.outpix = np.zeros_like(masks)
-        for z in range(parent.NZ):
-            outlines = utils.masks_to_outlines(masks[z])
-            parent.outpix[z] = outlines * masks[z]
-            if z%50==0 and parent.NZ > 1:
-                logger.info('plane %d outlines processed'%z)
-    else:
-        parent.outpix = outlines
-        shape = parent.outpix.shape
-        _,parent.outpix = np.unique(parent.outpix, return_inverse=True)
-        parent.outpix = np.reshape(parent.outpix, shape)
+
 
     np.random.seed(42) #try to make a bit more stable 
+    
     if parent.ncolor:
         # Approach 1: use a dictionary to color cells but keep their original label
         # Approach 2: actually change the masks to n-color
@@ -470,26 +549,28 @@ def _masks_to_gui(parent, masks, outlines=None, format_labels=False):
         # require formatting and users may need to shuffle or add a color to avoid like
         # colors touching 
         # colors = parent.colormap[np.linspace(0,255,parent.ncells+1).astype(int), :3]
-        c = sinebow(masks.max()+1)
+        c = sinebow(ncol+1)
         colors = (np.array(list(c.values()))[1:,:3] * (2**8-1) ).astype(np.uint8)
 
     else:
-        # colors = parent.colormap[np.random.randint(0,1000,size=parent.ncells), :3]
         colors = parent.colormap[:parent.ncells, :3]
         
     logger.info('creating cell colors and drawing masks')
     parent.cellcolors = np.concatenate((np.array([[255,255,255]]), colors), axis=0).astype(np.uint8)
-    parent.draw_masks()
-    parent.redraw_masks(masks=parent.masksOn, outlines=parent.outlinesOn) # add to obey outline/mask setting upon recomputing, missing outlines otherwise
+    
+    parent.draw_layer()
+    # parent.redraw_masks(masks=parent.masksOn, outlines=parent.outlinesOn) # add to obey outline/mask setting upon recomputing, missing outlines otherwise
     if parent.ncells>0:
         parent.toggle_mask_ops()
     parent.ismanual = np.zeros(parent.ncells, bool)
     parent.zdraw = list(-1*np.ones(parent.ncells, np.int16))
+    
     parent.update_layer()
     # parent.update_plot()
     parent.update_shape()
-
-
+    parent.initialize_seg()
+    
+    
 def _save_png(parent):
     """ save masks to png or tiff (if 3D) """
     filename = parent.filename

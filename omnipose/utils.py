@@ -1127,6 +1127,8 @@ def get_neighbors(coords, steps, dim, shape, edges=None, pad=0):
     Get the coordinates of all neighbor pixels.
     Coordinates of pixels that are out-of-bounds get clipped.
     """
+    print('debug', coords[0].shape, len(coords),steps.shape, dim, shape, edges)
+    
     if edges is None:
         edges = [np.array([-1+pad, s-pad]) for s in shape]
 
@@ -1189,8 +1191,11 @@ def get_neigh_inds(neighbors,coords,shape,background_reflect=False):
     
     Parameters
     ----------
+    neighbors: ND array, int
+        ndim x nsteps x npix array of neighbor coordinates
+    
     coords: tuple, int
-        coordinates of nonzero pixels, <dim>x<npix>
+        coordinates of nonzero pixels, <ndim>x<npix>
 
     shape: tuple, int
         shape of the image array
