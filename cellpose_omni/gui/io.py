@@ -22,6 +22,7 @@ except:
 
 import ncolor
 from omnipose.utils import sinebow
+from omnipose import core
 
     
 def _init_model_list(parent):
@@ -54,7 +55,7 @@ def _add_model(parent, filename=None, load_model=True):
     parent.ModelChoose.addItems([fname])
     parent.model_strings.append(fname)
     if len(parent.model_strings) > 0:
-        parent.ModelButton.setStyleSheet(parent.styleUnpressed)
+        # parent.ModelButton.setStyleSheet(parent.styleUnpressed)
         parent.ModelButton.setEnabled(True)
     
     for ind, model_string in enumerate(parent.model_strings[:-1]):
@@ -85,7 +86,6 @@ def _remove_model(parent, ind=None, verbose=True):
             textfile = open(parent.model_list_path, 'w')
             textfile.close()
             parent.ModelChoose.setCurrentIndex(0)
-            parent.ModelButton.setStyleSheet(parent.styleInactive)
             parent.ModelButton.setEnabled(False)
     else:
         print('ERROR: no model selected to delete')
@@ -114,26 +114,41 @@ def _get_train_set(image_names):
 
 def _load_image(parent, filename=None, load_seg=True):
     """ load image with filename; if None, open QFileDialog """
+    
+    
     if filename is None:
         name = QFileDialog.getOpenFileName(
             parent, "Load image"
             )
         filename = name[0]
+        
+    logger.info(f'called _load_image on {filename}')
     manual_file = os.path.splitext(filename)[0]+'_seg.npy'
-    print('manual_file',manual_file)
     load_mask = False
     if load_seg:
         if os.path.isfile(manual_file) and not parent.autoloadMasks.isChecked():
+            logger.info(f'segmentation npy file found: {manual_file}')
             _load_seg(parent, manual_file, image=imread(filename), image_file=filename)
-            return
+            return # exit here, will not go on to load any mask files 
+            
         elif os.path.isfile(os.path.splitext(filename)[0]+'_manual.npy'):
+            logger.info(f'manual npy file found: {manual_file}')
             manual_file = os.path.splitext(filename)[0]+'_manual.npy'
             _load_seg(parent, manual_file, image=imread(filename), image_file=filename)
-            return
+            return # likewise exit here, will not go on to load any mask files 
+            # should merege this branch with the above? Not sure what use case manual npy is 
+            
+            
         elif parent.autoloadMasks.isChecked():
+            logger.info('loading masks from _masks.tif file')
             mask_file = os.path.splitext(filename)[0]+'_masks'+os.path.splitext(filename)[-1]
             mask_file = os.path.splitext(filename)[0]+'_masks.tif' if not os.path.isfile(mask_file) else mask_file
             load_mask = True if os.path.isfile(mask_file) else False
+    else:
+        logger.info('not loading segmentation, just the image')
+        
+        
+    # from here, we now will just be loading an image and a mask image file format, not npy 
     try:
         logger.info(f'loading image: {filename}')
         image = imread(filename)
@@ -142,7 +157,6 @@ def _load_image(parent, filename=None, load_seg=True):
         print('ERROR: images not compatible')
         print(f'ERROR: {e}')
         
-    print('A here',load_mask, load_seg)
 
     if parent.loaded:
         parent.reset()
@@ -162,7 +176,9 @@ def _load_image(parent, filename=None, load_seg=True):
 
 def _initialize_images(parent, image, resize, X2):
     """ format image for GUI """
+    logger.info(f'initializing image, shape {image.shape}')
     parent.onechan=False
+    parent.shape = image.shape
     if image.ndim > 3:
         # make tiff Z x channels x W x H
         if image.shape[0]<4:
@@ -197,6 +213,8 @@ def _initialize_images(parent, image, resize, X2):
             image = image[np.newaxis,...]
     else:
         image = image[np.newaxis,...]
+        
+    logger.info(f'loaded image shape: {image.shape}')
     
     img_min = image.min() 
     img_max = image.max()
@@ -251,15 +269,19 @@ def _load_seg(parent, filename=None, image=None, image_file=None):
         filename = name[0]
     try:
         dat = np.load(filename, allow_pickle=True).item()
-        dat['outlines']
+        dat['masks'] # test if masks are present
         parent.loaded = True
     except:
         parent.loaded = False
         print('ERROR: not NPY')
         return
 
+    # this puts in some defaults if they are not present in the npy file
     parent.reset()
+    
+    
     if image is None:
+        logger.info(f'loading image in _load_seg')
         found_image = False
         if 'filename' in dat:
             parent.filename = dat['filename']
@@ -300,79 +322,94 @@ def _load_seg(parent, filename=None, image=None, image_file=None):
             parent.resize = max(dat['img'].shape)
     else:
         parent.resize = -1
+    
+    print('loading image in _load_seg', image.shape)
     _initialize_images(parent, image, resize=parent.resize, X2=parent.X2)
+    
     if 'chan_choose' in dat:
         parent.ChannelChoose[0].setCurrentIndex(dat['chan_choose'][0])
         parent.ChannelChoose[1].setCurrentIndex(dat['chan_choose'][1])
+    
+    
+    # Transfer fields from dat to parent directly
+    exclude = ['runstring', 'img'] # these are not to be transferred because their formats are different when saved vs in the GUI
+    for key, value in dat.items():
+        if key not in exclude:
+            setattr(parent, key, value)
+            print('setting',key)
+            
+    if 'runstring' in dat:
+        parent.runstring.setPlainText(dat['runstring'])
+    
     if 'outlines' in dat:
-        if isinstance(dat['outlines'], list):
-            # old way of saving files
-            dat['outlines'] = dat['outlines'][::-1]
-            for k, outline in enumerate(dat['outlines']):
-                if 'colors' in dat:
-                    color = dat['colors'][k]
-                else:
-                    col_rand = np.random.randint(1000)
-                    color = parent.colormap[col_rand,:3]
-                median = parent.add_mask(points=outline, color=color)
-                if median is not None:
-                    parent.cellcolors = np.append(parent.cellcolors, color[np.newaxis,:], axis=0)
-                    parent.ncells+=1
-        else:
-            if dat['masks'].ndim==2:
-                dat['masks'] = dat['masks'][np.newaxis,:,:]
-                dat['outlines'] = dat['outlines'][np.newaxis,:,:]
-            if dat['masks'].min()==-1:
-                dat['masks'] += 1
-                dat['outlines'] += 1
-            parent.ncells = dat['masks'].max()
-            
-            # print('debugging',len(dat['colors']),dat['masks'].max())
-            if 'colors' in dat and len(dat['colors'])>=dat['masks'].max(): #== too sctrict, >= is fine 
-                colors = dat['colors']
-            else:
-                colors = parent.colormap[:parent.ncells,:3]
-            parent.cellpix = dat['masks']
-            parent.outpix = dat['outlines']
-            parent.cellcolors = np.append(parent.cellcolors, colors, axis=0)
-            
-            parent.draw_layer()
-            if 'est_diam' in dat:
-                parent.Diameter.setText('%0.1f'%dat['est_diam'])
-                parent.diameter = dat['est_diam']
-                parent.compute_scale()
+        parent.bounds = parent.outlines = dat['outlines']
 
-        if 'manual_changes' in dat: 
-            parent.track_changes = dat['manual_changes']
-            logger.info('loaded in previous changes')    
-        if 'zdraw' in dat:
-            parent.zdraw = dat['zdraw']
-        else:
-            parent.zdraw = [None for n in range(parent.ncells)]
-        parent.loaded = True
-        logger.info(f'{parent.ncells} masks found in {filename}')
+    # print('A', parent.masks.shape, parent.coords[0].shape, 
+    #       parent.affinity_graph.shape, parent.boundary.shape)
+    
+    # fix formats using -1 as background
+    if parent.masks.min()==-1:
+        logger.warning('-1 found in masks, increasing all labels by 1')
+        parent.masks += 1
+    
+    # Update masks and outlines to ZYX format stored as parent.cellpix and parent.outpix
+    if parent.masks.ndim == 2:
+        parent.cellpix = parent.masks[np.newaxis, :, :]
+        parent.outpix = parent.outlines[np.newaxis, :, :]
+        
+        
+    if not hasattr(parent, 'links'):
+        parent.links = None
+    
+    # we want to initialize the segmentation infrastructure like steps and coords, 
+    # this also will create the affinity graph if not present 
+    parent.initialize_seg()   
+    parent.ncells = parent.masks.max()
+    
+    # handle colors - I feel like this needs improvement 
+    if 'colors' in dat and len(dat['colors'])>=dat['masks'].max(): #== too sctrict, >= is fine 
+        colors = dat['colors']
     else:
-        parent.clear_all()
+        colors = parent.colormap[:parent.ncells,:3]
+    parent.cellcolors = np.append(parent.cellcolors, colors, axis=0)
+    
 
+    if 'est_diam' in dat:
+        parent.Diameter.setText('%0.1f'%dat['est_diam'])
+        parent.diameter = dat['est_diam']
+        parent.compute_scale()
+        
+    if 'manual_changes' in dat: 
+        parent.track_changes = dat['manual_changes']
+        logger.info('loaded in previous changes')    
+    if 'zdraw' in dat:
+        parent.zdraw = dat['zdraw']
+    else:
+        parent.zdraw = [None for n in range(parent.ncells)]
+
+    # print('dat contents',dat.keys())
+    # ['outlines', 'colors', 'masks', 'chan_choose', 'img', 'filename', 'flows', 'ismanual', 'manual_changes', 'model_path', 'flow_threshold', 'cellprob_threshold', 'runstring'])
+    
     parent.ismanual = np.zeros(parent.ncells, bool)
     if 'ismanual' in dat:
         if len(dat['ismanual']) == parent.ncells:
             parent.ismanual = dat['ismanual']
 
     if 'current_channel' in dat:
+        logger.info(f'current channel: {dat["current_channel"]}')
         parent.color = (dat['current_channel']+2)%5
         parent.RGBDropDown.setCurrentIndex(parent.color)
 
     if 'flows' in dat:
         parent.flows = dat['flows']
+        
         try:
             if parent.flows[0].shape[-3]!=dat['masks'].shape[-2]:
                 Ly, Lx = dat['masks'].shape[-2:]
+                
                 for i in range[3]:
                     parent.flows[i] = cv2.resize(parent.flows[i].squeeze(), (Lx, Ly), interpolation=cv2.INTER_NEAREST)[np.newaxis,...]
-                    
-                # parent.flows[0] = cv2.resize(parent.flows[0].squeeze(), (Lx, Ly), interpolation=cv2.INTER_NEAREST)[np.newaxis,...]
-                # parent.flows[1] = cv2.resize(parent.flows[1].squeeze(), (Lx, Ly), interpolation=cv2.INTER_NEAREST)[np.newaxis,...]
+
             if parent.NZ==1:
                 parent.recompute_masks = True
             else:
@@ -390,15 +427,16 @@ def _load_seg(parent, filename=None, image=None, image_file=None):
     # Added functionality to jump right back into parameter tuning from saved flows 
     if 'model_path' in dat:
         parent.current_model = dat['model_path']
-        parent.initialize_model()
+        # parent.initialize_model() 
     
-    if 'runstring' in dat:
-        parent.runstring.setPlainText(dat['runstring'])
     
     parent.enable_buttons()
     parent.update_layer()
+    logger.info('loaded segmentation, enabling buttons')
     
-
+    
+        # important for enabling things  
+    parent.loaded = True  
     
     del dat
     gc.collect()
@@ -437,6 +475,8 @@ def _load_masks(parent, filename=None):
         print('ERROR: masks are not same depth (number of planes) as image stack')
         return
 
+    
+    
     _masks_to_gui(parent)
     
     # del masks 
@@ -444,70 +484,7 @@ def _load_masks(parent, filename=None):
     parent.update_layer()
     parent.update_plot()
     
-
-# def _masks_to_gui(parent, masks, outlines=None, format_labels=False):
-#     """ masks loaded into GUI """
-#     shape = masks.shape
-#     if format_labels:
-#         masks = ncolor.format_labels(masks,clean=True)
-#     else:
-#         fastremap.renumber(masks, in_place=True)
     
-#     parent.ncells = masks.max() #try to grab the cell count before ncolor
-
-#     if parent.ncolor:
-#         masks = ncolor.label(masks) 
-#     else:
-#         masks = np.reshape(masks, shape)
-#         masks = masks.astype(np.uint16) if masks.max()<2**16-1 else masks.astype(np.uint32)
-        
-#     parent.cellpix = masks
-#     logger.info(f'{masks.max()} masks found')
-
-#     # get outlines
-#     if outlines is None: # parent.outlinesOn
-#         parent.outpix = np.zeros_like(masks)
-#         for z in range(parent.NZ):
-#             outlines = utils.masks_to_outlines(masks[z])
-#             parent.outpix[z] = outlines * masks[z]
-#             if z%50==0 and parent.NZ > 1:
-#                 logger.info('plane %d outlines processed'%z)
-#     else:
-#         parent.outpix = outlines
-#         shape = parent.outpix.shape
-#         _,parent.outpix = np.unique(parent.outpix, return_inverse=True)
-#         parent.outpix = np.reshape(parent.outpix, shape)
-        
-
-#     np.random.seed(42) #try to make a bit more stable 
-#     if parent.ncolor:
-#         # Approach 1: use a dictionary to color cells but keep their original label
-#         # Approach 2: actually change the masks to n-color
-#         # 2 is easier and more stable for editing. Only downside is that exporting will
-#         # require formatting and users may need to shuffle or add a color to avoid like
-#         # colors touching 
-#         # colors = parent.colormap[np.linspace(0,255,parent.ncells+1).astype(int), :3]
-#         c = sinebow(masks.max()+1)
-#         colors = (np.array(list(c.values()))[1:,:3] * (2**8-1) ).astype(np.uint8)
-
-#     else:
-#         # colors = parent.colormap[np.random.randint(0,1000,size=parent.ncells), :3]
-#         colors = parent.colormap[:parent.ncells, :3]
-        
-#     logger.info('creating cell colors and drawing masks')
-#     parent.cellcolors = np.concatenate((np.array([[255,255,255]]), colors), axis=0).astype(np.uint8)
-    
-    
-#     parent.draw_masks()
-#     parent.redraw_masks(masks=parent.masksOn, outlines=parent.outlinesOn) # add to obey outline/mask setting upon recomputing, missing outlines otherwise
-#     if parent.ncells>0:
-#         parent.toggle_mask_ops()
-#     parent.ismanual = np.zeros(parent.ncells, bool)
-#     parent.zdraw = list(-1*np.ones(parent.ncells, np.int16))
-#     parent.update_layer()
-#     # parent.update_plot()
-#     parent.update_shape()
-
 def _masks_to_gui(parent, format_labels=False):
     """ masks loaded into GUI """
     masks = parent.masks

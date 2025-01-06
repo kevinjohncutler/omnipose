@@ -53,16 +53,12 @@ class ModelButton(QPushButton):
     def __init__(self, parent, model_name, text):
         super().__init__()
         self.setEnabled(False)
-        self.setStyleSheet(parent.styleInactive)
         self.setText(text)
         self.setFont(parent.smallfont)
         self.clicked.connect(lambda: self.press(parent))
         self.model_name = model_name
         
     def press(self, parent):
-        for i in range(len(parent.StyleButtons)):
-            parent.StyleButtons[i].setStyleSheet(parent.styleUnpressed)
-        self.setStyleSheet(parent.stylePressed)
         parent.compute_model(self.model_name)
 
 class TrainWindow(QDialog):
@@ -220,7 +216,7 @@ class TypeRadioButtons(QButtonGroup):
         self.bstr = self.parent.cell_types
         for b in range(len(self.bstr)):
             button = QRadioButton(self.bstr[b])
-            button.setStyleSheet('color: rgb(190,190,190);')
+            # button.setStyleSheet('color: rgb(190,190,190);')
             button.setFont(QtGui.QFont("Arial", 10))
             if b==0:
                 button.setChecked(True)
@@ -440,7 +436,7 @@ class ImageDraw(pg.ImageItem):
         # there is also some jind of update happening elewhere...?
         # it seems like maybe the islands of affinity is an artifact of only updating the source indices vs
         # the whole kernel
-        self.parent.outpix[z][arr_slc] = core.affinity_to_boundary( masks, affinity, tuple(self.parent.coords))[arr_slc]
+        # self.parent.outpix[z][arr_slc] = core.affinity_to_boundary( masks, affinity, tuple(self.parent.coords))[arr_slc]
             
         # Update only the affected region of the overlay
         self.parent.draw_layer(region=(c0, c1, r0, r1), z=z)

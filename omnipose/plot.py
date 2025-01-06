@@ -155,6 +155,20 @@ def plot_edges(shape,affinity_graph,neighbors,coords,
 
     line_segments = LineCollection(segments, color=colors,linewidths=linewidth)
 
+
+    ax.add_collection(line_segments)
+    
+    if newfig:
+        # plt.axis('off')
+        ax.set_axis_off()
+        ax.invert_yaxis()
+        # plt.show()
+        canvas = FigureCanvas(fig)
+        canvas.draw()
+    
+    if nopic:
+        return summed_affinity, affinity_cmap
+        
     # if bounds is None:
     #     line_segments = LineCollection(segments, color=colors,linewidths=linewidth)
 
@@ -174,18 +188,6 @@ def plot_edges(shape,affinity_graph,neighbors,coords,
     #     line_segments = LineCollection(clipped_segments)
 
 
-    ax.add_collection(line_segments)
-    
-    if newfig:
-        # plt.axis('off')
-        ax.set_axis_off()
-        ax.invert_yaxis()
-        # plt.show()
-        canvas = FigureCanvas(fig)
-        canvas.draw()
-    
-    if nopic:
-        return summed_affinity, affinity_cmap
 
 # @njit
 # def colorize(im,colors=None,color_weights=None,offset=0):
@@ -1417,8 +1419,8 @@ def vector_contours(fig,ax,mask, smooth_factor=5, color = 'r', linewidth=1):
 
     # generate affinity graph
     coords = np.nonzero(msk)
-    affinity_graph =  masks_to_affinity(msk, coords, steps, inds, idx, fact, sign, dim)
     neighbors = get_neighbors(tuple(coords),steps,dim,shape) # shape (d,3**d,npix)
+    affinity_graph =  masks_to_affinity(msk, coords, steps, inds, idx, fact, sign, dim, neighbors)
 
     # find contours 
     contour_map, contour_list, unique_L = get_contour(msk,

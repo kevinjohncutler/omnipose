@@ -22,6 +22,13 @@ from PyQt6.QtWidgets import QMainWindow, QApplication, QWidget, QScrollBar, QCom
 from PyQt6.QtGui import QPalette
 import pyqtgraph as pg
 
+# for cursor
+from PyQt6.QtWidgets import QGraphicsPathItem
+from PyQt6.QtGui import QPen, QBrush, QPainterPath, QTransform
+from PyQt6.QtGui import QCursor
+from PyQt6.QtCore import QPointF
+
+
 from pyqtgraph import ViewBox
 
 os.environ['QT_AUTO_SCREEN_SCALE_FACTOR'] = '1'
@@ -205,35 +212,6 @@ class MainW(QMainWindow):
         menus.omnimenu(self)
 
         self.model_strings = models.MODEL_NAMES.copy()
-        
-        # self.setStyleSheet("QMainWindow {background:'black';}")
-        # self.stylePressed = ''.join(["QPushButton {Text-align: middle; ",
-        #                      "background-color: {};".format('#484848'),
-        #                      "border-color: #565656;",
-        #                      "color:white;}"])
-        c = self.palette().brush(QPalette.ColorRole.Base).color()
-        text_color = 'rgba'+str(self.palette().brush(QPalette.ColorRole.Text).color().getRgb())
-        self.styleUnpressed = ''.join(["QPushButton {Text-align: middle; ",
-                                       "background-color: {}; ".format('rgba'+str(c.getRgb())),
-                                       "color: {}; ".format(text_color),
-                                       "}"])
-        c = self.palette().brush(QPalette.ColorRole.Button).color()
-        self.stylePressed = ''.join(["QPushButton {Text-align: middle; ",
-                                       "background-color: {}; ".format('rgba'+str(c.getRgb())),
-                                        "border-color: {}; ".format('rgba'+str(self.palette().brush(QPalette.ColorRole.ButtonText).color().getRgb())),
-                                       "color: {}; ".format(text_color),
-                                       "}"])
-        # self.styleInactive = ("QPushButton {Text-align: middle; "
-        #                       "background-color: #151515; "
-        #                      "border-color: #565656;"
-        #                       "color: #fff;}")
-        self.stylePressed = ''
-        self.styleUnpressed = '' 
-        # c.setAlpha(20)
-        # region.setBrush(c) # I hate the blue background getRgb(c)
-        self.styleInactive = ''
-        self.textbox_style = ''#background-color: black;
-
         self.loaded = False
 
         # ---- MAIN WIDGET LAYOUT ---- #
@@ -299,9 +277,6 @@ class MainW(QMainWindow):
         # Stable random shuffling of colors
         np.random.seed(42)
         self.colormap = colormap[np.random.permutation(1000000)]
-
-        # np.random.seed(42) # make colors stable
-        # self.colormap = ((np.random.rand(1000000,3)*0.8+0.1)*255).astype(np.uint8)
     
         self.undo_stack = []  # Stack to store cellpix history
         self.redo_stack = []  # Stack to store redo states
@@ -352,7 +327,6 @@ class MainW(QMainWindow):
             self.cellpix = self.undo_stack.pop()        
             self.update_layer()  # Refresh the display
 
-
         else:
             print("Nothing to undo.")
             
@@ -374,6 +348,7 @@ class MainW(QMainWindow):
             print("Nothing to redo.")
     
     def update_layer(self):
+        logger.info(f'updating layer {self.loaded}')
         self.draw_layer()
         self.update_roi_count()
         self.win.show()
@@ -395,14 +370,6 @@ class MainW(QMainWindow):
         self.smallfont = QtGui.QFont("Arial")
         self.smallfont.setPixelSize(12)
 
-        self.headings = ''
-        # self.dropdowns = ("QComboBox QAbstractItemView { color: white;"
-        #                   "background-color: #151515;"
-        #                   "selection-color: white; "
-        #                   "min-width: 100px; }")
-        #                 # "selection-background-color: rgb(50,100,50);")
-        # self.checkstyle = ("color: white;"
-        #                   "selection-background-color: {};").format(COLORS[0])
         self.checkstyle = ''
         self.linestyle = ''
 
@@ -461,9 +428,6 @@ class MainW(QMainWindow):
         c = TOOLBAR_WIDTH//2 
         self.l0.addWidget(self.quadrant_label, b,TOOLBAR_WIDTH-3,1,3)
         guiparts.make_quadrants(self, b+1)
-        
-    
-        # b+=4
         
         
         # cross-hair
@@ -719,7 +683,7 @@ class MainW(QMainWindow):
         self.SCheckBox.setEnabled(True)  # Default pen active
         
         self.SCheckBox.toggled.connect(self.autosave_on)
-        # self.SCheckBox.toggled.connect(self.update_brush_slider_color)
+        self.SCheckBox.toggled.connect(self.draw_change)
 
         # Add the button to your layout
         self.l0.addWidget(self.SCheckBox, b, c, 1, 1)
@@ -734,8 +698,8 @@ class MainW(QMainWindow):
         self.brush_slider.setSingleStep(2)
         self.brush_slider.setValue(self.brush_size) 
         self.brush_slider.valueChanged.connect(self.brush_size_change)
-        
-    
+
+
         # Set the text color based on self.SCheckBox state
         # self.update_brush_slider_color()
 
@@ -1170,39 +1134,32 @@ class MainW(QMainWindow):
         # print('color',self.accent)
         self.brush_slider.setStyleSheet(f"color: {color};")
     
-            
+    
     def brush_size_change(self):
         """Update the brush size based on slider value."""
         if self.loaded:
-            val = self.brush_slider.value()
-            self.ops_plot = {'brush_size': val}
-            self.brush_size = val
+            value = self.brush_slider.value()
             
-    #         self.update_brush_cursor()  # Update cursor with the new brush size
-
-    # def update_brush_cursor(self):
-    
-    #     from PyQt6.QtGui import QCursor, QPixmap, QPainter, QColor
-    #     from PyQt6.QtCore import Qt
-    #     """Update the mouse cursor to visually represent the drawing kernel."""
-    #     brush_size = getattr(self, 'brush_size', 1)
-        
-    #     # Create a pixmap for the cursor
-    #     size = 2 * brush_size + 1  # Kernel diameter
-    #     pixmap = QPixmap(size, size)
-    #     pixmap.fill(Qt.GlobalColor.transparent)  # Transparent background
-
-    #     # Draw the kernel
-    #     painter = QPainter(pixmap)
-    #     painter.setPen(Qt.PenStyle.NoPen)
-    #     painter.setBrush(QColor(255, 0, 0, 128))  # Semi-transparent red
-    #     painter.drawEllipse(0, 0, size - 1, size - 1)
-    #     painter.end()
-
-    #     # Set the custom cursor
-    #     cursor = QCursor(pixmap)
-    #     self.setCursor(cursor)
-                
+            # make sure this is odd
+            odd_value = value | 1  # Ensure the value is odd by setting the least significant bit
+            if odd_value != value:  # Only update if the value changes
+                self.brush_slider.setValue(odd_value)
+                value = odd_value
+            
+            self.ops_plot = {'brush_size': value}
+            self.brush_size = value
+            
+            self.layer._generateKernel(self.brush_size)
+            self.compute_kernel_path(self.layer._kernel)
+            self.update_highlight()
+            
+    def draw_change(self):
+        if not self.SCheckBox.isChecked():
+            self.highlight_rect.hide()
+        else:
+            self.update_highlight()
+            
+                    
     def plot_clicked(self, event):
         if event.button()==QtCore.Qt.LeftButton and (event.modifiers() != QtCore.Qt.ShiftModifier and
                     event.modifiers() != QtCore.Qt.AltModifier):
@@ -1299,7 +1256,7 @@ class MainW(QMainWindow):
                 self.get_next_image()
             else:
                 self.currentZ = min(self.NZ - 1, self.currentZ + 1)
-                self.scroll.setValue(self.currentZ)
+                self.scroll.wsetValue(self.currentZ)
 
         # Color cycling
         elif key == QtCore.Qt.Key_W:
@@ -1312,22 +1269,29 @@ class MainW(QMainWindow):
             self.color = 1 if self.color != 1 else 0  # Toggle between 0 and 1
             self.RGBDropDown.setCurrentIndex(self.color)
 
-        # brush size adjustment
+        # Brush size adjustment
         elif key in {QtCore.Qt.Key_BracketLeft, QtCore.Qt.Key_BracketRight}:
             current_value = self.brush_slider.value()
             
             if key == QtCore.Qt.Key_BracketLeft:
-                new_value = max(self.brush_slider.minimum(), current_value - self.brush_slider.singleStep())
-                if new_value == self.brush_slider.minimum():
-                    # If we reach the minimum value, toggle off the drawing
+                # Attempt to decrease the brush size
+                if current_value > self.brush_slider.minimum():
+                    new_value = current_value - self.brush_slider.singleStep()
+                else:
+                    # If already at the minimum, turn off drawing
+                    new_value = self.brush_slider.minimum()
                     self.SCheckBox.setChecked(False)
-            else:
-                new_value = min(self.brush_slider.maximum(), current_value + self.brush_slider.singleStep())
-                # If we increase the size, ensure the drawing is active
+            else:  # Key_BracketRight
+                # Attempt to increase the brush size
                 if not self.SCheckBox.isChecked():
+                    # If the checkbox is unchecked, reset to minimum value and enable
+                    new_value = self.brush_slider.minimum()
                     self.SCheckBox.setChecked(True)
+                else:
+                    new_value = min(self.brush_slider.maximum(), current_value + self.brush_slider.singleStep())
 
             self.brush_slider.setValue(new_value)  # Update the slider directly
+
     
         # Active label selection / color picking 
         elif event.key() in range(Qt.Key_0, Qt.Key_9 + 1):  # Numeric keys
@@ -1414,25 +1378,6 @@ class MainW(QMainWindow):
             self.ClearButton.setEnabled(False)
             # self.remcell.setEnabled(False)
             self.undo.setEnabled(False)
-
-    # def remove_action(self):
-    #     if self.selected>0:
-    #         self.remove_cell(self.selected)
-
-    # def undo_action(self):
-    #     if (len(self.strokes) > 0 and
-    #         self.strokes[-1][0][0]==self.currentZ):
-    #         self.remove_stroke()
-    #     else:
-    #         # remove previous cell
-    #         if self.ncells> 0:
-    #             self.remove_cell(self.ncells)
-
-    # def undo_remove_action(self):
-    #     self.undo_remove_cell()
-    
-    
-    
 
     def get_files(self):
         folder = os.path.dirname(self.filename)
@@ -1524,18 +1469,21 @@ class MainW(QMainWindow):
             self.gamma = val
             self.update_plot()
             
-
+        # for viewbox code below
+        # policy = QtWidgets.QSizePolicy()
+        # policy.setRetainSizeWhenHidden(True)
+        # self.hist.setSizePolicy(policy)
+                 # Add a highlight rectangle for kernel preview
+        # self.kernel_size = (1,1)  # Size of the kernel in pixels
+        # self.highlight_rect = pg.QtWidgets.QGraphicsRectItem()
+        # self.highlight_rect.setPen(pg.mkPen(color='red', width=1))
+        # self.highlight_rect.setBrush(pg.mkBrush(color=(255, 0, 0, 50)))  # Semi-transparent fill 
+        
     def make_viewbox(self):
-        # self.p0 = guiparts.ViewBoxNoRightDrag(
-            # parent=self,
-            
         self.p0 = ViewBox(
             lockAspect=True,
-            # name="plot1",
-            # border=[100, 100, 100],
             invertY=True
         )
-        
         
         self.p0.setCursor(QtCore.Qt.CrossCursor)
         self.win.addItem(self.p0, 0, 0, rowspan=1, colspan=1)
@@ -1544,34 +1492,85 @@ class MainW(QMainWindow):
         self.img = pg.ImageItem(viewbox=self.p0, parent=self,levels=(0,255))
         self.img.autoDownsample = False
         
-        # self.hist = pg.HistogramLUTItem(image=self.img,orientation='horizontal',gradientPosition='bottom')
         self.hist = guiparts.HistLUT(image=self.img,orientation='horizontal',gradientPosition='bottom')
 
         self.opacity_effect = QtWidgets.QGraphicsOpacityEffect()
         self.hist.setGraphicsEffect(self.opacity_effect)
 
-        # self.set_hist_colors() #called elsewhere. no need
-        # print(self.hist.__dict__)
         # self.win.addItem(self.hist,col=0,row=2)
         self.win.addItem(self.hist,col=0,row=1)
-
 
         # self.layer = guiparts.ImageDraw(viewbox=self.p0, parent=self)
         self.layer = guiparts.ImageDraw(parent=self)
         
         self.scale = pg.ImageItem(viewbox=self.p0, parent=self,levels=(0,255))
-
-        self.Ly,self.Lx = 512,512
         
         self.p0.scene().contextMenuItem = self.p0
         self.p0.addItem(self.img)
         self.p0.addItem(self.layer)
         self.p0.addItem(self.scale)
+                
 
+        # Create the highlight path item
+        self.highlight_rect = QGraphicsPathItem()
+        # self.highlight_rect.setPen(Qt.PenStyle.NoPen) # no outline
+        self.highlight_rect.setPen(QPen(Qt.PenStyle.NoPen))
+
+        self.highlight_rect.setBrush(QBrush(pg.mkColor(255, 0, 0, 50)))  # Semi-transparent fill
+        self.p0.addItem(self.highlight_rect)
+
+        # Add the rectangle to the ViewBox, which aligns it with the image coordinates
+        self.p0.addItem(self.highlight_rect)
+
+        # Connect mouse movement signal
+        self.p0.scene().sigMouseMoved.connect(self.update_highlight)
         
-        # policy = QtWidgets.QSizePolicy()
-        # policy.setRetainSizeWhenHidden(True)
-        # self.hist.setSizePolicy(policy)
+    
+    def update_highlight(self, pos=None):
+        if self.SCheckBox.isChecked():
+            if pos is None:
+                # Get the current global mouse position
+                mouse_pos = QCursor.pos()  # Get the cursor position in global coordinates
+                scene_mouse_pos = self.p0.scene().views()[0].mapFromGlobal(mouse_pos)  # Map to scene coordinates
+
+                # Convert scene_mouse_pos to QPointF
+                pos = QPointF(scene_mouse_pos.x(), scene_mouse_pos.y())
+
+            # Map the cursor position from scene to view coordinates
+            view_pos = self.p0.mapSceneToView(pos)
+
+            # Get cursor position in image data coordinates
+            x, y = int(view_pos.x()), int(view_pos.y())
+
+            # Ensure the position is within the image bounds
+            if x < 0 or y < 0 or x >= self.img.image.shape[1] or y >= self.img.image.shape[0]:
+                self.highlight_rect.hide()
+                return
+
+            self.highlight_rect.show()
+            
+            # Get the kernel and its dimensions
+            px = np.ones((1, 1))
+            kernel = getattr(self.layer, '_kernel', px) if self.SCheckBox.isChecked() else px
+            
+            # Recompute the path if needed
+            if not hasattr(self, 'highlight_path'):
+                self.compute_kernel_path(kernel)
+
+            # Position the cached path relative to the cursor
+            transform = QTransform()
+            transform.translate(x - kernel.shape[1] // 2, y - kernel.shape[0] // 2)
+            transformed_path = transform.map(self.highlight_path)  # Apply transformation
+            self.highlight_rect.setPath(transformed_path)
+
+            
+
+
+    def compute_kernel_path(self, kernel):
+        path = QPainterPath()
+        for ky, kx in np.argwhere(kernel == 1):
+            path.addRect(kx, ky, 1, 1)  # Create the kernel path
+        self.highlight_path = path
 
     def make_orthoviews(self):
         self.pOrtho, self.imgOrtho, self.layerOrtho = [], [], []
@@ -1806,8 +1805,10 @@ class MainW(QMainWindow):
         self.masks = np.zeros((self.Ly,self.Lx), np.uint32)
         self.bounds = np.zeros((self.Ly,self.Lx), np.uint32)
         
-        self.initialize_seg()
-        print('reset',self.outpix.shape,self.affinity_graph.shape)
+        self.links = None
+        
+        # self.initialize_seg()
+        # print('reset',self.outpix.shape,self.affinity_graph.shape)
         
         self.ismanual = np.zeros(0, 'bool')
         self.accent = self.palette().brush(QPalette.ColorRole.Highlight).color()
@@ -1818,24 +1819,29 @@ class MainW(QMainWindow):
         self.loaded = False
         self.recompute_masks = False
         
+        
+        
  
         
 
-    def initialize_seg(self):
+    def initialize_seg(self, compute_affinity=False):
         self.shape = self.masks.shape
         self.dim = len(self.shape) 
         self.steps, self.inds, self.idx, self.fact, self.sign = utils.kernel_setup(self.dim)
-        # self.meshgrid = misc.meshgrid(self.shape)
         self.coords = misc.generate_flat_coordinates(self.shape)
         self.neighbors = utils.get_neighbors(self.coords, self.steps, self.dim, self.shape)
         self.indexes, self.neigh_inds, self.ind_matrix = utils.get_neigh_inds(tuple(self.neighbors),self.coords,self.shape)
         self.non_self = np.array(list(set(np.arange(len(self.steps)))-{self.inds[0][0]})) 
-        self.affinity_graph = np.zeros(self.neighbors.shape[1:],bool)
-        
-        
-        
-        print('initializing segmentation', self.shape, self.affinity_graph.shape, np.sum(self.ind_matrix<0))
+        if not hasattr(self,'affinity_graph') or compute_affinity:
+            logger.info('initializing affinity graph')
+            if np.any(self.masks):
+                self.affinity_graph = core.masks_to_affinity(self.masks, self.coords, self.steps, 
+                                                       self.inds, self.idx, self.fact, 
+                                                       self.sign, self.dim)
+            else:
+                self.affinity_graph = np.zeros(self.neighbors.shape[1:],bool)
 
+        
     def autosave_on(self):
         if self.SCheckBox.isChecked():
             self.autosave = True
@@ -1981,7 +1987,7 @@ class MainW(QMainWindow):
 
         # Let users customize color maps and have them persist 
         state = self.states[self.view]
-        if state is None: #should adda button to reset state to none and update plot
+        if state is None: #should add a button to reset state to none and update plot
             self.hist.gradient.loadPreset(self.cmaps[self.view]) # select from predefined list
         else:
             self.hist.restoreState(state) #apply chosen color map
@@ -2102,12 +2108,6 @@ class MainW(QMainWindow):
 
     def set_nchan(self):
         self.nchan = int(self.ChanNumber.text())
-
-    def redraw_masks(self, masks=True, outlines=True, draw=True):
-        self.draw_layer()
-
-    def draw_masks(self):
-        self.draw_layer()
 
     def draw_layer(self, region=None, z=None):
         """
@@ -2371,33 +2371,6 @@ class MainW(QMainWindow):
             self.flow_threshold.setText('0.0')
             self.cellprob_threshold.setText('0.0')
             return 0.0, 0.0
-        
-    # The CP2 GUI uses a text box instead of a slider... I prefer the slider  
-#     def run_mask_reconstruction(self):
-#         if self.recompute_masks:
-#             flow_threshold, cellprob_threshold = self.get_thresholds()
-#             if flow_threshold is None:
-#                 logger.info('computing masks with cell prob=%0.3f, no flow error threshold'%
-#                         (cellprob_threshold))
-#             else:
-#                 logger.info('computing masks with cell prob=%0.3f, flow error threshold=%0.3f'%
-#                         (cellprob_threshold, flow_threshold))
-#             maski = dynamics.compute_masks(self.flows[-1][:-1], 
-#                                             self.flows[-1][-1],
-#                                             p=self.flows[3].copy(),
-#                                             cellprob_threshold=cellprob_threshold,
-#                                             flow_threshold=flow_threshold,
-#                                             resize=self.cellpix.shape[-2:])[0]
-            
-#             self.masksOn = True
-#             self.MCheckBox.setChecked(True)
-#             # self.outlinesOn = True #should not turn outlines back on by default; masks make sense though 
-#             # self.OCheckBox.setChecked(True)
-#             if maski.ndim<3:
-#                 maski = maski[np.newaxis,...]
-#             logger.info('%d cells found'%(len(np.unique(maski)[1:])))
-#             io._masks_to_gui(self, maski, outlines=None)
-#             self.show()
 
     def run_mask_reconstruction(self):
         # use_omni = 'omni' in self.current_model
@@ -2547,9 +2520,9 @@ class MainW(QMainWindow):
         model_type = label_models[label]
         logger.info(f'style suggests model {model_type}')
         ind = self.net_text.index(model_type)
-        for i in range(len(self.net_text)):
-            self.StyleButtons[i].setStyleSheet(self.styleUnpressed)
-        self.StyleButtons[ind].setStyleSheet(self.stylePressed)
+        # for i in range(len(self.net_text)):
+        #     self.StyleButtons[i].setStyleSheet(self.styleUnpressed)
+        # self.StyleButtons[ind].setStyleSheet(self.stylePressed)
         self.compute_model(model_name=model_type)
             
     def compute_model(self):
@@ -2659,8 +2632,23 @@ class MainW(QMainWindow):
                 
             # boundary and affinity
             self.bounds = flows[-1]
-            self.affinity_graph = flows[-2]
             self.masks = masks
+            
+            
+            affinity = flows[-2]
+            print(len(affinity))
+            if not len(affinity):
+                # if the affinity graph is returned empty, we can just recompute it
+                self.initialize_seg(compute_affinity=True)
+            else:
+                # self.update_affinity(affiniyt)
+                inds = self.ind_matrix[self.masks>0]
+                self.affinity_graph = np.zeros(self.neighbors.shape[1:],bool)
+                self.affinity_graph[:,inds] = affinity
+                
+            # print('affiniyt graph',flows[-2].shape)
+            # self.affinity_graph = flows[-2]
+            
             
             
             print('run assign here too')
@@ -2739,11 +2727,9 @@ class MainW(QMainWindow):
         self.saveOutlines.setEnabled(True)
         self.toggle_mask_ops()
         
-        
         self.threshslider.setEnabled(True)
         self.probslider.setEnabled(True)
-        
-
+    
         self.update_plot()
         self.setWindowTitle(self.filename)
 

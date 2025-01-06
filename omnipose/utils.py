@@ -1126,9 +1126,7 @@ def get_neighbors(coords, steps, dim, shape, edges=None, pad=0):
     """
     Get the coordinates of all neighbor pixels.
     Coordinates of pixels that are out-of-bounds get clipped.
-    """
-    print('debug', coords[0].shape, len(coords),steps.shape, dim, shape, edges)
-    
+    """    
     if edges is None:
         edges = [np.array([-1+pad, s-pad]) for s in shape]
 

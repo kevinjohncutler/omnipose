@@ -686,6 +686,7 @@ def get_link_matrix(links, piece_masks, inds, idx, is_link):
 
 # @njit() cannot compute fingerprint of empty set
 def masks_to_affinity(masks, coords, steps, inds, idx, fact, sign, dim,
+                      neighbors=None,
                       links=None, edges=None, dists=None, cutoff=np.sqrt(2)):
     """
     Convert label matrix to affinity graph. Here the affinity graph is an NxM matrix,
@@ -709,7 +710,8 @@ def masks_to_affinity(masks, coords, steps, inds, idx, fact, sign, dim,
     
     shape = masks.shape
     # dim x steps x npix array of pixel coordinates 
-    neighbors = utils.get_neighbors(coords,steps,dim,shape,edges)
+    if neighbors is None: 
+        neighbors = utils.get_neighbors(coords,steps,dim,shape,edges)
     
     print('masks_to_affinity',masks.shape,coords[0].shape,neighbors.shape)
     

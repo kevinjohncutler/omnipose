@@ -1185,6 +1185,7 @@ class CellposeModel(UnetModel):
                                                                                       show_progress=show_progress,
                                                                                       verbose=verbose)
             
+            print('>>>affinity',affinity.shape)
             # the flow list stores: 
             # (1) RGB representation of flows
             # (2) flow components
