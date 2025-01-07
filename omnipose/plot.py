@@ -252,37 +252,93 @@ def colorize(im, colors=None, color_weights=None, offset=0, channel_axis=-1):
 
 #     return rgb
 
-def colorize_GPU(im, colors=None, color_weights=None, offset=0):
-    import torch
-    import string
+# def colorize_GPU(im, colors=None, color_weights=None, offset=0, intervals=None):
+#     import torch
+#     import string
     
-    N = im.shape[0]  # Number of channels
+#     N = im.shape[0]  # Number of channels
+#     device = im.device
+
+#     if colors is None:
+#         angle = torch.linspace(0, 1, N, device=device) * 2 * np.pi + offset
+#         angles = torch.stack((angle, angle + 2 * np.pi / 3, angle + 4 * np.pi / 3), dim=-1)
+#         colors = (torch.cos(angles) + 1) / 2  # Generate RGB colors
+
+#     if color_weights is not None:
+#         colors *= color_weights.unsqueeze(-1)  # Apply color weights to colors
+
+#     # Determine the number of spatial dimensions
+#     num_spatial_dims = im.ndim - 1  # Exclude the channel dimension
+
+#     # Generate index letters for einsum (excluding 'c' and 'l')
+#     idx_letters = ''.join(letter for letter in string.ascii_lowercase if letter not in {'c', 'l'})
+
+#     spatial_indices = idx_letters[:num_spatial_dims]
+
+#     # Build the einsum equation dynamically
+#     im_indices = 'c' + spatial_indices
+#     colors_indices = 'c l'  # 'l' corresponds to the RGB channels
+#     output_indices = spatial_indices + 'l'
+#     einsum_eq = f'{im_indices},{colors_indices}->{output_indices}'
+
+
+#     # print('einsum_eq:',einsum_eq)
+#     # Perform the weighted sum across channels to produce the RGB image
+#     rgb = torch.einsum(einsum_eq, im.float(), colors.float()) / N
+
+#     return rgb
+
+def colorize_GPU(im, colors=None, color_weights=None, intervals=None, offset=0):
+    import torch
+    import numpy as np
+    import string
+
+    C = im.shape[0]  # Number of input channels
     device = im.device
-
-    if colors is None:
-        angle = torch.linspace(0, 1, N, device=device) * 2 * np.pi + offset
-        angles = torch.stack((angle, angle + 2 * np.pi / 3, angle + 4 * np.pi / 3), dim=-1)
-        colors = (torch.cos(angles) + 1) / 2  # Generate RGB colors
-
-    if color_weights is not None:
-        colors *= color_weights.unsqueeze(-1)  # Apply color weights to colors
 
     # Determine the number of spatial dimensions
     num_spatial_dims = im.ndim - 1  # Exclude the channel dimension
 
     # Generate index letters for einsum (excluding 'c' and 'l')
     idx_letters = ''.join(letter for letter in string.ascii_lowercase if letter not in {'c', 'l'})
-
     spatial_indices = idx_letters[:num_spatial_dims]
 
-    # Build the einsum equation dynamically
+    # Build einsum indices dynamically
     im_indices = 'c' + spatial_indices
-    colors_indices = 'c l'  # 'l' corresponds to the RGB channels
-    output_indices = spatial_indices + 'l'
-    einsum_eq = f'{im_indices},{colors_indices}->{output_indices}'
+    aggregator_indices = 'cN'  # 'N' corresponds to the interval/bin dimension
+    colors_indices = 'cl'  # Colors indexed by channel and RGB
+    output_indices = 'N' + spatial_indices + 'l'
+    einsum_eq = f'{im_indices},{aggregator_indices},{colors_indices}->{output_indices}'
+    # print('einsum_eq:', einsum_eq)
 
-    # Perform the weighted sum across channels to produce the RGB image
-    rgb = torch.einsum(einsum_eq, im.float(), colors.float()) / N
+
+    if intervals is None:
+        intervals = [C]
+
+    N = len(intervals)  # Number of intervals
+    
+    aggregator = torch.zeros(C, N, device=device)
+    start = 0
+    for i, length in enumerate(intervals):
+        aggregator[start:start + length, i] = 1 / length
+        start += length
+
+    # Generate colors if not provided
+    if colors is None:
+        angle = torch.linspace(0, 1, N, device=device) * 2 * np.pi + offset
+        angles = torch.stack((angle, angle + 2 * np.pi / 3, angle + 4 * np.pi / 3), dim=-1)
+        colors = (torch.cos(angles) + 1) / 2  # Generate RGB colors for intervals or channels
+
+    # Apply color weights if provided
+    if color_weights is not None:
+        colors *= color_weights.unsqueeze(-1)
+
+    # Perform einsum operation
+    rgb = torch.einsum(einsum_eq, im.float(), aggregator.float(), colors.float())
+
+    # Squeeze the interval dimension if no intervals are used
+    if N==1:
+        rgb = rgb.squeeze(0)  # Shape: [spatial_dims..., 3]
 
     return rgb
     
