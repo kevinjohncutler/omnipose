@@ -10,61 +10,78 @@ import datetime
 from torch.amp import autocast 
 import torch.utils.checkpoint as cp
 
-from . import transforms, io, dynamics, utils
-
-
-# I wanted to try out an ND implementation, so this is just for testing 
-CONVND = False
-# CONVND = True
-
-if CONVND:
-    from .convNd import convNd
-
+# from . import transforms, io, dynamics, utils
 from omnipose.gpu import ARM, torch_GPU, torch_CPU, empty_cache
+
+
+# # I wanted to try out an ND implementation, so this is just for testing 
+# CONVND = False
+# # CONVND = True
+
+# if CONVND:
+#     from .convNd import convNd
+
     
-sz = 3 #kernel size, works as xy or xyz/xyt equally well 
-WEIGHT = 1e-4
-BIAS = 1e-4
-def batchconv(in_channels, out_channels, sz, dim):
-    if dim==2:
-        return nn.Sequential(
-            nn.BatchNorm2d(in_channels, eps=1e-5),
-            nn.ReLU(inplace=True),
-            convNd(in_channels, out_channels, num_dims=dim, kernel_size=sz, stride=1, padding=sz//2,
-                  kernel_initializer=lambda x: torch.nn.init.constant_(x, WEIGHT), 
-                  bias_initializer=lambda x: torch.nn.init.constant_(x, BIAS)) if CONVND else 
-            nn.Conv2d(in_channels, out_channels, sz, padding=sz//2),
-        )
-    elif dim==3:
-        return nn.Sequential(
-            nn.BatchNorm3d(in_channels, eps=1e-5),
-            nn.ReLU(inplace=True),
-            convNd(in_channels, out_channels, dim, sz, stride=1, padding=sz//2) if CONVND else 
-            nn.Conv3d(in_channels, out_channels, sz, padding=sz//2),
+# sz = 3 #kernel size, works as xy or xyz/xyt equally well 
+# WEIGHT = 1e-4
+# BIAS = 1e-4
+# def batchconv(in_channels, out_channels, sz, dim):
+#     """
+#     Batch Norm -> ReLU -> Convolution.
+#     """
+#     if dim==2:
+#         return nn.Sequential(
+#             nn.BatchNorm2d(in_channels, eps=1e-5),
+#             nn.ReLU(inplace=True),
+#             convNd(in_channels, out_channels, num_dims=dim, kernel_size=sz, stride=1, padding=sz//2,
+#                   kernel_initializer=lambda x: torch.nn.init.constant_(x, WEIGHT), 
+#                   bias_initializer=lambda x: torch.nn.init.constant_(x, BIAS)) if CONVND else 
+#             nn.Conv2d(in_channels, out_channels, sz, padding=sz//2),
+#         )
+#     elif dim==3:
+#         return nn.Sequential(
+#             nn.BatchNorm3d(in_channels, eps=1e-5),
+#             nn.ReLU(inplace=True),
+#             convNd(in_channels, out_channels, dim, sz, stride=1, padding=sz//2) if CONVND else 
+#             nn.Conv3d(in_channels, out_channels, sz, padding=sz//2),
 
-        )  
+#         )  
 
-def batchconv0(in_channels, out_channels, sz, dim):
-    if dim==2:
-        return nn.Sequential(
-            nn.BatchNorm2d(in_channels, eps=1e-5),
-            convNd(in_channels, out_channels, num_dims=dim, kernel_size=sz, stride=1, padding=sz//2,
-                  kernel_initializer=lambda x: torch.nn.init.constant_(x, WEIGHT), 
-                  bias_initializer=lambda x: torch.nn.init.constant_(x, BIAS)) if CONVND else 
-            nn.Conv2d(in_channels, out_channels, sz, padding=sz//2),
-        )
-    elif dim==3:
-        return nn.Sequential(
-            nn.BatchNorm3d(in_channels, eps=1e-5),
-            convNd(in_channels, out_channels, dim, sz, stride=1, padding=sz//2) if CONVND 
-            else nn.Conv3d(in_channels, out_channels, sz, padding=sz//2),
-        )  
+# def batchconv0(in_channels, out_channels, sz, dim):
+#     if dim==2:
+#         return nn.Sequential(
+#             nn.BatchNorm2d(in_channels, eps=1e-5),
+#             convNd(in_channels, out_channels, num_dims=dim, kernel_size=sz, stride=1, padding=sz//2,
+#                   kernel_initializer=lambda x: torch.nn.init.constant_(x, WEIGHT), 
+#                   bias_initializer=lambda x: torch.nn.init.constant_(x, BIAS)) if CONVND else 
+#             nn.Conv2d(in_channels, out_channels, sz, padding=sz//2),
+#         )
+#     elif dim==3:
+#         return nn.Sequential(
+#             nn.BatchNorm3d(in_channels, eps=1e-5),
+#             convNd(in_channels, out_channels, dim, sz, stride=1, padding=sz//2) if CONVND 
+#             else nn.Conv3d(in_channels, out_channels, sz, padding=sz//2),
+#         )  
+        
+        
+def batchconv(in_channels, out_channels, kernel_size, dim, relu=True):
+    BatchNorm = nn.BatchNorm2d if dim == 2 else nn.BatchNorm3d
+    ConvND = nn.Conv2d if dim == 2 else nn.Conv3d
+
+    layers = [BatchNorm(in_channels, eps=1e-5)]
+    if relu:
+        layers.append(nn.ReLU(inplace=True))
+    layers.append(ConvND(in_channels, out_channels, kernel_size, padding=kernel_size // 2))
+
+    return nn.Sequential(*layers)
 
 class resdown(nn.Module):
     def __init__(self, in_channels, out_channels, sz, dim):
         super().__init__()
         self.conv = nn.Sequential()
-        self.proj = batchconv0(in_channels, out_channels, 1, dim)
+        # self.proj = batchconv0(in_channels, out_channels, 1, dim)
+        self.proj = batchconv(in_channels, out_channels, 1, dim, relu=False)
+        
         for t in range(4):
             if t==0:
                 self.conv.add_module('conv_%d'%t, batchconv(in_channels, out_channels, sz, dim))
@@ -75,7 +92,25 @@ class resdown(nn.Module):
         x = self.proj(x) + self.conv[1](self.conv[0](x))
         x = x + self.conv[3](self.conv[2](x))
         return x
+        
+class resup(nn.Module):
+    def __init__(self, in_channels, out_channels, style_channels, sz, concatenation=False, dim=2):
+        super().__init__()
+        self.conv = nn.Sequential()
+        self.conv.add_module('conv_0', batchconv(in_channels, out_channels, sz, dim))
+        self.conv.add_module('conv_1', batchconvstyle(out_channels, out_channels, style_channels, sz, concatenation=concatenation, dim=dim))
+        self.conv.add_module('conv_2', batchconvstyle(out_channels, out_channels, style_channels, sz, dim=dim))
+        self.conv.add_module('conv_3', batchconvstyle(out_channels, out_channels, style_channels, sz, dim=dim))
+        # self.proj  = batchconv0(in_channels, out_channels, 1, dim=dim)
+        self.proj = batchconv(in_channels, out_channels, 1, dim=dim, relu=False)
+        
 
+    def forward(self, x, y, style, mkldnn=False):
+        # print('shape',self.conv[0](x).shape,y.shape)
+        x = self.proj(x) + self.conv[1](style, self.conv[0](x) + y, mkldnn=mkldnn)
+        x = x + self.conv[3](style, self.conv[2](style, x, mkldnn=mkldnn), mkldnn=mkldnn)
+        return x
+    
 class convdown(nn.Module):
     def __init__(self, in_channels, out_channels, sz, dim):
         super().__init__()
@@ -90,6 +125,43 @@ class convdown(nn.Module):
         x = self.conv[0](x)
         x = self.conv[1](x)
         return x
+        
+class convup(nn.Module):
+    def __init__(self, in_channels, out_channels, style_channels, sz, concatenation=False, dim=2):
+        super().__init__()
+        self.conv = nn.Sequential()
+        self.conv.add_module('conv_0', batchconv(in_channels, out_channels, sz, dim))
+        self.conv.add_module('conv_1', batchconvstyle(out_channels, out_channels, style_channels, sz, concatenation=concatenation, dim=dim))
+        
+    def forward(self, x, y, style):
+        x = self.conv[1](style, self.conv[0](x) + y)
+        return x
+
+class batchconvstyle(nn.Module):
+    def __init__(self, in_channels, out_channels, style_channels, sz, concatenation=False, dim=2):
+        super().__init__()
+        self.concatenation = concatenation
+        self.conv = batchconv(in_channels, out_channels, sz, dim)
+        if concatenation:
+            self.full = nn.Linear(style_channels, out_channels*2) 
+        else:
+            self.full = nn.Linear(style_channels, out_channels)
+        self.dim = dim
+        
+    def forward(self, style, x, mkldnn=False):
+        feat = self.full(style)
+        
+        # numer of unsqueezing steps depends on dimension!
+        for k in range(self.dim):
+            feat = feat.unsqueeze(-1)
+        if mkldnn:
+            x = x.to_dense()
+            y = (x + feat).to_mkldnn()
+        else:
+            y = x + feat
+        y = self.conv(y)
+        return y
+    
 
 class downsample(nn.Module):
     def __init__(self, nbase, sz, residual_on=True, kernel_size=2, dim=2, checkpoint=False):
@@ -121,59 +193,8 @@ class downsample(nn.Module):
                 y = x
             xd.append(self.down[n](y))
         return xd
-    
-class batchconvstyle(nn.Module):
-    def __init__(self, in_channels, out_channels, style_channels, sz, concatenation=False, dim=2):
-        super().__init__()
-        self.concatenation = concatenation
-        self.conv = batchconv(in_channels, out_channels, sz, dim)
-        if concatenation:
-            self.full = nn.Linear(style_channels, out_channels*2) 
-        else:
-            self.full = nn.Linear(style_channels, out_channels)
-        self.dim = dim
         
-    def forward(self, style, x, mkldnn=False):
-        feat = self.full(style)
-        
-        # numer of unsqueezing steps depends on dimension!
-        for k in range(self.dim):
-            feat = feat.unsqueeze(-1)
-        if mkldnn:
-            x = x.to_dense()
-            y = (x + feat).to_mkldnn()
-        else:
-            y = x + feat
-        y = self.conv(y)
-        return y
-    
-class resup(nn.Module):
-    def __init__(self, in_channels, out_channels, style_channels, sz, concatenation=False, dim=2):
-        super().__init__()
-        self.conv = nn.Sequential()
-        self.conv.add_module('conv_0', batchconv(in_channels, out_channels, sz, dim))
-        self.conv.add_module('conv_1', batchconvstyle(out_channels, out_channels, style_channels, sz, concatenation=concatenation, dim=dim))
-        self.conv.add_module('conv_2', batchconvstyle(out_channels, out_channels, style_channels, sz, dim=dim))
-        self.conv.add_module('conv_3', batchconvstyle(out_channels, out_channels, style_channels, sz, dim=dim))
-        self.proj  = batchconv0(in_channels, out_channels, 1, dim=dim)
 
-    def forward(self, x, y, style, mkldnn=False):
-        # print('shape',self.conv[0](x).shape,y.shape)
-        x = self.proj(x) + self.conv[1](style, self.conv[0](x) + y, mkldnn=mkldnn)
-        x = x + self.conv[3](style, self.conv[2](style, x, mkldnn=mkldnn), mkldnn=mkldnn)
-        return x
-    
-class convup(nn.Module):
-    def __init__(self, in_channels, out_channels, style_channels, sz, concatenation=False, dim=2):
-        super().__init__()
-        self.conv = nn.Sequential()
-        self.conv.add_module('conv_0', batchconv(in_channels, out_channels, sz, dim))
-        self.conv.add_module('conv_1', batchconvstyle(out_channels, out_channels, style_channels, sz, concatenation=concatenation, dim=dim))
-        
-    def forward(self, x, y, style):
-        x = self.conv[1](style, self.conv[0](x) + y)
-        return x
-    
 class make_style(nn.Module):
     def __init__(self,dim=2):
         super().__init__()

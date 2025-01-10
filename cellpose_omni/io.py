@@ -174,19 +174,18 @@ def imsave(filename, arr):
     return imwrite(filename, arr)
 
 # now allows for any extension(s) to be specified, allowing exlcusion if necessary, non-image files, etc. 
-def get_image_files(folder, mask_filter='_masks', img_filter=None, look_one_level_down=False,
+def get_image_files(folder, mask_filter='_masks', img_filter='', look_one_level_down=False,
                     extensions = ['png','jpg','jpeg','tif','tiff'], pattern=None):
     """ find all images in a folder and if look_one_level_down all subfolders """
     mask_filters = ['_cp_masks', '_cp_output', '_flows', mask_filter]
     image_names = []
-    if img_filter is None:
-        img_filter = ''
     
     folders = []
     if look_one_level_down:
         folders = natsorted(glob.glob(os.path.join(folder, "*",'')))  
     folders.append(folder)
 
+    print('yo',folders)
     for folder in folders:
         for ext in extensions:
             image_names.extend(glob.glob(folder + ('/*%s.'+ext)%img_filter))
@@ -210,6 +209,7 @@ def get_image_files(folder, mask_filter='_masks', img_filter=None, look_one_leve
         raise ValueError('ERROR: no images in --dir folder')
     
     return image_names
+
 
 def getname(path,suffix=''):
     return os.path.splitext(Path(path).name)[0].replace(suffix,'')

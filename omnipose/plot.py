@@ -966,7 +966,6 @@ def split_list(lst, N):
 #         return fig, axes, pos
 #     else:
 #         return fig
-
 def image_grid(images, column_titles=None, row_titles=None, 
                plot_labels=None, 
                xticks=[], yticks=[], 
@@ -984,13 +983,8 @@ def image_grid(images, column_titles=None, row_titles=None,
                fig=None,
                offset=[0, 0],
                supcolor=None,
+               right_justify_rows=False,  # New flag for right justification
                **kwargs):
-
-    """Display a grid of images with uniform spacing.
-    Accepts a list or nested list of images, with each sublist having consistent YXC dimensions.
-    If multiple sets of images are provided, extra padding will be added between sets.
-    `order` parameter can be 'ij' or 'ji' to control row-major or column-major ordering.
-    """
     
     if supcolor is None:
         supcolor = fontcolor
@@ -1043,17 +1037,16 @@ def image_grid(images, column_titles=None, row_titles=None,
 
         # Compute positions
         positions = []
-        for idx in range(nrows * ncols):
+        for row_idx, row in enumerate(image_set):
             if ij:
-                row_idx = idx // ncols
-                col_idx = idx % ncols
+                row_len = len(row)  # Number of images in the current row
+                row_offset = (ncols - row_len) * (width + p) if right_justify_rows else 0  # Adjust for right justification
+                for col_idx, _ in enumerate(row):
+                    left = row_offset + (width + p) * col_idx + total_offset_x
+                    bottom = (height + p) * row_idx + total_offset_y
+                    positions.append((left, bottom, width, height))
             else:
-                col_idx = idx // nrows
-                row_idx = idx % nrows
-
-            left = (width + p) * col_idx + total_offset_x
-            bottom = (height + p) * row_idx + total_offset_y  # Adjusted calculation
-            positions.append((left, bottom, width, height))
+                raise NotImplementedError("Column-major ordering is not supported for right-justified rows.")
 
         # Adjust stacking offsets
         if multiple_sets and set_idx < n_sets - 1:
@@ -1097,109 +1090,67 @@ def image_grid(images, column_titles=None, row_titles=None,
 
     # Add the subplots
     axes = []
-    idx = 0
-    for set_idx, image_set in enumerate(images):
-        if ij:
-            nrows = len(image_set)
-            ncols = max(len(row) for row in image_set)
-        else:
-            ncols = len(image_set)
-            nrows = max(len(col) for col in image_set)
-
-        for i in range(nrows * ncols):
-            ax = fig.add_axes([lefts[idx], bottoms[idx], widths[idx], heights[idx]])  # Updated line
-            axes.append(ax)
-            idx += 1
+    for idx, (left, bottom, width, height) in enumerate(zip(lefts, bottoms, widths, heights)):
+        ax = fig.add_axes([left, bottom, width, height])
+        axes.append(ax)
 
     # Add images to the subplots
     idx = 0
-    reverse_rows = [i for i in range(nrows)][::-1]
     for set_idx, image_set in enumerate(images):
-        if ij:
-            nrows = len(image_set)
-            ncols = max(len(row) for row in image_set)
-        else:
-            ncols = len(image_set)
-            nrows = max(len(col) for col in image_set)
+        for row_idx, row in enumerate(image_set):
+            for col_idx, img in enumerate(row):
+                ax = axes[idx]
+                idx += 1
 
-        for i in range(nrows * ncols):
-            if ij:
-                row_idx = i // ncols
-                col_idx = i % ncols
-            else:
-                col_idx = i // nrows
-                row_idx = i % nrows
-                if reverse_row:
-                    row_idx = reverse_rows[row_idx]
+                ax.set_xticks(xticks)
+                ax.set_yticks(yticks)
+                ax.patch.set_alpha(0)
 
-            # Access the image
-            try:
-                if ij:
-                    img = image_set[row_idx][col_idx]
-                else:
-                    img = image_set[col_idx][row_idx]
-            except IndexError:
-                img = None
+                if img is not None:
+                    ax.imshow(img, **kwargs)
 
-            ax = axes[idx]
-            idx += 1
-
-            ax.set_xticks(xticks)
-            ax.set_yticks(yticks)
-            ax.patch.set_alpha(0)
-
-            if img is not None:
-                ax.imshow(img, **kwargs)                
-
-            # Add plot labels
-            if plot_labels is not None:
-                try:
-                    if ij:
+                # Add plot labels
+                if plot_labels is not None:
+                    try:
                         label = plot_labels[set_idx][row_idx][col_idx]
-                    else:
-                        label = plot_labels[set_idx][col_idx][row_idx]
-                except IndexError:
-                    label = None
+                    except IndexError:
+                        label = None
 
-                if label is not None:
-                    coords = label_positions[lpos]['coords']
-                    va = label_positions[lpos]['va']
-                    ha = label_positions[lpos]['ha']
-                    text = ax.text(coords[0], coords[1], label,
-                                   fontsize=fontsize, color=fontcolor, va=va, ha=ha, transform=ax.transAxes)
-                    if img is None:
-                        text.set_color([.5]*4)
+                    if label is not None:
+                        coords = label_positions[lpos]['coords']
+                        va = label_positions[lpos]['va']
+                        ha = label_positions[lpos]['ha']
+                        text = ax.text(coords[0], coords[1], label,
+                                       fontsize=fontsize, color=fontcolor, va=va, ha=ha, transform=ax.transAxes)
+                        if img is None:
+                            text.set_color([.5] * 4)
 
-            ctitles = column_titles if ij else row_titles
-            rtitles = row_titles if ij else column_titles
-            # Set the column titles
-            # if ctitles is not None and (row_idx==nrows-1 if ij else (i % nrows)==nrows-1) and col_idx < len(ctitles):
-            if ctitles is not None and (row_idx == 0) and col_idx < len(ctitles):
-                if stack_direction != 'vertical' or set_idx == 0:
-                    ax.text(0.5, 1 + p, ctitles[col_idx], rotation=0, fontsize=fontsize, color=supcolor, 
-                            va='bottom', ha='center', transform=ax.transAxes)
+                # Set the column titles
+                if column_titles is not None and row_idx == 0 and col_idx < len(column_titles):
+                    if stack_direction != 'vertical' or set_idx == 0:
+                        ax.text(0.5, 1 + p, column_titles[col_idx], rotation=0, fontsize=fontsize, color=supcolor, 
+                                va='bottom', ha='center', transform=ax.transAxes)
 
-            # Set the row titles
-            if rtitles is not None and col_idx == 0 and row_idx < len(rtitles):
-                if stack_direction != 'horizontal' or set_idx == 0:
-                    ax.text(-p, 0.5, rtitles[row_idx], rotation=0, fontsize=fontsize, color=supcolor, 
-                            va='center', ha='right', transform=ax.transAxes)
+                # Set the row titles
+                if row_titles is not None and col_idx == 0 and row_idx < len(row_titles):
+                    if stack_direction != 'horizontal' or set_idx == 0:
+                        ax.text(-p, 0.5, row_titles[row_idx], rotation=0, fontsize=fontsize, color=supcolor, 
+                                va='center', ha='right', transform=ax.transAxes)
 
-            if outline:
-                for s in ax.spines.values():
-                    s.set_color(outline_color)
-                    s.set_linewidth(outline_width)
-            else:
-                for s in ax.spines.values():
-                    s.set_visible(False)
+                # Add outline if needed
+                if outline:
+                    for s in ax.spines.values():
+                        s.set_color(outline_color)
+                        s.set_linewidth(outline_width)
+                else:
+                    for s in ax.spines.values():
+                        s.set_visible(False)
 
     if return_axes:
         pos = [lefts, bottoms, widths, heights]
-
         return fig, axes, pos
     else:
         return fig
-        
         
 
 def color_grid(colors, **kwargs):

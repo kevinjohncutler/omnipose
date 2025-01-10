@@ -120,9 +120,10 @@ def main(args):
     # Check builtin vs custom models
     builtin_model = np.any([args.pretrained_model == s for s in MODEL_NAMES])
     cellpose_model = np.any([args.pretrained_model == s for s in CP_MODELS])
-    cytoplasmic = ('cyto' in args.pretrained_model)
-    nuclear = ('nuclei' in args.pretrained_model)
-    bacterial = ('bact' in args.pretrained_model) or ('worm' in args.pretrained_model)
+    
+    # cytoplasmic = ('cyto' in args.pretrained_model)
+    # nuclear = ('nuclei' in args.pretrained_model)
+    # bacterial = ('bact' in args.pretrained_model) or ('worm' in args.pretrained_model)
 
     # If model is in C2_MODEL_NAMES => force nchan=2
     if args.pretrained_model in C2_MODEL_NAMES:
@@ -141,7 +142,7 @@ def main(args):
         channels = None
 
     # If 'omni' in the model name => force args.omni=True
-    if 'omni' in args.pretrained_model:
+    if args.pretrained_model is not None and 'omni' in args.pretrained_model:
         args.omni = True
 
     # Possibly install scikit-learn if user wants DBSCAN
@@ -228,6 +229,7 @@ def main(args):
             # custom pretrained
             if args.all_channels:
                 channels = None
+                
             model = models.CellposeModel(
                 gpu=args.use_gpu,
                 device=device,
@@ -332,7 +334,7 @@ def main(args):
         if builtin_model and args.mxnet and args.pretrained_model=='cyto2':
             logger.warning('cyto2 not in mxnet => using cyto')
             args.pretrained_model = 'cyto'
-
+        print('AAA',args.pretrained_model,builtin_model)
         if builtin_model:
             cpmodel_path = models.model_path(args.pretrained_model, 0, (not args.mxnet))
             if 'cyto' in args.pretrained_model:
@@ -344,7 +346,8 @@ def main(args):
             else:
                 szmean = 30.
         else:
-            cpmodel_path = os.fspath(args.pretrained_model)
+            print('definging cpmodel_path')
+            cpmodel_path = os.fspath(args.pretrained_model) if args.pretrained_model is not None else args.pretrained_model
             szmean = args.diameter if args.diameter else 30.
 
         test_dir = args.test_dir if len(args.test_dir) > 0 else None
@@ -364,8 +367,7 @@ def main(args):
 
         # maybe figure out channel_axis vs nchan
         # ...
-        # (omitted for brevity; same logic as your code, just inside this branch)
-
+        print('hereAA',cpmodel_path)
         # Create the model
         if args.unet:
             # lazy import for unet
@@ -381,6 +383,7 @@ def main(args):
                 nchan=args.nchan
             )
         else:
+            print('def model   ',cpmodel_path, isinstance(cpmodel_path, str))
             model = models.CellposeModel(
                 device=device,
                 gpu=args.use_gpu,

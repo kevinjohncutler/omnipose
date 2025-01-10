@@ -408,6 +408,8 @@ class CellposeModel(UnetModel):
             pretrained_model = list(pretrained_model)
         elif isinstance(pretrained_model, str):
             pretrained_model = [pretrained_model]
+            
+        print('pretrained_model', pretrained_model, model_type)
     
         # initialize according to arguments 
         # these are overwritten if a model requires it (bact_omni the most restrictive)
@@ -430,7 +432,7 @@ class CellposeModel(UnetModel):
             if (pretrained_model and not os.path.exists(pretrained_model[0])):
                 models_logger.warning('pretrained model has incorrect path')
             models_logger.info(f'>>{pretrained_model_string}<< model set to be used')
-            
+
             nuclear = 'nuclei' in model_type
             bacterial = ('bact' in model_type) or ('worm' in model_type) 
             plant = 'plant' in model_type
@@ -1185,7 +1187,6 @@ class CellposeModel(UnetModel):
                                                                                       show_progress=show_progress,
                                                                                       verbose=verbose)
             
-            print('>>>affinity',affinity.shape)
             # the flow list stores: 
             # (1) RGB representation of flows
             # (2) flow components

@@ -67,12 +67,25 @@ def rescale(T, floor=None, ceiling=None, exclude_dims=None):
 
 
 def find_files(directory, suffix, exclude_suffixes=[]):
+    """
+    Find files in a directory matching a suffix, excluding specific suffixes.
+
+    Parameters:
+    - directory: Path to the directory to search.
+    - suffix: Suffix to match for file names.
+    - exclude_suffixes: List of suffixes to exclude.
+
+    Returns:
+    - A list of matching file paths.
+    """
+    matching_files = []  # List to store matching files
     for root, dirs, files in os.walk(directory):
         for basename in files:
             name, ext = os.path.splitext(basename)
             if name.endswith(suffix) and not any(name.endswith(exclude) for exclude in exclude_suffixes):
                 filename = os.path.join(root, basename)
-                yield filename
+                matching_files.append(filename)  # Collect the matching file
+    return matching_files
                 
 
 def findbetween(s,string1='[',string2=']'):

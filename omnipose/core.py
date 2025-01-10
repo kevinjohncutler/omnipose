@@ -713,7 +713,7 @@ def masks_to_affinity(masks, coords, steps, inds, idx, fact, sign, dim,
     if neighbors is None: 
         neighbors = utils.get_neighbors(coords,steps,dim,shape,edges)
     
-    print('masks_to_affinity',masks.shape,coords[0].shape,neighbors.shape)
+    # print('masks_to_affinity',masks.shape,coords[0].shape,neighbors.shape)
     
     # define where edges are, may be in the middle of concatenated images 
     is_edge = np.logical_and.reduce([neighbors[d]==neighbors[d][idx] for d in range(dim)]) 

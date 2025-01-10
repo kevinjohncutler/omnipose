@@ -24,6 +24,11 @@ class CustomHelpFormatter(argparse.HelpFormatter):
         usage_str = f'{prefix}{prog} {" ".join(group_names)}\n'
         return usage_str
 
+def none_or_str(value):
+    """Custom argparse type to accept either a string or None."""
+    if value.lower() == 'none':
+        return None
+    return value
     
 def get_arg_parser():
     """ Parses command line arguments for cellpose_omni main function
@@ -45,7 +50,7 @@ def get_arg_parser():
                                 type=str, help='folder containing data on which to run or train')
     input_img_args.add_argument('--look_one_level_down', action='store_true', help='run processing on all subdirectories of current folder')
     input_img_args.add_argument('--mxnet', action='store_true', help='use mxnet')
-    input_img_args.add_argument('--img_filter',default=[], type=str, help='filter images by this suffix')
+    input_img_args.add_argument('--img_filter',default='', type=str, help='filter images by this suffix')
     input_img_args.add_argument('--channel_axis', default=None, type=int, 
                                 help='axis of image which corresponds to image channels')
     input_img_args.add_argument('--z_axis', default=None, type=int, 
@@ -61,7 +66,7 @@ def get_arg_parser():
     
     # model settings 
     model_args = parser.add_argument_group("model arguments")
-    model_args.add_argument('--pretrained_model', required=False, default='cyto', type=str, help='model to use')
+    model_args.add_argument('--pretrained_model', required=False, default='cyto', type=none_or_str, help='model to use')
     model_args.add_argument('--unet', required=False, default=0, type=int, help='run standard unet instead of cellpose flow output')
     model_args.add_argument('--nclasses', default=2, type=int, help='number of prediction classes for model (3 for Cellpose, 4 for Omnipose boundary field)')
     model_args.add_argument('--nchan', default=1, type=int, help='number of channels on which model is trained')
