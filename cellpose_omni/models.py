@@ -397,7 +397,8 @@ class CellposeModel(UnetModel):
                  residual_on=True, style_on=True, concatenation=False,
                  nchan=1, nclasses=None, dim=2, omni=True, logits=False,
                  nsample=4, # number of up/downsampling layers
-                 checkpoint=False, dropout=False, kernel_size=2):
+                 checkpoint=False, dropout=False, 
+                 kernel_size=2,scale_factor=2,dilation=1):
     
         if not torch:
             if not MXNET_ENABLED:
@@ -408,9 +409,7 @@ class CellposeModel(UnetModel):
             pretrained_model = list(pretrained_model)
         elif isinstance(pretrained_model, str):
             pretrained_model = [pretrained_model]
-            
-        print('pretrained_model', pretrained_model, model_type)
-    
+                
         # initialize according to arguments 
         # these are overwritten if a model requires it (bact_omni the most restrictive)
         self.omni = omni
@@ -423,6 +422,9 @@ class CellposeModel(UnetModel):
         self.checkpoint = checkpoint
         self.dropout = dropout
         self.kernel_size = kernel_size
+        self.dilation = dilation                
+        self.scale_factor = scale_factor
+        
         # channel axis might be useful here 
         pretrained_model_string = None
         if model_type is not None or (pretrained_model and not os.path.exists(pretrained_model[0])):
@@ -487,7 +489,7 @@ class CellposeModel(UnetModel):
                          nclasses=self.nclasses, use_torch=self.torch, nchan=self.nchan, 
                          dim=self.dim, checkpoint=self.checkpoint, dropout=self.dropout,
                          nsample=self.nsample,
-                         kernel_size=self.kernel_size)
+                         kernel_size=self.kernel_size, dilation=self.dilation, scale_factor=self.scale_factor)
 
 
         self.unet = False
@@ -822,6 +824,8 @@ class CellposeModel(UnetModel):
                 # compared to the usual per-image pipeline, this one will not support cellpose or u-net 
                 flow_pred = yf[:,:self.dim]
                 dist_pred = yf[:,self.dim] #scalar field always after the vector field output    
+                # might need to invert the log trasnformatiion here 
+                
                 
                 if self.nclasses>=self.dim+2:
                     bd_pred = yf[:,self.dim+1]

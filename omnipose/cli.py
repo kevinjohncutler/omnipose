@@ -71,8 +71,11 @@ def get_arg_parser():
     model_args.add_argument('--nclasses', default=2, type=int, help='number of prediction classes for model (3 for Cellpose, 4 for Omnipose boundary field)')
     model_args.add_argument('--nchan', default=1, type=int, help='number of channels on which model is trained')
     model_args.add_argument('--kernel_size', default=2, type=int, help='kernel size for maskpool. Starts at 2, higher means more aggressive downsampling.')
-    model_args.add_argument('--logits', action='store_true', help='use logits for all prediction classes')
+    model_args.add_argument('--scale_factor', default=2, type=int, help='scale factor for upscaling / downscaling')
+    model_args.add_argument('--dilation', default=1, type=int, help='dilation for convolutions in model')
     model_args.add_argument('--nsample', default=4, type=int, help='number of up or down sampling layers in model')
+    model_args.add_argument('--logits', action='store_true', help='use logits for all prediction classes')
+    
 
     # algorithm settings
     algorithm_args = parser.add_argument_group("algorithm arguments")

@@ -104,7 +104,8 @@ class UnetModel():
                  residual_on=False, style_on=False, concatenation=True,
                  nclasses=3, use_torch=True, nchan=2, dim=2, 
                  nsample=4,
-                 checkpoint=False, dropout=False, kernel_size=2):
+                 checkpoint=False, dropout=False, kernel_size=2, scale_factor=2, dilation=1):
+        
         self.nsample = nsample
         self.unet = True
                 
@@ -112,11 +113,13 @@ class UnetModel():
         self.mkldnn = None
         
         # assign GPU
-        if device is not None:
+        if device is None:
+            # oops, broke cpu somehow 
+            self.device, self.gpu = assign_device(gpu)
+        else:
             self.device = device
             self.gpu = self.device.type=='mps' if ARM else self.device.type=='cuda'
-        else:
-            self.device, self.gpu = assign_device(gpu)
+
         
         if use_torch and not self.gpu:
             self.mkldnn = check_mkl(self.torch)
@@ -143,6 +146,9 @@ class UnetModel():
         self.checkpoint = checkpoint
         self.dropout = dropout
         self.kernel_size = kernel_size
+        self.dilation = dilation
+        self.scale_factor = scale_factor
+        
         # print('torch is ffff', torch) # duplicated in unetmodel class
         
         if self.torch:
@@ -151,7 +157,7 @@ class UnetModel():
             
             self.net = CPnet(self.nbase, 
                               self.nclasses, 
-                              sz=3,
+                              sz=3, # why not = kernel_size?
                               residual_on=residual_on, 
                               style_on=style_on,
                               concatenation=concatenation,
@@ -159,7 +165,9 @@ class UnetModel():
                               dim=self.dim, 
                               checkpoint=self.checkpoint,
                               dropout=self.dropout,
-                              kernel_size=self.kernel_size).to(self.device)
+                              kernel_size=self.kernel_size, 
+                              scale_factor=self.scale_factor, 
+                              dilation=self.dilation).to(self.device)
             core_logger.info(f'u-net config: {self.nbase, self.nclasses, self.dim}')
         else:
             self.net = resnet_style.CPnet(self.nbase, nout=self.nclasses,
@@ -1160,14 +1168,18 @@ class UnetModel():
                     inds = rperm[ibatch:ibatch+batch_size]
                     rsc = diam_train[inds] / self.diam_mean if rescale else np.ones(len(inds), np.float32)
                     # now passing in the full train array, need the labels for distance field
-
+                    
+                    # TRY STARTING WITH a small tyx, then increasing it
+                    tyx_i = tyx #if ibatch>0 else tuple([v//2 for v in tyx]) 
+                    
+                    
                     # with omni=False, lablels[i] is (4,*dims). With omni=True, labels is (*dims,)
                     imgi, lbl, scale = transforms.random_rotate_and_resize([train_data[i] for i in inds], 
                                                                            Y=[train_labels[i] for i in inds],
                                                                            rescale=rsc, 
                                                                            scale_range=scale_range, 
                                                                            unet=self.unet, 
-                                                                           tyx=tyx, 
+                                                                           tyx=tyx_i, 
                                                                            inds=inds,
                                                                            omni=self.omni, 
                                                                            dim=self.dim, 
@@ -1192,18 +1204,20 @@ class UnetModel():
                     slices = out[-4]
                     affinity_graph = out[-1]
                     masks,bd,T,mu = [torch.stack([x[(Ellipsis,)+slc] for slc in slices]) for x in X]
+                    
+                    # batch labels does alll the final assembling of the prediciton classes
+                    # for example, the  distance field has -5 for the background
                     lbl = omnipose.core.batch_labels(masks,bd,T,mu,tyx,
                                                      dim=self.dim,
                                                      nclasses=self.nclasses,
                                                      device=self.device)
       
-
                     dt = time.time()-tic
                     datatime += [dt]
                     if timing:
                         print('\t Dataloading time (manual batching): {:.2f}'.format(dt))
                     nbatch = len(imgi) 
-
+                    
                     if self.unet and lbl.shape[1]>1 and rescale:
                         lbl[:,1] /= diam_batch[:,np.newaxis,np.newaxis]**2
 

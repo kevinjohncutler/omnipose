@@ -45,13 +45,13 @@ Use the GUI
 Launch the Omnipose-optimized version of the Cellpose GUI from terminal:
 ``omnipose``. Version 0.4.0 and onward will *not* install the GUI
 dependencies by default. When you first run the GUI command, you will be
-prompted to install the GUI dependencies. On Ubuntu 2022.04 (and
+prompted to install the GUI dependencies. On Ubuntu 2022.04 and later (and
 possibly earlier), we found it necessary to run the following to install
-a missing system package:
+some missing system package:
 
 ::
 
-   sudo apt install libxcb-xinerama0
+   sudo apt install libxcb-cursor0 libxcb-xinerama0 
 
 Our version of the GUI gives easy access to the parameters you need to
 run Omnipose in large batches via CLI or Jupyter notebooks. The
@@ -381,3 +381,12 @@ using Omnipose for noncommercial applications.
    :target: https://pepy.tech/project/omnipose
 .. |PyPI version| image:: https://badge.fury.io/py/omnipose.svg
    :target: https://badge.fury.io/py/omnipose
+
+
+
+
+
+.. sudo add-apt-repository ppa:graphics-drivers/ppa
+.. sudo apt update
+
+.. sudo apt install nvidia-driver-550

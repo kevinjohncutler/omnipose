@@ -529,7 +529,9 @@ def batch_labels(masks,bd,T,mu,tyx,dim,nclasses,device,dist_bg=5):
     if nt>2:
         lbl[:,2] = bd # posisiton 2 store boundary, now returned as part of linked flow computation  
         lbl[:,3] = T # position 3 stores the smooth distance field 
+        # lbl[:,3] = torch.log(lbl[:,3]+5) # try to reduce impact of large values 
         lbl[:,3][lbl[:,3]<=0] = -dist_bg # balance with boundary logits 
+        
         lbl[:,-dim:] = mu*5.0 # *5 puts this in the same range as boundary logits
         lbl[:,4] = (1+lbl[:,1])/2 # position 4 stores the weighting image for weighted MSE 
         # lbl[:,4] = (1.+lbl[:,1]+lbl[:,2])/3. # position 4 stores the weighting image for weighted MSE 
@@ -2582,6 +2584,8 @@ def loss(self, lbl, y):
             loss1 = self.criterion12(flow,veci,wt)  #weighted MSE, seems to still be useful 
         
         loss2, loss5 = self.criterion3(flow,veci,dist,w,boundary) #SineSquaredLoss + norm loss
+        
+        # sinesquaredloss at multiple scales would probably be useful for huge cells 
     
         # experimenting with not having any boundary output 
         if self.nclasses==(self.dim+2):
@@ -2620,10 +2624,11 @@ def loss(self, lbl, y):
             # lossD2 = self.criterionD(dt.unsqueeze(1),dist.unsqueeze(1),w.unsqueeze(1),cellmask.unsqueeze(1))
 
             lossA, lossE, lossB = self.criterionA(flow,dt,veci,dist)
-            lossA *=100
+            # print('these', lossA.item(),lossE.item(),lossB.item())
+            
+            lossA *=100 # multiplying this by 100 to weight more seems to be great for small things, maybe not for large things
             
             
-            # print(lossA.item(),lossE.item(),lossB.item())
             
             # print(lossA, self.criterion0(flow,veci)) lossA much bigger than ivp... that deserves debugging
             # return 2*(5*loss1+loss2+loss4+loss5+loss6) + lossE + lossA
@@ -2727,9 +2732,10 @@ def loss(self, lbl, y):
             # print('div2',divergence_loss_2.item())
             
             # print('MSE_flow',loss1.item(),'SSL',loss2.item(),
+            #     #   'boundary loss',loss4.item(),
             #       'normloss',loss5.item(),'MSE_dist',loss6.item(),
             #     #   'eikonal',eikonal_loss.item(), 
-            #       'euler1',euler_loss.item(), 
+            #     #   'euler1',euler_loss.item(), 
             #       'euler2',lossE.item(), 
                 
             #     #   'corr',lossC.item(), 
@@ -2740,6 +2746,8 @@ def loss(self, lbl, y):
             #     #   'bd',boundary_loss.item()
             #     # 'int',loss_int.item()
             #       ) 
+            
+            # MSE_dist becaomes huge for big objects, an dhta tdominates the loss 
             
             #SSL should only apply where the divergence is positive
             # well, by bd weighting before basically did that
@@ -2759,7 +2767,7 @@ def loss(self, lbl, y):
             
             # it occurs to me that the flow-based loss might need to be weighted
             # more with higher dimension compared to the other terms. this is because
-            # the loss terms reduce everyhting to a mean despire far more terms contributing 
+            # the loss terms reduce everyhting to a mean despite far more terms contributing 
             
             
             # 3D is not workign as expected, try going back to basics 

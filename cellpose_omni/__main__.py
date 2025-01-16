@@ -53,6 +53,7 @@ def main(args):
     # 1) Convert tyx argument if present
     if args.tyx is not None:
         args.tyx = tuple(int(s) for s in args.tyx.split(','))
+        # could make this turn a single int into a tuple depending on dim 
 
     # 2) If no directory given => run GUI
     if len(args.dir) == 0:
@@ -400,7 +401,9 @@ def main(args):
                 omni=args.omni,
                 checkpoint=args.checkpoint,
                 dropout=args.dropout,
-                kernel_size=args.kernel_size
+                kernel_size=args.kernel_size,
+                dilation=args.dilation,
+                scale_factor=args.scale_factor
             )
 
         # TRAIN segmentation model

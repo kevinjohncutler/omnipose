@@ -61,7 +61,7 @@ class AffinityLoss(torch.nn.Module):
         #     niter = int(2*(self.dim+1)*torch.mean(dist_pred[(Ellipsis,)+coords]) / 2)
         niter = 10
         
-        # this shoudl be paralleized 
+        # this should be paralleized 
         ags = []
         fps = []
         bds = []
@@ -97,7 +97,7 @@ class AffinityLoss(torch.nn.Module):
         # lossA = self.BCE(*ags)
         lossA = self.MSE(*ags)
         lossE = self.MSE(*fps)
-        lossB = self.BCE(*bds) # zeor?
+        lossB = self.BCE(*bds) # zero?
         # print(lossA,lossE,lossB)
         return lossA, lossE, lossB
             

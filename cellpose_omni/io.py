@@ -185,7 +185,6 @@ def get_image_files(folder, mask_filter='_masks', img_filter='', look_one_level_
         folders = natsorted(glob.glob(os.path.join(folder, "*",'')))  
     folders.append(folder)
 
-    print('yo',folders)
     for folder in folders:
         for ext in extensions:
             image_names.extend(glob.glob(folder + ('/*%s.'+ext)%img_filter))

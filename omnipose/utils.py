@@ -855,10 +855,25 @@ def moving_average(x, w):
     return convolve1d(x,np.ones(w)/w,axis=0)
 
 
+# def is_integer(var):
+#     return isinstance(var, int) or isinstance(var, np.integer) or (isinstance(var, torch.Tensor) and var.is_integer())
+
 def is_integer(var):
-    return isinstance(var, int) or isinstance(var, np.integer) or (isinstance(var, torch.Tensor) and var.is_integer())
-
-
+    # Check for Python integer
+    if isinstance(var, int):
+        return True
+    # Check for NumPy integer
+    elif isinstance(var, np.integer):
+        return True
+    # Check for NumPy array or memmap with integer dtype
+    elif isinstance(var, (np.ndarray, np.memmap)) and np.issubdtype(var.dtype, np.integer):
+        return True
+    # Check for PyTorch tensor with integer type
+    elif isinstance(var, torch.Tensor) and var.is_floating_point() is False:
+        return True
+    # Not an integer or integer-like object
+    return False
+    
 # def get_boundary(mask):
 #     """ND binary mask boundary using mahotas.
     
