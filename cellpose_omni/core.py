@@ -112,10 +112,12 @@ class UnetModel():
         self.torch = use_torch
         self.mkldnn = None
         
+        self.gpu = gpu 
+        
         # assign GPU
         if device is None:
             # oops, broke cpu somehow 
-            self.device, self.gpu = assign_device(gpu)
+            self.device, gpu_available = assign_device(self.gpu)
         else:
             self.device = device
             self.gpu = self.device.type=='mps' if ARM else self.device.type=='cuda'
@@ -425,15 +427,24 @@ class UnetModel():
                                      bsize=bsize, return_conv=return_conv)
         else:  
             for j in range(len(self.pretrained_model)):
-                
-                if self.torch and self.gpu:
-                    net = self.net.module
-                else:
-                    net = self.net
+                # load model if needed, should have already loaded it
+                if j>0:
+                    print('multi model averaging not working correctly, contact Kevin')
+                    if self.torch and self.gpu:
+                        net = self.net.module
+                    else:
+                        net = self.net
                     
-                net.load_model(self.pretrained_model[0], cpu=(not self.gpu))
-                if not self.torch:
-                    net.collect_params().grad_req = 'null'
+                    # this is cleaner and shorter 
+                    # net = getattr(self.net, 'module', self.net)
+                        
+                    net.load_model(self.pretrained_model[j], cpu=(not self.gpu)) 
+                    # this was zero
+                    
+                    
+                    if not self.torch:
+                        net.collect_params().grad_req = 'null'
+                        
                 y0, style = self._run_net(img, augment=augment, tile=tile, 
                                           normalize=normalize,
                                           tile_overlap=tile_overlap, bsize=bsize,
@@ -443,6 +454,7 @@ class UnetModel():
                     y = y0
                 else:
                     y += y0
+                    
                 if progress is not None:
                     progress.setValue(10 + 10*j)
             y = y / len(self.pretrained_model)

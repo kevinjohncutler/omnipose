@@ -494,7 +494,7 @@ class CellposeModel(UnetModel):
 
         self.unet = False
         self.pretrained_model = pretrained_model
-
+        
         if self.pretrained_model and len(self.pretrained_model)==1:
             
             # dataparallel A1
@@ -1289,6 +1289,8 @@ class CellposeModel(UnetModel):
                         img = np.stack([zoom(img[...,k],rescale,order=3) for k in range(img.shape[-1])],axis=-1)
                     else:
                         img = zoom(img,rescale,order=1)
+                        
+                # inherited from Unet 
                 yf, style = self._run_nets(img, net_avg=net_avg,
                                            augment=augment, tile=tile,
                                            normalize=normalize, 
