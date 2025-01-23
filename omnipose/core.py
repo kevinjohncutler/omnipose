@@ -4,7 +4,10 @@ import edt
 from scipy.ndimage import affine_transform, binary_dilation, binary_opening, binary_closing, label, shift, uniform_filter # I need to test against skimage labeling
 from skimage.morphology import remove_small_objects
 from skimage.segmentation import find_boundaries
-import networkit as nk # for connected components
+try:
+    import networkit as nk # for connected components
+except:
+    pass
 
 # import torch.nn.functional as F
 
