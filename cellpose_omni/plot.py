@@ -163,6 +163,8 @@ def show_segmentation(fig, img, maski, flowi, bdi=None, channels=None, file_name
         m,n = ncolor.label(maski,max_depth=20,return_n=True)
         c = sinebow(n)
         clrs = np.array(list(c.values()))[1:]
+        
+        # print('colors',clrs)
         img1 = rescale(color.rgb2gray(img1))
         overlay = color.label2rgb(m,img1,clrs,
                                   bg_label=0,

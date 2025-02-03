@@ -20,7 +20,8 @@ install_deps = ['numpy>=1.22.4,<2', # maybe it is safe now? Nope, as of January 
                 'torch_optimizer', # for RADAM
                 'tifffile', # might be dependency of aicsimageio
                 'fastremap', # not sure how I missed this one 
-                'cmap' 
+                'cmap', 
+                'dbscan' # almost 2x faster than sklearn dbscan
                 ]
 
 # notes: Numpy 2 is close, networkit might be the last dependency needed to upgrade 

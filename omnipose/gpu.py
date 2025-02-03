@@ -1,13 +1,22 @@
 import platform  
 import os
+import multiprocessing
 
 from .logger import setup_logger
 gpu_logger = setup_logger('gpu')
 
 ARM = 'arm' in platform.processor() # the backend chack for apple silicon does not work on intel macs
 if ARM:
-    gpu_logger.info('On ARM, OMP_NUM_THREADS set to 1')
-    os.environ['OMP_NUM_THREADS'] = '1'
+    nt = str(multiprocessing.cpu_count())
+    # nt = "1"
+    gpu_logger.info(f'On ARM, OMP_NUM_THREADS set to CPU core count = {nt}, PARLAY_NUM_THREADS set to 1.')
+    os.environ['OMP_NUM_THREADS'] = nt # for "1 leaked semaphore objects" error on macOS during training 
+    os.environ["PARLAY_NUM_THREADS"] = "1" # for dbscan to work on ARM; anything above 1 is unstable 
+    
+    # os.environ["PYTORCH_ENABLE_MPS_FALLBACK"] = "1"
+    # os.environ["PYTORCH_MPS_MEMORY_ALLOCATOR"] = "1"
+    # os.environ["PYTORCH_MPS_SYNC"] = "0"
+    # os.environ["PYTORCH_MPS_ALLOW_RESERVED_MEMORY"] = "1"
 
 # import torch after setting env variables 
 import torch

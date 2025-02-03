@@ -839,41 +839,33 @@ class UnetModel():
     # import gc 
     def _train_step(self, x, lbl):
         # X = self._to_device(x)
-        X = x.clone()
-        if self.torch:
-            self.optimizer.zero_grad()
-            # https://towardsdatascience.com/optimize-pytorch-performance-for-speed-and-memory-efficiency-2022-84f453916ea6
-            # self.optimizer.zero_grad(set_to_none=True) does nothing 
-            self.net.train() # must put into train mode
-            
-            if self.autocast:
-                with autocast(): 
-                    y = self.net(X)[0]
-                    del X
-                    loss = self.loss_fn(lbl,y)
-                    del lbl, y 
-                self.scaler.scale(loss).backward()
-                train_loss = loss.detach()
-                self.scaler.step(self.optimizer) 
-                train_loss *= len(x)
-                self.scaler.update()
-            else:
+        X = x.clone() # is this necessary? 
+        self.optimizer.zero_grad()
+        # https://towardsdatascience.com/optimize-pytorch-performance-for-speed-and-memory-efficiency-2022-84f453916ea6
+        # self.optimizer.zero_grad(set_to_none=True) does nothing 
+        self.net.train() # must put into train mode
+        
+        if self.autocast:
+            with autocast(): 
                 y = self.net(X)[0]
                 del X
-                loss = self.loss_fn(lbl,y)
-                del lbl, y
-                loss.backward()
-                train_loss = loss.detach() # added detach, probably redundant but trying to fix memory leak 
-                self.optimizer.step()
-                train_loss *= len(x)
+                loss, raw_loss = self.loss_fn(lbl,y)
+                del lbl, y 
+                
+            self.scaler.scale(loss).backward()
+            self.scaler.step(self.optimizer) 
+            self.scaler.update()
         else:
-            with mx.autograd.record():
-                y = self.net(X)[0]
-                del X
-                loss = self.loss_fn(lbl, y)
+            y = self.net(X)[0]
+            del X
+            loss, raw_loss = self.loss_fn(lbl,y)
+            del lbl, y
+            
             loss.backward()
-            train_loss = nd.sum(loss).asscalar()
-            self.optimizer.step(x.shape[0])
+            self.optimizer.step()
+            
+        train_loss = raw_loss.detach()*len(x) # added detach, probably redundant but trying to fix memory leak 
+
         # gc.collect()
         return train_loss
 
@@ -920,6 +912,7 @@ class UnetModel():
 
 
     def _set_criterion(self):
+        
         if self.unet:
             if self.torch:
                 criterion = nn.SoftmaxCrossEntropyLoss(axis=1) # not working anymore?
@@ -938,7 +931,24 @@ class UnetModel():
                 self.criterion0 = omnipose.loss.EulerLoss(self.device,self.dim)
                 
                 
-                self.criterionA = omnipose.loss.AffinityLoss(self.device,self.dim)
+                self.AffinityLoss = omnipose.loss.AffinityLoss(self.device,self.dim)
+                self.MeanAdjustedMSELoss = omnipose.loss.MeanAdjustedMSELoss()
+                self.TruncatedMSELoss = omnipose.loss.TruncatedMSELoss(t=10)
+                self.DerivativeLoss = omnipose.loss.DerivativeLoss()
+                # self.gradnorm_loss = omnipose.loss.GradNormLoss(num_losses=7, 
+                #                                                 device=self.device, 
+                #                                                 alpha=.5)
+                
+
+                # grad_norm_parameters = next(self.net.module.downsample.parameters())
+                # from gradnorm_pytorch import GradNormLossWeighter
+                                
+                # self.gradnorm_weighter = GradNormLossWeighter(
+                #                                 num_losses=7,
+                #                                 learning_rate=1e-4,
+                #                                 restoring_force_alpha=0.12,  # Adjust alpha as needed
+                #                                 grad_norm_parameters=grad_norm_parameters
+                #                             )
                 # self.criterionB  = nn.BCELoss(reduction='mean')
                 # self.criterionD = omnipose.loss.DerivativeLoss()
                 # self.criterionC = omnipose.loss.CorrelationLoss()
@@ -949,7 +959,7 @@ class UnetModel():
                 # zero_weighting = 1.0
                 # nonzero_weighting = 1.0
 
-                # self.criterionACB = ACBLoss(zero_weighting, nonzero_weighting)
+                # self.AffinityLossCB = ACBLoss(zero_weighting, nonzero_weighting)
                 # self.ivp_loss =  ivp_loss.IVPLoss(dx=0.25,n_steps=8,device=self)
                 # self.criterion18 = nn.SoftmaxCrossEntropyLoss(axis=1)
                 # self.criterion17 = FocalLoss()

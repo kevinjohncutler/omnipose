@@ -153,7 +153,7 @@ class Cellpose():
     def eval(self, x, batch_size=8, channels=None, channel_axis=None, z_axis=None,
              invert=False, normalize=True, diameter=30., do_3D=False, anisotropy=None,
              net_avg=True, augment=False, tile=True, tile_overlap=0.1, resample=True, 
-             interp=True, cluster=False, boundary_seg=False, affinity_seg=False, despur=True,
+             interp=True, cluster=False, boundary_seg=False, affinity_seg=False, despur=False,
              flow_threshold=0.4, mask_threshold=0.0, 
              cellprob_threshold=None, dist_threshold=None, diam_threshold=12., min_size=15, max_size=None,
              stitch_threshold=0.0, rescale=None, progress=None, omni=False, verbose=False,
@@ -547,8 +547,8 @@ class CellposeModel(UnetModel):
              z_axis=None, normalize=True, invert=False, 
              rescale=None, diameter=None, do_3D=False, anisotropy=None, net_avg=True, 
              augment=False, tile=False, tile_overlap=0.1, bsize=224, num_workers=8,
-             resample=True, interp=True, cluster=False, suppress=None, 
-             boundary_seg=False, affinity_seg=False, despur=True,
+             resample=True, interp=True, cluster=False, hdbscan=False, suppress=None, 
+             boundary_seg=False, affinity_seg=False, despur=False,
              flow_threshold=0.4, mask_threshold=0.0, diam_threshold=12., niter=None,
              cellprob_threshold=None, dist_threshold=None, flow_factor=5.0,
              compute_masks=True, min_size=15, max_size=None, stitch_threshold=0.0, 
@@ -940,6 +940,7 @@ class CellposeModel(UnetModel):
                     
                     if affinity_seg:
                         steps, inds, idx, fact, sign = omnipose.utils.kernel_setup(self.dim)
+                        supporting_inds = omnipose.utils.get_supporting_inds(steps)
                         affinity_graph = omnipose.core._get_affinity_torch(initial_points, 
                                                                             final_points, 
                                                                             flow_pred/5., #<<<<<<<<<<< add support for other options here 
@@ -947,6 +948,8 @@ class CellposeModel(UnetModel):
                                                                             foreground, 
                                                                             steps,
                                                                             fact,
+                                                                            inds,
+                                                                            supporting_inds,
                                                                             niter,
                                                                             )
 
@@ -987,6 +990,7 @@ class CellposeModel(UnetModel):
                                                                 flow_factor=flow_factor,             
                                                                 interp=interp, 
                                                                 cluster=cluster, 
+                                                                hdbscan=hdbscan,
                                                                 boundary_seg=boundary_seg,
                                                                 affinity_seg=affinity_seg,
                                                                 despur=despur,
@@ -1120,9 +1124,9 @@ class CellposeModel(UnetModel):
                     models_logger.info(f'using dataparallel')
                     net = self.net.module
                     
-                    if ARM:
-                        models_logger.info('On ARM, OMP_NUM_THREADS set to 1')
-                        os.environ['OMP_NUM_THREADS'] = '1'
+                    # if ARM:
+                    #     models_logger.info('On ARM, OMP_NUM_THREADS set to 1')
+                    #     os.environ['OMP_NUM_THREADS'] = '1'
                         
                 else:
                     net = self.net
@@ -1213,7 +1217,7 @@ class CellposeModel(UnetModel):
                 augment=False, tile=False, tile_overlap=0.1, bsize=224,
                 mask_threshold=0.0, diam_threshold=12., flow_threshold=0.4, niter=None, flow_factor=5.0, 
                 min_size=15, max_size=None,
-                interp=True, cluster=False, suppress=None, boundary_seg=False, affinity_seg=False, despur=True,
+                interp=True, cluster=False, suppress=None, boundary_seg=False, affinity_seg=False, despur=False,
                 anisotropy=1.0, do_3D=False, stitch_threshold=0.0,
                 omni=False, calc_trace=False,  show_progress=True, verbose=False, pad=0):
         

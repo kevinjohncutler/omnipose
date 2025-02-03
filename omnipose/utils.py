@@ -332,12 +332,20 @@ def normalize_field(mu,use_torch=False,cutoff=0):
 # @torch.jit.script
 def torch_norm(a,dim=0,keepdim=False):
     """ Wrapper for torch.linalg.norm to handle ARM architecture. """
-    if ARM: 
-        #torch.linalg.norm not implemented on MPS yet
-        # this is the fastest I have tested but still slow in comparison 
-        return a.square().sum(dim=dim,keepdim=keepdim).sqrt()
-    else:
-        return torch.linalg.norm(a,dim=dim,keepdim=keepdim)
+    # if ARM: 
+    #     #torch.linalg.norm not implemented on MPS yet
+    #     # this is the fastest I have tested but still slow in comparison 
+    #     return a.square().sum(dim=dim,keepdim=keepdim).sqrt()
+    # else:
+    #     return torch.linalg.norm(a,dim=dim,keepdim=keepdim)
+        
+        
+        # Compute squared norm with a minimal number of intermediate tensors.
+    norm_sq = (a * a).sum(dim=dim, keepdim=keepdim)
+    # Use the in-place sqrt when possible (if not tracking gradients).
+    return norm_sq.sqrt_() if not norm_sq.requires_grad else norm_sq.sqrt()
+    
+    # in the future when MPS supports it, just use try catch and print a warning to upgrade torch 
 
 
 
@@ -1185,6 +1193,63 @@ def get_neighbors(coords, steps, dim, shape, edges=None, pad=0):
         neighbors[d] = np.where(oob, C, X_clipped)
 
     return neighbors
+    
+# a tiny bit faster than the above
+def get_neighbors(coords, steps, dim, shape, edges=None, pad=0):
+    """
+    Get the neighbor coordinates for each pixel in `coords` for each offset in `steps`.
+    Out-of-bounds neighbors get clipped or replaced with original coords (depending on `edges`).
+    """
+    if edges is None:
+        edges = [np.array([-1+pad, s-pad]) for s in shape]
+
+    npix = coords[0].shape[-1]
+    nsteps = len(steps)  # e.g. 8 (2D) or 26 (3D)
+    
+    # neighbors.shape = (dim, nsteps, npix)
+    neighbors = np.empty((dim, nsteps, npix), dtype=np.int64)
+    
+    # Precompute edge_masks for each dimension
+    edge_masks = []
+    for d in range(dim):
+        mask = np.zeros(shape[d], dtype=bool)
+        valid_edges = edges[d][(edges[d] >= 0) & (edges[d] < shape[d])]
+        mask[valid_edges] = True
+        edge_masks.append(mask)
+    
+    # For each dimension d, process each step offset one by one
+    for d in range(dim):
+        current_mask = edge_masks[d]
+        size_d = shape[d]
+        
+        for n, step_d in enumerate(steps[:, d]):
+            # X is just 1D, shape: (npix,)
+            X = coords[d] + step_d
+            
+            # clip in-place (avoid creating a second large array)
+            # You can do: np.clip(X, 0, size_d - 1, out=X), but that modifies coords[d]! 
+            # so we copy first:
+            Xc = X.copy()
+            np.clip(Xc, 0, size_d - 1, out=Xc)
+            
+            # shift also clipped in place, if you need it:
+            Xs = X + step_d
+            np.clip(Xs, 0, size_d - 1, out=Xs)
+            
+            # Out-of-bounds condition: 
+            # "oob if current_mask[Xc] == True and current_mask[Xs] == False"
+            # We'll do it only where Xc is within [0, size_d -1].
+            # NB: Xc is an array of indices, we can check current_mask at those indices:
+            oob = np.logical_and(current_mask[Xc], ~current_mask[Xs])
+            
+            # Now pick either coords[d] or the clipped coordinate.
+            # Instead of np.where(...), we can do in-place assignment:
+            out = Xc  # start with clipped
+            out[oob] = coords[d][oob]  # revert out-of-bounds neighbors
+
+            neighbors[d, n] = out  # store in final array
+
+    return neighbors
 
     
 def get_neighbors_torch(input, steps):
@@ -1427,7 +1492,139 @@ def kernel_setup(dim):
     idx = inds[0][0] # the central point is always first 
     return steps,inds,idx,fact,sign
     
+def get_supporting_inds(steps,inds):
+    """
+    Get the indices of all pixels that support a given pixel. 
+    """
+    dot_products = np.dot(steps[inds[2]], steps[inds[1]].T)
+    supporting_inds = {i: np.array(inds[1])[dot_products[k] == 1].tolist() for k, i in enumerate(inds[2])}
+    return supporting_inds
+
+def get_supporting_inds_slower(steps):
+    """
+    For a given kernel defined by 'steps' (an array of shape (S, d)), return a dictionary mapping 
+    every non‐center step index v (0 ≤ v < S, v != center) to a list of tuples (i, j) such that
+        steps[i] + steps[j] == steps[v].
     
+    This implements the idea that for any connection between hypervoxels A and B (given by step v)
+    one can find an intermediary hypervoxel I such that the path A→I→B has two steps whose sum equals v.
+    The center (zero‐shift) is excluded from the supporting steps.
+    
+    Parameters
+    ----------
+    steps : array-like of shape (S, d)
+        The list of step vectors (typically with entries in {-1, 0, 1}).
+    center_index : int, optional
+        The index corresponding to the center (zero shift). If None, it is assumed to be (S-1)//2.
+    
+    Returns
+    -------
+    dict
+        A dictionary mapping each step index v (v ≠ center_index) to a list of tuples (i, j) such that:
+            steps[i] + steps[j] == steps[v]
+    """
+    steps = np.array(steps)
+    S, d = steps.shape
+    center_index = S // 2  # assumes symmetric ordering (e.g. for a 3^d kernel)
+    # print(steps, center_index)
+    pairs = {}
+    for v in range(S):
+        if v == center_index:
+            continue
+        support_pairs = []
+        for i in range(S):
+            if i == center_index:
+                continue
+            for j in range(S):
+                if j == center_index:
+                    continue
+                # Check if the sum of steps[i] and steps[j] equals steps[v]
+                if np.all(steps[i] + steps[j] == steps[v]):
+                    support_pairs.append((int(i), int(j)))
+        pairs[int(v)] = support_pairs
+    return pairs
+
+
+def get_supporting_inds_faster(steps):
+    """
+    For each step 'v', find all pairs (i, j) such that steps[i] + steps[j] == steps[v],
+    excluding the center index.
+
+    Steps shape: (S, d), with a 'center_index' = S//2 by default.
+    """
+    steps = np.array(steps, copy=False)
+    S, d = steps.shape
+    center_index = S // 2
+
+    # Build a dictionary sum_map: sum_ij -> list of (i,j)
+    sum_map = {}
+    for i in range(S):
+        if i == center_index:
+            continue
+        for j in range(S):
+            if j == center_index:
+                continue
+            key = tuple(steps[i] + steps[j])
+            sum_map.setdefault(key, []).append((i, j))
+
+    # Look up each step v in sum_map
+    pairs = {}
+    for v in range(S):
+        if v == center_index:
+            continue
+        key = tuple(steps[v])
+        pairs[v] = sum_map.get(key, [])
+
+    return pairs
+
+
+# a bit faster than the above, 9 vs 12 ms in 4D, 1 vs .93 1.28 ms in 3D
+from collections import defaultdict
+def get_supporting_inds(steps):
+    """
+    For each step 'v', find all pairs (i, j) such that steps[i] + steps[j] == steps[v],
+    excluding the center index.
+
+    Steps shape: (S, d), with a 'center_index' = S//2 by default.
+    """
+    steps = np.array(steps, copy=False)
+    S, d = steps.shape
+    center_index = S // 2
+    
+    # Create a mask that excludes the center
+    mask = np.arange(S) != center_index
+    # Steps without the center
+    steps_nocenter = steps[mask]  # shape: (S-1, d)
+    orig_indices = np.nonzero(mask)[0]  # original indices in [0..S-1], skipping center
+    
+    N = S - 1  # number of non-center steps
+    
+    # Pairwise sums: shape (N, N, d)
+    pair_sums = steps_nocenter[:, None, :] + steps_nocenter[None, :, :]
+    # Flatten to (N*N, d)
+    pair_sums_2d = pair_sums.reshape(-1, d)
+
+    # We'll keep track of which (i,j) generated each sum
+    # i_list, j_list are each of length N*N
+    i_list = np.repeat(orig_indices, N)
+    j_list = np.tile(orig_indices, N)
+
+    # Build a dictionary: sum_map[ tuple_of_coords ] -> list of (i,j)
+    sum_map = defaultdict(list)
+    for k in range(N * N):
+        key = tuple(pair_sums_2d[k])
+        sum_map[key].append((i_list[k], j_list[k]))
+
+    # Now for each v != center, look up tuple(steps[v]) in sum_map
+    pairs = {}
+    for v in range(S):
+        if v == center_index:
+            continue
+        key = tuple(steps[v])
+        pairs[v] = sum_map.get(key, [])
+
+    return pairs
+
     
 # not acutally used in the code, typically use steps_to_indices etc. 
 def cubestats(n):
@@ -1469,9 +1666,9 @@ def curve_filter(im,filterWidth=1.5):
            G : Gaussian curvature of the image
            C1 : Principal curvature 1 of the image
            C2 : Principal curvature 2 of the image
-           im_xx : \del^2 x / \del x^2
-           im_yy : \del^2 x / \del y^2
-           im_xy : \del^2 x / \del x \del y
+           im_xx : del^2 x / del x^2
+           im_yy : del^2 x / del y^2
+           im_xy : del^2 x / del x del y
 
     """
     shape = [np.floor(7*filterWidth) //2 *2 +1]*2 # minor modification is to make this odd

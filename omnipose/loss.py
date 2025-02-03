@@ -1,5 +1,5 @@
 import torch
-from .utils import torch_norm, kernel_setup
+from .utils import torch_norm, kernel_setup, get_supporting_inds
 from torchvf.losses import ivp_loss
 import numpy as np
 from .core import steps_batch, _get_affinity_torch, divergence_torch, _gradient
@@ -28,6 +28,9 @@ class AffinityLoss(torch.nn.Module):
         self.device = device
         self.dim = dim
         self.steps, self.inds, self.idx, self.fact, self.sign = kernel_setup(self.dim)
+        self.supporting_inds = get_supporting_inds(self.steps)
+
+        
         super().__init__()
         
         self.MSE = torch.nn.MSELoss(reduction='mean')
@@ -87,6 +90,8 @@ class AffinityLoss(torch.nn.Module):
                                                 foreground, 
                                                 self.steps,
                                                 self.fact,
+                                                self.inds,
+                                                self.supporting_inds,
                                                 niter,
                                                 )
             ags.append(affinity_graph*1.0)
@@ -154,7 +159,9 @@ class SSL_Norm(torch.nn.Module):
         dot = (x * y).sum(dim=1)
         # cossq = torch.where(denom>eps,dot/(denom+eps),1)**2 #golden 
         # cossq = torch.where(denom>0,dot/(denom+eps),1)**2 
-        
+       
+       
+       # this was in use for a while, jan 2025 
         mask = dist>0
         cossq = torch.where(mask,dot/(denom+eps),1)**2 #experiment to limit to where cell pixels are predicted only 
         
@@ -188,10 +195,25 @@ class SSL_Norm(torch.nn.Module):
         # NL = (torch.mean(torch.square(mask*magY-magX)*bd)/2+torch.mean(torch.square(magX-magY))/25)/2
         # SSL = torch.mean((1-cossq)*bd)*4
         
-        s = torch.square(magY-magX)
-        NL = (torch.mean(s*bd)/2+torch.mean(s)/25)/2
-        sel = torch.where(bd)
-        SSL = torch.mean((1-cossq[sel]))
+        # this was in use for a long while, january 2025
+        # s = torch.square(magY-magX)
+        # NL = (torch.mean(s*bd)/2+torch.mean(s)/25)/2
+        # sel = torch.where(bd)
+        # SSL = torch.mean((1-cossq[sel]))
+        
+        # if we predict the right direction, we should predict the right magnitude
+        # thus cos**2 should be 1, leading to a minumum if  magX/5 is close to 1
+        # if we predict the wrong direction, cos**2 should be 0 this will push magX/5 to be 0
+        # NL = torch.mean(torch.square(magX/5-cossq)) 
+        
+        # weighting the normloss above high makes things 1 everywhere, not good
+        # NL = torch.mean(torch.square(magX/5-(magX>0).float())) + 
+        NL = torch.mean(torch.square(magX-magY))
+        
+                
+        SSL = torch.mean((1-cossq)*w) 
+        # sel = torch.where(bd)
+        # SSL = torch.mean((1-cossq[sel]))
         
         
         
@@ -324,3 +346,97 @@ class CorrelationLoss(torch.nn.Module):
         denom = torch.sum(vx**2, dim=0) * torch.sum(vy**2, dim=0)
         cost = torch.where(denom>0,num/torch.sqrt(denom),-1)
         return -torch.mean(cost) 
+        
+        
+
+class TruncatedMSELoss(torch.nn.Module):
+    def __init__(self, t=5.0):
+        super().__init__()
+        self.t = t
+
+    def forward(self, pred, target):
+        """
+        pred, target: shape (...), float tensors
+        """
+        SE = torch.square(pred - target)
+        # Where error is small, use MSE
+        # Where error is bigger than threshold, use a constant penalty
+        loss = torch.where(SE < self.t, SE, self.t)
+        return loss.mean()
+        
+        
+
+class MeanAdjustedMSELoss(torch.nn.Module):
+    def __init__(self):
+        super(MeanAdjustedMSELoss, self).__init__()
+
+    def forward(self, pred, target):
+        """
+        Compute the mean-adjusted mean squared error.
+
+        Args:
+            pred (torch.Tensor): Predicted distance field.
+            target (torch.Tensor): Ground truth distance field.
+
+        Returns:
+            torch.Tensor: Mean-adjusted MSE loss.
+        """
+        # Calculate the mean error (bias)
+        mean_error = torch.mean(pred - target)
+
+        # Adjust predictions to remove the mean error
+        adjusted_pred = pred - mean_error
+
+        # Compute the mean squared error on the adjusted predictions
+        loss = torch.mean((adjusted_pred - target) ** 2)
+
+        return loss
+        
+
+import torch
+
+class GradNormLoss(torch.nn.Module):
+    def __init__(self, num_losses, device, alpha=0.12):
+        super().__init__()
+        self.alpha = alpha
+        self.loss_weights = torch.nn.Parameter(torch.ones(num_losses, device=device, dtype=torch.float32))
+
+    def forward(self, losses, shared_params):
+        """
+        Compute GradNorm-weighted loss efficiently.
+        """
+
+        # Skip empty loss list
+        if len(losses) == 0:
+            raise RuntimeError("All loss terms are zero or don't require gradients.")
+
+        # Compute weighted loss
+        weighted_losses = self.loss_weights[:len(losses)] * torch.stack(losses)
+        total_loss = weighted_losses.sum()
+
+        # Compute gradients for all losses **in one backward pass**
+        grads = torch.autograd.grad(total_loss, shared_params, retain_graph=True, create_graph=False)
+
+        # Compute gradient norms per loss term (mean over parameters)
+        grad_norms = []
+        for loss, grad in zip(losses, grads):
+            if grad is not None:
+                grad_norms.append(torch.norm(grad))
+
+        grad_norms = torch.stack(grad_norms)#.to(self.device)
+
+        # Compute mean gradient magnitude
+        mean_grad = grad_norms.mean().detach()
+
+        # Compute scaling targets
+        target_scales = (grad_norms / mean_grad) ** self.alpha
+        target_scales = target_scales.detach()
+
+        # Compute loss for updating weights
+        weight_loss = torch.sum(torch.abs(self.loss_weights[:len(losses)] * grad_norms - target_scales * mean_grad))
+
+        # Efficiently compute weight updates
+        weight_grads = torch.autograd.grad(weight_loss, self.loss_weights[:len(losses)], allow_unused=True)[0]
+        self.loss_weights.grad = weight_grads  # Directly set gradients
+
+        return total_loss

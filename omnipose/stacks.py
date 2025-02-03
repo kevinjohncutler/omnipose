@@ -94,6 +94,39 @@ def normalize_stack(vol,mask,bg=0.5,bright_foreground=None,
     vol = np.stack([v**(np.log(bg)/np.log(np.mean(v[bg_m]))) for v,bg_m in zip(vol,bg_mask)]) # now can gamma normalize 
     return vol
 
+# def cross_reg(imstack,upsample_factor=100,order=1,
+#               normalization=None,cval=None,prefilter=True,reverse=True):
+#     """
+#     Find the transformation matrices for all images in a time series to align to the beginning frame. 
+#     """
+#     s = np.zeros(2)
+#     shape = imstack.shape[-2:]
+#     regstack = np.zeros_like(imstack)
+#     shifts = np.zeros((len(imstack),2))
+#     for i,im in enumerate(imstack[::-1] if reverse else imstack):
+#         ref = regstack[i-1] if i>0 else im 
+#         # reference_mask=~np.isnan(ref)
+#         # moving_mask=~np.isnan(im)
+#         # pad = 1
+#         # shift = phase_cross_correlation(np.pad(ref,pad), np.pad(im,pad), 
+#         shift = phase_cross_correlation(ref,im,
+#                                         upsample_factor=upsample_factor, 
+#                                         # return_error = False, 
+#                                         normalization=normalization)[0]
+#                                       # reference_mask=reference_mask,
+#                                       # moving_mask=moving_mask)
+        
+#         # shift = imreg_dft.imreg.translation(ref,im)['tvec']
+        
+#         shifts[i] = shift
+#         regstack[i] = im_shift(im, shift, order=order, prefilter=prefilter,
+#                                mode='nearest' if cval is None else 'constant',
+#                                cval=np.nanmean(imstack[i]) if cval is None else cval)   
+#     if reverse:
+#         return shifts[::-1], regstack[::-1]
+#     else:
+#         return shifts,regstack
+
     
 # import imreg_dft 
 def cross_reg(imstack,upsample_factor=100,
@@ -106,6 +139,10 @@ def cross_reg(imstack,upsample_factor=100,
     """
     Find the transformation matrices for all images in a time series to align to the beginning frame. 
     """
+    
+    # I must have benchmarked this and determined that it was faster than imreg_dft
+    # and that is is faster to not keep track of moving reference in a big stack? compute again for some reason? I need to verify that
+    
     dim = imstack.ndim - 1 # dim is spatial, assume first dimension is t
     s = np.zeros(dim)
     shape = imstack.shape[-dim:]
@@ -151,7 +188,6 @@ def cross_reg(imstack,upsample_factor=100,
     if reverse:
         shift_vectors = shift_vectors[::-1] * (-1 if not moving_reference else 1)
 
-
     if not moving_reference:
 
         shift_vectors = np.where(np.linalg.norm(shift_vectors,axis=1, keepdims=1) > max_shift, 0, shift_vectors)
@@ -160,7 +196,6 @@ def cross_reg(imstack,upsample_factor=100,
     
     shift_vectors -= np.mean(shift_vectors,axis=0)
     
-
     return shift_vectors 
 
 def shift_stack(imstack, shift_vectors, order=1, cval=None, prefilter=True, mode='nearest'):

@@ -1828,6 +1828,7 @@ class MainW(QMainWindow):
         self.shape = self.masks.shape
         self.dim = len(self.shape) 
         self.steps, self.inds, self.idx, self.fact, self.sign = utils.kernel_setup(self.dim)
+        self.supporting_inds = utils.get_supporting_inds(self.steps)
         self.coords = misc.generate_flat_coordinates(self.shape)
         self.neighbors = utils.get_neighbors(self.coords, self.steps, self.dim, self.shape)
         self.indexes, self.neigh_inds, self.ind_matrix = utils.get_neigh_inds(tuple(self.neighbors),self.coords,self.shape)
@@ -2116,9 +2117,8 @@ class MainW(QMainWindow):
         the specified sub-region: (x_min, x_max, y_min, y_max).
         """
         
-        if region is None:
-        
-            print('drawing entire layer')
+        # if region is None:
+        #     print('drawing entire layer')
             
         if z is None:
             z = self.currentZ
@@ -2691,7 +2691,7 @@ class MainW(QMainWindow):
             # self.outlinesOn = True #again, this option should persist and not get toggled by another GUI action 
             # self.OCheckBox.setChecked(True)
 
-            print('masks found, drawing now', self.masks.shape)
+            # print('masks found, drawing now', self.masks.shape)
             io._masks_to_gui(self)
             self.progress.setValue(100)
 

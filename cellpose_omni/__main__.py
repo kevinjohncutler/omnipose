@@ -335,7 +335,6 @@ def main(args):
         if builtin_model and args.mxnet and args.pretrained_model=='cyto2':
             logger.warning('cyto2 not in mxnet => using cyto')
             args.pretrained_model = 'cyto'
-        print('AAA',args.pretrained_model,builtin_model)
         if builtin_model:
             cpmodel_path = models.model_path(args.pretrained_model, 0, (not args.mxnet))
             if 'cyto' in args.pretrained_model:
@@ -347,7 +346,7 @@ def main(args):
             else:
                 szmean = 30.
         else:
-            print('definging cpmodel_path')
+            # print('defining cpmodel_path')
             cpmodel_path = os.fspath(args.pretrained_model) if args.pretrained_model is not None else args.pretrained_model
             szmean = args.diameter if args.diameter else 30.
 
@@ -368,7 +367,6 @@ def main(args):
 
         # maybe figure out channel_axis vs nchan
         # ...
-        print('hereAA',cpmodel_path)
         # Create the model
         if args.unet:
             # lazy import for unet
@@ -384,7 +382,7 @@ def main(args):
                 nchan=args.nchan
             )
         else:
-            print('def model   ',cpmodel_path, isinstance(cpmodel_path, str))
+            # print('def model   ',cpmodel_path, isinstance(cpmodel_path, str))
             model = models.CellposeModel(
                 device=device,
                 gpu=args.use_gpu,

@@ -1338,7 +1338,8 @@ def bartlett_nd(size):
 def find_highest_density_box(label_matrix, box_size):
     """
     Convolve a binary mask with an N-D Bartlett kernel of shape `box_size`,
-    then find the sub-box of shape `box_size` around the maximum.
+    then find the sub-box of shape `box_size` around the maximum, ensuring 
+    the box stays within bounds.
     """
     if box_size == -1:
         return tuple(slice(0, s) for s in label_matrix.shape)
@@ -1359,11 +1360,15 @@ def find_highest_density_box(label_matrix, box_size):
     # Find the coordinates of the box with the highest cell density
     max_density_coords = np.unravel_index(np.argmax(density_map), density_map.shape)
 
-    # Compute the coordinates of the box
-    box_size = box_size[0]
-    return tuple(slice(max_coord - box_size // 2, max_coord + box_size // 2 + box_size%2) for max_coord in max_density_coords), density_map
+    # Compute the box bounds while ensuring no negative indices
+    slices = []
+    for max_coord, size, dim_size in zip(max_density_coords, box_size, label_matrix.shape):
+        start = max(0, max_coord - size // 2)
+        stop = min(dim_size, start + size)  # Ensure within bounds
+        start = max(0, stop - size)  # Adjust start if necessary to maintain box size
+        slices.append(slice(start, stop))
 
-
+    return tuple(slices)
     
 def create_pill_mask(R, L, f = np.sqrt(2)):
     # Determine the size of the image

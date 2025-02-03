@@ -496,12 +496,11 @@ def _masks_to_gui(parent, format_labels=False):
     #     fastremap.renumber(masks, in_place=True)
     logger.info(f'{parent.ncells} masks found')
     
-    print('calling masks to gui',masks.shape)
+    # print('calling masks to gui',masks.shape)
     parent.ncells = masks.max() #try to grab the cell count before ncolor
 
 
 
-    print('yoyo',parent.cellpix.shape,parent.outpix.shape)
     if parent.ncolor:
         masks, ncol = ncolor.label(masks,return_n=True) 
     else:
@@ -511,7 +510,7 @@ def _masks_to_gui(parent, format_labels=False):
         # the intrinsic values are masks and bounds, but I will use the old lingo
     # of cellpix and outpix for the draw_layer function expecting ZYX stacks 
     if ndim==2:
-        print('reshaping masks to cellpix stack')
+        # print('reshaping masks to cellpix stack')
         parent.cellpix = masks[np.newaxis,:,:]
         parent.outpix = parent.bounds[np.newaxis,:,:]
 

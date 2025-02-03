@@ -168,7 +168,8 @@ def plot_edges(shape,affinity_graph,neighbors,coords,
     
     if nopic:
         return summed_affinity, affinity_cmap
-        
+    else:
+        return None,None
     # if bounds is None:
     #     line_segments = LineCollection(segments, color=colors,linewidths=linewidth)
 
@@ -417,7 +418,7 @@ def imshow(imgs, figsize=2, ax=None, hold=False, titles=None, title_size=8, spac
     return fig 
 
 # def get_cmap(masks):
-#     lut = ncolor.get_lut(masks)
+#     lut = ncolor.get_lut(masks) # make sure int64
 #     c = sinebow(lut.max())
 #     colors = [c[l] for l in lut]
 #     cmap = mpl.colors.ListedColormap(colors)
