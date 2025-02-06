@@ -129,9 +129,9 @@ Python compatibility
 
 .. _python_start:
 
-We have tested Omnipose extensively on Python version 3.8.5 and have
+I have tested Omnipose extensively on Python version 3.8.5 and have
 encountered issues on some lower versions. Versions up to 3.10.11 have
-been confirmed compatible, but we have encountered bugs with the GUI
+been confirmed compatible, but I have encountered bugs with the GUI
 dependencies on 3.11+. For those users with system or global pyenv
 python3 installations, check your python version by running
 ``python -V`` before making your conda environment and choose a
@@ -166,7 +166,7 @@ GPU support
 Omnipose runs on CPU on macOS, Windows, and Linux. PyTorch has
 historically only supported NVIDIA GPUs, but has more more recently
 begun supporting Apple Silicon GPUs. It looks AMD support may be
-avaiable these days (ROCm), but I have not tested that out. Windows and
+available these days (ROCm), but I have not tested that out. Windows and
 Linux installs are straightforward:
 
 Your PyTorch version (>=1.6) needs to be compatible with your NVIDIA
@@ -234,6 +234,11 @@ similarly:
    omnipose --train --use_gpu --dir <bacterial dataset directory> --mask_filter _masks \
             --n_epochs 4000 --pretrained_model None --learning_rate 0.1 --diameter 0 \
             --batch_size 16 --RAdam --img_filter _img --nclasses 3
+            
+.. note::
+   The RAdam optimizer is no longer necessary and may actually be detrimental with the latest
+   version of Omnipose, in which I have introduced dynamic loss balancing. Leave this out
+   to use standard SGD, which in recent testing converges faster than RAdam with the new loss function. 
 
 On bacterial phase contrast data, I found that Cellpose does not benefit
 much from more than 500 epochs but Omnipose continues to improve until
@@ -335,7 +340,7 @@ the code:
    they are functional.
 
 3. numpy seems to be the limiting factor preventing us from making
-   universal2 executibles. This means that Intel (osx_64) and Apple
+   universal2 executables. This means that Intel (osx_64) and Apple
    Silicon (osx_arm64) apps need to be frozen separately on their
    respective platforms. The former works just the same as Windows and
    Ubuntu. The latter was a bit of a nightmare, as I had to ensure that

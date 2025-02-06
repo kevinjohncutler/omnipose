@@ -893,7 +893,7 @@ class UnetModel():
                                             momentum=momentum, weight_decay=weight_decay)
             else:
                 import torch_optimizer as optim # for RADAM optimizer
-                self.optimizer = optim.RAdam(self.net.parameters(), lr=learning_rate, betas=(0.95, 0.999), #changed to .95
+                self.optimizer = optim.RAdam(self.net.parameters(), lr=learning_rate, betas=(0.99, 0.999), #changed to .95
                                             eps=1e-08, weight_decay=weight_decay)
                 core_logger.info('>>> Using RAdam optimizer')
                 self.optimizer.current_lr = learning_rate

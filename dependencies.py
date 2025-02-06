@@ -11,20 +11,22 @@ install_deps = ['numpy>=1.22.4,<2', # maybe it is safe now? Nope, as of January 
                 'mahotas>=1.4.13',
                 'mgen',
                 'matplotlib',
+                'ipywidgets', # technically could factor out to a notebook dep list 
                 'networkit',
                 'torchvf',
                 'tqdm', 
                 'natsort', 
                 'aicsimageio', # should make this optional, include czi dep
                 'numexpr',
-                'torch_optimizer', # for RADAM
+                'torch_optimizer', # for RADAM, now supported directly in pytorch though 
                 'tifffile', # might be dependency of aicsimageio
                 'fastremap', # not sure how I missed this one 
                 'cmap', 
-                'dbscan' # almost 2x faster than sklearn dbscan
+                'dbscan', # almost 2x faster than sklearn dbscan!
                 ]
 
 # notes: Numpy 2 is close, networkit might be the last dependency needed to upgrade 
+
 
 gui_deps = [
         'pyqtgraph>=0.12.4', 

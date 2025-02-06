@@ -326,9 +326,10 @@ def colorize_GPU(im, colors=None, color_weights=None, intervals=None, offset=0):
 
     # Generate colors if not provided
     if colors is None:
-        angle = torch.linspace(0, 1, N, device=device) * 2 * np.pi + offset
+        angle = torch.linspace(0, 1, C, device=device) * 2 * np.pi + offset
         angles = torch.stack((angle, angle + 2 * np.pi / 3, angle + 4 * np.pi / 3), dim=-1)
         colors = (torch.cos(angles) + 1) / 2  # Generate RGB colors for intervals or channels
+
 
     # Apply color weights if provided
     if color_weights is not None:

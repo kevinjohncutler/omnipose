@@ -405,6 +405,9 @@ def main(args):
             )
 
         # TRAIN segmentation model
+        if args.RAdam:
+            logger.warning('RAdam not preferred now, SGD recommended.')
+            
         if args.train:
             cpmodel_path = model.train(
                 images, labels, links, train_files=image_names,
