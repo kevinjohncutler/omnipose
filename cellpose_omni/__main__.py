@@ -5,6 +5,8 @@ import sys, os, time, subprocess, logging
 from .models import MODEL_NAMES, C2_MODEL_NAMES, BD_MODEL_NAMES, CP_MODELS
 try:
     from cellpose_omni.gui import gui
+    # import cellpose_omni.gui.gui_test as gui
+    
     GUI_ENABLED = True
     GUI_ERROR = None
     GUI_IMPORT = False
@@ -46,7 +48,7 @@ def check_omni(logger, omni=False):
 
 def main(args):
     """
-    Entry point for your app.  
+    Entry point for the app.  
     If len(args.dir)==0, we attempt the GUI.  
     Otherwise, we do the CLI logic (training, evaluation, etc.).
     """
@@ -70,6 +72,13 @@ def main(args):
         else:
             # We have the GUI available—just run it
             gui.run()
+            
+            # gui_path = os.path.join(os.path.dirname(__file__), "gui", "gui.py")
+            
+            # print("🚀 Launching GUI...")
+            # subprocess.Popen([sys.executable, gui_path])
+            # subprocess.Popen([sys.executable, "-m", "cellpose_omni.gui.gui_test"])
+
         return
 
     # 3) Otherwise => run CLI logic

@@ -159,6 +159,7 @@ def _load_image(parent, filename=None, load_seg=True):
         
 
     if parent.loaded:
+        logger.info(f'loaded image shape: {image.shape}')
         parent.reset()
         parent.filename = filename
         filename = os.path.split(parent.filename)[-1]
@@ -229,7 +230,8 @@ def _initialize_images(parent, image, resize, X2):
     if parent.NZ>1:
         logger.info('converted to float and normalized values to 0.0->255.0')
     del image
-    gc.collect()
+    
+    gc.collect() # not sure if these are necessary and if they cause a slowdown
 
     #parent.stack = list(parent.stack)
 
@@ -239,6 +241,7 @@ def _initialize_images(parent, image, resize, X2):
     parent.imask=0
     parent.Ly, parent.Lx = parent.stack.shape[1:3]
     parent.layerz = 0 * np.ones((parent.Ly,parent.Lx,4), 'uint8')
+    
     # print(parent.layerz.shape)
     # if parent.autobtn.isChecked():
     #     parent.compute_saturation()
@@ -256,6 +259,8 @@ def _initialize_images(parent, image, resize, X2):
     parent.zpos.setText(str(parent.currentZ))
     parent.track_changes = []
     parent.recenter()
+    
+    parent.initialize_seg() # try this
 
 def _load_seg(parent, filename=None, image=None, image_file=None):
     """ load *_seg.npy with filename; if None, open QFileDialog """
