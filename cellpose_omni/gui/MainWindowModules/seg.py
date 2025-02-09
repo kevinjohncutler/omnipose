@@ -1,11 +1,10 @@
 from omnipose import utils, misc, core
 import numpy as np
 
-from .. import logger, ICON_PATH
-
-print('>>>>>>>>>>>>>>>>>>,', ICON_PATH)
+from .. import logger, ICON_PATH, io
 
 def initialize_seg(self, compute_affinity=False):
+    logger.info('initializing segmentation')
     self.shape = self.masks.shape
     self.dim = len(self.shape) 
     self.steps, self.inds, self.idx, self.fact, self.sign = utils.kernel_setup(self.dim)
@@ -22,6 +21,8 @@ def initialize_seg(self, compute_affinity=False):
                                                     self.sign, self.dim)
         else:
             self.affinity_graph = np.zeros(self.neighbors.shape[1:],bool)
+    
+    logger.info(f'affinity graph shape {self.affinity_graph.shape}')
 
 def toggle_masks(self):
     if self.MCheckBox.isChecked():
@@ -35,6 +36,7 @@ def toggle_masks(self):
         self.outlinesOn = True
     else:
         self.outlinesOn = False
+        
     if not self.masksOn and not self.outlinesOn:
         self.p0.removeItem(self.layer)
         self.layer_off = True

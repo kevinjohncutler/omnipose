@@ -280,6 +280,7 @@ class ImageDraw(pg.ImageItem):
         self._lastPos = None
 
     def mousePressEvent(self, event):
+
         
         x, y = int(event.pos().x()), int(event.pos().y())
 
@@ -383,7 +384,7 @@ class ImageDraw(pg.ImageItem):
         # masks[arr_slc][kernel[ker_slc]] = label
 
 
-        # similar to _get_affinity, should check that too for some facotring out
+        # similar to _get_affinity, should check that too for some factoring out
         # spurce inds restricts to valid sources 
         source_indices = self.parent.ind_matrix[arr_slc][kernel[ker_slc]]
         # source_indices = source_indices[source_indices>-1]
@@ -396,28 +397,34 @@ class ImageDraw(pg.ImageItem):
         if np.any(source_indices==-1):
             print('\n ERROR, negative index in source_indices')
 
-        for i in self.parent.non_self:
-        # for i in range(len(self.parent.steps)//2):
 
-            target_indices = self.parent.neigh_inds[i][source_indices]                
-            if np.any(target_indices==-1):
-                print('\n ERROR, negative index in target_indices')
-            # print('B', target_indices)            
+        # this is where I maybe should be using the spatial affinity graph
+        # either that, or I need a graph with all pxiels, including bacjgorund
+        # but my pytorch code works great with spatial affinity
+        print('affinity', affinity.shape)
+        if affinity is not None:
+            for i in self.parent.non_self:
+            # for i in range(len(self.parent.steps)//2):
 
-            target_coords = tuple(self.parent.neighbors[:,i,source_indices])
-            # print('C', target_coords)            
-            
-            # source_labels = masks[source_coords]
-            target_labels = masks[target_coords]
-            if label !=0:
-                connect = target_labels==label
-            else:
-                connect = False
+                target_indices = self.parent.neigh_inds[i][source_indices]                
+                if np.any(target_indices==-1):
+                    print('\n ERROR, negative index in target_indices')
+                # print('B', target_indices)            
+
+                target_coords = tuple(self.parent.neighbors[:,i,source_indices])
+                # print('C', target_coords)            
                 
-            # print('connect?', connect)
-            affinity[i][source_indices] = affinity[-(i+1)][target_indices] = connect
-            
-            targets.append(target_indices)
+                # source_labels = masks[source_coords]
+                target_labels = masks[target_coords]
+                if label !=0:
+                    connect = target_labels==label
+                else:
+                    connect = False
+                    
+                # print('connect?', connect)
+                affinity[i][source_indices] = affinity[-(i+1)][target_indices] = connect
+                
+                targets.append(target_indices)
 
         # print('\n',self.parent.idx, affinity.shape)
         

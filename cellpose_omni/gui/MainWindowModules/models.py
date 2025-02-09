@@ -1,6 +1,6 @@
 from cellpose_omni import models, dynamics
-from omnipose import core, gpu
-from .. import logger  # Imports logger from __init__.py
+from omnipose import core, gpu, misc
+from .. import logger  # Imports logger from __init__.py in parent
 from .. import io
 
 import time
@@ -12,6 +12,7 @@ from omnipose.utils import normalize99, to_8_bit
 from cellpose_omni.transforms import resize_image
 import numpy as np
 
+# print("\n\n\nReloading f.py, version 1.2\n\n\n")  # update the version manually on changes
 
 def calibrate_size(self):
     self.initialize_model()
@@ -25,21 +26,22 @@ def calibrate_size(self):
     self.compute_scale()
     self.progress.setValue(100)
 
-def model_choose(self, index):
-    if index > 0:
-        logger.info(f'selected model {self.ModelChoose.currentText()}, loading now')
-        self.initialize_model()
-        # self.diameter = self.model.diam_labels
-        
-        # only set this when selected, not if user chooses a new value 
-        bacterial = 'bact' in self.current_model
-        if bacterial:
-            self.diameter = 0.
-            self.Diameter.setText('%0.1f'%self.diameter)
-        else:
-            self.diameter = float(self.Diameter.text())
-        
-        logger.info(f'diameter set to {self.diameter: 0.2f} (but can be changed)')
+# def model_choose(self, index):
+    # if index > 0:
+def model_choose(self):
+    logger.info(f'selected model {self.ModelChoose.currentText()}, loading now')
+    self.initialize_model()
+    # self.diameter = self.model.diam_labels
+    
+    # only set this when selected, not if user chooses a new value 
+    bacterial = 'bact' in self.current_model
+    if bacterial:
+        self.diameter = 0.
+        self.Diameter.setText('%0.1f'%self.diameter)
+    else:
+        self.diameter = float(self.Diameter.text())
+    
+    logger.info(f'diameter set to {self.diameter: 0.2f} (but can be changed)')
 
 # two important things: invert size added, and initialize model takes care of selecting a model
 def check_gpu(self, use_torch=True):
@@ -205,7 +207,6 @@ def run_mask_reconstruction(self):
     # needed to be replaced with recompute_masks
     # rerun = False
     have_enough_px = self.probslider.value() > self.cellprob # slider moves up
-    print('debug',have_enough_px,self.probslider.value(),self.cellprob)
     
     # update thresholds
     self.threshold, self.cellprob = self.get_thresholds()
@@ -269,10 +270,10 @@ def run_mask_reconstruction(self):
         # p = self.flows[-2].copy() if have_enough_px  else None 
         p = self.flows[-2].copy() if have_enough_px and self.AffinityCheck.isChecked() else None 
     
-        
         dP = self.flows[-1][:-self.model.dim]
         dist = self.flows[-1][self.model.dim]
         bd = self.flows[-1][self.model.dim+1]
+        
         ret = core.compute_masks(dP=dP, 
                                 dist=dist, 
                                 affinity_graph=None, 
@@ -290,21 +291,39 @@ def run_mask_reconstruction(self):
         maski, p, tr, bounds, augmented_affinity = ret
         
         self.masks = maski
-        self.shape = maski.shape
-        self.dim = maski.ndim
-        # self.neighbors = augmented_affinity[:self.dim]
-        # self.affinity_graph = augmented_affinity[self.dim] need to cnvert indexing to update the full affinity
-        # or just flatten the spatial affinity 
-        coords = np.nonzero(self.masks) 
-        self.bounds = core.affinity_to_boundary(self.masks, self.affinity_graph, coords)
+        # self.shape = maski.shape
+        # self.dim = maski.ndim
+        # self.coords = np.nonzero(self.masks)
         
+        # this does it all
+        self.initialize_seg(compute_affinity=True)
+
+        
+        if self.AffinityCheck.isChecked():
+            print(augmented_affinity.shape)
+            self.neighbors = augmented_affinity[:self.dim]
+            self.affinity_graph = augmented_affinity[self.dim]
+            coords = np.nonzero(self.masks)
+            # self.coords is form generate_flat_coordinates, which is all pixels in the image
+            # here, still using the mask coordinates
+            self.bounds = core.affinity_to_boundary(self.masks, self.affinity_graph, coords)
+        else:
+            self.bounds = bounds # so I need to figure out why running on the affinity graph gave thick lines..
+            # self.bounds = core.affinity_to_boundary(self.masks, self.affinity_graph, self.coords) < this gave thick lines 
+            
+        # or just flatten the spatial affinity 
+        # print('oh I need to finish this')
+                
+        # slicing is probably going to be a lot easier if we use the spatial affinity format 
+        # and that is what the pytorch code gives anyway 
+        # for now, convert directly 
+        # self.spatial_affinity = core.spatial_affinity(self.affinity_graph, self.coords, self.shape)
+                
+     
         # for the pruposes of the GUI, we may want to store the affinity graph as a
         # (8,Y,X) array rather than a (9,N) array... unless N is always the same size 
         
-        # slicing is probably going to be a lot easier if we use the spatial affinity format 
-        # and that is what the pytorch code gives anyway 
-        self.spatial_affinity = core.spatial_affinity(self.affinity_graph, self.coords, self.shape)
-        
+
         # self.neighbors = core.get_neighbors(self.spatial_affinity, self.meshgrid, self.shape)
         # self.meshgrid = misc.meshgrid(self.shape)
         # self.indexes, self.neigh_inds, self.ind_matrix = utils.get_neigh_inds(tuple(self.neighbors),self.meshgrid,self.shape)
@@ -312,234 +331,216 @@ def run_mask_reconstruction(self):
         # self.steps, self.inds, self.idx, self.fact, self.sign = utils.kernel_setup(self.dim)
         # self.non_self = np.array(list(set(np.arange(len(self.steps)))-{self.inds[0][0]})) 
 
-        print('\n\nassgin the affinity to the main one here \n')
     
-    self.masksOn = True
-    self.MCheckBox.setChecked(True)
+    # self.masksOn = True
+    # self.MCheckBox.setChecked(True)
     # self.outlinesOn = True #should not turn outlines back on by default; masks make sense though 
     # self.OCheckBox.setChecked(True)
+    print('aa',self.masksOn, self.outlinesOn)
+    if not (self.masksOn or self.outlinesOn):
+        self.masksOn = True
+        self.MCheckBox.setChecked(True)
+    
     if maski.ndim<3:
         maski = maski[np.newaxis,...]
     logger.info('%d cells found'%(len(misc.unique_nonzero(maski))))
     io._masks_to_gui(self) # replace this to show boundary emphasized masks
     self.show()
 
-
-def suggest_model(self, model_name=None):
-    logger.info('computing styles with 2D image...')
-    data = self.stack[self.NZ//2].copy()
-    styles_gt = np.load(os.fspath(pathlib.Path.home().joinpath('.cellpose', 'style_choice.npy')), 
-                        allow_pickle=True).item()
-    train_styles, train_labels, label_models = styles_gt['train_styles'], styles_gt['leiden_labels'], styles_gt['label_models']
-    self.diameter = float(self.Diameter.text())
-    self.current_model = 'general'
-    channels = self.get_channels()
-    model = models.CellposeModel(model_type='general', gpu=self.useGPU.isChecked())
-    styles = model.eval(data, 
-                        channels=channels, 
-                        diameter=self.diameter, 
-                        compute_masks=False)[-1]
-
-    n_neighbors = 5
-    dists = ((train_styles - styles)**2).sum(axis=1)**0.5
-    neighbor_labels = train_labels[dists.argsort()[:n_neighbors]]
-    label = mode(neighbor_labels)[0][0]
-    model_type = label_models[label]
-    logger.info(f'style suggests model {model_type}')
-    ind = self.net_text.index(model_type)
-    # for i in range(len(self.net_text)):
-    #     self.StyleButtons[i].setStyleSheet(self.styleUnpressed)
-    # self.StyleButtons[ind].setStyleSheet(self.stylePressed)
-    self.compute_model(model_name=model_type)
         
 def compute_model(self):
-    self.progress.setValue(10)
-    QApplication.processEvents() 
-    print('running compute_model()')
-    try:
-        tic=time.time()
-        self.clear_all()
-        self.flows = [[],[],[]]
-        self.initialize_model()
-        logger.info('using model %s'%self.current_model)
-        self.progress.setValue(20)
-        QApplication.processEvents() 
-        do_3D = False
-        if self.NZ > 1:
-            do_3D = True
-            data = self.stack.copy()
-        else:
-            data = self.stack[0].copy() # maybe chanchoose here 
-        channels = self.get_channels()
-        
-        self.diameter = float(self.Diameter.text())
-        
-        
-        ### will either have to put in edge cases for worm etc or just generalize model loading to respect what is there 
-        try:
-            omni_model = 'omni' in self.current_model
-            bacterial = 'bact' in self.current_model
-            if omni_model or bacterial:
-                self.NetAvg.setCurrentIndex(1) #one run net
-            # if bacterial:
-            #     self.diameter = 0.
-            #     self.Diameter.setText('%0.1f'%self.diameter)
+    # self.progress.setValue(10)
+    # QApplication.processEvents() 
+    logger.info('running compute_model()')
 
-            # allow omni to be togged manually or forced by model
-            if OMNI_INSTALLED:
-                if omni_model:
-                    logger.info('turning on Omnipose mask recontruction version for Omnipose models (see menu)')
-                    if not self.omni.isChecked():
-                        print('WARNING: Omnipose models require Omnipose mask recontruction (toggle back on in menu)')
-                    if not self.cluster.isChecked():
-                        print(('NOTE: clutering algorithm can help with over-segmentation in thin cells.'
-                                'Default is ON with omnipose models (see menu)'))
-                        
-                elif self.omni.isChecked():
-                    print('NOTE: using Omnipose mask recontruction with built-in cellpose model (toggle in Omnipose menu)')
+    tic=time.time()
+    self.clear_all()
+    self.flows = [[],[],[]]
+    self.initialize_model()
+    logger.info('using model %s'%self.current_model)
+    # self.progress.setValue(20)
+    # QApplication.processEvents() 
+    do_3D = False
+    if self.NZ > 1:
+        do_3D = True
+        data = self.stack.copy()
+    else:
+        data = self.stack[0].copy() # maybe chanchoose here 
+    channels = self.get_channels()
+    
+    self.diameter = float(self.Diameter.text())
+    
+    
+    ### will either have to put in edge cases for worm etc or just generalize model loading to respect what is there 
+    # try:
+    omni_model = 'omni' in self.current_model
+    bacterial = 'bact' in self.current_model
+    if omni_model or bacterial:
+        self.NetAvg.setCurrentIndex(1) #one run net
+    # if bacterial:
+    #     self.diameter = 0.
+    #     self.Diameter.setText('%0.1f'%self.diameter)
 
-            net_avg = self.NetAvg.currentIndex()==0 and self.current_model in models.MODEL_NAMES
-            resample = self.NetAvg.currentIndex()<2
-            omni = OMNI_INSTALLED and self.omni.isChecked()
-            
-            self.threshold, self.cellprob = self.get_thresholds()
+    # allow omni to be togged manually or forced by model
+    if OMNI_INSTALLED:
+        if omni_model:
+            logger.info('turning on Omnipose mask recontruction version for Omnipose models (see menu)')
+            if not self.omni.isChecked():
+                print('WARNING: Omnipose models require Omnipose mask recontruction (toggle back on in menu)')
+            if not self.cluster.isChecked():
+                print(('NOTE: clutering algorithm can help with over-segmentation in thin cells.'
+                        'Default is ON with omnipose models (see menu)'))
+                
+        elif self.omni.isChecked():
+            print('NOTE: using Omnipose mask recontruction with built-in cellpose model (toggle in Omnipose menu)')
 
-            # useful printout for easily copying parameters to a notebook etc. 
-            s = ('channels={}, mask_threshold={}, '
-                    'flow_threshold={}, diameter={}, invert={}, cluster={}, net_avg={}, '
-                    'do_3D={}, omni={}'
-                ).format(self.get_channels(),
-                            self.cellprob,
-                            self.threshold,
-                            self.diameter,
-                            self.invert.isChecked(),
-                            self.cluster.isChecked(),
-                            net_avg,
-                            do_3D,
-                            omni)
-            self.runstring.setPlainText(s)
-            self.progress.setValue(30)
-            
-            print('self.model.eval()')
-            masks, flows = self.model.eval(data, channels=channels,
-                                            mask_threshold=self.cellprob,
-                                            flow_threshold=self.threshold,
-                                            diameter=self.diameter, 
-                                            invert=self.invert.isChecked(),
-                                            net_avg=net_avg, 
-                                            augment=False, 
-                                            resample=resample,
-                                            do_3D=do_3D, 
-                                            progress=self.progress,
-                                            verbose=self.verbose.isChecked(),
-                                            omni=omni, 
-                                            tile=False,
-                                            affinity_seg=self.AffinityCheck.isChecked(),
-                                            cluster = self.cluster.isChecked(),
-                                            transparency=True,
-                                            channel_axis=-1
-                                            )[:2]
-            
-        except Exception as e:
-            print('GUI.py: NET ERROR: %s'%e)
-            self.progress.setValue(0)
-            return
+    net_avg = self.NetAvg.currentIndex()==0 and self.current_model in models.MODEL_NAMES
+    resample = self.NetAvg.currentIndex()<2
+    omni = OMNI_INSTALLED and self.omni.isChecked()
+    
+    self.threshold, self.cellprob = self.get_thresholds()
+
+    # useful printout for easily copying parameters to a notebook etc. 
+    s = ('channels={}, mask_threshold={}, '
+            'flow_threshold={}, diameter={}, invert={}, cluster={}, net_avg={}, '
+            'do_3D={}, omni={}'
+        ).format(self.get_channels(),
+                    self.cellprob,
+                    self.threshold,
+                    self.diameter,
+                    self.invert.isChecked(),
+                    self.cluster.isChecked(),
+                    net_avg,
+                    do_3D,
+                    omni)
+    self.runstring.setPlainText(s)
+    self.progress.setValue(30)
+    
+    print('self.model.eval()')
+    masks, flows = self.model.eval(data, channels=channels,
+                                    mask_threshold=self.cellprob,
+                                    flow_threshold=self.threshold,
+                                    diameter=self.diameter, 
+                                    invert=self.invert.isChecked(),
+                                    net_avg=net_avg, 
+                                    augment=False, 
+                                    resample=resample,
+                                    do_3D=do_3D, 
+                                    progress=self.progress,
+                                    verbose=self.verbose.isChecked(),
+                                    omni=omni, 
+                                    tile=False,
+                                    affinity_seg=self.AffinityCheck.isChecked(),
+                                    cluster = self.cluster.isChecked(),
+                                    transparency=True,
+                                    channel_axis=-1
+                                    )[:2]
         
-        self.progress.setValue(75)
-        QApplication.processEvents() 
-        #if not do_3D:
-        #    masks = masks[0][np.newaxis,:,:]
-        #    flows = flows[0]
+    # except Exception as e:
+    #     print('GUI.py: NET ERROR: %s'%e)
+    #     self.progress.setValue(0)
+    #     return
+    
+    # self.progress.setValue(75)
+    # QApplication.processEvents() 
+    #if not do_3D:
+    #    masks = masks[0][np.newaxis,:,:]
+    #    flows = flows[0]
+    
+    # flows here are [RGB, dP, cellprob, p, bd, tr]
+    self.flows[0] = to_8_bit(flows[0]) #RGB flow for plotting
+    self.flows[1] = to_8_bit(flows[2]) #dist/prob for plotting
+    if self.boundary.isChecked():
+        self.flows[2] = to_8_bit(flows[4]) #boundary for plotting
+    else:
+        self.flows[2] = np.zeros_like(self.flows[1])
         
-        # flows here are [RGB, dP, cellprob, p, bd, tr]
-        self.flows[0] = to_8_bit(flows[0]) #RGB flow for plotting
-        self.flows[1] = to_8_bit(flows[2]) #dist/prob for plotting
-        if self.boundary.isChecked():
-            self.flows[2] = to_8_bit(flows[4]) #boundary for plotting
-        else:
-            self.flows[2] = np.zeros_like(self.flows[1])
-            
-        # boundary and affinity
-        self.bounds = flows[-1]
-        self.masks = masks
-        
-        
+    # boundary and affinity
+    self.bounds = flows[-1]
+    self.masks = masks
+    
+    
+    self.initialize_seg(compute_affinity=True)
+    
+    
+    if self.AffinityCheck.isChecked():
         augmented_affinity = flows[-2]
         neighbors = augmented_affinity[:self.dim]
         affinity = augmented_affinity[self.dim]
         
-        print('in compute_model, len(affinity) is ',len(augmented_affinity))
-        if not len(affinity):
-            print('initialize affinity with compute_affinity=True')
-            # if the affinity graph is returned empty, we can just recompute it
-            self.initialize_seg(compute_affinity=True)
-            
+        print('in compute_model, len(affinity) is ',len(affinity))
+        
+        inds = self.ind_matrix[self.masks>0]
+        # self.affinity_graph = np.zeros(self.neighbors.shape[1:],bool)
+        # print('a', self.ind_matrix.shape, self.masks.shape, self.neighbors.shape, self.affinity_graph.shape, augmented_affinity.shape)
+        # # a (384, 392) (384, 392) (2, 9, 150528) (9, 150528) (3, 9, 52306)
+        # print('b',self.affinity_graph[:,inds].shape, neighbors.shape)
+        self.affinity_graph[:,inds] = affinity
+
+    # if not len(affinity):
+    #     print('initialize affinity with compute_affinity=True')
+    #     # if the affinity graph is returned empty, we can just recompute it
+    #     self.initialize_seg(compute_affinity=True)
+        
+    # else:
+    #     print('update affinity')
+    #     print('x',self.ind_matrix.shape, self.masks.shape) # the shape has not been updated on an image move 
+    #     # self.update_affinity(affiniyt)
+
+        
+    # # print('affiniyt graph',flows[-2].shape)
+    # # self.affinity_graph = flows[-2]
+    
+    
+    if not do_3D:
+        masks = masks[np.newaxis,...]
+        for i in range(3):
+            self.flows[i] = resize_image(self.flows[i], masks.shape[-2], masks.shape[-1])
+        
+        #critical line from what I had commended out below
+        self.flows = [self.flows[n][np.newaxis,...] for n in range(len(self.flows))]
+    
+    # I think this is a z-component placeholder. Relaceing with boundary output, will
+    # put this back later for the 3D update 
+    # if not do_3D:
+    #     self.flows[2] = np.zeros(masks.shape[1:], dtype=np.uint8)
+    #     self.flows = [self.flows[n][np.newaxis,...] for n in range(len(self.flows))]
+    # else:
+    #     self.flows[2] = (flows[1][0]/10 * 127 + 127).astype(np.uint8)
+        
+
+    # this stores the original flow components for recomputing masks
+    if len(flows)>2: 
+        self.flows.append(flows[3].squeeze()) #p put in position -2
+        flws = [flows[1], #self.flows[-1][:self.dim] is dP
+                flows[2][np.newaxis,...]] #self.flows[-1][self.dim] is dist/prob
+        if self.boundary.isChecked():
+            flws.append(flows[4][np.newaxis,...]) #self.flows[-1][self.dim+1] is bd
         else:
-            print('update affinity')
-            print('x',self.ind_matrix.shape, self.masks.shape) # the shape has not been updated on an image move 
-            # self.update_affinity(affiniyt)
-            inds = self.ind_matrix[self.masks>0]
-            self.affinity_graph = np.zeros(self.neighbors.shape[1:],bool)
-            print('a', self.ind_matrix.shape, self.masks.shape, self.neighbors.shape, self.affinity_graph.shape, augmented_affinity.shape)
-            # a (384, 392) (384, 392) (2, 9, 150528) (9, 150528) (3, 9, 52306)
-            print('b',self.affinity_graph[:,inds].shape, neighbors.shape)
-            self.affinity_graph[:,inds] = affinity
-            
-        # print('affiniyt graph',flows[-2].shape)
-        # self.affinity_graph = flows[-2]
+            flws.append(np.zeros_like(flws[-1]))
         
+        self.flows.append(np.concatenate(flws))
+
+    logger.info('%d cells found with model in %0.3f sec'%(len(np.unique(masks)[1:]), time.time()-tic))
+    # self.progress.setValue(80)
+    # QApplication.processEvents() 
+    z=0
+    self.masksOn = True
+    self.MCheckBox.setChecked(True)
+    # self.outlinesOn = True #again, this option should persist and not get toggled by another GUI action 
+    # self.OCheckBox.setChecked(True)
+
+    # print('masks found, drawing now', self.masks.shape)
+    io._masks_to_gui(self)
+    self.progress.setValue(100)
+
+    # self.toggle_server(off=True)
+    if not do_3D:
+        self.threshslider.setEnabled(True)
+        self.probslider.setEnabled(True)
         
-        
-        print('run assign here too')
-
-        if not do_3D:
-            masks = masks[np.newaxis,...]
-            for i in range(3):
-                self.flows[i] = resize_image(self.flows[i], masks.shape[-2], masks.shape[-1])
-            
-            #critical line from what I had commended out below
-            self.flows = [self.flows[n][np.newaxis,...] for n in range(len(self.flows))]
-        
-        # I think this is a z-component placeholder. Relaceing with boundary output, will
-        # put this back later for the 3D update 
-        # if not do_3D:
-        #     self.flows[2] = np.zeros(masks.shape[1:], dtype=np.uint8)
-        #     self.flows = [self.flows[n][np.newaxis,...] for n in range(len(self.flows))]
-        # else:
-        #     self.flows[2] = (flows[1][0]/10 * 127 + 127).astype(np.uint8)
-            
-
-        # this stores the original flow components for recomputing masks
-        if len(flows)>2: 
-            self.flows.append(flows[3].squeeze()) #p put in position -2
-            flws = [flows[1], #self.flows[-1][:self.dim] is dP
-                    flows[2][np.newaxis,...]] #self.flows[-1][self.dim] is dist/prob
-            if self.boundary.isChecked():
-                flws.append(flows[4][np.newaxis,...]) #self.flows[-1][self.dim+1] is bd
-            else:
-                flws.append(np.zeros_like(flws[-1]))
-            
-            self.flows.append(np.concatenate(flws))
-
-        logger.info('%d cells found with model in %0.3f sec'%(len(np.unique(masks)[1:]), time.time()-tic))
-        self.progress.setValue(80)
-        QApplication.processEvents() 
-        z=0
-        self.masksOn = True
-        self.MCheckBox.setChecked(True)
-        # self.outlinesOn = True #again, this option should persist and not get toggled by another GUI action 
-        # self.OCheckBox.setChecked(True)
-
-        # print('masks found, drawing now', self.masks.shape)
-        io._masks_to_gui(self)
-        self.progress.setValue(100)
-
-        # self.toggle_server(off=True)
-        if not do_3D:
-            self.threshslider.setEnabled(True)
-            self.probslider.setEnabled(True)
-    except Exception as e:
-        print('ERROR: %s'%e)
+    # except Exception as e:
+    #     print('ERROR in compute_models: %s'%e)
 
 def copy_runstring(self):
     self.clipboard.setText(self.runstring.toPlainText())

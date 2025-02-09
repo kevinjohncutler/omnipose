@@ -29,20 +29,20 @@ def compute_scale(self):
     print('deprecate this?')
     self.diameter = float(self.Diameter.text())
     self.pr = int(float(self.Diameter.text()))
-    self.radii_padding = int(self.pr*1.25)
-    self.radii = np.zeros((self.Ly+self.radii_padding,self.Lx,4), np.uint8)
-    yy,xx = disk([self.Ly+self.radii_padding/2-1, self.pr/2+1],
-                        self.pr/2, self.Ly+self.radii_padding, self.Lx)
-    # rgb(150,50,150)
-    self.radii[yy,xx,0] = 255 # making red to correspond to tooltip
-    self.radii[yy,xx,1] = 0
-    self.radii[yy,xx,2] = 0
-    self.radii[yy,xx,3] = 255
-    # self.update_plot()
-    self.p0.setYRange(0,self.Ly+self.radii_padding)
-    self.p0.setXRange(0,self.Lx)
-    self.win.show()
-    self.show()
+    # self.radii_padding = int(self.pr*1.25)
+    # self.radii = np.zeros((self.Ly+self.radii_padding,self.Lx,4), np.uint8)
+    # yy,xx = disk([self.Ly+self.radii_padding/2-1, self.pr/2+1],
+    #                     self.pr/2, self.Ly+self.radii_padding, self.Lx)
+    # # rgb(150,50,150)
+    # self.radii[yy,xx,0] = 255 # making red to correspond to tooltip
+    # self.radii[yy,xx,1] = 0
+    # self.radii[yy,xx,2] = 0
+    # self.radii[yy,xx,3] = 255
+    # # self.update_plot()
+    # self.p0.setYRange(0,self.Ly+self.radii_padding)
+    # self.p0.setXRange(0,self.Lx)
+    # self.win.show()
+    # self.show()
     
     
 
@@ -60,6 +60,6 @@ def set_nchan(self):
 
 
 def toggle_affinity(self):
-    self.recomoute_masks = True
+    self.recompute_masks = True
     self.run_mask_reconstruction()
     

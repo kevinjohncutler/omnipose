@@ -1,10 +1,14 @@
+import os
+from .. import io
+import numpy as np
+from cellpose_omni.io import get_image_files
+
 def dropEvent(self, event):
     files = [u.toLocalFile() for u in event.mimeData().urls()]
     if os.path.splitext(files[0])[-1] == '.npy':
         io._load_seg(self, filename=files[0])
     else:
         io._load_image(self, filename=files[0])
-
 
 def get_files(self):
     folder = os.path.dirname(self.filename)

@@ -145,7 +145,7 @@ def make_buttons(self):
     self.RGBDropDown = QComboBox()
     self.RGBDropDown.addItems(self.cmaps)
     self.RGBDropDown.setFont(self.smallfont)
-    self.RGBDropDown.currentIndexChanged.connect(self.color_choose)
+    self.RGBDropDown.currentIndexChanged.connect(lambda: self.color_choose())
     self.RGBDropDown.setFixedWidth(WIDTH_3)
     self.RGBDropDown.setStyleSheet(self.dropdowns(width=WIDTH_3))
     
@@ -185,7 +185,7 @@ def make_buttons(self):
     self.orthobtn.setFont(self.boldfont_button)
     self.orthobtn.setChecked(False)
     self.l0.addWidget(self.orthobtn, b,c0,1,2)
-    self.orthobtn.toggled.connect(self.toggle_ortho)
+    self.orthobtn.toggled.connect(lambda: self.toggle_ortho())
     
     b+=1
 
@@ -202,7 +202,7 @@ def make_buttons(self):
     self.zpos.setAlignment(QtCore.Qt.AlignmentFlag.AlignCenter | QtCore.Qt.AlignmentFlag.AlignVCenter)
     # self.zpos.setAlignment(QtCore.Qt.AlignmentFlag.AlignLeft)
     self.zpos.setText(str(self.currentZ))
-    # self.zpos.returnPressed.connect(self.compute_scale)
+    # self.zpos.returnPressed.connect(lambda: self.compute_scale())
     self.zpos.setFixedWidth(INPUT_WIDTH)
     self.zpos.setFixedHeight(WIDTH_0)
     
@@ -221,7 +221,7 @@ def make_buttons(self):
     # self.dzedit.setStyleSheet(self.textbox_style)
     self.dzedit.setAlignment(Qt.AlignmentFlag.AlignCenter | Qt.AlignmentFlag.AlignVCenter)
     self.dzedit.setText(str(self.dz))
-    self.dzedit.returnPressed.connect(self.update_ortho)
+    self.dzedit.returnPressed.connect(lambda: self.update_ortho())
     self.dzedit.setFixedWidth(INPUT_WIDTH)
     self.dzedit.setFixedHeight(WIDTH_0)
     
@@ -240,7 +240,7 @@ def make_buttons(self):
     # self.zaspectedit.setStyleSheet(self.textbox_style)
     self.zaspectedit.setAlignment(Qt.AlignmentFlag.AlignCenter | Qt.AlignmentFlag.AlignVCenter)
     self.zaspectedit.setText(str(self.zaspect))
-    self.zaspectedit.returnPressed.connect(self.update_ortho)
+    self.zaspectedit.returnPressed.connect(lambda: self.update_ortho())
     self.zaspectedit.setFixedWidth(INPUT_WIDTH)
     self.zaspectedit.setFixedHeight(WIDTH_0)
     
@@ -285,7 +285,7 @@ def make_buttons(self):
     self.invert.setStyleSheet(self.checkstyle)
     self.invert.setFont(self.medfont)
     self.l0.addWidget(self.invert, b,0,1,1)
-    self.invert.toggled.connect(self.update_plot)
+    self.invert.toggled.connect(lambda: self.update_plot())
     
 
     # IMAGE RESCALING slider
@@ -297,7 +297,7 @@ def make_buttons(self):
     
     self.slider.setHandleLabelPosition(superqt.QLabeledRangeSlider.LabelPosition.NoLabel)
     self.slider.setEdgeLabelMode(superqt.QLabeledRangeSlider.EdgeLabelMode.LabelIsValue)
-    self.slider.valueChanged.connect(self.level_change)
+    self.slider.valueChanged.connect(lambda: self.level_change())
 
     # self.slider.setStyleSheet(guiparts.horizontal_slider_style())
 
@@ -347,13 +347,13 @@ def make_buttons(self):
     label.setAlignment(Qt.AlignmentFlag.AlignCenter | Qt.AlignmentFlag.AlignVCenter)
     self.l0.addWidget(label, b, c, 1, 1)
 
-
+#  .py, .rst, 
     
     self.gamma = 1.0
     self.gamma_slider = superqt.QLabeledDoubleSlider(QtCore.Qt.Orientation.Horizontal)
     # self.gamma_slider.setHandleLabelPosition(superqt.QLabeledSlider.LabelPosition.NoLabel)
     # self.gamma_slider.setEdgeLabelMode(superqt.QLabeledSlider.EdgeLabelMode.LabelIsValue)
-    self.gamma_slider.valueChanged.connect(self.gamma_change)
+    self.gamma_slider.valueChanged.connect(lambda: self.gamma_change())
 
     # self.gamma_slider.setStyleSheet(guiparts.horizontal_slider_style())
     
@@ -399,8 +399,8 @@ def make_buttons(self):
     # self.SCheckBox.setStyleSheet(checkstyle(COLORS[0]))
     # self.SCheckBox.setFont(self.medfont)
     # self.SCheckBox.setChecked(True)  # Default pen active
-    # self.SCheckBox.toggled.connect(self.autosave_on)
-    # self.SCheckBox.toggled.connect(self.update_brush_slider_color)
+    # self.SCheckBox.toggled.connect(lambda: self.autosave_on())
+    # self.SCheckBox.toggled.connect(lambda: self.update_brush_slider_color())
     # self.l0.addWidget(self.SCheckBox, b, 1, 1, 1)
     
     ### PENCIL 
@@ -421,8 +421,8 @@ def make_buttons(self):
     self.SCheckBox.setChecked(True)  # Default pen active
     self.SCheckBox.setEnabled(True)  # Default pen active
     
-    self.SCheckBox.toggled.connect(self.autosave_on)
-    self.SCheckBox.toggled.connect(self.draw_change)
+    self.SCheckBox.toggled.connect(lambda: self.autosave_on())
+    self.SCheckBox.toggled.connect(lambda: self.draw_change())
 
     # Add the button to your layout
     self.l0.addWidget(self.SCheckBox, b, c, 1, 1)
@@ -436,7 +436,7 @@ def make_buttons(self):
     self.brush_slider.setMaximum(9) # could make this bigger, but people should not make crude masks 
     self.brush_slider.setSingleStep(2)
     self.brush_slider.setValue(self.brush_size) 
-    self.brush_slider.valueChanged.connect(self.brush_size_change)
+    self.brush_slider.valueChanged.connect(lambda: self.brush_size_change())
 
 
     # Set the text color based on self.SCheckBox state
@@ -466,7 +466,7 @@ def make_buttons(self):
     self.LabelInput.setToolTip(text)
     self.LabelInput.setText(str(self.current_label))  # Default to 0
     self.LabelInput.setFont(self.medfont)
-    self.LabelInput.returnPressed.connect(self.update_active_label)
+    self.LabelInput.returnPressed.connect(lambda: self.update_active_label())
 
     # Add Label to Layout
     c = TOOLBAR_WIDTH // 2
@@ -487,7 +487,7 @@ def make_buttons(self):
     self.MCheckBox.setStyleSheet(self.checkstyle)
     self.MCheckBox.setFont(self.medfont)
     self.MCheckBox.setChecked(self.masksOn)
-    self.MCheckBox.toggled.connect(self.toggle_masks)
+    self.MCheckBox.toggled.connect(lambda: self.toggle_masks())
     self.l0.addWidget(self.MCheckBox, b, 0, 1, 2)
 
     # NCOLOR TOGGLE
@@ -498,7 +498,7 @@ def make_buttons(self):
     self.NCCheckBox.setStyleSheet(self.checkstyle)
     self.NCCheckBox.setFont(self.medfont)
     self.NCCheckBox.setChecked(self.ncolor)
-    self.NCCheckBox.toggled.connect(self.toggle_ncolor)
+    self.NCCheckBox.toggled.connect(lambda: self.toggle_ncolor())
     self.l0.addWidget(self.NCCheckBox, b, 0, 1, 2)
 
     # OUTLINE TOGGLE
@@ -509,7 +509,7 @@ def make_buttons(self):
     self.OCheckBox.setStyleSheet(self.checkstyle)
     self.OCheckBox.setFont(self.medfont)
     self.OCheckBox.setChecked(False)
-    self.OCheckBox.toggled.connect(self.toggle_masks)
+    self.OCheckBox.toggled.connect(lambda: self.toggle_masks())
     self.l0.addWidget(self.OCheckBox, b, 0, 1, 2)
 
     # CROSSHAIR TOGGLE
@@ -518,7 +518,7 @@ def make_buttons(self):
     self.CHCheckBox = QCheckBox('cross-hairs')
     self.CHCheckBox.setStyleSheet(self.checkstyle)
     self.CHCheckBox.setFont(self.medfont)
-    self.CHCheckBox.toggled.connect(self.cross_hairs)
+    self.CHCheckBox.toggled.connect(lambda: self.cross_hairs())
     self.l0.addWidget(self.CHCheckBox, b, c, 1, TOOLBAR_WIDTH)
 
 #### The segmentation section is where a lot of rearrangement happened 
@@ -543,7 +543,7 @@ def make_buttons(self):
     self.dim = 2
     self.Dimension = QComboBox()
     self.Dimension.addItems(["2","3","4"])
-    # self.Dimension.currentIndexChanged.connect(self.brush_choose)
+    # self.Dimension.currentIndexChanged.connect(lambda: self.brush_choose())
     self.Dimension.setStyleSheet(self.dropdowns())
     self.Dimension.setFont(self.medfont)
     self.Dimension.setFixedWidth(WIDTH_3)
@@ -566,7 +566,7 @@ def make_buttons(self):
     self.Diameter.setToolTip(text)
     self.Diameter.setText(str(self.diameter))
     self.Diameter.setFont(self.medfont)
-    # self.Diameter.returnPressed.connect(self.compute_scale)
+    # self.Diameter.returnPressed.connect(lambda: self.compute_scale())
     c = TOOLBAR_WIDTH//2
     # self.l0.addWidget(label, b, c, 1,2)
     self.l0.addWidget(label, b, c-1, 1,3)
@@ -594,7 +594,7 @@ def make_buttons(self):
     self.ChanNumber.setToolTip(text)
     self.ChanNumber.setText(str(self.nchan))
     self.ChanNumber.setFont(self.medfont)
-    self.ChanNumber.returnPressed.connect(self.set_nchan)        
+    self.ChanNumber.returnPressed.connect(lambda: self.set_nchan())        
     c = TOOLBAR_WIDTH//2
     # self.l0.addWidget(label, b, c, 1,2)
     self.l0.addWidget(label, b, c-1, 1,3)
@@ -604,6 +604,7 @@ def make_buttons(self):
     self.ChanNumber.setFixedHeight(WIDTH_0)
     self.l0.addWidget(self.ChanNumber, b, TOOLBAR_WIDTH-2,1,2)
 
+# .py, .rst, 
     # AFFINITY seg 
     b-=2
     self.AffinityCheck = QCheckBox('affinity graph reconstruction')
@@ -611,7 +612,7 @@ def make_buttons(self):
     self.AffinityCheck.setFont(self.medfont)
     self.AffinityCheck.setChecked(False)
     self.AffinityCheck.setToolTip('sets whether or not to use affinity graph mask reconstruction')
-    self.AffinityCheck.toggled.connect(self.toggle_affinity)
+    self.AffinityCheck.toggled.connect(lambda: self.toggle_affinity())
     self.l0.addWidget(self.AffinityCheck, b,0,1,2)
 
     # SCALE DISK toggle
@@ -623,7 +624,7 @@ def make_buttons(self):
     # # self.ScaleOn.setStyleSheet('color: red;')
     # self.ScaleOn.setChecked(self.scale_on)
     # self.ScaleOn.setToolTip('see current diameter as red disk at bottom')
-    # self.ScaleOn.toggled.connect(self.toggle_scale)
+    # self.ScaleOn.toggled.connect(lambda: self.toggle_scale())
     # # self.toggle_scale() # toggle (off) 
     # self.l0.addWidget(self.ScaleOn, b,0,1,2)
     # # self.toggle_scale() # toggle (off) 
@@ -670,7 +671,9 @@ def make_buttons(self):
     self.ModelChoose.setStyleSheet(self.dropdowns(width=WIDTH_5))
     self.ModelChoose.setFont(self.smallfont)
     self.ModelChoose.setCurrentIndex(current_index)
-    self.ModelChoose.activated.connect(self.model_choose)
+    self.ModelChoose.activated.connect(lambda: self.model_choose())
+    # self.ModelChoose.activated.connect(lambda idx: self.model_choose(idx))
+    
     
     self.l0.addWidget(self.ModelChoose, b, TOOLBAR_WIDTH//2,1,TOOLBAR_WIDTH-TOOLBAR_WIDTH//2)
 
@@ -754,7 +757,7 @@ def make_buttons(self):
     # self.probslider.setFont(font)
     self.l0.addWidget(self.probslider, b, c,1,TOOLBAR_WIDTH-c)
     self.probslider.setEnabled(False)
-    self.probslider.valueChanged.connect(self.run_mask_reconstruction)
+    self.probslider.valueChanged.connect(lambda: self.run_mask_reconstruction())
     
 
     b+=1
@@ -775,7 +778,7 @@ def make_buttons(self):
     self.threshslider._label.setFont(self.medfont)
     self.l0.addWidget(self.threshslider, b, c,1,TOOLBAR_WIDTH-c)
     self.threshslider.setEnabled(False)
-    self.threshslider.valueChanged.connect(self.run_mask_reconstruction)
+    self.threshslider.valueChanged.connect(lambda: self.run_mask_reconstruction())
     
 
     
@@ -820,11 +823,11 @@ def make_buttons(self):
     self.runstring.setFixedHeight(h)
     self.runstring.setFont(self.medfont)
     self.l0.addWidget(self.runstring, b,c,1,TOOLBAR_WIDTH-c)
-    self.runstring.clicked.connect(self.copy_runstring)
+    self.runstring.clicked.connect(lambda: self.copy_runstring())
 
-    self.ModelButton = QPushButton('Segment \nimage')
+    self.ModelButton = QPushButton('Segment\nimage')
     
-    self.ModelButton.clicked.connect(self.compute_model)
+    self.ModelButton.clicked.connect(lambda: self.compute_model())
     self.l0.addWidget(self.ModelButton, b,0,1,c)
     self.ModelButton.setEnabled(False)
 
@@ -839,7 +842,7 @@ def make_buttons(self):
     b+=1
 
 
-    self.roi_count = QLabel('0 ROIs')
+    self.roi_count = QLabel('0 RoIs')
     # self.roi_count.setStyleSheet('color: white;')
     self.roi_count.setFont(self.boldfont_button)
     self.roi_count.setAlignment(Qt.AlignmentFlag.AlignCenter | Qt.AlignmentFlag.AlignVCenter)
@@ -857,7 +860,7 @@ def make_buttons(self):
     # add scrollbar underneath
     self.scroll = QScrollBar(QtCore.Qt.Horizontal)
     # self.scroll.setMaximum(10)
-    self.scroll.valueChanged.connect(self.move_in_Z)
+    self.scroll.valueChanged.connect(lambda: self.move_in_Z())
     self.l0.addWidget(self.scroll, b,TOOLBAR_WIDTH+1,1,3*b)
     
     # self.l0.addWidget(QLabel(''), b, 0,1,TOOLBAR_WIDTH)        
@@ -866,8 +869,8 @@ def make_buttons(self):
     self.win = pg.GraphicsLayoutWidget()
     self.win.viewport().setAttribute(QtCore.Qt.WidgetAttribute.WA_AcceptTouchEvents, False)
     self.l0.addWidget(self.win, 0, TOOLBAR_WIDTH+1, b, 3*b)
-    self.win.scene().sigMouseClicked.connect(self.plot_clicked)
-    self.win.scene().sigMouseMoved.connect(self.mouse_moved)
+    self.win.scene().sigMouseClicked.connect(lambda event: self.plot_clicked(event))
+    self.win.scene().sigMouseMoved.connect(lambda pos: self.mouse_moved(pos))
     self.make_viewbox()
     self.make_orthoviews()
     self.l0.setColumnStretch(TOOLBAR_WIDTH+1, 1)

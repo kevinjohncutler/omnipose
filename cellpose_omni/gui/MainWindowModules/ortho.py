@@ -85,6 +85,8 @@ def remove_orthoviews(self):
     self.show()
 
 def toggle_ortho(self):
+
+    print('\n\n\n\n test\n\n\n\n')
     if self.orthobtn.isChecked():
         self.add_orthoviews()
     else:

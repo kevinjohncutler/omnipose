@@ -1,4 +1,4 @@
-from .. import logger
+from .. import logger # from __init__.py in parent directory
 from omnipose.utils import normalize99
 import numpy as np
 
@@ -6,7 +6,7 @@ from PyQt6.QtGui import QPalette
 
 
 def update_roi_count(self):
-    self.roi_count.setText(f'{self.ncells} ROIs')        
+    self.roi_count.setText(f'{self.ncells} RoIs')        
 
 def update_shape(self): 
     self.Ly, self.Lx, _ = self.stack[self.currentZ].shape
@@ -167,6 +167,7 @@ def reset(self):
     self.layerz = np.zeros((self.Ly,self.Lx,4), np.uint8)
     # image matrix with a scale disk
     self.radii = 0*np.ones((self.Ly,self.Lx,4), np.uint8)
+    
     self.cellpix = np.zeros((1,self.Ly,self.Lx), np.uint32)
     self.outpix = np.zeros((1,self.Ly,self.Lx), np.uint32)
     

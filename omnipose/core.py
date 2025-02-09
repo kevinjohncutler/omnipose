@@ -695,7 +695,8 @@ def get_link_matrix(links, piece_masks, inds, idx, is_link):
 # @njit() cannot compute fingerprint of empty set
 def masks_to_affinity(masks, coords, steps, inds, idx, fact, sign, dim,
                       neighbors=None,
-                      links=None, edges=None, dists=None, cutoff=np.sqrt(2)):
+                      links=None, edges=None, dists=None, cutoff=np.sqrt(2), 
+                      spatial=False):
     """
     Convert label matrix to affinity graph. Here the affinity graph is an NxM matrix,
     where N is the number of possible hypercube connections (3**dimension) and M is the
@@ -706,7 +707,6 @@ def masks_to_affinity(masks, coords, steps, inds, idx, fact, sign, dim,
     concatenated masks should be paddedby 1 to make sure that doesn't cause unextpected label merging 
     dist can be used instead for edge connectivity 
     """
-
 
     # only reason to pad with edgemode  is to leverage duplicating labels to connect to boundary
     # must pad with 1 to allow for simple neighbor indexing 
@@ -719,8 +719,9 @@ def masks_to_affinity(masks, coords, steps, inds, idx, fact, sign, dim,
     shape = masks.shape
     # dim x steps x npix array of pixel coordinates 
     if neighbors is None: 
+        
         neighbors = utils.get_neighbors(coords,steps,dim,shape,edges)
-    
+        
     # print('masks_to_affinity',masks.shape,coords[0].shape,neighbors.shape)
     
     # define where edges are, may be in the middle of concatenated images 
@@ -782,10 +783,17 @@ def affinity_to_boundary(masks,affinity_graph,coords):
     dim = masks.ndim       
     csum = np.sum(affinity_graph,axis=0)
     boundary = np.logical_and(csum<(3**dim-1),csum>0) # check this latter condition
-    bd_matrix = np.zeros(masks.shape,int)
-    bd_matrix[tuple(coords)] = boundary 
     
-    return bd_matrix
+    
+    print('boundary',boundary.shape)
+    # check if spatial or npix
+    # if spatial, no need to convert to mask coordinates 
+    if boundary.shape == masks.shape:
+        return boundary
+    else:
+        bd_matrix = np.zeros(masks.shape,int)
+        bd_matrix[tuple(coords)] = boundary 
+        return bd_matrix
     
 def spatial_affinity(affinity_graph, coords, shape):
     """

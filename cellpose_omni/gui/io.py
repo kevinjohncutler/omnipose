@@ -64,7 +64,9 @@ def _add_model(parent, filename=None, load_model=True):
 
     parent.ModelChoose.setCurrentIndex(len(parent.model_strings))
     if load_model:
-        parent.model_choose(len(parent.model_strings))
+        # parent.model_choose(len(parent.model_strings))
+        parent.model_choose()
+        
 
 def _remove_model(parent, ind=None, verbose=True):
     if ind is None:
@@ -621,4 +623,4 @@ def _save_sets(parent):
                  'runstring': parent.runstring.toPlainText()
                 })
     #print(parent.point_sets)
-    logger.info('%d ROIs saved to %s'%(parent.ncells, base + '_seg.npy'))
+    logger.info('%d RoIs saved to %s'%(parent.ncells, base + '_seg.npy'))
