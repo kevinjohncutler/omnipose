@@ -24,13 +24,8 @@ from PyQt6.QtGui import QPalette
 import pyqtgraph as pg
 
 import importlib
-import gc
 import importlib
 import inspect
-import difflib
-import chardet
-
-
 
 
 os.environ['QT_AUTO_SCREEN_SCALE_FACTOR'] = '1'
