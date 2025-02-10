@@ -95,12 +95,9 @@ have to as densely label.
 :header-2:`Segmentation options`
 --------------------------------
 
-``SIZE``: you can manually enter the approximate diameter for your cells, or
-press "calibrate" to let the SizeModel() estimate it. The size can be visualized
-by a disk at the bottom of the view window (can turn this disk on by
-checking "scale disk on"). Size defaults to 0 for bacterial models, which disables image resizing. 
+``SIZE``: you can manually enter the approximate diameter for your cells. Size defaults to 0 for bacterial models, which disables image resizing. 
 
-``use GPU``: this will be grayed out for conda envoronemts / machines not configured for running pytorch on GPU. 
+``use GPU``: this will be grayed out for environments not configured for running pytorch on GPU. 
 
 ``MODEL``: choose among several pretrained models 
 

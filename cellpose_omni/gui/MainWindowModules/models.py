@@ -81,18 +81,18 @@ def initialize_model(self):
 
         logger.info(f'Initializing model: nchan set to {self.nchan}, nclasses set to {self.nclasses}, dim set to {self.dim}')        
 
-        if self.SizeModel.isChecked():
-            self.model = models.Cellpose(gpu=self.useGPU.isChecked(),
+        # if self.SizeModel.isChecked():
+        #     self.model = models.Cellpose(gpu=self.useGPU.isChecked(),
+        #                                     use_torch=self.torch,
+        #                                     model_type=self.current_model,
+        #                                     nchan=self.nchan,
+        #                                     nclasses=self.nclasses)
+        # else:
+        self.model = models.CellposeModel(gpu=self.useGPU.isChecked(),
                                             use_torch=self.torch,
-                                            model_type=self.current_model,
+                                            model_type=self.current_model,                                             
                                             nchan=self.nchan,
                                             nclasses=self.nclasses)
-        else:
-            self.model = models.CellposeModel(gpu=self.useGPU.isChecked(),
-                                                use_torch=self.torch,
-                                                model_type=self.current_model,                                             
-                                                nchan=self.nchan,
-                                                nclasses=self.nclasses)
         
         omni_model = 'omni' in self.current_model
         bacterial = 'bact' in self.current_model
@@ -291,52 +291,29 @@ def run_mask_reconstruction(self):
         maski, p, tr, bounds, augmented_affinity = ret
         
         self.masks = maski
-        # self.shape = maski.shape
-        # self.dim = maski.ndim
-        # self.coords = np.nonzero(self.masks)
         
-        # this does it all
-        self.initialize_seg(compute_affinity=True)
+        # print('yoyo', augmented_affinity) empty list 
 
-        
+        # repeated logic, factor out
+        self.initialize_seg(compute_affinity=True) # may not need to run again 
         if self.AffinityCheck.isChecked():
-            print(augmented_affinity.shape)
             self.neighbors = augmented_affinity[:self.dim]
-            self.affinity_graph = augmented_affinity[self.dim]
+            affinity_graph = augmented_affinity[self.dim]
             coords = np.nonzero(self.masks)
             # self.coords is form generate_flat_coordinates, which is all pixels in the image
             # here, still using the mask coordinates
-            self.bounds = core.affinity_to_boundary(self.masks, self.affinity_graph, coords)
-        else:
-            self.bounds = bounds # so I need to figure out why running on the affinity graph gave thick lines..
-            # self.bounds = core.affinity_to_boundary(self.masks, self.affinity_graph, self.coords) < this gave thick lines 
+            self.bounds = core.affinity_to_boundary(self.masks, affinity_graph, coords)
             
-        # or just flatten the spatial affinity 
-        # print('oh I need to finish this')
-                
-        # slicing is probably going to be a lot easier if we use the spatial affinity format 
-        # and that is what the pytorch code gives anyway 
-        # for now, convert directly 
-        # self.spatial_affinity = core.spatial_affinity(self.affinity_graph, self.coords, self.shape)
-                
-     
-        # for the pruposes of the GUI, we may want to store the affinity graph as a
-        # (8,Y,X) array rather than a (9,N) array... unless N is always the same size 
-        
+            # update the full affinity graph - maybe easiest to use spatical affinity format?
+            self.affinity_graph = core.spatial_affinity(affinity_graph, coords, self.shape)
+             
+        else:
+            self.bounds = bounds 
 
-        # self.neighbors = core.get_neighbors(self.spatial_affinity, self.meshgrid, self.shape)
-        # self.meshgrid = misc.meshgrid(self.shape)
-        # self.indexes, self.neigh_inds, self.ind_matrix = utils.get_neigh_inds(tuple(self.neighbors),self.meshgrid,self.shape)
-        
-        # self.steps, self.inds, self.idx, self.fact, self.sign = utils.kernel_setup(self.dim)
-        # self.non_self = np.array(list(set(np.arange(len(self.steps)))-{self.inds[0][0]})) 
-
-    
     # self.masksOn = True
     # self.MCheckBox.setChecked(True)
     # self.outlinesOn = True #should not turn outlines back on by default; masks make sense though 
     # self.OCheckBox.setChecked(True)
-    print('aa',self.masksOn, self.outlinesOn)
     if not (self.masksOn or self.outlinesOn):
         self.masksOn = True
         self.MCheckBox.setChecked(True)
@@ -416,7 +393,6 @@ def compute_model(self):
     self.runstring.setPlainText(s)
     self.progress.setValue(30)
     
-    print('self.model.eval()')
     masks, flows = self.model.eval(data, channels=channels,
                                     mask_threshold=self.cellprob,
                                     flow_threshold=self.threshold,
@@ -455,43 +431,32 @@ def compute_model(self):
     else:
         self.flows[2] = np.zeros_like(self.flows[1])
         
-    # boundary and affinity
-    self.bounds = flows[-1]
+
     self.masks = masks
+    # boundary and affinity
+    bounds = flows[-1]
+    augmented_affinity = flows[-2]
     
     
-    self.initialize_seg(compute_affinity=True)
-    
+    # repeated logic, factor out
+    self.initialize_seg(compute_affinity=True) # may not need to run agaain now
     
     if self.AffinityCheck.isChecked():
-        augmented_affinity = flows[-2]
-        neighbors = augmented_affinity[:self.dim]
-        affinity = augmented_affinity[self.dim]
+        self.neighbors = augmented_affinity[:self.dim]
+        affinity_graph = augmented_affinity[self.dim]
+        coords = np.nonzero(self.masks)
+        # self.coords is form generate_flat_coordinates, which is all pixels in the image
+        # here, still using the mask coordinates
+        self.bounds = core.affinity_to_boundary(self.masks, affinity_graph, coords)
         
-        print('in compute_model, len(affinity) is ',len(affinity))
+        # update the full affinity graph - maybe easiest to use spatical affinity format?
+        self.affinity_graph = core.spatial_affinity(affinity_graph, coords, self.shape)
+            
+    else:
+        self.bounds = bounds
         
-        inds = self.ind_matrix[self.masks>0]
-        # self.affinity_graph = np.zeros(self.neighbors.shape[1:],bool)
-        # print('a', self.ind_matrix.shape, self.masks.shape, self.neighbors.shape, self.affinity_graph.shape, augmented_affinity.shape)
-        # # a (384, 392) (384, 392) (2, 9, 150528) (9, 150528) (3, 9, 52306)
-        # print('b',self.affinity_graph[:,inds].shape, neighbors.shape)
-        self.affinity_graph[:,inds] = affinity
+        
 
-    # if not len(affinity):
-    #     print('initialize affinity with compute_affinity=True')
-    #     # if the affinity graph is returned empty, we can just recompute it
-    #     self.initialize_seg(compute_affinity=True)
-        
-    # else:
-    #     print('update affinity')
-    #     print('x',self.ind_matrix.shape, self.masks.shape) # the shape has not been updated on an image move 
-    #     # self.update_affinity(affiniyt)
-
-        
-    # # print('affiniyt graph',flows[-2].shape)
-    # # self.affinity_graph = flows[-2]
-    
-    
     if not do_3D:
         masks = masks[np.newaxis,...]
         for i in range(3):

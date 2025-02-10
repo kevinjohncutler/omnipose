@@ -28,7 +28,6 @@ def color_choose(self):
     # self.update_plot()
 
 
-
 def set_hist_colors(self):
     region = self.hist.region
     # c = self.palette().brush(QPalette.ColorRole.Text).color() # selects white or black from palette

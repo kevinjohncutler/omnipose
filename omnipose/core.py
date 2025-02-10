@@ -756,7 +756,7 @@ def masks_to_affinity(masks, coords, steps, inds, idx, fact, sign, dim,
     return affinity_graph
 
 # @njit() error 
-def affinity_to_boundary(masks,affinity_graph,coords):
+def affinity_to_boundary(masks,affinity_graph,coords, dim=None):
     """Convert affinity graph to boundary map.
     
     Internal hypervoxels are those that are fully connected to all their 3^D-1 neighbors, 
@@ -780,12 +780,11 @@ def affinity_to_boundary(masks,affinity_graph,coords):
     
     boundary
     """
-    dim = masks.ndim       
+    if dim is None:
+        dim = masks.ndim       
     csum = np.sum(affinity_graph,axis=0)
     boundary = np.logical_and(csum<(3**dim-1),csum>0) # check this latter condition
     
-    
-    print('boundary',boundary.shape)
     # check if spatial or npix
     # if spatial, no need to convert to mask coordinates 
     if boundary.shape == masks.shape:

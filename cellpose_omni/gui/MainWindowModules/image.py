@@ -57,35 +57,6 @@ def gamma_change(self):
     # self.highlight_rect.setBrush(pg.mkBrush(color=(255, 0, 0, 50)))  # Semi-transparent fill 
 
 
-class LiveProxy:
-    """
-    A proxy that wraps an instance so that every method lookup retrieves
-    the current version of the method from the module.
-    
-    Parameters:
-      instance: The original instance created earlier.
-      class_getter: A callable that returns the current class definition for the instance.
-                    For example: lambda: __import__('guiparts', fromlist=['ImageDraw']).ImageDraw
-    """
-    def __init__(self, instance, class_getter):
-        self._instance = instance
-        self._get_current_class = class_getter
-
-    def __getattr__(self, name):
-        # Get the current version of the class
-        current_cls = self._get_current_class()
-        # Look up the attribute in the current class
-        attr = getattr(current_cls, name)
-        # If the attribute is a descriptor (has __get__), return it bound to the instance.
-        if hasattr(attr, '__get__'):
-            return attr.__get__(self._instance, current_cls)
-        # Otherwise, just return the attribute.
-        return attr
-
-def get_ImageDrawClass():
-    from ..guiparts import ImageDraw
-    return ImageDraw
-
 
 def make_viewbox(self):
     self.p0 = ViewBox(
@@ -110,8 +81,6 @@ def make_viewbox(self):
 
     # self.layer = guiparts.ImageDraw(viewbox=self.p0, parent=self)
     self.layer = guiparts.ImageDraw(parent=self)
-    # raw_layer = get_ImageDrawClass()(parent=self)
-    # self.layer = LiveProxy(raw_layer, get_ImageDrawClass)
     
     self.scale = pg.ImageItem(viewbox=self.p0, parent=self,levels=(0,255))
     

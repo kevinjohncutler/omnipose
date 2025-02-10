@@ -5,6 +5,7 @@ import pyqtgraph as pg
 from pyqtgraph import Point
 import numpy as np
 import os
+from omnipose.core import affinity_to_boundary
 
 from omnipose import core
 
@@ -15,6 +16,16 @@ SPACING = 3
 WIDTH_0 = 25
 
 from PyQt6.QtWidgets import QPlainTextEdit, QFrame
+
+from PyQt6.QtCore import QObject, QEvent
+
+class NoMouseFilter(QObject):
+    def eventFilter(self, obj, event):
+        if event.type() in (QEvent.Type.GraphicsSceneMousePress,
+                            QEvent.Type.GraphicsSceneMouseMove,
+                            QEvent.Type.GraphicsSceneMouseRelease):
+            return True  # Consume the event.
+        return super().eventFilter(obj, event)
 
 class TextField(QPlainTextEdit):
     clicked= QtCore.pyqtSignal()
@@ -280,8 +291,7 @@ class ImageDraw(pg.ImageItem):
         self._lastPos = None
 
     def mousePressEvent(self, event):
-
-        
+    
         x, y = int(event.pos().x()), int(event.pos().y())
 
         # Safely check for pick_label_enabled and flood_fill_enabled
@@ -301,15 +311,15 @@ class ImageDraw(pg.ImageItem):
             self._drawPixel(x, y) 
             event.accept()
         else:
-            super().mousePressEvent(event)
-
+            pg.ImageItem.mousePressEvent(self, event)
+            
     def mouseMoveEvent(self, event):
         if self._drawing:
             self._paintLine(self._lastPos, event.pos())
             self._lastPos = event.pos()
             event.accept()
         else:
-            super().mouseMoveEvent(event)
+            pg.ImageItem.mouseMoveEvent(self, event)
 
     def mouseReleaseEvent(self, event):
         if self._drawing:
@@ -320,13 +330,12 @@ class ImageDraw(pg.ImageItem):
             self.parent.update_layer()
             event.accept()
         else:
-            super().mouseReleaseEvent(event)
-            
+            # super().mouseReleaseEvent(event)
+            pg.ImageItem.mouseReleaseEvent(self, event)
             
     def _canDraw(self, event):
         """Checks if conditions allow drawing instead of panning."""
         # If brush_size is 0 or space is pressed, do not draw
-        print()
         if not self.parent.SCheckBox.isChecked():
             return False
         if getattr(self.parent, 'spacePressed', False):
@@ -361,6 +370,8 @@ class ImageDraw(pg.ImageItem):
         label = getattr(self.parent, 'current_label', 0)
         z = self.parent.currentZ
         masks = self.parent.cellpix[z]
+        bounds = self.parent.outpix[z] # this might be a direct hook to the display
+        
         affinity = self.parent.affinity_graph
         height, width = masks.shape
 
@@ -379,76 +390,77 @@ class ImageDraw(pg.ImageItem):
         kr0, kr1 = max(0, kr - y), kr + (r1 - y)
         kc0, kc1 = max(0, kr - x), kr + (c1 - x)
         ker_slc = (slice(kr0, kr1), slice(kc0, kc1))
+        
+        # Dilated slice (expand by 1 in all directions)
+        d = 1
+        dil_r0, dil_r1 = max(0, r0 - d), min(r1 + d, height)
+        dil_c0, dil_c1 = max(0, c0 - d), min(c1 + d, width)
+        dil_arr_slc = (slice(dil_r0, dil_r1), slice(dil_c0, dil_c1))
 
         # Apply kernel
         # masks[arr_slc][kernel[ker_slc]] = label
 
 
         # similar to _get_affinity, should check that too for some factoring out
-        # spurce inds restricts to valid sources 
+        # source inds restricts to valid sources 
         source_indices = self.parent.ind_matrix[arr_slc][kernel[ker_slc]]
         # source_indices = source_indices[source_indices>-1]
-        source_coords = tuple([c[source_indices] for c in self.parent.coords])
+        source_coords = tuple(c[source_indices] for c in self.parent.coords)
         targets = []
         
         masks[source_coords] = label # apply it here
         
-        
         if np.any(source_indices==-1):
             print('\n ERROR, negative index in source_indices')
 
-
-        # this is where I maybe should be using the spatial affinity graph
-        # either that, or I need a graph with all pxiels, including bacjgorund
-        # but my pytorch code works great with spatial affinity
-        print('affinity', affinity.shape)
-        if affinity is not None:
+        steps = self.parent.steps
+        dim = self.parent.dim
+        # print('affinity none?', affinity is None)
+        # print('affinity shape', affinity.shape, np.any(affinity))
+        if affinity is not None and affinity.shape[-dim:] == masks.shape:
             for i in self.parent.non_self:
-            # for i in range(len(self.parent.steps)//2):
-
-                target_indices = self.parent.neigh_inds[i][source_indices]                
-                if np.any(target_indices==-1):
-                    print('\n ERROR, negative index in target_indices')
-                # print('B', target_indices)            
-
-                target_coords = tuple(self.parent.neighbors[:,i,source_indices])
-                # print('C', target_coords)            
+                step = steps[i]
+                target_coords = tuple(c+s for c,s in zip(source_coords, step))
                 
-                # source_labels = masks[source_coords]
+               # source_labels = masks[source_coords]
                 target_labels = masks[target_coords]
-                if label !=0:
+                if label!=0:
                     connect = target_labels==label
                 else:
                     connect = False
-                    
-                # print('connect?', connect)
-                affinity[i][source_indices] = affinity[-(i+1)][target_indices] = connect
                 
-                targets.append(target_indices)
+                # update affinity graph
+                affinity[i][source_coords] = affinity[-(i+1)][target_coords] = connect
+                # affinity[i][target_coords] = affinity[-(i+1)][source_coords] = connect
+                
+                targets.append(target_coords)
+                
+        # I think I am missing the background pixels connected to it
+        # maybe the cleanup will do it 
 
-        # print('\n',self.parent.idx, affinity.shape)
+        # I could add a cleanup step here from get_affinity_torch
+        # it could operate on just the dilated region to update the affinity graph
+                 
+        # print('hh', self.parent.inds[0][0])   
+        # affinity[self.parent.inds[0][0]] = 0 # no need
         
-        # affinity[self.parent.idx] = 0
-        # print('checl',np.any(affinity[self.parent.idx]!=0))
-         
-        # I need to update both the source and target indices!
-        # indices = np.unique(source_indices+targets)
-        # csum = affinity[:,indices].sum(axis=0)
-        # is_bd = np.logical_and(csum<(3**self.parent.dim-1),csum>0)
-        
-        # coords = tuple([c[indices] for c in self.parent.coords])
-        
-        # self.parent.outpix[z][coords] = is_bd
-        
-        # there is also some jind of update happening elewhere...?
-        # it seems like maybe the islands of affinity is an artifact of only updating the source indices vs
-        # the whole kernel
-        # self.parent.outpix[z][arr_slc] = core.affinity_to_boundary( masks, affinity, tuple(self.parent.coords))[arr_slc]
-            
+                    
+        # update boundary
+        surround_coords = tuple(np.concatenate(arrays, axis=0) for arrays in zip(*targets))
+        # print('A', affinity.shape, masks.shape,  masks[surround_coords].shape, affinity[:,*surround_coords].shape)
+        bd = affinity_to_boundary(masks[surround_coords], affinity[:,*surround_coords], None, dim=dim)
+        bd = bd*masks[surround_coords]
+        # self.parent.
+        # print('yoyo', masks.ndim, dim,  self.parent.cellpix.ndim)
+        bounds[surround_coords] = bd
+
         # Update only the affected region of the overlay
-        self.parent.draw_layer(region=(c0, c1, r0, r1), z=z)
+        # self.parent.draw_layer(region=(c0, c1, r0, r1), z=z)
+        # pass a dilated region to catch the outer edges of the new boundary 
+        self.parent.draw_layer(region=(dil_c0, dil_c1, dil_r0, dil_r1), z=z)
         
-    def _floodFill(self, x, y, new_label):
+        
+    def _floodFill(self, x, y, new_label):        
         """Perform flood fill starting at (x, y) with the given new_label."""
         z = self.parent.currentZ
         array = self.parent.cellpix[z]
@@ -685,7 +697,8 @@ class RangeSlider(QSlider):
                                              pos-slider_min, slider_max-slider_min,
                                              opt.upsideDown)
 
-    
+
+
     
 class HistLUT(pg.HistogramLUTItem):
     sigLookupTableChanged = QtCore.pyqtSignal(object)
@@ -699,15 +712,32 @@ class HistLUT(pg.HistogramLUTItem):
         
         # self.gradient = GradientEditorItem(orientation=self.gradientPosition)
         # self.gradient = GradEditor(orientation=self.gradientPosition) #overwrite with mine
-        show_histogram = True
         
+        # Cache the original mouse event methods from the base class.
+        self._orig_mousePressEvent = pg.HistogramLUTItem.mousePressEvent
+        self._orig_mouseMoveEvent = pg.HistogramLUTItem.mouseMoveEvent
+        self._orig_mouseReleaseEvent = pg.HistogramLUTItem.mouseReleaseEvent
+        # You can also introduce a flag:
+        self.show_histogram = True
+
     def mousePressEvent(self, event):
-        if self.show_histogram:
-            super().mousePressEvent(event)
+        if not self.show_histogram:
+            event.accept()  # Block interaction
+        else:
+            # Call the cached base-class handler explicitly.
+            self._orig_mousePressEvent(self, event)
 
     def mouseMoveEvent(self, event):
-        if self.show_histogram:
-            super().mouseMoveEvent(event)
+        if not self.show_histogram:
+            event.accept()
+        else:
+            self._orig_mouseMoveEvent(self, event)
+
+    def mouseReleaseEvent(self, event):
+        if not self.show_histogram:
+            event.accept()
+        else:
+            self._orig_mouseReleaseEvent(self, event)
 
     def paint(self, p, *args):
         # paint the bounding edges of the region item and gradient item with lines
@@ -740,7 +770,7 @@ class HistLUT(pg.HistogramLUTItem):
                 p2mx = gradRect.bottomRight()
 
         p.setRenderHint(QtGui.QPainter.RenderHint.Antialiasing)
-        for pen in [pen]: #get rid of dirst entry, shadow of some sort
+        for pen in [pen]: #get rid of first entry, shadow of some sort
             p.setPen(pen)
 
             # lines from the linear region item bounds to the gradient item bounds
@@ -839,3 +869,66 @@ class IconToggleButton(QPushButton):
     def _emit_toggled(self):
         """Emit the toggled signal when the button is clicked."""
         self.toggled.emit(self.isChecked())
+        
+import numpy as np
+from PyQt6.QtCore import QPointF, QRectF, QLineF
+from PyQt6.QtGui import QPainter, QPen
+from pyqtgraph import GraphicsObject
+
+from PyQt6.QtCore import Qt
+class AffinityOverlay(GraphicsObject):
+    def __init__(self, pixel_size=1, threshold=0.5, parent=None):
+        super().__init__()
+        self.parent = parent
+        self.pixel_size = pixel_size
+        self.threshold = threshold
+        self.pen = QPen()
+        self.pen.setColor(Qt.GlobalColor.red)
+        self.pen.setWidth(1)
+        self._lines = None
+        # self._generate_lines()
+        # Turn the overlay off by default:
+        self.setVisible(False)
+
+    def _generate_lines(self):
+        offsets = self.parent.steps()
+        d, Y, X = self.parent.affinity.shape
+        xs = np.arange(X) * self.pixel_size + self.pixel_size / 2
+        ys = np.arange(Y) * self.pixel_size + self.pixel_size / 2
+        grid_x, grid_y = np.meshgrid(xs, ys)
+        lines = []
+        for direction in range(9):
+            if direction == 4:
+                continue
+            mask = self.parent.affinity[direction] > self.threshold
+            if not np.any(mask):
+                continue
+            start_x = grid_x[mask]
+            start_y = grid_y[mask]
+            dx, dy = offsets[direction] * self.pixel_size
+            end_x = start_x + dx
+            end_y = start_y + dy
+            for sx, sy, ex, ey in zip(start_x, start_y, end_x, end_y):
+                lines.append(QLineF(QPointF(sx, sy), QPointF(ex, ey)))
+        self._lines = lines
+
+    def boundingRect(self):
+        Y, X = self.parent.affinity.shape[1], self.parent.affinity.shape[2]
+        return QRectF(0, 0, X * self.pixel_size, Y * self.pixel_size)
+
+    def paint(self, painter, option, widget=None):
+        painter.setPen(self.pen)
+        if self._lines is None:
+            self._generate_lines()
+        painter.drawLines(self._lines)
+
+    def toggle(self, visible=None):
+        """Toggle the overlay on and off. If 'visible' is provided, use it; otherwise, toggle current state."""
+        print('ss')
+       
+        self._generate_lines()
+        if visible is None:
+                visible = not self.isVisible()
+                
+                
+        self.setVisible(visible)

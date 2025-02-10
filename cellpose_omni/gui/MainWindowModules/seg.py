@@ -9,18 +9,34 @@ def initialize_seg(self, compute_affinity=False):
     self.dim = len(self.shape) 
     self.steps, self.inds, self.idx, self.fact, self.sign = utils.kernel_setup(self.dim)
     self.supporting_inds = utils.get_supporting_inds(self.steps)
-    self.coords = misc.generate_flat_coordinates(self.shape)
+    self.coords = misc.generate_flat_coordinates(self.shape) # for all pixelsom the image 
+    # ^ I need to see if I use that anymore, becasue the below method does not use it 
+    # but might be needed below to index the WHOLE FoV, not just the masks
+    
     self.neighbors = utils.get_neighbors(self.coords, self.steps, self.dim, self.shape)
     self.indexes, self.neigh_inds, self.ind_matrix = utils.get_neigh_inds(tuple(self.neighbors),self.coords,self.shape)
     self.non_self = np.array(list(set(np.arange(len(self.steps)))-{self.inds[0][0]})) 
+    
+    #ind_matrix could be comouted much more cheaply, or not even deeded? 
+    # with the spatial affinity versuon 
+    
     if not hasattr(self,'affinity_graph') or compute_affinity:
-        logger.info('initializing affinity graph')
+        # logger.info('initializing affinity graph')
+
+        
+        # intialize affinity graph with spatial affinity
+        S = len(self.steps)
+        self.affinity_graph = np.zeros((S,)+self.shape,bool)
+        
         if np.any(self.masks):
-            self.affinity_graph = core.masks_to_affinity(self.masks, self.coords, self.steps, 
+            coords = np.nonzero(self.masks)
+            affinity_graph = core.masks_to_affinity(self.masks, coords, self.steps, 
                                                     self.inds, self.idx, self.fact, 
                                                     self.sign, self.dim)
-        else:
-            self.affinity_graph = np.zeros(self.neighbors.shape[1:],bool)
+
+            # assign to spatial affinity 
+            self.affinity_graph[...,*coords] = affinity_graph
+    
     
     logger.info(f'affinity graph shape {self.affinity_graph.shape}')
 
@@ -60,7 +76,15 @@ def toggle_ncolor(self):
         # self.update_plot()
         self.update_layer()
 
-
+def toggle_affiniy_graph(self):
+    if self.ACheckBox.isChecked():
+        self.affinityOn = True
+    else:
+        self.affinityOn = False
+    self.draw_layer()
+    if self.loaded:
+        # self.update_plot()
+        self.update_layer()
 
 def update_active_label(self):
     """Update self.current_label from the input field."""
@@ -132,6 +156,7 @@ def draw_layer(self, region=None, z=None):
             # there is something weird going on woith initializing the affinity graoh from the npy
             # they need to be deleted I think, or need some workaround to overwrite masks and shape etc. 
             # as they get reset as 512
+            
             
             
             # print(self.cellpix[z].shape, self.shape,self.affinity_graph.shape, len(self.coords), self.coords[0].shape)

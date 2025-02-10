@@ -511,6 +511,19 @@ def make_buttons(self):
     self.OCheckBox.setChecked(False)
     self.OCheckBox.toggled.connect(lambda: self.toggle_masks())
     self.l0.addWidget(self.OCheckBox, b, 0, 1, 2)
+    
+    # AFFINITY GRAPH TOGGLE
+    b += 1
+    self.agridOn = False  # Turn off by default
+    self.ACheckBox = QCheckBox('affinity graph')
+    self.ACheckBox.setToolTip('Press A toggle affinity graph overlay')
+    self.ACheckBox.setStyleSheet(self.checkstyle)
+    self.ACheckBox.setFont(self.medfont)
+    self.ACheckBox.setChecked(False)
+    # self.ACheckBox.toggled.connect(lambda: self.toggle_affiniy_graph())
+    self.ACheckBox.toggled.connect(self.affinityOverlay.toggle)
+    self.l0.addWidget(self.ACheckBox, b, 0, 1, 2)
+    
 
     # CROSSHAIR TOGGLE
     # b -= 1  # Adjust layout row
@@ -631,15 +644,16 @@ def make_buttons(self):
     
     # SIZE MODEL
     b+=1
-    self.SizeModel = QCheckBox('SizeModel rescaling')
-    self.SizeModel.setStyleSheet(self.checkstyle)
-    self.SizeModel.setFont(self.medfont)
-    self.SizeModel.setChecked(False)
-    self.SizeModel.setToolTip('sets whether or not to use a SizeModel for rescaling \nprior to running network')
-    self.l0.addWidget(self.SizeModel, b,0,1,2)
+    # self.SizeModel = QCheckBox('SizeModel rescaling')
+    # self.SizeModel.setStyleSheet(self.checkstyle)
+    # self.SizeModel.setFont(self.medfont)
+    # self.SizeModel.setChecked(False)
+    # self.SizeModel.setToolTip('sets whether or not to use a SizeModel for rescaling \nprior to running network')
+    # self.l0.addWidget(self.SizeModel, b,0,1,2)
 
 
     # BOUNDARY FIELD CHECKBOX (sets nclasses to 3 instead of 2)
+    # This should be done automatically by the model in the final version
     b+=1
     self.boundary = QCheckBox('boundary field output')
     self.boundary.setStyleSheet(self.checkstyle)
@@ -650,7 +664,7 @@ def make_buttons(self):
     
 
     # Disabling this for now, always do fast
-    # b+=1
+    b+=1
     self.NetAvg = QComboBox()
     self.NetAvg.setStyleSheet(self.dropdowns(width=WIDTH_5))
     self.NetAvg.setFixedWidth(WIDTH_5)
@@ -877,8 +891,4 @@ def make_buttons(self):
     # self.l0.setMaximumWidth(100)
     # self.ScaleOn.setChecked(False)  # can only toggle off after make_viewbox is called 
 
-    
-
-
-    return b
     

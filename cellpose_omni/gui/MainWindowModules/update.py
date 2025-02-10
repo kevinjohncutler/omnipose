@@ -3,7 +3,22 @@ from omnipose.utils import normalize99
 import numpy as np
 
 from PyQt6.QtGui import QPalette
+from PyQt6.QtCore import Qt
+from PyQt6.QtWidgets import QGraphicsItem
+from PyQt6 import QtCore
+import pyqtgraph as pg
 
+class NonInteractiveHistogramLUTItem(pg.HistogramLUTItem):
+    def event(self, event):
+        # When in non-interactive mode, simply consume mouse and hover events.
+        if event.type() in (QtCore.QEvent.Type.GraphicsSceneMousePress,
+                            QtCore.QEvent.Type.GraphicsSceneMouseMove,
+                            QtCore.QEvent.Type.GraphicsSceneMouseRelease,
+                            QtCore.QEvent.Type.GraphicsSceneHoverEnter,
+                            QtCore.QEvent.Type.GraphicsSceneHoverMove,
+                            QtCore.QEvent.Type.GraphicsSceneHoverLeave):
+            return True  # Consume the event; do nothing.
+        return super().event(event)
 
 def update_roi_count(self):
     self.roi_count.setText(f'{self.ncells} RoIs')        
@@ -29,19 +44,11 @@ def update_plot(self):
     self.update_shape()
     
     # toggle off histogram for flow field 
-    if self.view==1:
-        self.opacity_effect.setOpacity(0.0)  # Hide the histogram
-        # self.hist.gradient.setEnabled(False)
-        # self.hist.region.setEnabled(False)
-        # self.hist.background = None
+    if self.view == 1:
+        self.opacity_effect.setOpacity(0.0)
         self.hist.show_histogram = False
-        # self.hist.fillLevel = None
-
-
     else:
-        self.opacity_effect.setOpacity(1.0)  # Show the histogram
-        # self.hist.gradient.setEnabled(True)
-        # self.hist.region.setEnabled(True)
+        self.opacity_effect.setOpacity(1.0)
         self.hist.show_histogram = True
 
     if self.NZ < 2:
@@ -118,7 +125,7 @@ def update_plot(self):
     # self.slider.setLow(self.saturation[self.currentZ][0])
     # self.slider.setHigh(self.saturation[self.currentZ][1])
     # if self.masksOn or self.outlinesOn:
-    #     self.layer.setImage(self.layerz[self.currentZ], autoLevels=False) <<< something to do with it 
+    #     self.layer.setImage(self.layerz[self.currentZ], autoLevels=False) #<<< something to do with it 
     self.win.show()
     self.show()
 

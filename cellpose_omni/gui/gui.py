@@ -187,14 +187,15 @@ class MainW(QMainWindow):
         self.loaded = False
 
         self.make_main_widget()
-        self.imask = 0
+        
+        self.affinityOverlay = guiparts.AffinityOverlay(parent=self)
 
-        b = self.make_buttons() # no longer need to return b
-        # self.cwidget.setStyleSheet('border: 1px; border-radius: 10px')
+        self.imask = 0
+        
         
 
-        # hard-coded colormaps entirely replaced with pyqtgraph
-
+        self.make_buttons() # no longer need to return b
+        
         # Instantiate the Colormap object
         cmap = Colormap("gist_ncar")
 
@@ -227,11 +228,9 @@ class MainW(QMainWindow):
                                 'n_epochs': 100,
                                 'model_name':'CP' + d.strftime("_%Y%m%d_%H%M%S")
                                }
-        
 
 
         self.setAcceptDrops(True)
-
         self.win.show()
         self.show()
         
@@ -288,132 +287,132 @@ class MainW(QMainWindow):
         # Now update instance fields
         self.update_mainw_fields()
         
-    def update_mainw_fields_old(self):
-        """
-        For each whitelisted field in the MainW instance (e.g., 'layer'),
-        check if the file defining its class has changed. If so, update only
-        the methods defined directly in that class (i.e. in its __dict__)
-        on the existing instance.
-        """
-        # Whitelist: only update these fields.
-        fields_to_update = ['layer']
+    # def update_mainw_fields_old(self):
+    #     """
+    #     For each whitelisted field in the MainW instance (e.g., 'layer'),
+    #     check if the file defining its class has changed. If so, update only
+    #     the methods defined directly in that class (i.e. in its __dict__)
+    #     on the existing instance.
+    #     """
+    #     # Whitelist: only update these fields.
+    #     fields_to_update = ['layer']
         
-        # for field in fields_to_update:
-        for field, instance in self.__dict__.items():
-            # print(field)
-            instance = getattr(self, field, None)
-            if instance is None or not hasattr(instance, '__class__'):
-                continue
+    #     # for field in fields_to_update:
+    #     for field, instance in self.__dict__.items():
+    #         # print(field)
+    #         instance = getattr(self, field, None)
+    #         if instance is None or not hasattr(instance, '__class__'):
+    #             continue
             
-            old_cls = instance.__class__
-            module_name = old_cls.__module__
-            try:
-                module = importlib.import_module(module_name)
-                mod_file = getattr(module, '__file__', None)
-                if mod_file is None or not os.path.exists(mod_file):
-                    continue
-                # Get the current modification time (rounded to integer seconds)
-                new_mtime = self.get_mtime(mod_file)
-            except Exception as e:
-                print(f"Error checking module time for {field}: {e}")
-                continue
+    #         old_cls = instance.__class__
+    #         module_name = old_cls.__module__
+    #         try:
+    #             module = importlib.import_module(module_name)
+    #             mod_file = getattr(module, '__file__', None)
+    #             if mod_file is None or not os.path.exists(mod_file):
+    #                 continue
+    #             # Get the current modification time (rounded to integer seconds)
+    #             new_mtime = self.get_mtime(mod_file)
+    #         except Exception as e:
+    #             print(f"Error checking module time for {field}: {e}")
+    #             continue
 
-            # Use the module's full name as the key in self.module_mtimes.
-            stored_mtime = self.module_mtimes.get(module_name)
-            if stored_mtime is not None and new_mtime == stored_mtime:
-                # No change detected – skip update.
-                continue
+    #         # Use the module's full name as the key in self.module_mtimes.
+    #         stored_mtime = self.module_mtimes.get(module_name)
+    #         if stored_mtime is not None and new_mtime == stored_mtime:
+    #             # No change detected – skip update.
+    #             continue
 
-            # Update the stored modification time for this module.
-            self.module_mtimes[module_name] = new_mtime
+    #         # Update the stored modification time for this module.
+    #         self.module_mtimes[module_name] = new_mtime
 
-            try:
-                new_cls = getattr(module, old_cls.__name__)
-            except Exception as e:
-                print(f"Error retrieving new class for {field}: {e}")
-                continue
+    #         try:
+    #             new_cls = getattr(module, old_cls.__name__)
+    #         except Exception as e:
+    #             print(f"Error retrieving new class for {field}: {e}")
+    #             continue
 
-            # Only update if the class has actually changed.
-            if new_cls is old_cls:
-                continue
+    #         # Only update if the class has actually changed.
+    #         if new_cls is old_cls:
+    #             continue
 
-            print(f"Updating instance '{field}' of class {old_cls.__name__}: {id(old_cls)} -> {id(new_cls)}")
-            # Loop over methods defined directly in new_cls (in its __dict__)
-            for key, new_method in new_cls.__dict__.items():
-                if callable(new_method):
-                    try:
-                        # Bind the new method to the existing instance.
-                        bound_method = new_method.__get__(instance, new_cls)
-                        setattr(instance, key, bound_method)
-                        print(f"  Updated {field}.{key}")
-                    except Exception as e:
-                        print(f"  Failed to update {field}.{key}: {e}")
+    #         print(f"Updating instance '{field}' of class {old_cls.__name__}: {id(old_cls)} -> {id(new_cls)}")
+    #         # Loop over methods defined directly in new_cls (in its __dict__)
+    #         for key, new_method in new_cls.__dict__.items():
+    #             if callable(new_method):
+    #                 try:
+    #                     # Bind the new method to the existing instance.
+    #                     bound_method = new_method.__get__(instance, new_cls)
+    #                     setattr(instance, key, bound_method)
+    #                     print(f"  Updated {field}.{key}")
+    #                 except Exception as e:
+    #                     print(f"  Failed to update {field}.{key}: {e}")
 
     
-    def update_mainw_fields(self):
-        """
-        Updates methods on instance fields whose classes are explicitly defined in allowed modules.
-        Groups fields by module and checks the module file’s modification time only once.
-        Only methods defined directly in the class (__dict__) are updated.
-        """
-        # Only update fields whose class is defined in these allowed modules.
-        allowed_mods = ("cellpose_omni.gui.guiparts",)
+    # def update_mainw_fields(self):
+    #     """
+    #     Updates methods on instance fields whose classes are explicitly defined in allowed modules.
+    #     Groups fields by module and checks the module file’s modification time only once.
+    #     Only methods defined directly in the class (__dict__) are updated.
+    #     """
+    #     # Only update fields whose class is defined in these allowed modules.
+    #     allowed_mods = ("cellpose_omni.gui.guiparts",)
         
-        # Group fields by module name.
-        fields_by_module = {}
-        for field_name, instance in self.__dict__.items():
-            if instance is None or not hasattr(instance, '__class__'):
-                continue
-            cls = instance.__class__
-            module_name = cls.__module__
-            # Only process if the module is allowed.
-            if module_name not in allowed_mods:
-                continue
-            fields_by_module.setdefault(module_name, []).append((field_name, instance))
+    #     # Group fields by module name.
+    #     fields_by_module = {}
+    #     for field_name, instance in self.__dict__.items():
+    #         if instance is None or not hasattr(instance, '__class__'):
+    #             continue
+    #         cls = instance.__class__
+    #         module_name = cls.__module__
+    #         # Only process if the module is allowed.
+    #         if module_name not in allowed_mods:
+    #             continue
+    #         fields_by_module.setdefault(module_name, []).append((field_name, instance))
         
-        # Process each module group.
-        for module_name, field_list in fields_by_module.items():
-            try:
-                module = importlib.import_module(module_name)
-                mod_file = getattr(module, '__file__', None)
-                if mod_file is None or not os.path.exists(mod_file):
-                    continue
-                new_mtime = self.get_mtime(mod_file)
-            except Exception as e:
-                print(f"Error checking module time for module '{module_name}': {e}")
-                continue
+    #     # Process each module group.
+    #     for module_name, field_list in fields_by_module.items():
+    #         try:
+    #             module = importlib.import_module(module_name)
+    #             mod_file = getattr(module, '__file__', None)
+    #             if mod_file is None or not os.path.exists(mod_file):
+    #                 continue
+    #             new_mtime = self.get_mtime(mod_file)
+    #         except Exception as e:
+    #             print(f"Error checking module time for module '{module_name}': {e}")
+    #             continue
             
-            stored_mtime = self.module_mtimes.get(module_name)
-            if stored_mtime is not None and new_mtime == stored_mtime:
-                # No change detected in this module – skip.
-                continue
+    #         stored_mtime = self.module_mtimes.get(module_name)
+    #         if stored_mtime is not None and new_mtime == stored_mtime:
+    #             # No change detected in this module – skip.
+    #             continue
             
-            # Now, for each field in this module, update its methods.
-            for field_name, instance in field_list:
-                old_cls = instance.__class__
-                try:
-                    # Retrieve the updated class from the module.
-                    new_cls = getattr(module, old_cls.__name__)
-                except Exception as e:
-                    print(f"Error retrieving new class for field '{field_name}': {e}")
-                    continue
+    #         # Now, for each field in this module, update its methods.
+    #         for field_name, instance in field_list:
+    #             old_cls = instance.__class__
+    #             try:
+    #                 # Retrieve the updated class from the module.
+    #                 new_cls = getattr(module, old_cls.__name__)
+    #             except Exception as e:
+    #                 print(f"Error retrieving new class for field '{field_name}': {e}")
+    #                 continue
                 
-                if new_cls is old_cls:
-                    continue  # The class hasn't changed.
+    #             if new_cls is old_cls:
+    #                 continue  # The class hasn't changed.
                 
-                print(f"Updating instance '{field_name}' of class {old_cls.__name__}: {id(old_cls)} -> {id(new_cls)}")
-                # Loop over methods defined directly in new_cls (from its __dict__).
-                for key, new_method in new_cls.__dict__.items():
-                    if callable(new_method):
-                        try:
-                            bound_method = new_method.__get__(instance, new_cls)
-                            setattr(instance, key, bound_method)
-                            print(f"  Updated {field_name}.{key}")
-                        except Exception as e:
-                            print(f"  Failed to update {field_name}.{key}: {e}")
+    #             print(f"Updating instance '{field_name}' of class {old_cls.__name__}: {id(old_cls)} -> {id(new_cls)}")
+    #             # Loop over methods defined directly in new_cls (from its __dict__).
+    #             for key, new_method in new_cls.__dict__.items():
+    #                 if callable(new_method):
+    #                     try:
+    #                         bound_method = new_method.__get__(instance, new_cls)
+    #                         setattr(instance, key, bound_method)
+    #                         print(f"  Updated {field_name}.{key}")
+    #                     except Exception as e:
+    #                         print(f"  Failed to update {field_name}.{key}: {e}")
             
-            # After processing all fields from this module, update the stored modification time.
-            self.module_mtimes[module_name] = new_mtime
+    #         # After processing all fields from this module, update the stored modification time.
+    #         self.module_mtimes[module_name] = new_mtime
           
     def update_mainw_fields(self):
         """
@@ -474,6 +473,7 @@ class MainW(QMainWindow):
                     continue
 
                 print(f"Updating instance '{field_name}' of class {old_cls.__name__}: {id(old_cls)} -> {id(new_cls)}")
+                   # Update the instance’s class pointer:
                 for method_name, new_method in new_cls.__dict__.items():
                     if callable(new_method):
                         try:
