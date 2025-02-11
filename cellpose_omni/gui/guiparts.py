@@ -415,10 +415,13 @@ class ImageDraw(pg.ImageItem):
 
         steps = self.parent.steps
         dim = self.parent.dim
+        idx = self.parent.inds[0][0]
         # print('affinity none?', affinity is None)
         # print('affinity shape', affinity.shape, np.any(affinity))
         if affinity is not None and affinity.shape[-dim:] == masks.shape:
             for i in self.parent.non_self:
+            # for i in self.parent.non_self[:idx]:
+            
                 step = steps[i]
                 target_coords = tuple(c+s for c,s in zip(source_coords, step))
                 
@@ -435,6 +438,16 @@ class ImageDraw(pg.ImageItem):
                 
                 targets.append(target_coords)
                 
+                if i<idx:
+                    inds = self.parent.pixelGridOverlay.lineIndices[*source_coords,i].tolist()
+                    opp_target_coords = tuple(c-s for c,s in zip(source_coords, step))
+                    inds += self.parent.pixelGridOverlay.lineIndices[*opp_target_coords,i].tolist()
+
+                    # pass in alpha based on affinity
+                    alpha = np.concatenate([affinity[i][source_coords], affinity[i][opp_target_coords]])
+                    self.parent.pixelGridOverlay.hide_lines_batch(inds, alpha, visible=False)
+                    
+                
         # I think I am missing the background pixels connected to it
         # maybe the cleanup will do it 
 
@@ -444,6 +457,13 @@ class ImageDraw(pg.ImageItem):
         # print('hh', self.parent.inds[0][0])   
         # affinity[self.parent.inds[0][0]] = 0 # no need
         
+        # now update the affinity grid plot
+        # affinity is spatial, so that helps
+        
+        # affinity[...,*source_coords]
+        
+        
+        # some strangeness with outlines on and masks off, as if the masks are zero?
                     
         # update boundary
         surround_coords = tuple(np.concatenate(arrays, axis=0) for arrays in zip(*targets))
@@ -874,61 +894,1005 @@ import numpy as np
 from PyQt6.QtCore import QPointF, QRectF, QLineF
 from PyQt6.QtGui import QPainter, QPen
 from pyqtgraph import GraphicsObject
+from PyQt6.QtWidgets import QGraphicsItem
+
 
 from PyQt6.QtCore import Qt
-class AffinityOverlay(GraphicsObject):
+class AffinityOverlay_old(GraphicsObject):
     def __init__(self, pixel_size=1, threshold=0.5, parent=None):
         super().__init__()
         self.parent = parent
         self.pixel_size = pixel_size
         self.threshold = threshold
         self.pen = QPen()
-        self.pen.setColor(Qt.GlobalColor.red)
-        self.pen.setWidth(1)
+        # self.pen.setColor(Qt.GlobalColor.white)
+        # self.pen.setWidth(.1)
         self._lines = None
         # self._generate_lines()
         # Turn the overlay off by default:
         self.setVisible(False)
+        
+        # try to avoid redraw
+        self.setCacheMode(QGraphicsItem.CacheMode.DeviceCoordinateCache)
+        # self.setAcceptedMouseButtons(QtCore.Qt.MouseButton.NoButton)
 
+    # def _generate_lines(self):
+    #     offsets = self.parent.steps
+    #     print('generate lines', offsets, self.pixel_size)
+    #     d, Y, X = self.parent.affinity_graph.shape
+    #     xs = np.arange(X) * self.pixel_size + self.pixel_size / 2
+    #     ys = np.arange(Y) * self.pixel_size + self.pixel_size / 2
+    #     grid_x, grid_y = np.meshgrid(xs, ys)
+    #     lines = []
+        
+    #     idx = self.parent.inds[0][0]
+    #     z = 0
+    #     source_mask = self.parent.cellpix[z]>0
+        
+    #     # for direction in self.parent.non_self:
+    #     for direction in self.parent.non_self[:idx]:
+    #     # for direction in self.parent.non_self[:2]:
+        
+        
+    #         print('direction', direction)
+    #         if direction == idx:
+    #             continue
+    #         target_mask = self.parent.affinity_graph[direction] 
+            
+    #         if not np.any(target_mask):
+    #             continue
+                
+    #         mask = np.logical_and(source_mask, target_mask>0)
+    #         start_x = grid_x[mask]
+    #         start_y = grid_y[mask]
+            
+    #         dy, dx = offsets[direction] * self.pixel_size
+    #         end_x = start_x + dx
+    #         end_y = start_y + dy
+            
+            
+    #         for sx, sy, ex, ey in zip(start_x, start_y, end_x, end_y):
+    #             lines.append(QLineF(QPointF(sx, sy), QPointF(ex, ey)))
+    #     self._lines = lines
+    
     def _generate_lines(self):
-        offsets = self.parent.steps()
-        d, Y, X = self.parent.affinity.shape
+        offsets = self.parent.steps
+        print('generate lines', offsets, self.pixel_size)
+        d, Y, X = self.parent.affinity_graph.shape
         xs = np.arange(X) * self.pixel_size + self.pixel_size / 2
         ys = np.arange(Y) * self.pixel_size + self.pixel_size / 2
         grid_x, grid_y = np.meshgrid(xs, ys)
         lines = []
-        for direction in range(9):
-            if direction == 4:
-                continue
-            mask = self.parent.affinity[direction] > self.threshold
-            if not np.any(mask):
-                continue
-            start_x = grid_x[mask]
-            start_y = grid_y[mask]
-            dx, dy = offsets[direction] * self.pixel_size
-            end_x = start_x + dx
-            end_y = start_y + dy
-            for sx, sy, ex, ey in zip(start_x, start_y, end_x, end_y):
+        
+        idx = self.parent.inds[0][0]
+        z = 0
+        source_mask = self.parent.cellpix[z]>0
+        
+        S, Y, X = self.parent.affinity_graph.shape
+        pixel_size = self.pixel_size
+        self.line_items = {i:None for i in self.parent.non_self}
+        print('generate lines', self.parent.steps, self.pixel_size)
+
+        # Build a grid of pixel centers.
+        xs = np.arange(X) * pixel_size + pixel_size / 2
+        ys = np.arange(Y) * pixel_size + pixel_size / 2
+        grid_x, grid_y = np.meshgrid(xs, ys)  # both shape (Y, X)
+        grid_x_flat = grid_x.ravel()
+        grid_y_flat = grid_y.ravel()
+
+        # Loop over each desired direction (from non_self).
+        for direction in self.parent.non_self[:idx]:
+            # Get the offset for this direction and scale by pixel size.
+            offset = self.parent.steps[direction]  # e.g. (dy, dx)
+            dy, dx = offset * pixel_size
+
+            # Compute the endpoints for every pixel.
+            x_end = grid_x_flat + dx
+            y_end = grid_y_flat + dy
+
+            # Optionally, filter out segments that go out of bounds.
+            in_bounds = ((x_end >= 0) & (x_end < X * pixel_size) &
+                         (y_end >= 0) & (y_end < Y * pixel_size))
+            x_start_valid = grid_x_flat[in_bounds]
+            y_start_valid = grid_y_flat[in_bounds]
+            x_end_valid   = x_end[in_bounds]
+            y_end_valid   = y_end[in_bounds]
+            
+            
+            for sx, sy, ex, ey in zip(x_start_valid, y_start_valid, x_end_valid, y_end_valid):
                 lines.append(QLineF(QPointF(sx, sy), QPointF(ex, ey)))
         self._lines = lines
 
+    def shape(self):
+        # Return an empty shape if you never need mouse interaction
+        path = QtGui.QPainterPath()
+        return path
+
     def boundingRect(self):
-        Y, X = self.parent.affinity.shape[1], self.parent.affinity.shape[2]
+        Y, X = self.parent.affinity_graph.shape[1], self.parent.affinity_graph.shape[2]
         return QRectF(0, 0, X * self.pixel_size, Y * self.pixel_size)
 
+    
     def paint(self, painter, option, widget=None):
         painter.setPen(self.pen)
         if self._lines is None:
             self._generate_lines()
+        print('drawing lines', len(self._lines))
         painter.drawLines(self._lines)
 
     def toggle(self, visible=None):
         """Toggle the overlay on and off. If 'visible' is provided, use it; otherwise, toggle current state."""
         print('ss')
-       
-        self._generate_lines()
+        self.pen.setColor(Qt.GlobalColor.white)
+        self.pen.setWidthF(.01)         # or 0.5, etc.
+        self.pen.setCosmetic(False)      # always 1px on-screen
+        self.pen.setCapStyle(Qt.PenCapStyle.RoundCap)
+        self.pen.setJoinStyle(Qt.PenJoinStyle.RoundJoin)
+        
         if visible is None:
-                visible = not self.isVisible()
-                
-                
+            visible = not self.isVisible()
         self.setVisible(visible)
+        # print('aa')
+        self._generate_lines()
+        self.update()  # schedule a real paint event
+
+
+
+   
+import numpy as np
+from PyQt6.QtCore import QPointF
+from PyQt6.QtGui import QPainterPath, QPen, QPolygonF
+from PyQt6.QtWidgets import QGraphicsPathItem, QGraphicsView, QGraphicsScene
+import pyqtgraph as pg
+
+from PyQt6 import sip
+
+class AffinityOverlay_new(GraphicsObject):
+    """
+    Holds separate QGraphicsPathItems for each 'direction' (0,1,2,3).
+    Toggling each direction simply sets that pathItem's visibility.
+    """
+    def __init__(self, 
+                 pixel_size=1.0,
+                 parent=None):
+        """
+        directions: list of (dx, dy) offsets from each pixel
+        """
+        super().__init__()
+
+        self.parent = parent
+        self.pixel_size = pixel_size
+        self.items = []
+        self.pen = QPen()
+        
+        
+        self.setCacheMode(QGraphicsItem.CacheMode.DeviceCoordinateCache)
+        
+
+    
+    def add_to_scene(self, scene):
+        """Add all direction items to the QGraphicsScene."""
+        self.scene = scene
+        for item in self.items:
+            scene.addItem(item)
+
+    def toggle_direction(self, dir_index, visible=None):
+        """
+        Toggle the path item at directions[dir_index].
+        If visible is None, flip the current visibility;
+        otherwise set it to the provided bool.
+        """
+        item = self.items[dir_index]
+        if visible is None:
+            visible = not item.isVisible()
+        item.setVisible(visible)
+    
+    def toggle(self, on=True):
+        """Convenience to show/hide all directions at once."""
+        print('ss', len(self.items))
+
+        if len(self.items)==0:
+            self._generate_lines()
+        
+        for item in self.items:
+            item.setVisible(on)
+        print(self.parent.indexes.shape, self.parent.neigh_inds.shape, self.parent.ind_matrix.shape, self.parent.coords[0].shape)
+        self.update()  # schedule a real paint event
+
+    
+    def build_line_arrays(self, x_start, y_start, x_end, y_end):
+        """
+        Given arrays of start and end coordinates for a set of line segments,
+        build interleaved arrays that PlotCurveItem can draw using connect='pairs'.
+        """
+        N = len(x_start)
+        xx = np.empty(2 * N, dtype=float)
+        yy = np.empty(2 * N, dtype=float)
+        xx[0::2] = x_start
+        yy[0::2] = y_start
+        xx[1::2] = x_end
+        yy[1::2] = y_end
+        return xx, yy
+
+    def generate_affinity_lines(self):
+        """
+        Compute the line segments for each direction (except self-connection)
+        in a fully vectorized way and create a PlotCurveItem for each.
+        The items are stored in self.line_items and added to the parent's view.
+        """
+        # Get image dimensions from the affinity graph shape.
+        # affinity_graph is assumed to have shape (S, Y, X)
+        S, Y, X = self.parent.affinity_graph.shape
+        pixel_size = self.pixel_size
+        self.line_items = {i:None for i in self.parent.non_self}
+        print('generate lines', self.parent.steps, self.pixel_size)
+
+        # Build a grid of pixel centers.
+        xs = np.arange(X) * pixel_size + pixel_size / 2
+        ys = np.arange(Y) * pixel_size + pixel_size / 2
+        grid_x, grid_y = np.meshgrid(xs, ys)  # both shape (Y, X)
+        grid_x_flat = grid_x.ravel()
+        grid_y_flat = grid_y.ravel()
+
+        # Loop over each desired direction (from non_self).
+        for direction in self.parent.non_self:
+            # Get the offset for this direction and scale by pixel size.
+            offset = self.parent.steps[direction]  # e.g. (dy, dx)
+            dy, dx = offset * pixel_size
+
+            # Compute the endpoints for every pixel.
+            x_end = grid_x_flat + dx
+            y_end = grid_y_flat + dy
+
+            # Optionally, filter out segments that go out of bounds.
+            in_bounds = ((x_end >= 0) & (x_end < X * pixel_size) &
+                         (y_end >= 0) & (y_end < Y * pixel_size))
+            x_start_valid = grid_x_flat[in_bounds]
+            y_start_valid = grid_y_flat[in_bounds]
+            x_end_valid   = x_end[in_bounds]
+            y_end_valid   = y_end[in_bounds]
+
+            # Build interleaved coordinate arrays.
+            xx, yy = self.build_line_arrays(x_start_valid, y_start_valid,
+                                            x_end_valid, y_end_valid)
+
+            # Create a PlotCurveItem using connect='pairs'.
+            pen = pg.mkPen('red', width=1.0,
+                           cap=QtCore.Qt.PenCapStyle.RoundCap,
+                           join=QtCore.Qt.PenJoinStyle.RoundJoin)
+            item = pg.PlotCurveItem(xx, yy, connect='pairs', pen=pen)
+            item.setVisible(False)  # start hidden
+            item.setCacheMode(QGraphicsItem.CacheMode.DeviceCoordinateCache)
+
+            # Store the item in the dictionary keyed by direction.
+            self.line_items[direction] = item
+
+            # Add the item to the parent's graphics view (assumed to be self.parent.p0).
+            self.parent.p0.addItem(item)
+    
+    # def array_to_qpolygonf(self,pts: np.ndarray) -> QPolygonF:
+    #     """
+    #     Convert a NumPy array of shape (npts, 2) into a QPolygonF.
+    #     This version explicitly specifies the number of bytes so that the
+    #     sip.voidptr has a known size.
+    #     """
+    #     poly = QPolygonF()
+    #     npts = pts.shape[0]
+    #     poly.resize(npts)
+    #     total_bytes = npts * 2 * 8  # npts * 2 coordinates * 8 bytes per double
+    #     vp = sip.voidptr(poly.data(), total_bytes, True)
+    #     mem = np.frombuffer(vp, dtype=np.float64).reshape((npts, 2))
+    #     mem[:] = pts
+    #     return poly
+        
+        
+    # def build_line_arrays(self, x_start, y_start, x_end, y_end):
+    #     """
+    #     Given 1D arrays x_start, y_start, x_end, y_end (all same length),
+    #     build an interleaved (2*N,2) array where each consecutive pair defines a line.
+    #     """
+    #     N = x_start.size
+    #     pts = np.empty((2 * N, 2), dtype=np.float64)
+    #     pts[0::2, 0] = x_start
+    #     pts[0::2, 1] = y_start
+    #     pts[1::2, 0] = x_end
+    #     pts[1::2, 1] = y_end
+    #     # return pts
+                
+    #     # """
+    #     # Given four 1D NumPy arrays (start_x, start_y, end_x, end_y) of equal length,
+    #     # interleave them into a (2*N, 2) array where each consecutive pair defines a line.
+    #     # Returns a QPolygonF built from this array.
+    #     # """
+    #     # N = start_x.size
+    #     # pts = np.empty((2 * N, 2), dtype=np.float64)
+    #     # pts[0::2, 0] = start_x
+    #     # pts[0::2, 1] = start_y
+    #     # pts[1::2, 0] = end_x
+    #     # pts[1::2, 1] = end_y
+    #     return self.array_to_qpolygonf(pts)
+
+
+    # def generate_affinity_lines(self):
+    #     """
+    #     Compute the line segments for each direction (from self.parent.non_self)
+    #     in a fully vectorized way and create a PlotCurveItem for each.
+    #     The items are stored in self.line_items and added to the parent's view.
+    #     """
+    #     # Affinity graph is assumed to have shape (S, Y, X)
+    #     S, Y, X = self.parent.affinity_graph.shape
+    #     pixel_size = self.pixel_size
+
+    #     # Build a grid of pixel centers.
+    #     xs = np.arange(X) * pixel_size + pixel_size / 2
+    #     ys = np.arange(Y) * pixel_size + pixel_size / 2
+    #     grid_x, grid_y = np.meshgrid(xs, ys)  # shape (Y, X)
+    #     grid_x_flat = grid_x.ravel()
+    #     grid_y_flat = grid_y.ravel()
+
+    #     # Initialize the dictionary to hold items.
+    #     self.line_items = {}
+
+    #     # Loop over each desired direction.
+    #     for direction in self.parent.non_self:
+    #         # Get the offset for this direction and scale by pixel size.
+    #         offset = self.parent.steps[direction]  # e.g. (dy, dx)
+    #         dy, dx = offset * pixel_size
+
+    #         # Compute endpoints for every pixel.
+    #         x_end = grid_x_flat + dx
+    #         y_end = grid_y_flat + dy
+
+    #         # Filter out segments that go out of bounds.
+    #         in_bounds = ((x_end >= 0) & (x_end < X * pixel_size) &
+    #                      (y_end >= 0) & (y_end < Y * pixel_size))
+    #         x_start_valid = grid_x_flat[in_bounds]
+    #         y_start_valid = grid_y_flat[in_bounds]
+    #         x_end_valid   = x_end[in_bounds]
+    #         y_end_valid   = y_end[in_bounds]
+
+    #         # Build interleaved coordinate array.
+    #         # pts = self.build_line_arrays(x_start_valid, y_start_valid,
+    #         #                              x_end_valid, y_end_valid)
+    #         # # Convert to QPolygonF in a vectorized manner.
+    #         # poly = self.array_to_qpolygonf(pts)
+            
+    #         # Build interleaved coordinate array (already returns a QPolygonF).
+    #         poly = self.build_line_arrays(x_start_valid, y_start_valid,
+    #                                     x_end_valid, y_end_valid)
+
+    #         # Create a PlotCurveItem using connect='pairs'
+    #         pen = pg.mkPen('red', width=1.0,
+    #                        cap=QtCore.Qt.PenCapStyle.RoundCap,
+    #                        join=QtCore.Qt.PenJoinStyle.RoundJoin)
+    #         item = pg.PlotCurveItem(poly, connect='pairs', pen=pen)
+    #         item.setVisible(False)
+    #         item.setCacheMode(QGraphicsItem.CacheMode.DeviceCoordinateCache)
+
+    #         # Store the item for this direction.
+    #         self.line_items[direction] = item
+    #         # Add the item to the parent's graphics view (assumed to be self.parent.p0).
+    #         self.parent.p0.addItem(item)
+
+    # def toggle(self, visible=True):
+    #     """
+    #     Toggle the visibility of all affinity line items.
+    #     Call this after generate_affinity_lines to show or hide them.
+    #     """
+    #     for item in self.line_items.values():
+    #         item.setVisible(visible)
+    #     self.update()
+
+    def toggle(self,visible=True):
+        """
+        (Optional) Update the appearance or data of the line items.
+        For example, you could recolor lines based on a threshold from the affinity graph.
+        This function demonstrates how you might loop over each item and update its pen.
+        """
+        # if not hasattr(self, 'line_items'):
+        self.generate_affinity_lines()
+        
+        self.pen.setColor(Qt.GlobalColor.white)
+        # self.pen.setWidth(.1)
+        self.pen.setWidthF(1.0)         # or 0.5, etc.
+        self.pen.setCosmetic(True)      # always 1px on-screen
+        self.pen.setCapStyle(Qt.PenCapStyle.RoundCap)
+        self.pen.setJoinStyle(Qt.PenJoinStyle.RoundJoin)
+        
+        print('ss', visible)
+        for direction, item in self.line_items.items():
+            # Here you can implement logic to update item data or appearance.
+            # For instance, change the pen color if needed.
+            
+            
+            # pen = pg.mkPen('red', width=1.0,
+            #                cap=QtCore.Qt.PenCapStyle.RoundCap,
+            #                join=QtCore.Qt.PenJoinStyle.RoundJoin)
+            item.setPen(self.pen)
+            item.setVisible(visible)  # start hidden
+
+        self.update()
+    
+    
+    def _generate_lines(self):
+    
+        print('generating lines')
+        self.steps = self.parent.steps # can truncate to first 4
+
+        # Y, X = self.parent.affinity_graph.shape[1], self.parent.affinity_graph.shape[2]
+        d, Y, X = self.parent.affinity_graph.shape
+
+        self.pen = QPen()
+        self.pen.setColor(pg.mkColor('white'))
+        self.pen.setWidthF(1.0)
+        self.pen.setCosmetic(True)  # always 1-pixel thick regardless of zoom
+        pixel_size = self.pixel_size
+        # Pre-build each direction’s path
+        
+        source = self.parent.coords
+        neigh_inds = self.parent.neigh_inds
+        self.lines = []
+        for neigh in neigh_inds:
+            print('a')
+            target = tuple(c[neigh] for c in coords)
+            
+        
+        
+        for i, (dy, dx) in enumerate(self.steps):
+            path_item = QGraphicsPathItem()
+            path_item.setPen(self.pen)
+            path_item.setVisible(False)  # start off hidden
+            path = QPainterPath()
+
+            # For each pixel (x,y), create a short line from (x,y) to (x+dx, y+dy)
+            # (Here we do a small subset example; in real code, do all valid pixels.)
+            for y in range(Y):
+                for x in range(X):
+                    # Starting point is center of the pixel
+                    sx = x * pixel_size + pixel_size/2
+                    sy = y * pixel_size + pixel_size/2
+                    ex = sx + dx * pixel_size
+                    ey = sy + dy * pixel_size
+
+                    # Move, then draw line
+                    path.moveTo(sx, sy)
+                    path.lineTo(ex, ey)
+            
+            path_item.setPath(path)
+            self.items.append(path_item)
+            
+        # print('len items', len(self.items))
+        
+
+        # offsets = self.parent.steps
+        # print('generate lines', offsets, self.pixel_size)
+        # xs = np.arange(X) * self.pixel_size + self.pixel_size / 2
+        # ys = np.arange(Y) * self.pixel_size + self.pixel_size / 2
+        # grid_x, grid_y = np.meshgrid(xs, ys)
+        # lines = []
+        
+        # idx = self.parent.inds[0][0]
+        # z = 0
+        # source_mask = self.parent.cellpix[z]>0
+
+        
+        # # for direction in self.parent.non_self:
+        # for direction in self.parent.non_self[:idx]:
+        # # for direction in self.parent.non_self[:2]:
+        
+        
+        #     print('direction', direction)
+        #     if direction == idx:
+        #         continue
+        #     target_mask = self.parent.affinity_graph[direction] 
+            
+        #     if not np.any(target_mask):
+        #         continue
+                
+        #     mask = np.logical_and(source_mask, target_mask>0)
+        #     start_x = grid_x[mask]
+        #     start_y = grid_y[mask]
+            
+        #     dy, dx = offsets[direction] * self.pixel_size
+        #     end_x = start_x + dx
+        #     end_y = start_y + dy
+            
+            
+        #     for sx, sy, ex, ey in zip(start_x, start_y, end_x, end_y):
+        #         lines.append(QLineF(QPointF(sx, sy), QPointF(ex, ey)))
+        # self._lines = lines
+        
+
+import pyqtgraph as pg
+import pyqtgraph.opengl as gl
+import numpy as np
+
+class AffinityOverlay_GL:
+    """
+    An OpenGL-based overlay that draws millions of short line segments efficiently.
+    """
+    def __init__(self, parent=None, pixel_size=1.0):
+        # 'parent' could be your main GUI or data holder
+        self.parent = parent
+        self.pixel_size = pixel_size
+
+        # Create a GLViewWidget to host the lines
+        self.gl_view = gl.GLViewWidget()
+
+        # Optional: configure camera or disable rotation if purely 2D
+        # self.gl_view.orbit(0, 0)   # choose orientation
+        # self.gl_view.setCameraPosition(distance=some_value)
+
+        # You can keep a list/dict of GLLinePlotItem
+        self.line_item = None
+
+        # By default, hide the entire GL widget
+        self.gl_view.setVisible(False)
+        
+        self.zValue = 0
+
+    def generate_segments(self):
+        """
+        Example that creates Nx2 or Nx3 array of vertex pairs, shaped (2*N,3)
+        for 'connect="pairs"'. We treat this as 3D coords in XY plane at Z=0.
+        """
+        # Suppose your parent has shape info:
+        S, Y, X = self.parent.affinity_graph.shape  # Example shape: (num_directions, Y, X)
+        steps = self.parent.steps                   # your offset vectors: e.g. (dy, dx)
+        pixel_size = self.pixel_size
+
+        # Make a grid of center points (x, y)
+        xs = np.arange(X) * pixel_size + (pixel_size/2)
+        ys = np.arange(Y) * pixel_size + (pixel_size/2)
+        grid_x, grid_y = np.meshgrid(xs, ys)
+        grid_x = grid_x.ravel()
+        grid_y = grid_y.ravel()
+
+        # For demonstration, just build a single huge array of line endpoints
+        # from multiple directions. For extremely large data, you might chunk or
+        # compress. We'll do 'pairs' so that every two consecutive points forms
+        # a line segment.
+
+        big_list = []
+        for direction in self.parent.non_self:
+            dy, dx = steps[direction] * pixel_size
+            x_end = grid_x + dx
+            y_end = grid_y + dy
+
+            # Filter out-of-bounds if desired
+            in_bounds = ((x_end >= 0) & (x_end < X*pixel_size) &
+                         (y_end >= 0) & (y_end < Y*pixel_size))
+            x_s = grid_x[in_bounds]
+            y_s = grid_y[in_bounds]
+            x_e = x_end[in_bounds]
+            y_e = y_end[in_bounds]
+
+            # Interleave [start, end, start, end, ...] in Nx3
+            # Z=0 for all points
+            seg_count = len(x_s)
+            coords = np.zeros((2*seg_count, 3), dtype=np.float32)
+            coords[0::2, 0] = x_s  # x-start
+            coords[0::2, 1] = y_s  # y-start
+            coords[1::2, 0] = x_e  # x-end
+            coords[1::2, 1] = y_e  # y-end
+            big_list.append(coords)
+
+        # Concatenate everything
+        all_coords = np.concatenate(big_list, axis=0)
+        return all_coords
+
+    def create_line_item(self):
+        """
+        Create or update the GLLinePlotItem from the line coordinates array.
+        """
+        coords = self.generate_segments()
+        # We'll color all lines white, for example
+        color = (1.0, 1.0, 1.0, 1.0)  # RGBA
+
+        # If you want 1-pixel width lines, set width=1.0 or so
+        self.line_item = gl.GLLinePlotItem(
+            pos=coords,         # Nx3 array
+            color=color,        
+            width=1.0,          # in pixel units
+            antialias=True,
+            mode='lines'        # or 'line_strip'
+        )
+
+        # Add to the GL view
+        self.gl_view.addItem(self.line_item)
+
+    def toggle(self, visible=None):
+        """
+        Toggle the overlay on/off. If 'visible' is None, flip current state.
+        """
+        current = self.gl_view.isVisible()
+        if visible is None:
+            visible = not current
+        self.gl_view.setVisible(visible)
+
+        if visible and self.line_item is None:
+            self.create_line_item()  # build the line buffer
+
+    def clear(self):
+        """
+        Remove lines from the scene if you need to rebuild from scratch.
+        """
+        if self.line_item is not None:
+            self.gl_view.removeItem(self.line_item)
+            self.line_item = None
+
+    # Optionally, provide a method for your main GUI to retrieve the widget itself:
+    def get_widget(self):
+        return self.gl_view
+
+import numpy as np
+import pyqtgraph as pg
+pg.setConfigOptions(useOpenGL=True)  # Attempt to enable OpenGL in pyqtgraph
+
+from pyqtgraph import GraphicsObject
+from PyQt6.QtWidgets import QGraphicsItem
+from PyQt6.QtGui import QPainter
+from PyQt6.QtCore import QRectF, Qt
+
+import OpenGL.GL as gl
+
+class GLLineOverlay(GraphicsObject):
+    """
+    A QGraphicsItem in pyqtgraph that uses raw OpenGL calls (via PyOpenGL)
+    to draw lines in an overlay. It draws two diagonals from (0,0) to (width,height)
+    and (0,height) to (width,0). 
+    """
+
+    def __init__(self, width=100, height=100, parent=None):
+        super().__init__()
+        self.parent = parent
+        self.width = width
+        self.height = height
+        
+        # No mouse interaction
+        self.setAcceptedMouseButtons(Qt.MouseButton.NoButton)
+
+        # Build the data for two lines (4 points total).
+        # Each line has 2 vertices => total 2*N points for N lines.
+        # lines: (0,0)->(width,height), (0,height)->(width,0)
+        self.vertex_data = np.array([
+            [0,          0],
+            [self.width, self.height],
+            [0,          self.height],
+            [self.width, 0],
+        ], dtype=np.float32)
+
+        # Create a Vertex Buffer Object (VBO) for the line data
+        self.vbo_id = gl.glGenBuffers(1)
+        self.upload_data()
+
+    def upload_data(self):
+        """Send our vertex_data to the GPU in a VBO."""
+        gl.glBindBuffer(gl.GL_ARRAY_BUFFER, self.vbo_id)
+        gl.glBufferData(gl.GL_ARRAY_BUFFER,
+                        self.vertex_data.nbytes,
+                        self.vertex_data,
+                        gl.GL_STATIC_DRAW)
+        gl.glBindBuffer(gl.GL_ARRAY_BUFFER, 0)
+
+    def update_size(self, width, height):
+        print('yo')
+        """If your underlying image/scene size changes, rebuild the lines."""
+        self.width = width
+        self.height = height
+        # Update line endpoints
+        self.vertex_data = np.array([
+            [0,          0],
+            [self.width, self.height],
+            [0,          self.height],
+            [self.width, 0],
+        ], dtype=np.float32)
+        self.upload_data()
+        self.update()  # schedule a repaint
+
+    def boundingRect(self):
+        """
+        Return the bounding rectangle in *local item coordinates*.
+        This is used for scene culling and mouse picking (if applicable).
+        """
+        return QRectF(0, 0, self.width, self.height)
+
+    def paint(self, painter, option, widget=None):
+        """
+        Called by the GraphicsView to draw this item.
+        We wrap raw OpenGL calls with QPainter's native-painting block.
+        """
+        painter.beginNativePainting()
+        try:
+            # Enable fixed-function vertex array
+            gl.glEnableClientState(gl.GL_VERTEX_ARRAY)
+
+            # Bind our VBO and point the OpenGL client state to it
+            gl.glBindBuffer(gl.GL_ARRAY_BUFFER, self.vbo_id)
+            gl.glVertexPointer(2, gl.GL_FLOAT, 0, None)
+
+            # Basic styling
+            gl.glLineWidth(1.0)
+            gl.glColor4f(1.0, 1.0, 1.0, 1.0)  # White lines
+
+            # Draw: 4 vertices => 2 lines
+            gl.glDrawArrays(gl.GL_LINES, 0, 4)
+
+            # Unbind
+            gl.glBindBuffer(gl.GL_ARRAY_BUFFER, 0)
+            gl.glDisableClientState(gl.GL_VERTEX_ARRAY)
+
+        finally:
+            painter.endNativePainting()
+
+    def shape(self):
+        """
+        If we needed mouse picking, we'd return a QPainterPath here.
+        We return an empty path because we don't want interaction.
+        """
+        return pg.QtGui.QPainterPath()
+
+    def setZValue(self, z):
+        """Let this overlay sit on top of other items if needed."""
+        super().setZValue(z)
+        
+import numpy as np
+import pyqtgraph as pg
+from pyqtgraph import GraphicsObject
+from PyQt6.QtWidgets import QGraphicsItem
+from PyQt6.QtGui import QPainter
+from PyQt6.QtCore import QRectF, Qt
+
+import OpenGL.GL as gl
+
+import random
+class GLPixelGridOverlay(GraphicsObject):
+    """
+    A QGraphicsItem that draws lines between centers of adjacent pixels
+    (including diagonal neighbors) in an Nx x Ny grid, using raw OpenGL calls.
+    """
+
+    def __init__(self, Nx=100, Ny=80, parent=None):
+        super().__init__()
+        self.parent = parent
+        self.Nx = Nx
+        self.Ny = Ny
+
+        self.setAcceptedMouseButtons(Qt.MouseButton.NoButton)
+
+        # Build vertex data (8-neighbor)
+        self.vertex_data = self._generate_grid_lines_8()
+        
+        # Create VBO
+        self.vbo_id = gl.glGenBuffers(1)
+        self.upload_data()
+        
+        # Suppose you have self.num_lines = N
+        # So self.vertex_data.shape = (2*N, 2)
+        # Create color array shape (2*N, 4), all white
+        self.num_lines = self.vertex_data.shape[0] // 2
+        self.color_data = np.zeros((2*self.num_lines, 4), dtype=np.float32)
+        self.base_alpha = np.ones_like(self.color_data[:, 3])  # all 1.0 initially
+
+        # Create a VBO for color
+        self.color_id = gl.glGenBuffers(1)
+        gl.glBindBuffer(gl.GL_ARRAY_BUFFER, self.color_id)
+        gl.glBufferData(gl.GL_ARRAY_BUFFER,
+                        self.color_data.nbytes,
+                        self.color_data,
+                        gl.GL_DYNAMIC_DRAW)  # dynamic, because we'll update it frequently
+        gl.glBindBuffer(gl.GL_ARRAY_BUFFER, 0)
+
+    def _generate_grid_lines_8(self):
+        """
+        Build a (2*E, 2) float array of line endpoints for 8-neighbor adjacency,
+        plus a 3D array lineIndices of shape (Ny, Nx, ndirs) storing the line index.
+        We only go 'forward' directions to avoid duplicates.
+        """
+        # Suppose 'idx' is how many offsets you want:
+        idx = self.parent.inds[0][0]  
+        neighbor_offsets = self.parent.steps[:idx]
+        print("Using offsets:", neighbor_offsets)
+        
+        coords = []
+        # lineIndices[j, i, d] -> which line index is used for pixel (i,j) and direction d
+        ndirs = len(neighbor_offsets)
+        lineIndices = np.full((self.Ny, self.Nx, ndirs), -1, dtype=int)
+
+        line_index = 0
+        
+        for j in range(self.Ny):
+            for i in range(self.Nx):
+                # center of pixel (i,j)
+                cx = i + 0.5
+                cy = j + 0.5
+
+                # loop over each direction
+                for d, (dy, dx) in enumerate(neighbor_offsets):
+                    ni = i + dx
+                    nj = j + dy
+
+                    # is neighbor in bounds?
+                    if (0 <= ni < self.Nx) and (0 <= nj < self.Ny):
+                        nx = ni + 0.5
+                        ny = nj + 0.5
+
+                        # We add two consecutive vertices => one line in the final buffer
+                        coords.append([cx, cy])
+                        coords.append([nx, ny])
+
+                        # record line index in lineIndices array
+                        lineIndices[j, i, d] = line_index
+                        line_index += 1
+
+        # Convert coords to float32 array
+        coords = np.array(coords, dtype=np.float32)
+        print("Total lines:", line_index, "vertex_data shape:", coords.shape)
+
+        # Store lineIndices for future lookups
+        self.lineIndices = lineIndices
+        self.num_lines = line_index
+
+        return coords
+
+    def upload_data(self):
+        """Upload the vertex data into a GPU buffer (VBO)."""
+        gl.glBindBuffer(gl.GL_ARRAY_BUFFER, self.vbo_id)
+        gl.glBufferData(gl.GL_ARRAY_BUFFER,
+                        self.vertex_data.nbytes,
+                        self.vertex_data,
+                        gl.GL_STATIC_DRAW)
+        gl.glBindBuffer(gl.GL_ARRAY_BUFFER, 0)
+
+    def boundingRect(self):
+        """
+        The bounding rect in local coords from (0,0) to (Nx, Ny).
+        Must match your image’s coordinate system if you want these lines 
+        exactly over the image.
+        """
+        return QRectF(0, 0, self.Nx, self.Ny)
+
+    
+    def paint(self, painter, option, widget=None):
+        # 1) Temporarily exit native painting so we can do CPU updates (not strictly required,
+        #    but often safer if you do QPainter stuff).
+        # painter.endNativePainting()
+
+        # 2) Read the transform scale from the painter
+        transform = painter.transform()
+        scale = transform.m11()  # no rotation/shear assumed
+
+        # print('yo', self.parent.coords[0].shape)
+        # self._generate_grid_lines_8()
+        # 3) Compute a smooth alpha factor from scale via a sigmoid
+        #    For example, fade out below 'threshold=1.0' with 'steepness=4.0'
+        alpha_scale = self.scale_to_alpha(scale, threshold=10.0, steepness=0.5)
+        # 4) Multiply the original alpha (self.base_alpha) by alpha_scale
+        #    so lines that were hidden remain hidden (base_alpha=0).
+        final_alpha = self.base_alpha * alpha_scale
+
+        # 5) Update just the alpha channel in self.color_data
+        self.color_data[:, 3] = final_alpha
+
+        # 6) Upload the color data to the GPU in one call
+        gl.glBindBuffer(gl.GL_ARRAY_BUFFER, self.color_id)
+        gl.glBufferSubData(gl.GL_ARRAY_BUFFER, 0, self.color_data.nbytes, self.color_data)
+        gl.glBindBuffer(gl.GL_ARRAY_BUFFER, 0)
+
+        # 7) Re-enter native painting for raw OpenGL calls
+        painter.beginNativePainting()
+        try:
+            # Enable scissor if you want the viewbox clipping
+            gl.glEnable(gl.GL_SCISSOR_TEST)
+            gl.glEnable(gl.GL_MULTISAMPLE)
+
+            gl.glEnable(gl.GL_BLEND)
+            gl.glBlendFunc(gl.GL_SRC_ALPHA, gl.GL_ONE_MINUS_SRC_ALPHA)
+
+            # Enable vertex array (positions)
+            gl.glEnableClientState(gl.GL_VERTEX_ARRAY)
+            gl.glBindBuffer(gl.GL_ARRAY_BUFFER, self.vbo_id)
+            gl.glVertexPointer(2, gl.GL_FLOAT, 0, None)
+
+            # Enable color array (per-vertex RGBA)
+            gl.glEnableClientState(gl.GL_COLOR_ARRAY)
+            gl.glBindBuffer(gl.GL_ARRAY_BUFFER, self.color_id)
+            gl.glColorPointer(4, gl.GL_FLOAT, 0, None)
+
+            # Adjust line width to mimic a cosmetic pen
+            inverse_scale = 1.0 / scale if scale > 0 else 1.0
+            dpix = self.parent.devicePixelRatio()
+            line_width = 1.0 * inverse_scale * dpix
+            gl.glLineWidth(line_width)
+
+            # Draw all lines
+            gl.glDrawArrays(gl.GL_LINES, 0, 2 * self.num_lines)
+
+            # Cleanup
+            gl.glBindBuffer(gl.GL_ARRAY_BUFFER, 0)
+            gl.glDisableClientState(gl.GL_COLOR_ARRAY)
+            gl.glDisableClientState(gl.GL_VERTEX_ARRAY)
+        finally:
+            gl.glDisable(gl.GL_MULTISAMPLE)
+            gl.glDisable(gl.GL_SCISSOR_TEST)
+            gl.glDisable(gl.GL_BLEND)
+            painter.endNativePainting()  
+    
+    def hide_lines_batch(self, indices, alpha=None, visible=False):
+        """
+        Hide or show all the lines in `indices` with a single GPU update.
+        If visible=False, set alpha=0 for each line (i.e. line is invisible).
+        If visible=True, set alpha=1 for each line (line is fully visible).
+        
+        Parameters
+        ----------
+        indices : list or array
+            List of line indices to hide/show. Each line i corresponds to
+            vertices [2*i, 2*i+1] in color_data.
+        visible : bool
+            If False, alpha=0 (invisible). If True, alpha=1 (visible).
+        """
+        new_alpha = 1.0 if visible else 0.0
+        
+        if alpha is None:
+            alpha = [1.0]*len(indices)
+
+        # 1) Modify self.color_data in CPU memory.
+        for i,a in zip(indices, alpha):
+            # Each line i has two vertices => color_data[2*i : 2*i+2].
+            # RGBA => color_data[...] shape is (N,4).
+            self.color_data[2*i : 2*i+2, 3] = new_alpha
+            
+            self.color_data[2*i : 2*i+2] = [a,a,a,a]
+        
+        # 2) Update GPU buffer. For simplicity, re-upload the entire color array:
+        gl.glBindBuffer(gl.GL_ARRAY_BUFFER, self.color_id)
+        gl.glBufferSubData(
+            gl.GL_ARRAY_BUFFER,
+            0,
+            self.color_data.nbytes,
+            self.color_data
+        )
+        gl.glBindBuffer(gl.GL_ARRAY_BUFFER, 0)
+        # 3) Trigger a redraw just once
+        self.update()
+        
+    def random_hide_test(self):
+        # pick half the lines to hide
+        indices = list(range(self.num_lines))
+        random.shuffle(indices)
+        half = self.num_lines // 2
+        hidden = indices[:half]
+        
+        # set alpha=0 for those lines in one pass
+        self.hide_lines_batch(hidden, visible=False)
+        
+    def show_all_lines(self):
+        # show all lines: just do alpha=1 for everything
+        self.color_data[:, 3] = 1
+        # print(self.color_data.shape)
+        # self.color_data[:,1] = 0
+        # self.color_data[:,0] = 0
+        
+        
+        gl.glBindBuffer(gl.GL_ARRAY_BUFFER, self.color_id)
+        gl.glBufferSubData(
+            gl.GL_ARRAY_BUFFER,
+            0,
+            self.color_data.nbytes,
+            self.color_data
+        )
+        gl.glBindBuffer(gl.GL_ARRAY_BUFFER, 0)
+        self.update()
+        
+    
+    def scale_to_alpha(self, scale, threshold=1.0, steepness=4.0):
+        """
+        Returns a value in [0..1] that smoothly ramps up around 'threshold'.
+        alpha = 1 / (1 + exp(-steepness*(scale - threshold)))
+        """
+        return 1.0 / (1.0 + np.exp(-steepness * (scale - threshold)))
+        
+    def shape(self):
+        """No mouse picking; return empty path."""
+        return pg.QtGui.QPainterPath()

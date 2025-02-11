@@ -26,9 +26,14 @@ def update_roi_count(self):
 def update_shape(self): 
     self.Ly, self.Lx, _ = self.stack[self.currentZ].shape
     self.shape = (self.Ly, self.Lx)
+    # self.pixelGridOverlay.update_size(self.Lx, self.Ly)
+    
+    
     
 def update_layer(self):
     logger.info(f'updating layer {self.loaded}')
+    
+    
     self.draw_layer()
     self.update_roi_count()
     self.win.show()
@@ -42,6 +47,7 @@ def draw_change(self):
 
 def update_plot(self):
     self.update_shape()
+
     
     # toggle off histogram for flow field 
     if self.view == 1:
@@ -116,8 +122,8 @@ def update_plot(self):
         
     self.set_hist_colors()
     
-    self.scale.setImage(self.radii, autoLevels=False)
-    self.scale.setLevels([0.0,255.0])
+    # self.scale.setImage(self.radii, autoLevels=False)
+    # self.scale.setLevels([0.0,255.0])
     #self.img.set_ColorMap(self.bwr)
     if self.NZ>1 and self.orthobtn.isChecked():
         self.update_ortho()

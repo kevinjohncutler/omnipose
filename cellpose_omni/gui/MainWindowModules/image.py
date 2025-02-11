@@ -61,7 +61,8 @@ def gamma_change(self):
 def make_viewbox(self):
     self.p0 = ViewBox(
         lockAspect=True,
-        invertY=True
+        invertY=True,
+        # border=pg.mkPen(color='red', width=1)
     )
     
     self.p0.setCursor(QtCore.Qt.CrossCursor)
@@ -82,20 +83,32 @@ def make_viewbox(self):
     # self.layer = guiparts.ImageDraw(viewbox=self.p0, parent=self)
     self.layer = guiparts.ImageDraw(parent=self)
     
-    self.scale = pg.ImageItem(viewbox=self.p0, parent=self,levels=(0,255))
+    # self.scale = pg.ImageItem(viewbox=self.p0, parent=self,levels=(0,255))
     
     self.p0.scene().contextMenuItem = self.p0
     self.p0.addItem(self.img)
     self.p0.addItem(self.layer)
-    self.p0.addItem(self.scale)
-            
+    # self.p0.addItem(self.scale)
+    
+    # self.p0.addItem(self.affinityOverlay)
+    # self.vboOverlay = guiparts.GLLineOverlay(parent=self) # width=self.Lx, height=self.Ly, 
+    # self.vboOverlay.setZValue(10)           # ensure it's on top
+    # self.vboOverlay.setVisible(False)       # or True, default off
+    # self.p0.addItem(self.vboOverlay)
+        
+    # self.l0.addWidget(self.affinityOverlay.get_widget())
+    
 
-    # Create the highlight path item
+                
+
+    # Create the highlight path item - our cursor 
     self.highlight_rect = QGraphicsPathItem()
     # self.highlight_rect.setPen(Qt.PenStyle.NoPen) # no outline
     self.highlight_rect.setPen(QPen(Qt.PenStyle.NoPen))
 
-    self.highlight_rect.setBrush(QBrush(pg.mkColor(255, 0, 0, 50)))  # Semi-transparent fill
+    self.highlight_rect.setBrush(QBrush(pg.mkColor(255, 0, 0, 100)))  # Semi-transparent fill
+    self.highlight_rect.setPen(pg.mkPen(color='red', width=1))
+
     self.p0.addItem(self.highlight_rect)
 
     # Add the rectangle to the ViewBox, which aligns it with the image coordinates

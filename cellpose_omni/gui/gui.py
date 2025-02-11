@@ -21,12 +21,13 @@ from PyQt6 import QtGui, QtCore, QtWidgets
 from PyQt6.QtCore import Qt, pyqtSlot, QCoreApplication
 from PyQt6.QtWidgets import QMainWindow, QApplication, QWidget, QScrollBar, QComboBox, QGridLayout, QPushButton, QCheckBox, QLabel, QProgressBar, QLineEdit, QScrollArea
 from PyQt6.QtGui import QPalette
-import pyqtgraph as pg
 
 import importlib
 import importlib
 import inspect
 
+import pyqtgraph as pg
+pg.setConfigOptions(useOpenGL=True)
 
 os.environ['QT_AUTO_SCREEN_SCALE_FACTOR'] = '1'
 
@@ -183,7 +184,7 @@ class MainW(QMainWindow):
 
         self.make_main_widget()
         
-        self.affinityOverlay = guiparts.AffinityOverlay(parent=self)
+        # self.affinityOverlay = guiparts.AffinityOverlay(parent=self) # allow for it to be added in make_viewbox
 
         self.imask = 0
         
@@ -223,7 +224,20 @@ class MainW(QMainWindow):
                                 'n_epochs': 100,
                                 'model_name':'CP' + d.strftime("_%Y%m%d_%H%M%S")
                                }
+        
+        
+            # Suppose Nx, Ny from your image dimension or (Lx, Ly)
+        Nx = self.Lx
+        Ny = self.Ly
 
+        # Create the overlay item
+        self.pixelGridOverlay = guiparts.GLPixelGridOverlay(Nx, Ny, parent=self)
+        # self.pixelGridOverlay.setZValue(-10)  # ensure it's on top
+        self.pixelGridOverlay.setVisible(False)  # default off, if you like
+
+        
+        # Add it to the ViewBox
+        self.p0.addItem(self.pixelGridOverlay)
 
         self.setAcceptDrops(True)
         self.win.show()

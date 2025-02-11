@@ -515,14 +515,20 @@ def make_buttons(self):
     # AFFINITY GRAPH TOGGLE
     b += 1
     self.agridOn = False  # Turn off by default
-    self.ACheckBox = QCheckBox('affinity graph')
-    self.ACheckBox.setToolTip('Press A toggle affinity graph overlay')
+    self.ACheckBox = QCheckBox('pixel grid')
+    self.ACheckBox.setToolTip('Press A toggle pixel grid overlay')
     self.ACheckBox.setStyleSheet(self.checkstyle)
     self.ACheckBox.setFont(self.medfont)
     self.ACheckBox.setChecked(False)
     # self.ACheckBox.toggled.connect(lambda: self.toggle_affiniy_graph())
-    self.ACheckBox.toggled.connect(self.affinityOverlay.toggle)
+    # self.ACheckBox.toggled.connect(lambda x: print("Checkbox toggled:", x))
+    # self.ACheckBox.toggled.connect(lambda: self.affinityOverlay.toggle())
+    self.ACheckBox.toggled.connect(lambda x: self.pixelGridOverlay.setVisible(x))
+    
+    # self.ACheckBox.toggled.connect(self.toggle_affinity)
+    
     self.l0.addWidget(self.ACheckBox, b, 0, 1, 2)
+    
     
 
     # CROSSHAIR TOGGLE

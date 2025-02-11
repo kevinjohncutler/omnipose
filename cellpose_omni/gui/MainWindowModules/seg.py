@@ -76,15 +76,23 @@ def toggle_ncolor(self):
         # self.update_plot()
         self.update_layer()
 
-def toggle_affiniy_graph(self):
+def toggle_affinity_graph(self):
+    print('yoyo')
     if self.ACheckBox.isChecked():
         self.affinityOn = True
+        self.affinityOverlay._generate_lines()
+        
+        self.affinityOverlay.setVisible(True)
     else:
         self.affinityOn = False
-    self.draw_layer()
-    if self.loaded:
-        # self.update_plot()
-        self.update_layer()
+        self.affinityOverlay.setVisible(False)
+        
+    # self.draw_layer()
+    # if self.loaded:
+    #     # self.update_plot()
+    #     self.update_layer()
+    
+    
 
 def update_active_label(self):
     """Update self.current_label from the input field."""
@@ -169,4 +177,7 @@ def draw_layer(self, region=None, z=None):
 
         # Finally update the displayed image
         self.layer.setImage(self.layerz, autoLevels=False)
+        
+        
+        # self.pixelGridOverlay
 
