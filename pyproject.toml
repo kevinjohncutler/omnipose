@@ -41,3 +41,8 @@ omnipose = "omnipose.__main__:main"
 
 [tool.setuptools_scm]
 write_to = "omnipose/_version.py"
+
+[tool.pytest.ini_options]
+minversion = "6.0"
+addopts = "--cov=omnipose --cov-report=term-missing"
+testpaths = ["tests"]
