@@ -34,10 +34,8 @@ dependencies = [
     'torch_optimizer', # for RADAM, now supported directly in pytorch though
 ]
 
-[project.entry-points]
-console_scripts = [
-    "omnipose=omnipose.__main__:main",
-]
+[project.entry-points.console_scripts]
+omnipose = "omnipose.__main__:main"
 
 [tool.setuptools_scm]
 write_to = "omnipose/_version.py"
