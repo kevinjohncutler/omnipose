@@ -54,3 +54,6 @@ dev = [
     "black",
     "isort",
 ]
+
+[tool.setuptools.packages.find]
+include = ["omnipose", "cellpose_omni"]
