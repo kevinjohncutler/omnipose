@@ -4,18 +4,47 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "omnipose"
-# specify these in setup.py 
-dynamic = ["version",
-           "description",
-           "readme",
-           "authors", 
-           "classifiers",
-           "dependencies",
-           "optional-dependencies"]
+version = "0.0.0"  # Version par défaut, sera remplacée par setuptools_scm
+description = "Cell segmentation algorithm improving on the Cellpose framework"
+readme = "README.rst"
+authors = [{name = "Kevin Cutler", email = "kevinjohncutler@outlook.com"}]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Operating System :: OS Independent",
+]
+dependencies = [
+    'numpy>=1.22.4,<2', # maybe it is safe now? Nope, as of January 2025
+    'scipy', 
+    'numba', 
+    'edt',
+    'scikit-image',
+    'ncolor>=1.2.1',
+    'scikit-learn',
+    'torch>=1.10',
+    'torchvision',
+    'mahotas>=1.4.13',
+    'mgen',
+    'matplotlib',
+    'ipywidgets', # technically could factor out to a notebook dep list 
+    'networkit',
+    'torchvf',
+    'tqdm', 
+    'natsort', 
+    'aicsimageio', # should make this optional, include czi dep
+    'numexpr',
+    'torch_optimizer', # for RADAM, now supported directly in pytorch though
+]
 
-[project.scripts]
-# entry point for CLI 
+[project.entry-points.console_scripts]
 omnipose = "omnipose.__main__:main"
 
 [tool.setuptools_scm]
 write_to = "omnipose/_version.py"
+
+[tool.pytest.ini_options]
+minversion = "6.0"
+testpaths = ["tests"]
+
+[tool.setuptools.packages.find]
+include = ["omnipose", "cellpose_omni"]
+exclude = ["gui", "plugins", "pyinstaller"]
