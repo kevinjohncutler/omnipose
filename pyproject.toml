@@ -31,8 +31,7 @@ dependencies = [
     'natsort', 
     'aicsimageio', # should make this optional, include czi dep
     'numexpr',
-    'torch_optimizer', # for RADAM, now supported directly in pytorch though 
-    'tifffile', # might be dependency of aicsimageio
+    'torch_optimizer', # for RADAM, now supported directly in pytorch though
 ]
 
 [project.entry-points]
@@ -47,3 +46,12 @@ write_to = "omnipose/_version.py"
 minversion = "6.0"
 addopts = "--cov=omnipose --cov-report=term-missing"
 testpaths = ["tests"]
+
+[project.optional-dependencies]
+dev = [
+    "pytest",
+    "pytest-cov",
+    "mypy",
+    "black",
+    "isort",
+]
