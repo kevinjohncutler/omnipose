@@ -57,3 +57,4 @@ dev = [
 
 [tool.setuptools.packages.find]
 include = ["omnipose", "cellpose_omni"]
+exclude = ["gui", "plugins", "pyinstaller"]
