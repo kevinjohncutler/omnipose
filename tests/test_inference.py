@@ -2,11 +2,9 @@ import numpy as np
 from cellpose_omni import models
 
 def test_inference():
-    # Initialiser le modèle Cellpose
     model = models.CellposeModel(gpu=False, model_type='bact_phase_omni', net_avg=False, 
                                  diam_mean=0., nclasses=4, dim=2, nchan=1)
 
-    # Créer une image de test avec 2 canaux
     test_image = np.ones((512, 512, 2), dtype=np.float32)
     test_image[3:100, 2:40, 0] = 217
     test_image[225:300, 60:80, 1] = 398
@@ -26,10 +24,8 @@ def test_inference():
         'affinity_seg': False  # new feature, stay tuned...
     }
 
-    # Exécuter la fonction d'inférence
     masks, flows, styles = model.eval(test_image, **params)
     
-    # Vérifiez que les sorties sont correctes
     assert masks is not None, "Masks output is None"
     assert flows is not None, "Flows output is None"
     assert styles is not None, "Styles output is None"
