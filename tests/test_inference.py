@@ -31,13 +31,4 @@ def test_inference():
     masks, flows, styles = model.eval(test_image, **params)
     
     # Vérifiez que les sorties sont correctes
-    assert masks is not None, "Masks output is None"
-    # assert flows is not None, "Flows output is None"
-    # assert styles is not None, "Styles output is None"
-    # assert isinstance(masks, np.ndarray), f"Expected masks to be a numpy array, but got {type(masks)}"
-    # assert isinstance(flows, list), f"Expected flows to be a list, but got {type(flows)}"
-    # assert isinstance(styles, np.ndarray), f"Expected styles to be a numpy array, but got {type(styles)}"
-    # assert masks.shape == (512, 512)
-    # assert flows[0].shape == (512, 512, 2)
-    # assert styles.shape == (512, 512, 2)
-    # assert masks.max() > 0
+    assert masks is not None
