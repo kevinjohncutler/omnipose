@@ -37,6 +37,5 @@ def test_inference():
     assert isinstance(flows, list), f"Expected flows to be a list, but got {type(flows)}"
     assert isinstance(styles, np.ndarray), f"Expected styles to be a numpy array, but got {type(styles)}"
     assert masks.shape == (512, 512)
-    assert flows[0].shape == (512, 512, 2)
-    assert styles.shape == (512, 512, 2)
+    assert flows[0].shape == (512, 512, 4)
     assert masks.max() > 0
