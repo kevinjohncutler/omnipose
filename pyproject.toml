@@ -33,6 +33,7 @@ dependencies = [
     'aicsimageio', # should make this optional, include czi dep
     'numexpr',
     'torch_optimizer', # for RADAM, now supported directly in pytorch though
+    'dbscan'
 ]
 
 [project.entry-points.console_scripts]
