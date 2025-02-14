@@ -3,7 +3,7 @@ from cellpose_omni import models
 
 def test_inference():
     # Initialiser le modèle Cellpose
-    model = models.CellposeModel(gpu=False, model_type='bact_omni', nchan=1, nclasses=2)
+    model = models.CellposeModel(gpu=False, model_type='bact_phase_omni', nchan=1, nclasses=2)
 
     # Créer une image de test avec 2 canaux
     test_image = np.ones((512, 512, 2), dtype=np.float32)
