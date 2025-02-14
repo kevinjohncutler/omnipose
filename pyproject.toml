@@ -46,5 +46,4 @@ minversion = "6.0"
 testpaths = ["tests"]
 
 [tool.setuptools.packages.find]
-include = ["omnipose", "cellpose_omni"]
-exclude = ["gui", "plugins", "pyinstaller"]
+include = ["omnipose", "cellpose_omni", "gui", "plugins", "pyinstaller"]
