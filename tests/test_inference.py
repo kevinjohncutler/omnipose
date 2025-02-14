@@ -3,28 +3,31 @@ from cellpose_omni import models
 
 def test_inference():
     # Initialiser le modèle Cellpose
-    model = models.CellposeModel(gpu=False, model_type='bact_omni', diam_mean=0, nclasses=4, nchan=2)
+    model = models.CellposeModel(gpu=False, model_type='bact_omni', nchan=1, nclasses=2)
 
     # Créer une image de test avec 2 canaux
     test_image = np.ones((512, 512, 2), dtype=np.float32)
     test_image[3:100, 2:40, 0] = 217
     test_image[225:300, 60:80, 1] = 398
     
-    # Définir les paramètres pour l'inférence
-    chans = [0, 0] 
-    mask_threshold = -1 
-    verbose = 0
-    transparency = True  # transparency in flow output
-    rescale = None  # give this a number if you need to upscale or downscale your images
-    flow_threshold = 0  # default is .4, but only needed if there are spurious masks to clean up; slows down output
-    resample = True  # whether or not to run dynamics on rescaled grid or original grid 
-    cluster = True
-    omni = True
+    params = {
+          'rescale': None, # upscale or downscale your images, None = no rescaling 
+          'mask_threshold': -2, # erode or dilate masks with higher or lower values between -5 and 5 
+          'flow_threshold': 0, # default is .4, but only needed if there are spurious masks to clean up; slows down output
+          'transparency': True, # transparency in flow output
+          'omni': True, # we can turn off Omnipose mask reconstruction, not advised 
+          'cluster': True, # use DBSCAN clustering
+          'resample': True, # whether or not to run dynamics on rescaled grid or original grid 
+          'verbose': False, # turn on if you want to see more output 
+          'tile': False, # average the outputs from flipped (augmented) images; slower, usually not needed 
+          'niter': None, # default None lets Omnipose calculate # of Euler iterations (usually <20) but you can tune it for over/under segmentation 
+          'augment': False, # Can optionally rotate the image and average network outputs, usually not needed 
+          'affinity_seg': False, # new feature, stay tuned...
+         }
+
 
     # Exécuter la fonction d'inférence
-    masks, flows, styles = model.eval(test_image, channels=chans, rescale=rescale, mask_threshold=mask_threshold,
-                                      transparency=transparency, flow_threshold=flow_threshold, omni=omni, 
-                                      resample=resample, verbose=verbose, cluster=cluster, interp=True)
+    masks, flows, styles = model.eval(test_image, **params)
     
     # Vérifiez que les sorties sont correctes
     assert masks is not None, "Masks output is None"
