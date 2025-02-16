@@ -170,15 +170,27 @@ def get_medoids(labels,do_skel=True,return_dists=False):
     sort_labels = labels[sort]
     sort_dists = dists[slc][sort]
     
-    inds, dists = argmin_cdist(torch.tensor(sort_coords).float(),
-                               torch.tensor(sort_labels).float(),
-                               torch.tensor(sort_dists).float())
+    # get torch Tensors for distance-based indexing
+    inds_tensor, dists_tensor = argmin_cdist(
+        torch.tensor(sort_coords).float(),
+        torch.tensor(sort_labels).float(),
+        torch.tensor(sort_dists).float()
+    )
+
+    # Convert to NumPy arrays
+    inds = inds_tensor.cpu().numpy()
+    dists_arr = dists_tensor.cpu().numpy()
+
+    # Ensure inds is at least 1D
+    inds = np.atleast_1d(inds)
+    
     
     medoids = sort_coords[inds]
     mlabels = sort_labels[inds]
     
     if medoids.ndim==1:
         medoids = medoids[None]
+        
     
     if return_dists:
         dists = dists.cpu().numpy()

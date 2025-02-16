@@ -142,7 +142,7 @@ def reset(self):
     # ---- start sets of points ---- #
     self.selected = 0
     self.X2 = 0
-    self.resize = -1
+    # self.resize = -1
     self.onechan = False
     self.loaded = False
     self.channel = [0,1]

@@ -5,6 +5,7 @@ from PyQt6.QtWidgets import QGraphicsPathItem
 from PyQt6.QtGui import QPen, QBrush, QPainterPath, QTransform
 from PyQt6.QtGui import QCursor
 from PyQt6.QtCore import QPointF
+import pyqtgraph as pg
 
 # cursor highlight, maybe more of an annotation thing 
 def update_highlight(self, pos=None):
@@ -43,5 +44,14 @@ def update_highlight(self, pos=None):
         transform.translate(x - kernel.shape[1] // 2, y - kernel.shape[0] // 2)
         transformed_path = transform.map(self.highlight_path)  # Apply transformation
         self.highlight_rect.setPath(transformed_path)
+        
+        base_hex = "#FFF"  
+        pen_color = pg.mkColor(base_hex)
+        pen_color.setAlpha(100)  
+        self.highlight_rect.setBrush(QBrush(pen_color))  # Semi-transparent fill
+        pen_color.setAlpha(255)  
+        
+        self.highlight_rect.setPen(pg.mkPen(color=pen_color, width=1))
+
 
         

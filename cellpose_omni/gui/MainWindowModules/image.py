@@ -104,11 +104,9 @@ def make_viewbox(self):
     # Create the highlight path item - our cursor 
     self.highlight_rect = QGraphicsPathItem()
     # self.highlight_rect.setPen(Qt.PenStyle.NoPen) # no outline
-    self.highlight_rect.setPen(QPen(Qt.PenStyle.NoPen))
-
-    self.highlight_rect.setBrush(QBrush(pg.mkColor(255, 0, 0, 100)))  # Semi-transparent fill
-    self.highlight_rect.setPen(pg.mkPen(color='red', width=1))
-
+    # self.highlight_rect.setPen(QPen(Qt.PenStyle.NoPen))
+    # self.update_highlight()
+    
     self.p0.addItem(self.highlight_rect)
 
     # Add the rectangle to the ViewBox, which aligns it with the image coordinates

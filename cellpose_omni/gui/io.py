@@ -24,7 +24,8 @@ import ncolor
 from omnipose.utils import sinebow
 from omnipose import core
 
-    
+GC = True # global toggle for garbage collection
+
 def _init_model_list(parent):
     models.MODEL_DIR.mkdir(parents=True, exist_ok=True)
     parent.model_list_path = os.fspath(models.MODEL_DIR.joinpath('gui_models.txt'))
@@ -165,7 +166,7 @@ def _load_image(parent, filename=None, load_seg=True):
         parent.reset()
         parent.filename = filename
         filename = os.path.split(parent.filename)[-1]
-        _initialize_images(parent, image, resize=parent.resize, X2=0)
+        _initialize_images(parent, image)
         parent.clear_all()
         parent.loaded = True
         parent.enable_buttons()
@@ -177,7 +178,7 @@ def _load_image(parent, filename=None, load_seg=True):
             
 
 
-def _initialize_images(parent, image, resize, X2):
+def _initialize_images(parent, image):
     """ format image for GUI """
     logger.info(f'initializing image, shape {image.shape}')
     parent.onechan=False
@@ -233,7 +234,7 @@ def _initialize_images(parent, image, resize, X2):
         logger.info('converted to float and normalized values to 0.0->255.0')
     del image
     
-    gc.collect() # not sure if these are necessary and if they cause a slowdown
+    if GC: gc.collect() # not sure if these are necessary and if they cause a slowdown
 
     #parent.stack = list(parent.stack)
 
@@ -262,7 +263,6 @@ def _initialize_images(parent, image, resize, X2):
     parent.track_changes = []
     parent.recenter()
     
-    parent.initialize_seg() # try this
 
 def _load_seg(parent, filename=None, image=None, image_file=None):
     """ load *_seg.npy with filename; if None, open QFileDialog """
@@ -285,7 +285,6 @@ def _load_seg(parent, filename=None, image=None, image_file=None):
 
     # this puts in some defaults if they are not present in the npy file
     parent.reset()
-    
     
     if image is None:
         logger.info(f'loading image in _load_seg')
@@ -322,16 +321,16 @@ def _load_seg(parent, filename=None, image=None, image_file=None):
         parent.X2 = dat['X2']
     else:
         parent.X2 = 0
-    if 'resize' in dat:
-        parent.resize = dat['resize']
-    elif 'img' in dat:
-        if max(image.shape) > max(dat['img'].shape):
-            parent.resize = max(dat['img'].shape)
-    else:
-        parent.resize = -1
+    # if 'resize' in dat:
+    #     parent.resize = dat['resize']
+    # elif 'img' in dat:
+    #     if max(image.shape) > max(dat['img'].shape):
+    #         parent.resize = max(dat['img'].shape)
+    # else:
+    #     parent.resize = -1
     
-    print('loading image in _load_seg', image.shape)
-    _initialize_images(parent, image, resize=parent.resize, X2=parent.X2)
+    logger.info(f'loading image in _load_seg with shape {image.shape}')
+    _initialize_images(parent, image)
     
     if 'chan_choose' in dat:
         parent.ChannelChoose[0].setCurrentIndex(dat['chan_choose'][0])
@@ -356,8 +355,11 @@ def _load_seg(parent, filename=None, image=None, image_file=None):
     
     # fix formats using -1 as background
     if parent.masks.min()==-1:
-        logger.warning('-1 found in masks, increasing all labels by 1')
-        parent.masks += 1
+        logger.warning('-1 found in masks, running formatting')
+        parent.masks = ncolor.format_labels(parent.masks)
+        
+    
+    parent.initialize_seg()
     
     # Update masks and outlines to ZYX format stored as parent.cellpix and parent.outpix
     if parent.masks.ndim == 2:
@@ -446,7 +448,7 @@ def _load_seg(parent, filename=None, image=None, image_file=None):
     parent.loaded = True  
     
     del dat
-    gc.collect()
+    if GC: gc.collect()
 
 def _load_masks(parent, filename=None):
     """ load zero-based masks (0=no cell, 1=cell one, ...) """
@@ -458,36 +460,16 @@ def _load_masks(parent, filename=None):
     logger.info(f'loading masks: {filename}')
     masks = imread(filename)
     parent.masks = masks
-    parent.initialize_seg()
-    
-    # these liens appear to do nothing because masks is not used again
-    # USED TO BE passed to the _masks_to_gui function 
-    # outlines = None
-    # if masks.ndim>3:
-    #     # Z x nchannels x Ly x Lx
-    #     if masks.shape[-1]>5:
-    #         parent.flows = list(np.transpose(masks[:,:,:,2:], (3,0,1,2)))
-    #         outlines = masks[...,1]
-    #         masks = masks[...,0]
-    #     else:
-    #         parent.flows = list(np.transpose(masks[:,:,:,1:], (3,0,1,2)))
-    #         masks = masks[...,0]
-    # elif masks.ndim==3:
-    #     if masks.shape[-1]<5:
-    #         masks = masks[np.newaxis,:,:,0]
-    # elif masks.ndim<3:
-    #     masks = masks[np.newaxis,:,:]
-    # masks should be Z x Ly x Lx
+    # parent.initialize_seg() # redudnat if initialize_seg is called in _masks_to_gui
+
     if masks.shape[0]!=parent.NZ:
         print('ERROR: masks are not same depth (number of planes) as image stack')
         return
-
-    
     
     _masks_to_gui(parent)
     
     # del masks 
-    gc.collect()
+    if GC: gc.collect()
     parent.update_layer()
     parent.update_plot()
     
@@ -505,7 +487,6 @@ def _masks_to_gui(parent, format_labels=False):
     
     # print('calling masks to gui',masks.shape)
     parent.ncells = masks.max() #try to grab the cell count before ncolor
-
 
 
     if parent.ncolor:

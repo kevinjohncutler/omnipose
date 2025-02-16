@@ -2,6 +2,8 @@ from .utils import rescale, torch_norm
 from .color import sinebow
 
 import matplotlib as mpl
+mpl.rcParams['svg.fonttype'] = 'none'  # keep text as real text in the SVG
+
 from matplotlib.figure import Figure
 from matplotlib.backends.backend_agg import FigureCanvasAgg as FigureCanvas
 import matplotlib.pyplot as plt
@@ -364,59 +366,96 @@ def apply_ncolor(masks,offset=0,cmap=None,max_depth=20,expand=True, maxv=1, gree
     else:
         return cmap(rescale(m)/maxv)
 
+def imshow(imgs, figsize=2, ax=None, hold=False, titles=None, title_size=8, spacing=0.05,
+           textcolor=[0.5]*3, dpi=300, text_scale=1,
+           outline_color=None,     # e.g. [0.5]*3
+           outline_width=0.5,     # e.g. 0.5
+           **kwargs):
+    """
+    Display one or more images. Optionally add an outline (colored border)
+    around each image if outline_color is not None and outline_width > 0.
+    Otherwise, axes ticks etc. remain off, as before.
+    """
 
-def imshow(imgs, figsize=2, ax=None, hold=False, titles=None, title_size=8, spacing=0.05, 
-           textcolor=[0.5]*3, dpi=300, text_scale = 1, **kwargs):
+    def set_outline(ax, outline_color, outline_width):
+        """
+        - Always hide axis ticks (ax.axis("off")).
+        - If outline_color is not None and outline_width > 0,
+          show spines with that color/width.
+        - Otherwise, hide spines (no border).
+        """
+        # Always turn off ticks:
+        # ax.axis("off")
+        
+        ax.set_xticks([])
+        ax.set_yticks([])
+        ax.patch.set_alpha(0)
 
+        # Decide whether to draw spines:
+        if outline_color is not None and outline_width > 0:
+            for spine in ax.spines.values():
+                spine.set_edgecolor(outline_color)
+                spine.set_linewidth(outline_width)
+        else:
+            # Hide spines entirely
+            for s in ax.spines.values():
+                s.set_visible(False)
+    
+
+    # -------------------------------------------------------------
+    # If imgs is a list, we display multiple images side by side
+    # -------------------------------------------------------------
     if isinstance(imgs, list):
         if titles is None:
             titles = [None] * len(imgs)
         if title_size is None:
             title_size = figsize / len(imgs) * text_scale
-        # fig = plt.figure(figsize=(figsize * len(imgs), figsize),frameon=False, facecolor = [0]*4)
-        # fig = Figure(figsize=(figsize * len(imgs), figsize),frameon=False, facecolor = [0]*4)
-        
-        # grid = ImageGrid(fig, 111, nrows_ncols=(1, len(imgs)), axes_pad=spacing, share_all=False)
-        fig, axes = figure(nrow=1, ncol=len(imgs), figsize=(figsize * len(imgs), figsize), frameon=False, facecolor = [0]*4)
-        for ax, img, title in zip(axes, imgs, titles):
-            ax.imshow(img, **kwargs)
-            ax.axis("off")
-            ax.set_frame_on(False)
-            ax.set_facecolor([0]*4)
-            if title is not None:
-                ax.set_title(title, fontsize=title_size,color=textcolor)
+
+        # Create figure + subplots for multiple images
+        fig, axes = figure(
+            nrow=1, ncol=len(imgs),
+            figsize=(figsize * len(imgs), figsize),
+            frameon=False,
+            facecolor=[0, 0, 0, 0]
+        )
+
+        for this_ax, img, ttl in zip(axes, imgs, titles):
+            this_ax.imshow(img, **kwargs)
+            set_outline(this_ax, outline_color, outline_width)
+            this_ax.set_facecolor([0, 0, 0, 0])
+
+            if ttl is not None:
+                this_ax.set_title(ttl, fontsize=title_size, color=textcolor)
+
+    # -------------------------------------------------------------
+    # Otherwise, just one image
+    # -------------------------------------------------------------
     else:
-        if type(figsize) is not (list or tuple):
+        if not isinstance(figsize, (list, tuple)):
             figsize = (figsize, figsize)
         if title_size is None:
             title_size = figsize[0] * text_scale
+
         if ax is None:
-            # fig, ax = plt.subplots(frameon=False, figsize=figsize, facecolor =[0]*4,dpi=dpi)
-            subplot_args = {'frameon': False,
-                            'figsize': figsize,
-                            'facecolor': [0, 0, 0, 0],
-                            'dpi': dpi
-                        }
+            subplot_args = {
+                'frameon': False,
+                'figsize': figsize,
+                'facecolor': [0, 0, 0, 0],
+                'dpi': dpi
+            }
             fig, ax = figure(**subplot_args)
-            # canvas = FigureCanvas(fig)
-            
-        
         else:
             hold = True
-            
+            fig = ax.get_figure()
+
         ax.imshow(imgs, **kwargs)
-        ax.axis("off")
-        ax.set_frame_on(False)
-        ax.set_facecolor([0]*4)
+        set_outline(ax, outline_color, outline_width)
+        ax.set_facecolor([0, 0, 0, 0])
+
         if titles is not None:
             ax.set_title(titles, fontsize=title_size, color=textcolor)
-        
-        fig = ax.get_figure()
-    # if not hold:
-        # plt.show()
-        # canvas.draw()
-        # print('fff')
-    return fig 
+
+    return fig
 
 # def get_cmap(masks):
 #     lut = ncolor.get_lut(masks) # make sure int64
@@ -1081,7 +1120,10 @@ def image_grid(images, column_titles=None, row_titles=None,
 
     # Use the existing figure if provided; otherwise, create a new one
     if fig is None:
-        fig = Figure(figsize=(figsize, figsize * max_h / max_w) if ij else (figsize * max_w / max_h, figsize),
+        # if not isinstance(figsize, (list, tuple)):
+        figsize=(figsize, figsize * max_h / max_w) if ij else (figsize * max_w / max_h, figsize)
+    
+        fig = Figure(figsize=figsize,
                      frameon=False if facecolor is None else True,
                      facecolor=[0] * 4 if facecolor is None else facecolor,
                      dpi=dpi)

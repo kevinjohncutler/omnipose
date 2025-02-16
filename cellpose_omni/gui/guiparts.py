@@ -309,6 +309,7 @@ class ImageDraw(pg.ImageItem):
             self._drawing = True
             self._lastPos = event.pos()
             self._drawPixel(x, y) 
+            # self._paintLine(self._lastPos, event.pos()) # test
             event.accept()
         else:
             pg.ImageItem.mousePressEvent(self, event)
@@ -320,14 +321,18 @@ class ImageDraw(pg.ImageItem):
             event.accept()
         else:
             pg.ImageItem.mouseMoveEvent(self, event)
+            
 
     def mouseReleaseEvent(self, event):
         if self._drawing:
-            self._paintLine(self._lastPos, event.pos())
+            # self._paintLine(self._lastPos, event.pos())
+            x, y = int(event.pos().x()), int(event.pos().y())
+            self._drawPixel(x, y, cleanup=True) 
+            # self._cleanup()
             self._drawing = False
             self._lastPos = None
             self.parent.redo_stack.clear()
-            self.parent.update_layer()
+            self.parent.update_layer() # is this needed? <<<<<<<<<<<<<<<<
             event.accept()
         else:
             # super().mouseReleaseEvent(event)
@@ -345,9 +350,9 @@ class ImageDraw(pg.ImageItem):
             return False
         return True
 
-    def _paintAt(self, pos):
-        """Draw a single point (useful for initial press)."""
-        self._drawPixel(pos.x(), pos.y())
+    # def _paintAt(self, pos):
+    #     """Draw a single point (useful for initial press)."""
+    #     self._drawPixel(pos.x(), pos.y())
 
     def _paintLine(self, startPos, endPos):
         """Draw a line from start to end by interpolating points."""
@@ -364,8 +369,9 @@ class ImageDraw(pg.ImageItem):
         for x, y in zip(xs, ys):
             self._drawPixel(x, y)
 
-    def _drawPixel(self, x, y):
+    def _drawPixel(self, x, y, cleanup=False):
         """Draws a circular area or single pixel using a precomputed kernel."""
+        
         brush_size = getattr(self.parent, 'brush_size', 1)
         label = getattr(self.parent, 'current_label', 0)
         z = self.parent.currentZ
@@ -392,14 +398,10 @@ class ImageDraw(pg.ImageItem):
         ker_slc = (slice(kr0, kr1), slice(kc0, kc1))
         
         # Dilated slice (expand by 1 in all directions)
-        d = 1
+        d = 3
         dil_r0, dil_r1 = max(0, r0 - d), min(r1 + d, height)
         dil_c0, dil_c1 = max(0, c0 - d), min(c1 + d, width)
-        dil_arr_slc = (slice(dil_r0, dil_r1), slice(dil_c0, dil_c1))
-
-        # Apply kernel
-        # masks[arr_slc][kernel[ker_slc]] = label
-
+        dil_slc = (slice(dil_r0, dil_r1), slice(dil_c0, dil_c1))
 
         # similar to _get_affinity, should check that too for some factoring out
         # source inds restricts to valid sources 
@@ -407,6 +409,8 @@ class ImageDraw(pg.ImageItem):
         # source_indices = source_indices[source_indices>-1]
         source_coords = tuple(c[source_indices] for c in self.parent.coords)
         targets = []
+        
+        # print('fff\n', self.parent.coords[0].shape, np.prod(masks.shape), '\n')
         
         masks[source_coords] = label # apply it here
         
@@ -418,10 +422,10 @@ class ImageDraw(pg.ImageItem):
         idx = self.parent.inds[0][0]
         # print('affinity none?', affinity is None)
         # print('affinity shape', affinity.shape, np.any(affinity))
+        
+
         if affinity is not None and affinity.shape[-dim:] == masks.shape:
             for i in self.parent.non_self:
-            # for i in self.parent.non_self[:idx]:
-            
                 step = steps[i]
                 target_coords = tuple(c+s for c,s in zip(source_coords, step))
                 
@@ -438,15 +442,39 @@ class ImageDraw(pg.ImageItem):
                 
                 targets.append(target_coords)
                 
-                if i<idx:
-                    inds = self.parent.pixelGridOverlay.lineIndices[*source_coords,i].tolist()
-                    opp_target_coords = tuple(c-s for c,s in zip(source_coords, step))
-                    inds += self.parent.pixelGridOverlay.lineIndices[*opp_target_coords,i].tolist()
+        else:
+            print('affinity graph not initialized') 
+               
+    
+        # define a region around the source and target pixels
+        targets.append(source_coords)
+        surround_coords = tuple(np.concatenate(arrays, axis=0) for arrays in zip(*targets))
 
-                    # pass in alpha based on affinity
-                    alpha = np.concatenate([affinity[i][source_coords], affinity[i][opp_target_coords]])
-                    self.parent.pixelGridOverlay.hide_lines_batch(inds, alpha, visible=False)
+        
+
+# !!! while drawing, could enable a mode not to connect to self unless it is to the direction opposite motion, so tht we can draw disconnected snakes 
+
+
+        
+        update_inds = []
+        update_alpha = []
+        # have to wait to update affinity after looping over all directions   
+        for i in self.parent.non_self[:idx]:
+            step = steps[i]
+            target_coords = tuple(c+s for c,s in zip(source_coords, step))
+            
+            inds = self.parent.pixelGridOverlay.lineIndices[*source_coords,i].tolist()
+            opp_target_coords = tuple(c-s for c,s in zip(source_coords, step))
+            inds += self.parent.pixelGridOverlay.lineIndices[*opp_target_coords,i].tolist()
+
+            update_inds += inds
+            update_alpha.append(affinity[i][source_coords])
+            update_alpha.append(affinity[i][opp_target_coords])
                     
+        self.parent.pixelGridOverlay.hide_lines_batch(update_inds, 
+                                                      np.concatenate(update_alpha), 
+                                                      visible=False)
+    
                 
         # I think I am missing the background pixels connected to it
         # maybe the cleanup will do it 
@@ -454,31 +482,163 @@ class ImageDraw(pg.ImageItem):
         # I could add a cleanup step here from get_affinity_torch
         # it could operate on just the dilated region to update the affinity graph
                  
-        # print('hh', self.parent.inds[0][0])   
-        # affinity[self.parent.inds[0][0]] = 0 # no need
-        
-        # now update the affinity grid plot
-        # affinity is spatial, so that helps
-        
-        # affinity[...,*source_coords]
-        
+    
+
         
         # some strangeness with outlines on and masks off, as if the masks are zero?
                     
         # update boundary
-        surround_coords = tuple(np.concatenate(arrays, axis=0) for arrays in zip(*targets))
-        # print('A', affinity.shape, masks.shape,  masks[surround_coords].shape, affinity[:,*surround_coords].shape)
+
+        # print('\n\nA\n\n', affinity.shape, masks.shape,  masks[surround_coords].shape, affinity[:,*surround_coords].shape)
+        # print('surround_coords', surround_coords,targets)
         bd = affinity_to_boundary(masks[surround_coords], affinity[:,*surround_coords], None, dim=dim)
+        
         bd = bd*masks[surround_coords]
-        # self.parent.
+        
         # print('yoyo', masks.ndim, dim,  self.parent.cellpix.ndim)
         bounds[surround_coords] = bd
+        
+        
+        # also take care of any orphaned masks
+        # print(affinity[:,*surround_coords].sum(axis=0).shape, masks[surround_coords].shape)
+        
+        # masks[*surround_coords][affinity[:,*surround_coords].sum(axis=0)==0] = 0
+        masks[*surround_coords] *= affinity[:,*surround_coords].sum(axis=0)>0
+        
 
+        # print('info', self.parent.pixelGridOverlay.lineIndices.shape)
         # Update only the affected region of the overlay
         # self.parent.draw_layer(region=(c0, c1, r0, r1), z=z)
         # pass a dilated region to catch the outer edges of the new boundary 
         self.parent.draw_layer(region=(dil_c0, dil_c1, dil_r0, dil_r1), z=z)
+    
+    
+    def _cleanup(self):
+        # brush_size = getattr(self.parent, 'brush_size', 1)
+        # label = getattr(self.parent, 'current_label', 0)
+        z = self.parent.currentZ
+        masks = self.parent.cellpix[z]
+        bounds = self.parent.outpix[z] # this might be a direct hook to the display
         
+        affinity = self.parent.affinity_graph
+        height, width = masks.shape
+        
+        steps = self.parent.steps
+        dim = self.parent.dim
+        idx = self.parent.inds[0][0]
+  
+        D = dim
+        S = len(steps)
+        cutoff = 3**(dim-1) + 1
+        
+        source_slices, target_slices = [[[[] for _ in range(D)] for _ in range(S)] for _ in range(2)]
+
+
+        s1,s2,s3 = slice(1,None), slice(0,-1), slice(None,None) # this needs to be generalized to D dimensions
+        for i in range(S):
+            for j in range(D):
+                s = steps[i][j]
+                target_slices[i][j], source_slices[i][j] = (s1,s2) if s>0 else (s2,s1) if s<0 else (s3,s3)
+                
+                    
+    
+        csum = np.sum(affinity,axis=0)
+        keep = csum>=cutoff
+
+
+        for i in self.parent.non_self:
+
+            step = steps[i]
+            # target_coords = tuple(c-s for c,s in zip(source_coords, step))
+            # source_coords = tuple(c+s for c,s in zip(source_coords, step))
+            
+            
+            target_slc = (Ellipsis,)+tuple(target_slices[i])
+            source_slc = (Ellipsis,)+tuple(source_slices[i])
+    
+            tuples = self.parent.supporting_inds[i]
+            support = np.zeros_like(masks[source_slc],dtype=float)
+            n_tuples = len(tuples)
+            for j in range(n_tuples):
+                f_inds = tuples[j]
+                b_inds = tuple(S-1-np.array(tuples[-(j+1)]))
+                for f,b in zip(f_inds,b_inds):
+                    support += np.logical_and(affinity[f][source_slc], affinity[b][target_slc])
+                    
+
+            affinity[i][source_slc] = affinity[-(i+1)][target_slc] = np.logical_and.reduce([affinity[i][source_slc],
+                                                                                            affinity[-(i+1)][target_slc], 
+                                                                                            masks[source_slc]>0,
+                                                                                            masks[target_slc]>0,
+                                                                                            keep[source_slc],
+                                                                                            keep[target_slc],
+                                                                                            support>2
+                                                                                            ])
+            
+        update_inds = []
+        update_alpha = []
+        
+        source_coords = self.parent.coords
+        print(source_coords[0].shape, self.parent.indexes.shape, self.parent.neigh_inds.shape)
+        
+        Ly,Lx = masks.shape
+        # have to wait to update affinity after looping over all directions   
+        for i in self.parent.non_self[:idx]:
+            step = steps[i]
+            target_coords = tuple(np.clip(c+s,0,l-1) for c,s,l in zip(source_coords, step,[Ly,Lx]))
+            # target_slc = (Ellipsis,)+tuple(target_slices[i])
+            # source_slc = (Ellipsis,)+tuple(source_slices[i])
+            
+            
+            inds = self.parent.pixelGridOverlay.lineIndices[*target_coords,i].tolist()
+            opp_target_coords = tuple(np.clip(c-s,0,l-1) for c,s,l in zip(source_coords, step,[Ly,Lx]))
+            inds += self.parent.pixelGridOverlay.lineIndices[*opp_target_coords,i].tolist()
+
+            update_inds += inds
+            update_alpha.append(affinity[i][source_coords])
+            update_alpha.append(affinity[i][opp_target_coords])
+                    
+        self.parent.pixelGridOverlay.hide_lines_batch(update_inds, 
+                                                      np.concatenate(update_alpha), 
+                                                      visible=False)
+    
+                
+        # I think I am missing the background pixels connected to it
+        # maybe the cleanup will do it 
+
+        # I could add a cleanup step here from get_affinity_torch
+        # it could operate on just the dilated region to update the affinity graph
+                 
+    
+
+        
+        # some strangeness with outlines on and masks off, as if the masks are zero?
+                    
+        # update boundary
+
+        # print('\n\nA\n\n', affinity.shape, masks.shape,  masks[surround_coords].shape, affinity[:,*surround_coords].shape)
+        # print('surround_coords', surround_coords,targets)
+        bd = affinity_to_boundary(masks, affinity, None, dim=dim)
+        
+        bd = bd*masks
+        
+        # print('yoyo', masks.ndim, dim,  self.parent.cellpix.ndim)
+        bounds = bd
+        
+        
+        # also take care of any orphaned masks
+        # print(affinity[:,*surround_coords].sum(axis=0).shape, masks[surround_coords].shape)
+        
+        # masks[*surround_coords][affinity[:,*surround_coords].sum(axis=0)==0] = 0
+        masks *= affinity.sum(axis=0)>0
+        
+
+        # Update only the affected region of the overlay
+        # self.parent.draw_layer(region=(c0, c1, r0, r1), z=z)
+        # pass a dilated region to catch the outer edges of the new boundary 
+        self.parent.draw_layer(z=z)
+
+
         
     def _floodFill(self, x, y, new_label):        
         """Perform flood fill starting at (x, y) with the given new_label."""
@@ -1857,15 +2017,6 @@ class GLPixelGridOverlay(GraphicsObject):
         # 3) Trigger a redraw just once
         self.update()
         
-    def random_hide_test(self):
-        # pick half the lines to hide
-        indices = list(range(self.num_lines))
-        random.shuffle(indices)
-        half = self.num_lines // 2
-        hidden = indices[:half]
-        
-        # set alpha=0 for those lines in one pass
-        self.hide_lines_batch(hidden, visible=False)
         
     def show_all_lines(self):
         # show all lines: just do alpha=1 for everything

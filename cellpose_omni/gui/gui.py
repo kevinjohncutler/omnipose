@@ -1,3 +1,4 @@
+
 import signal, sys, os, pathlib, warnings, datetime, time
 import inspect, importlib, pkgutil
 
@@ -21,6 +22,11 @@ from PyQt6 import QtGui, QtCore, QtWidgets
 from PyQt6.QtCore import Qt, pyqtSlot, QCoreApplication
 from PyQt6.QtWidgets import QMainWindow, QApplication, QWidget, QScrollBar, QComboBox, QGridLayout, QPushButton, QCheckBox, QLabel, QProgressBar, QLineEdit, QScrollArea
 from PyQt6.QtGui import QPalette
+
+from PyQt6.QtCore import QPoint
+from PyQt6.QtGui import QCursor, QGuiApplication
+
+
 
 import importlib
 import importlib
@@ -82,7 +88,10 @@ def run(image=PRELOAD_IMAGE):
     QCoreApplication.setApplicationName('Omnipose')
     app = QApplication(sys.argv)
 
-    screen = app.primaryScreen()
+    # screen = app.primaryScreen()
+    # New: detect monitor from mouse cursor
+    cursor_pos = QCursor.pos()
+    screen = QGuiApplication.screenAt(cursor_pos)
     dpi = screen.logicalDotsPerInch()
     pxr = screen.devicePixelRatio()
     size = screen.availableGeometry()
@@ -165,9 +174,6 @@ class MainW(QMainWindow):
 
         pg.setConfigOptions(imageAxisOrder="row-major")
         self.clipboard = clipboard
-        # geometry that works on mac and ubuntu at least 
-        Y = int(925 - (25*dpi*pxr)/24)
-        self.setGeometry(100, 100, min(1200,size.width()),  min(Y,size.height())) 
 
         # self.showMaximized()
         self.setWindowTitle("Omnipose GUI")
@@ -176,21 +182,19 @@ class MainW(QMainWindow):
         menus.mainmenu(self)
         menus.editmenu(self)
         menus.modelmenu(self)
-        # menus.helpmenu(self) # all of these are outdated 
         menus.omnimenu(self)
+        # menus.helpmenu(self) # all of these are outdated 
 
         self.model_strings = models.MODEL_NAMES.copy()
         self.loaded = False
+        self.imask = 0
 
         self.make_main_widget()
+    
         
-        # self.affinityOverlay = guiparts.AffinityOverlay(parent=self) # allow for it to be added in make_viewbox
-
-        self.imask = 0
-        
-        
-
         self.make_buttons() # no longer need to return b
+        # self.win.adjustSize()
+        
         
         # Instantiate the Colormap object
         cmap = Colormap("gist_ncar")
@@ -226,18 +230,27 @@ class MainW(QMainWindow):
                                }
         
         
-            # Suppose Nx, Ny from your image dimension or (Lx, Ly)
+        # Nx, Ny from image dimension
         Nx = self.Lx
         Ny = self.Ly
 
         # Create the overlay item
         self.pixelGridOverlay = guiparts.GLPixelGridOverlay(Nx, Ny, parent=self)
-        # self.pixelGridOverlay.setZValue(-10)  # ensure it's on top
-        self.pixelGridOverlay.setVisible(False)  # default off, if you like
-
-        
-        # Add it to the ViewBox
+        self.pixelGridOverlay.setVisible(False) 
         self.p0.addItem(self.pixelGridOverlay)
+        
+        # Move and resize the window
+        cursor_pos = QCursor.pos()
+        screen = QGuiApplication.screenAt(cursor_pos)
+
+        hint = self.cwidget.sizeHint()
+        title_bar_height = self.style().pixelMetric(QtWidgets.QStyle.PixelMetric.PM_TitleBarHeight, None, self)
+        self.resize(hint.width(), hint.height() + title_bar_height)
+  
+        if screen is not None:
+            available_rect = screen.availableGeometry()
+            self.move(available_rect.topLeft() + QtCore.QPoint(50, 50))
+    
 
         self.setAcceptDrops(True)
         self.win.show()

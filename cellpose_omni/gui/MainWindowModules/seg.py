@@ -4,7 +4,6 @@ import numpy as np
 from .. import logger, ICON_PATH, io
 
 def initialize_seg(self, compute_affinity=False):
-    logger.info('initializing segmentation')
     self.shape = self.masks.shape
     self.dim = len(self.shape) 
     self.steps, self.inds, self.idx, self.fact, self.sign = utils.kernel_setup(self.dim)
@@ -18,7 +17,11 @@ def initialize_seg(self, compute_affinity=False):
     self.non_self = np.array(list(set(np.arange(len(self.steps)))-{self.inds[0][0]})) 
     
     #ind_matrix could be comouted much more cheaply, or not even deeded? 
-    # with the spatial affinity versuon 
+    # with the spatial affinity version
+    
+    logger.info('initializing segmentation')
+    logger.info(f'mask shape {self.shape}')
+     
     
     if not hasattr(self,'affinity_graph') or compute_affinity:
         # logger.info('initializing affinity graph')

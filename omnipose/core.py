@@ -3379,6 +3379,8 @@ def _get_affinity_torch(initial, final, flow, dist, iscell, steps, fact, inds, s
     #         continue   
     #     else:
     
+    ### MIGHT HAVE source_slices, target_slices flipped...
+    
     non_self = np.array(list(set(np.arange(len(steps)))-{inds[0][0]})) # I need these to be in order
     for i in non_self:
         if 1:

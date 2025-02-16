@@ -26,29 +26,22 @@ from cellpose_omni import models
 def make_main_widget(self):
     # ---- MAIN WIDGET LAYOUT ---- #
 
-    scrollable = 1 
-    if scrollable:
-        self.l0 = QGridLayout()
-        self.scrollArea = QScrollArea()
-        self.scrollArea.setStyleSheet('QScrollArea {border: none;}') # just for main window
-        self.scrollArea.setWidgetResizable(True)
-        # policy = QtWidgets.QSizePolicy()
-        # policy.setRetainSizeWhenHidden(True)
-        # self.scrollArea.setSizePolicy(policy)
 
-        self.cwidget = QWidget(self)
-        self.cwidget.setLayout(self.l0) 
-        self.scrollArea.setWidget(self.cwidget)
+    self.l0 = QGridLayout()
+    self.scrollArea = QScrollArea()
+    self.scrollArea.setStyleSheet('QScrollArea {border: none;}') # just for main window
+    self.scrollArea.setWidgetResizable(True)
+    # policy = QtWidgets.QSizePolicy()
+    # policy.setRetainSizeWhenHidden(True)
+    # self.scrollArea.setSizePolicy(policy)
 
-        self.scrollArea.setMinimumSize(self.cwidget.sizeHint())
+    self.cwidget = QWidget(self)
+    self.cwidget.setLayout(self.l0) 
+    self.scrollArea.setWidget(self.cwidget)
 
-        self.setCentralWidget(self.scrollArea)
-    else:
-        self.cwidget = QWidget(self)
-        self.l0 = QGridLayout()
-        self.cwidget.setLayout(self.l0)
-        self.setCentralWidget(self.cwidget)
-    
+
+    self.setCentralWidget(self.scrollArea)
+
     # s = int(SPACING/pxr)
     s = int(SPACING)
     self.l0.setVerticalSpacing(s)
@@ -370,7 +363,7 @@ def make_buttons(self):
     # self.l0.setRowStretch(b, 1)
 
 
-    self.resize = -1
+    # self.resize = -1
     self.X2 = 0
 
     # b+=1
@@ -870,8 +863,6 @@ def make_buttons(self):
     self.l0.addWidget(self.roi_count, b, w,1,TOOLBAR_WIDTH-w)
     
     
-    
-    
     self.progress = QProgressBar(self)
     self.progress.setValue(0)
     self.l0.addWidget(self.progress, b,0,1,w)
@@ -897,4 +888,4 @@ def make_buttons(self):
     # self.l0.setMaximumWidth(100)
     # self.ScaleOn.setChecked(False)  # can only toggle off after make_viewbox is called 
 
-    
+    print('buttons',b)
