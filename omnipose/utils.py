@@ -1786,8 +1786,8 @@ def localnormalize(im,sigma1=2,sigma2=20):
     
     return normalize99(num/den+1e-8)
     
-import torchvision.transforms.functional as TF
 def localnormalize_GPU(im, sigma1=2, sigma2=20):
+    import torchvision.transforms.functional as TF
     im = normalize99(im)
     kernel_size1 = round(sigma1 * 6)
     kernel_size1 += kernel_size1 % 2 == 0

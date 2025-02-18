@@ -21,7 +21,7 @@ dependencies = [
     'ncolor>=1.2.1',
     'scikit-learn',
     'torch>=1.10',
-    'torchvision',
+#   'torchvision',
     'mahotas>=1.4.13',
     'mgen',
     'matplotlib',
@@ -32,7 +32,8 @@ dependencies = [
     'natsort', 
     'aicsimageio', # should make this optional, include czi dep
     'numexpr',
-    'torch_optimizer', # for RADAM, now supported directly in pytorch though
+    'torch_optimizer', # for RADAM, now supported directly in pytorch though,
+    'dbscan'
 ]
 
 [project.entry-points.console_scripts]
@@ -47,3 +48,4 @@ testpaths = ["tests"]
 
 [tool.setuptools.packages.find]
 include = ["omnipose", "cellpose_omni", "gui", "plugins", "pyinstaller"]
+exclude = ["scripts", "docs"]
