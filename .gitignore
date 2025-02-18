@@ -3,6 +3,7 @@
 build
 docs/build
 docs/api/api
+tests/models
 omnipose.egg-info
 
 # Byte-compiled / optimized / DLL files
