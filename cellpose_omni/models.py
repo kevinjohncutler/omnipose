@@ -27,9 +27,9 @@ from torchvf.numerics import interp_vf, ivp_solver
 
 # from torchvf.utils import cluster
 
-_MODEL_URL = 'https://www.cellpose.org/models'
-# _MODEL_URL = 'https://raw.githubusercontent.com/kevinjohncutler/omnipose-models/main'
-_MODEL_DIR_ENV = os.environ.get("CELLPOSE_LOCAL_MODELS_PATH")
+# _MODEL_URL = 'https://www.cellpose.org/models'
+_MODEL_URL = 'https://raw.githubusercontent.com/kevinjohncutler/omnipose-models/main'
+_MODEL_DIR_ENV = os.environ.get("CELLPOSE_LOCAL_MODELS_PATH") # in case you set your own path in .zshrc etc.  
 _MODEL_DIR_DEFAULT = pathlib.Path.home().joinpath('.cellpose', 'models')
 MODEL_DIR = pathlib.Path(_MODEL_DIR_ENV) if _MODEL_DIR_ENV else _MODEL_DIR_DEFAULT
 

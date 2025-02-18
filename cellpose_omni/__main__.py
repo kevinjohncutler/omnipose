@@ -200,16 +200,16 @@ def main(args):
 
         # Builtin model => standard cellpose
         if builtin_model:
-            if args.mxnet:
-                # e.g. no cyto2 in mxnet
-                if args.pretrained_model == 'cyto2':
-                    logger.warning("cyto2 not in mxnet => using cyto")
-                    args.pretrained_model = 'cyto'
-            # create the model
-            from cellpose_omni import OMNI_MODELS
-            if args.pretrained_model in OMNI_MODELS and args.mxnet:
-                logger.warning("Omnipose models not in mxnet => using pytorch")
-                args.mxnet = False
+            # if args.mxnet:
+            #     # e.g. no cyto2 in mxnet
+            #     if args.pretrained_model == 'cyto2':
+            #         logger.warning("cyto2 not in mxnet => using cyto")
+            #         args.pretrained_model = 'cyto'
+            # # create the model
+            # from cellpose_omni import OMNI_MODELS
+            # if args.pretrained_model in OMNI_MODELS and args.mxnet:
+            #     logger.warning("Omnipose models not in mxnet => using pytorch")
+            #     args.mxnet = False
 
             if cellpose_model:
                 model = models.Cellpose(
