@@ -6,6 +6,7 @@
    <img src="https://github.com/kevinjohncutler/omnipose/blob/main/logo.png?raw=true" width="200" title="omnipose" alt="omnipose" align="center" vspace = "0">
 
 |Downloads| |PyPI version| |Build tag|  
+
 Omnipose is a general image segmentation tool that builds on
 `Cellpose <https://github.com/MouseLand/cellpose>`__ in a number of ways
 described in our
