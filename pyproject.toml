@@ -2,13 +2,22 @@
 requires = ["setuptools>=61", "wheel", "setuptools_scm"]
 build-backend = "setuptools.build_meta"
 
+# Generate version number from omnipose/_version.py and dynamically fetch it for project configuration
+[tool.setuptools_scm]
+write_to = "omnipose/_version.py"
+[tool.setuptools.dynamic]
+version = {attr = "omnipose._version.__version__"}  # any module attribute compatible with ast.literal_eval
+readme = {file = ["README.rst"]}
+
 [project]
 name = "omnipose"
-version = "0.0.0"  # Version par défaut, sera remplacée par setuptools_scm
+dynamic = ["version", "readme"]
+license = {file = "LICENSE"}
+requires-python = ">=3.9"
 description = "Cell segmentation algorithm improving on the Cellpose framework"
-readme = "README.rst"
 authors = [{name = "Kevin Cutler", email = "kevinjohncutler@outlook.com"}]
 classifiers = [
+    "Development Status :: 3 - Alpha",
     "Programming Language :: Python :: 3",
     "Operating System :: OS Independent",
 ]
@@ -21,7 +30,7 @@ dependencies = [
     'ncolor>=1.2.1',
     'scikit-learn',
     'torch>=1.10',
-#   'torchvision',
+#   'torchvision', already there trough torchvf, but that may be removed later
     'mahotas>=1.4.13',
     'mgen',
     'matplotlib',
@@ -32,15 +41,53 @@ dependencies = [
     'natsort', 
     'aicsimageio', # should make this optional, include czi dep
     'numexpr',
-    'torch_optimizer', # for RADAM, now supported directly in pytorch though,
-    'dbscan'
+    'torch_optimizer', # for RADAM, now supported directly in pytorch though
+    'tifffile', # might be dependency of aicsimageio
+    'fastremap', # not sure how I missed this one 
+    'cmap', 
+    'dbscan', # almost 2x faster than sklearn dbscan!
 ]
 
-[project.entry-points.console_scripts]
-omnipose = "omnipose.__main__:main"
+# Optional dependencies
+# To install specific optional dependencies, use `pip install omnipose[gui]`
+# For local install, replace omnipose by . : `pip install .[gui]`
+# To install all dependencies, use `pip install omnipose[all]`
+# For local install, replace omnipose by . : `pip install .[all]`
+[project.optional-dependencies]
+gui = [
+    'pyqtgraph>=0.12.4', 
+    'PyQt6.sip',
+    'PyQt6',
+    # 'google-cloud-storage',
+    'omnipose-theme',
+    'superqt',
+    'darkdetect',
+    'qtawesome',
+]
+distributed = [
+    'dask',
+    'dask_image',
+    'scikit-learn',
+]
+docs = [
+    'sphinx',
+    'sphinx-rtd-theme',
+    'recommonmark',
+    'sphinxcontrib-mermaid',
+    'sphinx-autobuild',
+    'sphinx-copybutton',
+    'sphinx-gallery',
+    'sphinx-multiversion',
+    'sphinx-tabs',
+    'sphinx-toolbox',
+    'sphinxcontrib-bibtex',
+    'sphinxcontrib-napoleon',
+    'sphinxcontrib-programoutput',
+    'sphinxcontrib-spelling',
+]
 
-[tool.setuptools_scm]
-write_to = "omnipose/_version.py"
+[tool.entry-points.console_scripts]
+omnipose = "omnipose.__main__:main"
 
 [tool.pytest.ini_options]
 minversion = "6.0"
