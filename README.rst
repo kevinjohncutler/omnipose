@@ -5,8 +5,7 @@
    <img src="https://github.com/kevinjohncutler/omnipose/blob/main/logo3.png?raw=true" width="200" title="bacteria" alt="bacteria" align="right" vspace = "0">
    <img src="https://github.com/kevinjohncutler/omnipose/blob/main/logo.png?raw=true" width="200" title="omnipose" alt="omnipose" align="center" vspace = "0">
 
-|Downloads| |PyPI version|
-
+|Downloads| |PyPI version| |Build tag|
 Omnipose is a general image segmentation tool that builds on
 `Cellpose <https://github.com/MouseLand/cellpose>`__ in a number of ways
 described in our
@@ -386,6 +385,8 @@ using Omnipose for noncommercial applications.
    :target: https://pepy.tech/project/omnipose
 .. |PyPI version| image:: https://badge.fury.io/py/omnipose.svg
    :target: https://badge.fury.io/py/omnipose
+.. |Build tag| image:: https://github.com/marieanselmet/omnipose_ci/actions/workflows/build.yml/badge.svg
+   :target: https://github.com/marieanselmet/omnipose_ci/actions/workflows/build.yml
 
 
 
