@@ -1,11 +1,22 @@
 [build-system]
 requires = ["setuptools>=61", "wheel", "setuptools_scm"]
 build-backend = "setuptools.build_meta"
+# requires = ["setuptools", "scikit-build-core", "wheel"]
+# build-backend = "scikit_build_core.setuptools.build_meta"
+
+# [tool.scikit-build.sdist]
+# exclude = [".flake8", ".git*", "*.yaml", "*.ipynb", "*.yml", "docs"]
+
+[tool.setuptools_scm]
+write_to = "omnipose/_version.py"
+
+[tool.setuptools.dynamic]
+version = {attr = "omnipose._version.__version__"}  # any module attribute compatible with ast.literal_eval
 
 [project]
 name = "omnipose"
-version = "0.0.0"  # Version par défaut, sera remplacée par setuptools_scm
-#dynamic = ["version"]
+# version = "0.0.0"  # Version par défaut, sera remplacée par setuptools_scm
+dynamic = ["version"]
 description = "Cell segmentation algorithm improving on the Cellpose framework"
 readme = "README.rst"
 authors = [{name = "Kevin Cutler", email = "kevinjohncutler@outlook.com"}]
@@ -73,16 +84,15 @@ docs = [
     'sphinxcontrib-spelling',
 ]
 
-[project.entry-points.console_scripts]
+[tool.entry-points.console_scripts]
 omnipose = "omnipose.__main__:main"
-
-[tool.setuptools_scm]
-write_to = "omnipose/_version.py"
 
 [tool.pytest.ini_options]
 minversion = "6.0"
 testpaths = ["tests"]
 
+# [tool.scikit-build-core]
+# packages = { include = ["omnipose", "cellpose_omni", "gui", "plugins", "pyinstaller"], exclude = ["scripts", "docs"] }
 [tool.setuptools.packages.find]
 include = ["omnipose", "cellpose_omni", "gui", "plugins", "pyinstaller"]
 exclude = ["scripts", "docs"]
