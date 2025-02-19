@@ -21,7 +21,7 @@ dependencies = [
     'ncolor>=1.2.1',
     'scikit-learn',
     'torch>=1.10',
-#   'torchvision',
+#   'torchvision', already there trough torchvf, but that may be removed later
     'mahotas>=1.4.13',
     'mgen',
     'matplotlib',
@@ -42,7 +42,7 @@ dependencies = [
 [project.optional-dependencies]
 gui = [
     'pyqtgraph>=0.12.4', 
-    'PyQt6.sip', 
+    'PyQt6.sip',
     'PyQt6',
     # 'google-cloud-storage',
     'omnipose-theme',
@@ -54,6 +54,22 @@ distributed = [
     'dask',
     'dask_image',
     'scikit-learn',
+]
+docs = [
+    'sphinx',
+    'sphinx-rtd-theme',
+    'recommonmark',
+    'sphinxcontrib-mermaid',
+    'sphinx-autobuild',
+    'sphinx-copybutton',
+    'sphinx-gallery',
+    'sphinx-multiversion',
+    'sphinx-tabs',
+    'sphinx-toolbox',
+    'sphinxcontrib-bibtex',
+    'sphinxcontrib-napoleon',
+    'sphinxcontrib-programoutput',
+    'sphinxcontrib-spelling',
 ]
 
 [project.entry-points.console_scripts]
