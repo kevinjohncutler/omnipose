@@ -4,7 +4,8 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "omnipose"
-dynamic = ["version"]
+version = "0.0.0"  # Version par défaut, sera remplacée par setuptools_scm
+#dynamic = ["version"]
 description = "Cell segmentation algorithm improving on the Cellpose framework"
 readme = "README.rst"
 authors = [{name = "Kevin Cutler", email = "kevinjohncutler@outlook.com"}]
