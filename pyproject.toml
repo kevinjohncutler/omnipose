@@ -1,26 +1,23 @@
 [build-system]
 requires = ["setuptools>=61", "wheel", "setuptools_scm"]
 build-backend = "setuptools.build_meta"
-# requires = ["setuptools", "scikit-build-core", "wheel"]
-# build-backend = "scikit_build_core.setuptools.build_meta"
 
-# [tool.scikit-build.sdist]
-# exclude = [".flake8", ".git*", "*.yaml", "*.ipynb", "*.yml", "docs"]
-
+# Generate version number from omnipose/_version.py and dynamically fetch it for project configuration
 [tool.setuptools_scm]
 write_to = "omnipose/_version.py"
-
 [tool.setuptools.dynamic]
 version = {attr = "omnipose._version.__version__"}  # any module attribute compatible with ast.literal_eval
+readme = {file = ["README.rst"]}
 
 [project]
 name = "omnipose"
-# version = "0.0.0"  # Version par défaut, sera remplacée par setuptools_scm
-dynamic = ["version"]
+dynamic = ["version", "readme"]
+license = {file = "LICENSE"}
+requires-python = ">=3.9"
 description = "Cell segmentation algorithm improving on the Cellpose framework"
-readme = "README.rst"
 authors = [{name = "Kevin Cutler", email = "kevinjohncutler@outlook.com"}]
 classifiers = [
+    "Development Status :: 3 - Alpha",
     "Programming Language :: Python :: 3",
     "Operating System :: OS Independent",
 ]
@@ -51,6 +48,11 @@ dependencies = [
     'dbscan', # almost 2x faster than sklearn dbscan!
 ]
 
+# Optional dependencies
+# To install specific optional dependencies, use `pip install omnipose[gui]`
+# For local install, replace omnipose by . : `pip install .[gui]`
+# To install all dependencies, use `pip install omnipose[all]`
+# For local install, replace omnipose by . : `pip install .[all]`
 [project.optional-dependencies]
 gui = [
     'pyqtgraph>=0.12.4', 
@@ -91,8 +93,6 @@ omnipose = "omnipose.__main__:main"
 minversion = "6.0"
 testpaths = ["tests"]
 
-# [tool.scikit-build-core]
-# packages = { include = ["omnipose", "cellpose_omni", "gui", "plugins", "pyinstaller"], exclude = ["scripts", "docs"] }
 [tool.setuptools.packages.find]
 include = ["omnipose", "cellpose_omni", "gui", "plugins", "pyinstaller"]
 exclude = ["scripts", "docs"]
