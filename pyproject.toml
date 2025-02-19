@@ -32,8 +32,28 @@ dependencies = [
     'natsort', 
     'aicsimageio', # should make this optional, include czi dep
     'numexpr',
-    'torch_optimizer', # for RADAM, now supported directly in pytorch though,
-    'dbscan'
+    'torch_optimizer', # for RADAM, now supported directly in pytorch though
+    'tifffile', # might be dependency of aicsimageio
+    'fastremap', # not sure how I missed this one 
+    'cmap', 
+    'dbscan', # almost 2x faster than sklearn dbscan!
+]
+
+[project.optional-dependencies]
+gui = [
+    'pyqtgraph>=0.12.4', 
+    'PyQt6.sip', 
+    'PyQt6',
+    # 'google-cloud-storage',
+    'omnipose-theme',
+    'superqt',
+    'darkdetect',
+    'qtawesome',
+]
+distributed = [
+    'dask',
+    'dask_image',
+    'scikit-learn',
 ]
 
 [project.entry-points.console_scripts]
