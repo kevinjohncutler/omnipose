@@ -98,11 +98,3 @@ testpaths = ["tests"]
 [tool.setuptools.packages.find]
 include = ["omnipose", "cellpose_omni", "gui", "plugins", "pyinstaller"]
 exclude = ["scripts", "docs"]
-
-[tool.cibuildwheel]
-build = ["cp39-*", "cp310-*", "cp311-*", "cp312-*"]
-
-build-frontend = "build"
-build-verbosity = 1
-test-command = "pytest {project}/tests/test_import.py"
-test-requires = ["pytest", "pytest-cov", "pytest-benchmark", "scikit-image"]
