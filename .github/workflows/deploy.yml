@@ -71,6 +71,7 @@ jobs:
           path: dist/*.tar.gz
           name: artifacts-sdist
 
+  # UNCOMMENT FOR UPLOAD TO PYPI
   # upload_all:
   #   name: Publish to PyPI
   #   needs: [build_wheel, build_sdist]
@@ -85,7 +86,7 @@ jobs:
 
   #     - name: Download artifacts
   #       uses: actions/download-artifact@v4
-  #       with:
+  #       with: 
   #         name: artifacts-*
   #         path: dist
   #         merge: true
