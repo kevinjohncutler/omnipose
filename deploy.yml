@@ -1,0 +1,75 @@
+name: Deploy
+
+on:
+  push:
+    branches: [main]
+    paths-ignore:
+      - 'docs/**'
+      - 'scripts/**'
+      - 'workflows/build.yml'
+  pull_request:
+    branches: [main]
+    paths-ignore:
+      - 'docs/**'
+      - 'scripts/**'
+      - 'workflows/build.yml'
+  release:
+    types: [created]
+
+jobs:
+  build_wheels:
+    name: build (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: true
+      matrix:
+        os: [ubuntu-latest] #, macos-latest, windows-latest]
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Build wheels
+        uses: pypa/cibuildwheel@v2.22.0
+
+      - uses: actions/upload-artifact@v4
+        with:
+          path: ./wheelhouse/*.whl
+          name: artifacts-${{ matrix.os }}
+
+  build_sdist:
+    name: build dist
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Build sdist
+        run: pipx run build --sdist
+
+      - uses: actions/upload-artifact@v4
+        with:
+          path: dist/*.tar.gz
+          name: artifacts-sdist
+
+  # upload_all:
+  #   name: publish (PyPI)
+  #   needs: [build_wheels, build_sdist]
+  #   runs-on: ubuntu-latest
+  #   if: github.event_name == 'release' && success()
+  #   steps:
+  #     - uses: actions/setup-python@v5
+  #       with:
+  #         python-version: "3.x"
+
+  #     - uses: actions/download-artifact@v4
+  #       with:
+  #         pattern: artifacts-*
+  #         path: dist
+  #         merge-multiple: true
+
+  #     - uses: pypa/gh-action-pypi-publish@v1.12.4
+  #       with:
+  #         password: ${{ secrets.PYPI_API_TOKEN }}
+  #         skip-existing: true
+  #         verbose: true
