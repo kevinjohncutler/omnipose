@@ -1,0 +1,99 @@
+name: Deploy
+
+on:
+  push:
+    branches: [main]
+    paths-ignore:
+      - 'docs/**'
+      - 'scripts/**'
+      - 'workflows/build.yml'
+  pull_request:
+    branches: [main]
+    paths-ignore:
+      - 'docs/**'
+      - 'scripts/**'
+      - 'workflows/build.yml'
+  release:
+    types: [created]
+
+jobs:
+  build_wheel:
+    name: Build Wheel
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v3
+        with:
+          python-version: '3.9'
+
+      - name: Install build dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install build
+
+      - name: Build wheel
+        run: |
+          python -m build --wheel
+
+      - uses: actions/upload-artifact@v4
+        with:
+          path: dist/*.whl
+          name: artifacts-wheel
+
+  build_sdist:
+    name: Build Source Distribution
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v3
+        with:
+          python-version: '3.9'
+
+      - name: Install build dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install build
+
+      - name: Build sdist
+        run: |
+          python -m build --sdist
+
+      - uses: actions/upload-artifact@v4
+        with:
+          path: dist/*.tar.gz
+          name: artifacts-sdist
+
+  # UNCOMMENT FOR UPLOAD TO PYPI
+  # upload_all:
+  #   name: Publish to PyPI
+  #   needs: [build_wheel, build_sdist]
+  #   runs-on: ubuntu-latest
+  #   if: github.event_name == 'release' && success()
+
+  #   steps:
+  #     - name: Set up Python
+  #       uses: actions/setup-python@v3
+  #       with:
+  #         python-version: '3.9'
+
+  #     - name: Download artifacts
+  #       uses: actions/download-artifact@v4
+  #       with: 
+  #         name: artifacts-*
+  #         path: dist
+  #         merge: true
+
+  #     - name: Publish to PyPI
+  #       uses: pypa/gh-action-pypi-publish@v1.12.4
+  #       with:
+  #         password: ${{ secrets.PYPI_API_TOKEN }}
+  #         skip-existing: true
+  #         verbose: true
