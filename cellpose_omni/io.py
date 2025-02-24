@@ -136,37 +136,67 @@ def imread(filename):
         return img
     else:
         try:
+            # Read image including alpha channel if present (-1 flag)
             img = cv2.imread(filename, -1)
-            if img.ndim > 2:
-                img = img[..., [2,1,0]]
+            if img is None:
+                raise ValueError("Failed to read image")
+            # Check dimensions
+            if img.ndim == 2:
+                # Grayscale image, no conversion needed
+                return img
+            elif img.shape[2] == 3:
+                # Convert 3-channel BGR to RGB
+                img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+            elif img.shape[2] == 4:
+                # Convert 4-channel BGRA to RGBA
+                img = cv2.cvtColor(img, cv2.COLOR_BGRA2RGBA)
             return img
         except Exception as e:
-            io_logger.critical('ERROR: could not read file, %s'%e)
+            io_logger.critical('ERROR: could not read file, %s' % e)
             return None
 
 
 def imwrite(filename, arr, **kwargs):
+    # should transition to imagecodecs instead, faster for webp, probably others too 
+
     ext = os.path.splitext(filename)[-1].lower()
     if ext in ['.tif', '.tiff']:
         tifffile.imwrite(filename, arr, **kwargs)
     elif ext == '.npy':
         np.save(filename, arr, **kwargs)
     else:
-        # Handle PNG compression via kwargs
-        compression = kwargs.pop('compression', 9)
-        quality = kwargs.pop('quality', 95)
-        
         if ext == '.png':
-            compression_params = [cv2.IMWRITE_PNG_COMPRESSION, compression]
-        elif ext == '.jpg' or ext == '.jpeg' or ext == '.jp2':
-            compression_params = [cv2.IMWRITE_JPEG_QUALITY, quality]
+            compression = kwargs.pop('compression', 9)        
+            params = [cv2.IMWRITE_PNG_COMPRESSION, compression]
+        elif ext in ['.jpg', '.jpeg', '.jp2']:
+            quality = kwargs.pop('quality', 95)
+            params = [cv2.IMWRITE_JPEG_QUALITY, quality]
+        elif ext == '.webp':
+            quality = kwargs.pop('quality', 0)
+            # note: webp quality should be >100 for "lossless" compression, though a few pixels still differ 
+            # 0 still looks really really good, though
+            params = [cv2.IMWRITE_WEBP_QUALITY, quality]
         else:
-            compression_params = []
-
-        if len(arr.shape) > 2:# and ext != '.png':
-            arr = cv2.cvtColor(arr, cv2.COLOR_BGR2RGB)
-            
-        cv2.imwrite(filename, arr, compression_params + list(kwargs.items()))
+            # For any other extension, no special parameters are set.
+            params = []
+        
+        # Handle color conversion for cv2
+        if len(arr.shape) > 2:
+            if arr.shape[-1] == 3:
+                # If the user provided an image in RGB order, convert it to BGR for OpenCV.
+                arr = cv2.cvtColor(arr, cv2.COLOR_RGB2BGR)
+            elif arr.shape[-1] == 4:
+                # For a 4-channel image, assume it is in RGBA order.
+                # Convert RGBA to BGRA so that the alpha channel is preserved.
+                arr = cv2.cvtColor(arr, cv2.COLOR_RGBA2BGRA)
+        
+        # Append any extra kwargs as key/value pairs.
+        extra_params = []
+        for key, value in kwargs.items():
+            extra_params.extend([key, value])
+        # Write the image with the combined parameters.
+        cv2.imwrite(filename, arr, params + extra_params)
+        
         
 
 def imsave(filename, arr):

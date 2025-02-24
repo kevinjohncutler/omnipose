@@ -7,7 +7,7 @@ install_deps = ['numpy>=1.22.4,<2', # maybe it is safe now? Nope, as of January 
                 'ncolor>=1.2.1',
                 'scikit-learn',
                 'torch>=1.10',
-                'torchvision',
+                'torchvision', # redundant from torchvf 
                 'mahotas>=1.4.13',
                 'mgen',
                 'matplotlib',
