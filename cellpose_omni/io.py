@@ -203,7 +203,7 @@ def imsave(filename, arr):
     io_logger.warning('WARNING: imsave is deprecated, use io.imwrite instead')
     return imwrite(filename, arr)
 
-# now allows for any extension(s) to be specified, allowing exlcusion if necessary, non-image files, etc. 
+# now allows for any extension(s) to be specified, allowing exclusion if necessary, non-image files, etc. 
 def get_image_files(folder, mask_filter='_masks', img_filter='', look_one_level_down=False,
                     extensions = ['png','jpg','jpeg','tif','tiff'], pattern=None):
     """ find all images in a folder and if look_one_level_down all subfolders """

@@ -3,6 +3,7 @@ from .color import sinebow
 
 import matplotlib as mpl
 mpl.rcParams['svg.fonttype'] = 'none'  # keep text as real text in the SVG
+mpl.rcParams['text.usetex'] = False      # Avoid LaTeX (which converts text to paths)
 
 from matplotlib.figure import Figure
 from matplotlib.backends.backend_agg import FigureCanvasAgg as FigureCanvas
@@ -67,6 +68,11 @@ def setup():
     
 
 def figure(nrow=None, ncol=None, **kwargs):
+    figsize = kwargs.get('figsize', 2)
+    if not isinstance(figsize, (list, tuple, np.ndarray)) and figsize is not None:
+        figsize = (figsize, figsize)
+        
+    kwargs['figsize'] = figsize
     fig = Figure(**kwargs)
     # fig = plt.figure(**kwargs)
     if nrow is not None and ncol is not None:
@@ -366,6 +372,31 @@ def apply_ncolor(masks,offset=0,cmap=None,max_depth=20,expand=True, maxv=1, gree
     else:
         return cmap(rescale(m)/maxv)
 
+
+def set_outline(ax, outline_color=None, outline_width=0):
+    """
+    - Always hide axis ticks (ax.axis("off")).
+    - If outline_color is not None and outline_width > 0,
+        show spines with that color/width.
+    - Otherwise, hide spines (no border).
+    """
+    # Always turn off ticks:
+    # ax.axis("off")
+    
+    ax.set_xticks([])
+    ax.set_yticks([])
+    ax.patch.set_alpha(0)
+
+    # Decide whether to draw spines:
+    if outline_color is not None and outline_width > 0:
+        for spine in ax.spines.values():
+            spine.set_edgecolor(outline_color)
+            spine.set_linewidth(outline_width)
+    else:
+        # Hide spines entirely
+        for s in ax.spines.values():
+            s.set_visible(False)
+
 def imshow(imgs, figsize=2, ax=None, hold=False, titles=None, title_size=8, spacing=0.05,
            textcolor=[0.5]*3, dpi=300, text_scale=1,
            outline_color=None,     # e.g. [0.5]*3
@@ -376,30 +407,6 @@ def imshow(imgs, figsize=2, ax=None, hold=False, titles=None, title_size=8, spac
     around each image if outline_color is not None and outline_width > 0.
     Otherwise, axes ticks etc. remain off, as before.
     """
-
-    def set_outline(ax, outline_color, outline_width):
-        """
-        - Always hide axis ticks (ax.axis("off")).
-        - If outline_color is not None and outline_width > 0,
-          show spines with that color/width.
-        - Otherwise, hide spines (no border).
-        """
-        # Always turn off ticks:
-        # ax.axis("off")
-        
-        ax.set_xticks([])
-        ax.set_yticks([])
-        ax.patch.set_alpha(0)
-
-        # Decide whether to draw spines:
-        if outline_color is not None and outline_width > 0:
-            for spine in ax.spines.values():
-                spine.set_edgecolor(outline_color)
-                spine.set_linewidth(outline_width)
-        else:
-            # Hide spines entirely
-            for s in ax.spines.values():
-                s.set_visible(False)
     
 
     # -------------------------------------------------------------

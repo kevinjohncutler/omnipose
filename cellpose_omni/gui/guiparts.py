@@ -463,9 +463,12 @@ class ImageDraw(pg.ImageItem):
             step = steps[i]
             target_coords = tuple(c+s for c,s in zip(source_coords, step))
             
-            inds = self.parent.pixelGridOverlay.lineIndices[*source_coords,i].tolist()
+            inds = self.parent.pixelGridOverlay.lineIndices[source_coords +(i,)].tolist() # need 3.11 for this syntax?
+            
             opp_target_coords = tuple(c-s for c,s in zip(source_coords, step))
-            inds += self.parent.pixelGridOverlay.lineIndices[*opp_target_coords,i].tolist()
+            # inds += self.parent.pixelGridOverlay.lineIndices[*opp_target_coords,i].tolist()
+            inds += self.parent.pixelGridOverlay.lineIndices[opp_target_coords+(i,)].tolist()
+            
 
             update_inds += inds
             update_alpha.append(affinity[i][source_coords])
@@ -491,7 +494,9 @@ class ImageDraw(pg.ImageItem):
 
         # print('\n\nA\n\n', affinity.shape, masks.shape,  masks[surround_coords].shape, affinity[:,*surround_coords].shape)
         # print('surround_coords', surround_coords,targets)
-        bd = affinity_to_boundary(masks[surround_coords], affinity[:,*surround_coords], None, dim=dim)
+        # bd = affinity_to_boundary(masks[surround_coords], affinity[:,*surround_coords], None, dim=dim)
+        bd = affinity_to_boundary(masks[surround_coords], affinity[(Ellipsis,)+surround_coords], None, dim=dim)
+        
         
         bd = bd*masks[surround_coords]
         
@@ -503,8 +508,11 @@ class ImageDraw(pg.ImageItem):
         # print(affinity[:,*surround_coords].sum(axis=0).shape, masks[surround_coords].shape)
         
         # masks[*surround_coords][affinity[:,*surround_coords].sum(axis=0)==0] = 0
-        masks[*surround_coords] *= affinity[:,*surround_coords].sum(axis=0)>0
+        # masks[*surround_coords] *= affinity[:,*surround_coords].sum(axis=0)>0
+        # masks[*surround_coords] *= affinity[:,*surround_coords].sum(axis=0)>0
+        masks[surround_coords] *= affinity[(Ellipsis,)+surround_coords].sum(axis=0)>0
         
+    
 
         # print('info', self.parent.pixelGridOverlay.lineIndices.shape)
         # Update only the affected region of the overlay
@@ -590,9 +598,12 @@ class ImageDraw(pg.ImageItem):
             # source_slc = (Ellipsis,)+tuple(source_slices[i])
             
             
-            inds = self.parent.pixelGridOverlay.lineIndices[*target_coords,i].tolist()
+            # inds = self.parent.pixelGridOverlay.lineIndices[*target_coords,i].tolist()
+            inds = self.parent.pixelGridOverlay.lineIndices[target_coords+(i,)].tolist()
+            
             opp_target_coords = tuple(np.clip(c-s,0,l-1) for c,s,l in zip(source_coords, step,[Ly,Lx]))
-            inds += self.parent.pixelGridOverlay.lineIndices[*opp_target_coords,i].tolist()
+            # inds += self.parent.pixelGridOverlay.lineIndices[*opp_target_coords,i].tolist()
+            inds += self.parent.pixelGridOverlay.lineIndices[opp_target_coords+(i,)].tolist()
 
             update_inds += inds
             update_alpha.append(affinity[i][source_coords])

@@ -38,7 +38,9 @@ def initialize_seg(self, compute_affinity=False):
                                                     self.sign, self.dim)
 
             # assign to spatial affinity 
-            self.affinity_graph[...,*coords] = affinity_graph
+            # self.affinity_graph[...,*coords] = affinity_graph
+            self.affinity_graph[(Ellipsis,)+coords] = affinity_graph
+            
     
     
     logger.info(f'affinity graph shape {self.affinity_graph.shape}')
