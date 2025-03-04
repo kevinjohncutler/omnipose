@@ -71,29 +71,61 @@ jobs:
           path: dist/*.tar.gz
           name: artifacts-sdist
 
+  publish-to-testpypi:
+    name: Publish to Test PyPI
+    needs: [build_wheel, build_sdist]
+    runs-on: ubuntu-latest
+    if: github.event_name == 'release' && success()
+
+    environment:
+      name: testpypi
+      url: https://test.pypi.org/p/omnipose_ci # Change omnipose_ci to omnipose
+
+    permissions:
+      id-token: write  # IMPORTANT: mandatory for trusted publishing
+
+    steps:
+    - name: Download artifacts
+      uses: actions/download-artifact@v4
+      with: 
+        name: artifacts-*
+        path: dist
+        merge: true
+    - name: Download all the dists
+      uses: actions/download-artifact@v4
+      with:
+        name: python-package-distributions
+        path: dist/
+    - name: Publish distribution to TestPyPI
+      uses: pypa/gh-action-pypi-publish@release/v1
+      with:
+        repository-url: https://test.pypi.org/legacy/
+
   # UNCOMMENT FOR UPLOAD TO PYPI
-  # upload_all:
+  # Link to the documentation: https://packaging.python.org/en/latest/guides/publishing-package-distribution-releases-using-github-actions-ci-cd-workflows/
+  # publish-to-pypi:
   #   name: Publish to PyPI
   #   needs: [build_wheel, build_sdist]
   #   runs-on: ubuntu-latest
   #   if: github.event_name == 'release' && success()
 
+  #   environment:
+  #     name: pypi
+  #     url: https://pypi.org/p/omnipose_ci # Change omnipose_ci to omnipose
+  #   permissions:
+  #     id-token: write  # IMPORTANT: mandatory for trusted publishing
+
   #   steps:
-  #     - name: Set up Python
-  #       uses: actions/setup-python@v3
-  #       with:
-  #         python-version: '3.9'
-
-  #     - name: Download artifacts
-  #       uses: actions/download-artifact@v4
-  #       with: 
-  #         name: artifacts-*
-  #         path: dist
-  #         merge: true
-
-  #     - name: Publish to PyPI
-  #       uses: pypa/gh-action-pypi-publish@v1.12.4
-  #       with:
-  #         password: ${{ secrets.PYPI_API_TOKEN }}
-  #         skip-existing: true
-  #         verbose: true
+  #   - name: Download artifacts
+  #     uses: actions/download-artifact@v4
+  #     with: 
+  #       name: artifacts-*
+  #       path: dist
+  #       merge: true
+  #   - name: Download all the dists
+  #     uses: actions/download-artifact@v4
+  #     with:
+  #       name: python-package-distributions
+  #       path: dist/
+  #   - name: Publish distribution 📦 to PyPI
+  #     uses: pypa/gh-action-pypi-publish@release/v1
