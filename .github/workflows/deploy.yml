@@ -79,7 +79,7 @@ jobs:
 
     environment:
       name: testpypi
-      url: https://test.pypi.org/p/omnipose
+      url: https://test.pypi.org/p/omnipose_ci # Change omnipose_ci to omnipose
 
     permissions:
       id-token: write  # IMPORTANT: mandatory for trusted publishing
@@ -111,7 +111,7 @@ jobs:
 
   #   environment:
   #     name: pypi
-  #     url: https://pypi.org/p/omnipose
+  #     url: https://pypi.org/p/omnipose_ci # Change omnipose_ci to omnipose
   #   permissions:
   #     id-token: write  # IMPORTANT: mandatory for trusted publishing
 
