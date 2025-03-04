@@ -13,7 +13,7 @@ version = {attr = "omnipose._version.__version__"}  # any module attribute compa
 readme = {file = ["README.rst"]}
 
 [project]
-name = "omnipose"
+name = "omnipose_ci"
 dynamic = ["version", "readme"]
 license = {file = "LICENSE"}
 requires-python = ">=3.9"
