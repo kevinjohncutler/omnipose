@@ -63,6 +63,7 @@ jobs:
   #   permissions:
   #     id-token: write  # mandatory for trusted publishing
 
+<<<<<<< HEAD
   #   steps:
   #   - name: Download artifacts
   #     uses: actions/download-artifact@v4
@@ -74,6 +75,25 @@ jobs:
   #     uses: pypa/gh-action-pypi-publish@release/v1
   #     with:
   #       repository-url: https://test.pypi.org/legacy/
+=======
+    steps:
+      - name: Download artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: python-package-distributions
+          path: dist/
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -U setuptools setuptools_scm
+      - name: Create tag on git
+        run: |
+          git tag
+      - name: Publish distribution to TestPyPI
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          repository-url: https://test.pypi.org/legacy/
+>>>>>>> fdbef64 (update)
 
   # publish-to-pypi:
   #   name: Publish to PyPI
