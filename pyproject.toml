@@ -10,11 +10,11 @@ version_scheme = "only-version"
 
 [tool.setuptools.dynamic]
 version = {attr = "omnipose._version.__version__"}  # any module attribute compatible with ast.literal_eval
-readme = {file = ["README.rst"]}
+#readme = {file = ["README.rst"]}
 
 [project]
 name = "omnipose_ci"
-dynamic = ["version", "readme"]
+dynamic = ["version"]#, "readme"]
 license = {file = "LICENSE"}
 requires-python = ">=3.9"
 description = "Cell segmentation algorithm improving on the Cellpose framework"
