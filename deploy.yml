@@ -88,8 +88,7 @@ jobs:
           pip install -U setuptools setuptools_scm
       - name: Create Git Tag
         run: |
-          git tag v$(python -c "import setuptools_scm; print(setuptools_scm.get_version())")
-          git push --tags
+          git tag
       - name: Publish distribution to TestPyPI
         uses: pypa/gh-action-pypi-publish@release/v1
         with:
