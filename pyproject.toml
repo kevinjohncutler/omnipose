@@ -6,7 +6,7 @@ build-backend = "setuptools.build_meta"
 [tool.setuptools_scm]
 write_to = "omnipose/_version.py"
 local_scheme = "no-local-version"
-version_scheme = "release-branch-semver"
+version_scheme = "only-version"
 
 [tool.setuptools.dynamic]
 version = {attr = "omnipose._version.__version__"}  # any module attribute compatible with ast.literal_eval
