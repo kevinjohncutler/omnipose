@@ -10,7 +10,7 @@ version_scheme = "only-version"
 
 [tool.setuptools.dynamic]
 version = {attr = "omnipose._version.__version__"}  # any module attribute compatible with ast.literal_eval
-readme = {file = ["README.rst"], content-type = "text/markdown"}
+readme = {file = ["README.rst"], content-type = "text/x-rst"}
 
 [project]
 name = "omnipose_ci"
@@ -20,8 +20,7 @@ requires-python = ">=3.9"
 description = "Cell segmentation algorithm improving on the Cellpose framework"
 authors = [{name = "Kevin Cutler", email = "kevinjohncutler@outlook.com"}]
 classifiers = [
-"Development Status :: 3 - Alpha",
-"Development Status :: 3 - Alpha",
+    "Development Status :: 3 - Alpha",
     "Programming Language :: Python :: 3",
     "Operating System :: OS Independent",
 ]
