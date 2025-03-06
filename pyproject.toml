@@ -5,11 +5,11 @@ build-backend = "setuptools.build_meta"
 # Generate version number from omnipose/_version.py and dynamically fetch it for project configuration
 [tool.setuptools_scm]
 write_to = "omnipose/_version.py"
-local_scheme = "no-local-version"
+local_scheme = "no-local-version" # No node info nor date in the version name
 version_scheme = "only-version"
 
 [tool.setuptools.dynamic]
-version = {attr = "omnipose._version.__version__"}  # any module attribute compatible with ast.literal_eval
+version = {attr = "omnipose._version.__version__"}
 readme = {file = ["README.rst"], content-type = "text/x-rst"}
 
 [project]
