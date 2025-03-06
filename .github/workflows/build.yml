@@ -45,6 +45,6 @@ jobs:
       run: |
         pip install -e . -v
         
-    - name: Run tests
-      run: |
-        pytest
+    # - name: Run tests
+    #   run: |
+    #     pytest

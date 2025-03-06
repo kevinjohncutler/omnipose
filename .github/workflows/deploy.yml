@@ -3,6 +3,8 @@ name: Deploy
 on:
   push:
     branches: [main]
+    tags:
+      - "v*"
     paths-ignore:
       - 'docs/**'
       - 'scripts/**'
@@ -17,115 +19,94 @@ on:
     types: [created]
 
 jobs:
-  build_wheel:
-    name: Build Wheel
+  build:
+    name: Build distribution
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+    - name: Checkout
+      uses: actions/checkout@v4
+      with:
+        persist-credentials: false
 
-      - name: Set up Python
-        uses: actions/setup-python@v3
-        with:
-          python-version: '3.9'
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.9'
 
-      - name: Install build dependencies
-        run: |
-          python -m pip install --upgrade pip
-          pip install build
+    - name: Install build dependencies
+      run: |
+        python -m pip install --upgrade pip
+        python -m pip install --upgrade build
+        pip install -U setuptools setuptools_scm
 
-      - name: Build wheel
-        run: |
-          python -m build --wheel
-
-      - uses: actions/upload-artifact@v4
-        with:
-          path: dist/*.whl
-          name: artifacts-wheel
-
-  build_sdist:
-    name: Build Source Distribution
-    runs-on: ubuntu-latest
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Set up Python
-        uses: actions/setup-python@v3
-        with:
-          python-version: '3.9'
-
-      - name: Install build dependencies
-        run: |
-          python -m pip install --upgrade pip
-          pip install build
-
-      - name: Build sdist
-        run: |
-          python -m build --sdist
-
-      - uses: actions/upload-artifact@v4
-        with:
-          path: dist/*.tar.gz
-          name: artifacts-sdist
-
-  publish-to-testpypi:
-    name: Publish to Test PyPI
-    needs: [build_wheel, build_sdist]
-    runs-on: ubuntu-latest
-    if: github.event_name == 'release' && success()
-
-    environment:
-      name: testpypi
-      url: https://test.pypi.org/p/omnipose_ci # Change omnipose_ci to omnipose
-
-    permissions:
-      id-token: write  # IMPORTANT: mandatory for trusted publishing
-
-    steps:
-    - name: Download artifacts
-      uses: actions/download-artifact@v4
-      with: 
-        name: artifacts-*
-        path: dist
-        merge: true
-    - name: Download all the dists
-      uses: actions/download-artifact@v4
+    - name: Build a binary wheel and a source tarball
+      run: |
+        python -m build
+    
+    - name: Store the distribution packages
+      uses: actions/upload-artifact@v4
       with:
         name: python-package-distributions
         path: dist/
-    - name: Publish distribution to TestPyPI
-      uses: pypa/gh-action-pypi-publish@release/v1
-      with:
-        repository-url: https://test.pypi.org/legacy/
 
-  # UNCOMMENT FOR UPLOAD TO PYPI
-  # Link to the documentation: https://packaging.python.org/en/latest/guides/publishing-package-distribution-releases-using-github-actions-ci-cd-workflows/
-  # publish-to-pypi:
-  #   name: Publish to PyPI
-  #   needs: [build_wheel, build_sdist]
+# UNCOMMENT FOR UPLOAD TO TESTPYPI AND PYPI
+# Link to the documentation: https://packaging.python.org/en/latest/guides/publishing-package-distribution-releases-using-github-actions-ci-cd-workflows/
+  # publish-to-testpypi:
+  #   name: Publish to TestPyPI
+  #   needs: build
   #   runs-on: ubuntu-latest
-  #   if: github.event_name == 'release' && success()
-
+  #   # if: github.event_name == 'release' && success()
   #   environment:
-  #     name: pypi
-  #     url: https://pypi.org/p/omnipose_ci # Change omnipose_ci to omnipose
+  #     name: testpypi
+  #     url: https://test.pypi.org/p/omnipose_ci
   #   permissions:
-  #     id-token: write  # IMPORTANT: mandatory for trusted publishing
+  #     id-token: write  # mandatory for trusted publishing
 
   #   steps:
+  #   - name: Checkout
+  #     uses: actions/checkout@v4
+  #     with:
+  #       persist-credentials: false
+
   #   - name: Download artifacts
-  #     uses: actions/download-artifact@v4
-  #     with: 
-  #       name: artifacts-*
-  #       path: dist
-  #       merge: true
-  #   - name: Download all the dists
   #     uses: actions/download-artifact@v4
   #     with:
   #       name: python-package-distributions
   #       path: dist/
-  #   - name: Publish distribution 📦 to PyPI
+
+  #   - name: Install dependencies
+  #     run: |
+  #       python -m pip install --upgrade pip
+        
+
+  #   - name: Create Git Tag
+  #     # env:
+  #     #   GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+  #     run: |
+  #       git tag
+
+  #   - name: Publish distribution to TestPyPI
   #     uses: pypa/gh-action-pypi-publish@release/v1
+  #     with:
+  #       repository-url: https://test.pypi.org/legacy/
+
+  # # publish-to-pypi:
+  # #   name: Publish to PyPI
+  # #   needs: build
+  # #   runs-on: ubuntu-latest
+  # #   if: github.event_name == 'release' && success()
+  # #   environment:
+  # #     name: pypi
+  # #     url: https://pypi.org/p/pomnipose_ci
+  # #   permissions:
+  # #     id-token: write  # mandatory for trusted publishing
+    
+  # #   steps:
+  # #   - name: Download artifacts
+  # #     uses: actions/download-artifact@v4
+  # #     with:
+  # #       name: python-package-distributions
+  # #       path: dist/
+  # #   - name: Publish distribution to PyPI
+  # #     uses: pypa/gh-action-pypi-publish@release/v1
