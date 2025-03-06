@@ -58,7 +58,8 @@ dependencies = [
 # For local install, replace omnipose by . : `pip install .[gui]`
 # To install all dependencies, use `pip install omnipose[all]`
 # For local install, replace omnipose by . : `pip install .[all]`
-[project.optional-dependencies]
+[tool.optional-dependencies]
+# [project.optional-dependencies]
 gui = [
     'pyqtgraph>=0.12.4', 
     'PyQt6.sip',
