@@ -1,8 +1,8 @@
- .. image:: https://github.com/kevinjohncutler/omnipose/blob/main/logo3.png
+ .. image:: https://raw.githubusercontent.com//kevinjohncutler/omnipose/blob/main/logo3.png?sanitize=true
       :width: 200
       :align: right
 
- .. image:: https://github.com/kevinjohncutler/omnipose/blob/main/logo.png
+ .. image:: https://raw.githubusercontent.com//kevinjohncutler/omnipose/blob/main/logo.png?sanitize=true
       :width: 200
       :align: center
  
