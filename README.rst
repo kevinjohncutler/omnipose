@@ -1,8 +1,17 @@
-.. raw:: html
+ .. image:: logo3.png
+      :width: 200
+      :align: right
+      :vspace: 0
+      :alt: bacteria
+      :title: bacteria
 
-   <img src="https://github.com/kevinjohncutler/omnipose/blob/main/logo3.png?raw=true" width="200" title="bacteria" alt="bacteria" align="right" vspace = "0">
-   <img src="https://github.com/kevinjohncutler/omnipose/blob/main/logo.png?raw=true" width="200" title="omnipose" alt="omnipose" align="center" vspace = "0">
-
+ .. image:: logo.png
+      :width: 200
+      :align: center
+      :vspace: 0
+      :alt: omnipose
+      :title: omnipose
+ 
 |Downloads| |PyPI version| |Build tag|  
 
 Omnipose is a general image segmentation tool that builds on
