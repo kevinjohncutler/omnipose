@@ -1,10 +1,10 @@
- .. image:: https://raw.githubusercontent.com//kevinjohncutler/omnipose/blob/main/logo3.png?sanitize=true
-      :width: 200
+.. image:: https://github.com/kevinjohncutler/omnipose/blob/main/logo3.png
+   :width: 200
       :align: right
 
- .. image:: https://raw.githubusercontent.com//kevinjohncutler/omnipose/blob/main/logo.png?sanitize=true
-      :width: 200
-      :align: center
+.. image:: https://github.com/kevinjohncutler/omnipose/blob/main/logo.png
+   :width: 200
+   :align: center
  
 |Downloads| |PyPI version| |Build tag|  
 
