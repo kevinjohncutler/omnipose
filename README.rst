@@ -1,5 +1,3 @@
-.. include:: /sinebow.rst
-
 .. raw:: html
 
    <img src="https://github.com/kevinjohncutler/omnipose/blob/main/logo3.png?raw=true" width="200" title="bacteria" alt="bacteria" align="right" vspace = "0">
