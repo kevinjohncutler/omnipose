@@ -1,6 +1,6 @@
 .. image:: https://github.com/kevinjohncutler/omnipose/blob/main/logo3.png
    :width: 200
-      :align: right
+   :align: right
 
 .. image:: https://github.com/kevinjohncutler/omnipose/blob/main/logo.png
    :width: 200
