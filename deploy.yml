@@ -71,6 +71,8 @@ jobs:
           python -m pip install --upgrade pip
           pip install -U setuptools setuptools_scm
       - name: Create Git Tag
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           git tag
       - name: Publish distribution to TestPyPI
