@@ -13,10 +13,10 @@ write_to = "omnipose/_version.py"
 # version = {attr = "omnipose._version.__version__"}  # any module attribute compatible with ast.literal_eval
 # readme = {file = ["README.rst"], content-type = "text/x-rst"}
 
-# [project]
-[metadata]
+[project]
 name = "omnipose_ci"
 # dynamic = ["version", "readme"]
+version = "0.0.2"
 license = {file = "LICENSE"}
 requires-python = ">=3.9"
 description = "Cell segmentation algorithm improving on the Cellpose framework"
@@ -58,8 +58,7 @@ dependencies = [
 # For local install, replace omnipose by . : `pip install .[gui]`
 # To install all dependencies, use `pip install omnipose[all]`
 # For local install, replace omnipose by . : `pip install .[all]`
-[tool.optional-dependencies]
-# [project.optional-dependencies]
+[project.optional-dependencies]
 gui = [
     'pyqtgraph>=0.12.4', 
     'PyQt6.sip',
