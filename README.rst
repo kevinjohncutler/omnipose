@@ -1,14 +1,12 @@
  .. image:: logo3.png
       :width: 200
       :align: right
-      :vspace: 0
       :alt: bacteria
       :title: bacteria
 
  .. image:: logo.png
       :width: 200
       :align: center
-      :vspace: 0
       :alt: omnipose
       :title: omnipose
  
