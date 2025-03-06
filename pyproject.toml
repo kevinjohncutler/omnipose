@@ -9,13 +9,14 @@ write_to = "omnipose/_version.py"
 # version_scheme = "only-version"
 # version_scheme = "release-branch-semver"
 
-[tool.setuptools.dynamic]
-version = {attr = "omnipose._version.__version__"}  # any module attribute compatible with ast.literal_eval
-readme = {file = ["README.rst"], content-type = "text/x-rst"}
+# [tool.setuptools.dynamic]
+# version = {attr = "omnipose._version.__version__"}  # any module attribute compatible with ast.literal_eval
+# readme = {file = ["README.rst"], content-type = "text/x-rst"}
 
-[project]
+# [project]
+[metadata]
 name = "omnipose_ci"
-dynamic = ["version", "readme"]
+# dynamic = ["version", "readme"]
 license = {file = "LICENSE"}
 requires-python = ">=3.9"
 description = "Cell segmentation algorithm improving on the Cellpose framework"
