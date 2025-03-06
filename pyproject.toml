@@ -6,17 +6,16 @@ build-backend = "setuptools.build_meta"
 [tool.setuptools_scm]
 write_to = "omnipose/_version.py"
 # local_scheme = "no-local-version"
-# version_scheme = "only-version"
+version_scheme = "only-version"
 # version_scheme = "release-branch-semver"
 
-# [tool.setuptools.dynamic]
-# version = {attr = "omnipose._version.__version__"}  # any module attribute compatible with ast.literal_eval
-# readme = {file = ["README.rst"], content-type = "text/x-rst"}
+[tool.setuptools.dynamic]
+version = {attr = "omnipose._version.__version__"}  # any module attribute compatible with ast.literal_eval
+readme = {file = ["README.rst"], content-type = "text/x-rst"}
 
 [project]
 name = "omnipose_ci"
-# dynamic = ["version", "readme"]
-version = "0.0.2"
+dynamic = ["version", "readme"]
 license = {file = "LICENSE"}
 requires-python = ">=3.9"
 description = "Cell segmentation algorithm improving on the Cellpose framework"
