@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 # Generate version number from omnipose/_version.py and dynamically fetch it for project configuration
 [tool.setuptools_scm]
 write_to = "omnipose/_version.py"
-# local_scheme = "no-local-version"
+local_scheme = "no-local-version"
 version_scheme = "only-version"
 # version_scheme = "release-branch-semver"
 
