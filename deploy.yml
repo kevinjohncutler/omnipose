@@ -52,61 +52,45 @@ jobs:
 
 # UNCOMMENT FOR UPLOAD TO TESTPYPI AND PYPI
 # Link to the documentation: https://packaging.python.org/en/latest/guides/publishing-package-distribution-releases-using-github-actions-ci-cd-workflows/
-  # publish-to-testpypi:
-  #   name: Publish to TestPyPI
+  publish-to-testpypi:
+    name: Publish to TestPyPI
+    needs: build
+    runs-on: ubuntu-latest
+    if: github.event_name == 'release' && success()
+    environment:
+      name: testpypi
+      url: https://test.pypi.org/p/omnipose_ci
+    permissions:
+      id-token: write  # mandatory for trusted publishing
+
+    steps:
+    - name: Download artifacts
+      uses: actions/download-artifact@v4
+      with:
+        name: python-package-distributions
+        path: dist/
+
+    - name: Publish distribution to TestPyPI
+      uses: pypa/gh-action-pypi-publish@release/v1
+      with:
+        repository-url: https://test.pypi.org/legacy/
+
+  # publish-to-pypi:
+  #   name: Publish to PyPI
   #   needs: build
   #   runs-on: ubuntu-latest
-  #   # if: github.event_name == 'release' && success()
+  #   if: github.event_name == 'release' && success()
   #   environment:
-  #     name: testpypi
-  #     url: https://test.pypi.org/p/omnipose_ci
+  #     name: pypi
+  #     url: https://pypi.org/p/pomnipose_ci
   #   permissions:
   #     id-token: write  # mandatory for trusted publishing
-
+    
   #   steps:
-  #   - name: Checkout
-  #     uses: actions/checkout@v4
-  #     with:
-  #       persist-credentials: false
-
   #   - name: Download artifacts
   #     uses: actions/download-artifact@v4
   #     with:
   #       name: python-package-distributions
   #       path: dist/
-
-  #   - name: Install dependencies
-  #     run: |
-  #       python -m pip install --upgrade pip
-        
-
-  #   - name: Create Git Tag
-  #     # env:
-  #     #   GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-  #     run: |
-  #       git tag
-
-  #   - name: Publish distribution to TestPyPI
+  #   - name: Publish distribution to PyPI
   #     uses: pypa/gh-action-pypi-publish@release/v1
-  #     with:
-  #       repository-url: https://test.pypi.org/legacy/
-
-  # # publish-to-pypi:
-  # #   name: Publish to PyPI
-  # #   needs: build
-  # #   runs-on: ubuntu-latest
-  # #   if: github.event_name == 'release' && success()
-  # #   environment:
-  # #     name: pypi
-  # #     url: https://pypi.org/p/pomnipose_ci
-  # #   permissions:
-  # #     id-token: write  # mandatory for trusted publishing
-    
-  # #   steps:
-  # #   - name: Download artifacts
-  # #     uses: actions/download-artifact@v4
-  # #     with:
-  # #       name: python-package-distributions
-  # #       path: dist/
-  # #   - name: Publish distribution to PyPI
-  # #     uses: pypa/gh-action-pypi-publish@release/v1
