@@ -1,12 +1,10 @@
  .. image:: logo3.png
       :width: 200
       :align: right
-      :alt: bacteria
 
  .. image:: logo.png
       :width: 200
       :align: center
-      :alt: omnipose
  
 |Downloads| |PyPI version| |Build tag|  
 
