@@ -124,8 +124,7 @@ How to install Omnipose
    
       pip uninstall cellpose_omni && pip cache remove cellpose_omni
 
-   to prevent version conflicts. See :ref:`project structure <project-structure>` for more details. 
-
+   to prevent version conflicts. See the "Project structure, feature requests, and issues" section for more details.
 
 Python compatibility
 ~~~~~~~~~~~~~~~~~~~~
