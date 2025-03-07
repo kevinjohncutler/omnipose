@@ -182,23 +182,26 @@ def get_medoids(labels,do_skel=True,return_dists=False):
     dists_arr = dists_tensor.cpu().numpy()
 
     # Ensure inds is at least 1D
-    inds = np.atleast_1d(inds)
-    
-    
-    medoids = sort_coords[inds]
-    mlabels = sort_labels[inds]
-    
-    if medoids.ndim==1:
-        medoids = medoids[None]
+    if len(inds):
+        inds = np.atleast_1d(inds)
         
-    
-    if return_dists:
-        dists = dists.cpu().numpy()
-        inner_dists = np.zeros(masks.shape,dtype=dists.dtype)
-        inner_dists[tuple(sort_coords.T)] = dists
-        return medoids, mlabels, inner_dists
+        
+        medoids = sort_coords[inds]
+        mlabels = sort_labels[inds]
+        
+        if medoids.ndim==1:
+            medoids = medoids[None]
+            
+        
+        if return_dists:
+            dists = dists.cpu().numpy()
+            inner_dists = np.zeros(masks.shape,dtype=dists.dtype)
+            inner_dists[tuple(sort_coords.T)] = dists
+            return medoids, mlabels, inner_dists
+        else:
+            return medoids, mlabels
     else:
-        return medoids, mlabels
+        return None, None
 
 
 
