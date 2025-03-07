@@ -37,6 +37,7 @@ gui_deps = [
         'superqt',
         'darkdetect',
         'qtawesome',
+        'pyopengl'
         ]
 
 distributed_deps = [
