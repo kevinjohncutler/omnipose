@@ -3368,7 +3368,7 @@ def _get_affinity_torch(initial, final, flow, dist, iscell, steps, fact, inds, s
     csum = torch.sum(connectivity,axis=0)
     
     cutoff = D+2 # not sure if this will generalize to 3d.. those spurs will be connected to possibly 3x3 pixels
-    cutoff = 3**(D-1) + 1
+    cutoff = 3**(D-1) #+ 1
     keep = csum>=cutoff
    
 
@@ -3385,7 +3385,6 @@ def _get_affinity_torch(initial, final, flow, dist, iscell, steps, fact, inds, s
     for i in non_self:
         if 1:
             tuples = supporting_inds[i]
-            supportive_connectivity = []
             # source_support = []
             # target_support = []
             target_slc = (Ellipsis,)+tuple(target_slices[i])

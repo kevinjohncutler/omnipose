@@ -189,7 +189,7 @@ def reset(self):
     
     self.links = None
     
-    # self.initialize_seg()
+    self.initialize_seg()
     # print('reset',self.outpix.shape,self.affinity_graph.shape)
     
     self.ismanual = np.zeros(0, 'bool')

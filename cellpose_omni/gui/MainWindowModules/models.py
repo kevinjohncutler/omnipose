@@ -310,6 +310,9 @@ def run_mask_reconstruction(self):
         else:
             self.bounds = bounds 
 
+    self.pixelGridOverlay.initialize_colors_from_affinity() 
+
+
     # self.masksOn = True
     # self.MCheckBox.setChecked(True)
     # self.outlinesOn = True #should not turn outlines back on by default; masks make sense though 
@@ -455,6 +458,8 @@ def compute_model(self):
     else:
         self.bounds = bounds
         
+    print('updating affinity')
+    self.pixelGridOverlay.initialize_colors_from_affinity() 
         
 
     if not do_3D:

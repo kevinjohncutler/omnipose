@@ -24,7 +24,7 @@ def initialize_seg(self, compute_affinity=False):
      
     
     if not hasattr(self,'affinity_graph') or compute_affinity:
-        # logger.info('initializing affinity graph')
+        logger.info('initializing affinity graph')
 
         
         # intialize affinity graph with spatial affinity
@@ -44,6 +44,7 @@ def initialize_seg(self, compute_affinity=False):
     
     
     logger.info(f'affinity graph shape {self.affinity_graph.shape}')
+    # self.pixelGridOverlay.initialize_colors_from_affinity() 
 
 def toggle_masks(self):
     if self.MCheckBox.isChecked():
