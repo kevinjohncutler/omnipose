@@ -155,6 +155,13 @@ def _load_image(parent, filename=None, load_seg=True):
     try:
         logger.info(f'loading image: {filename}')
         image = imread(filename)
+        # transform image to CYX
+        if image.ndim ==3 and image.shape[-1] == 3:
+            print('Assuming RGB image, converting to CYX')
+            image = np.transpose(image, (2,0,1))
+            
+        
+        
         parent.loaded = True
     except Exception as e:
         print('ERROR: images not compatible')
@@ -162,8 +169,8 @@ def _load_image(parent, filename=None, load_seg=True):
         
 
     if parent.loaded:
-        logger.info(f'loaded image shape: {image.shape}')
-        parent.reset()
+        logger.info(f'[_load_image] loaded image shape: {image.shape}')
+        parent.reset(image)
         parent.filename = filename
         filename = os.path.split(parent.filename)[-1]
         _initialize_images(parent, image)
@@ -175,6 +182,12 @@ def _load_image(parent, filename=None, load_seg=True):
             _load_masks(parent, filename=mask_file)
         # parent.threshslider.setEnabled(False)
         # parent.probslider.setEnabled(False)
+        
+        Nx = parent.Lx
+        Ny = parent.Ly
+
+        # reinit overlay item 
+        parent.pixelGridOverlay.reset(Nx,Ny)
             
 
 
@@ -218,7 +231,8 @@ def _initialize_images(parent, image):
     else:
         image = image[np.newaxis,...]
         
-    logger.info(f'loaded image shape: {image.shape}')
+    logger.info(f'[_initialize_images] loaded image shape: {image.shape}')
+    
     
     img_min = image.min() 
     img_max = image.max()
@@ -283,8 +297,7 @@ def _load_seg(parent, filename=None, image=None, image_file=None):
         print('ERROR: not NPY')
         return
 
-    # this puts in some defaults if they are not present in the npy file
-    parent.reset()
+
     
     if image is None:
         logger.info(f'loading image in _load_seg')
@@ -331,6 +344,8 @@ def _load_seg(parent, filename=None, image=None, image_file=None):
     
     logger.info(f'loading image in _load_seg with shape {image.shape}')
     _initialize_images(parent, image)
+    # this puts in some defaults if they are not present in the npy file
+    parent.reset(image)
     
     if 'chan_choose' in dat:
         parent.ChannelChoose[0].setCurrentIndex(dat['chan_choose'][0])
@@ -358,9 +373,7 @@ def _load_seg(parent, filename=None, image=None, image_file=None):
         logger.warning('-1 found in masks, running formatting')
         parent.masks = ncolor.format_labels(parent.masks)
         
-    
-    parent.initialize_seg()
-    
+        
     # Update masks and outlines to ZYX format stored as parent.cellpix and parent.outpix
     if parent.masks.ndim == 2:
         parent.cellpix = parent.masks[np.newaxis, :, :]
@@ -491,6 +504,8 @@ def _masks_to_gui(parent, format_labels=False):
 
     if parent.ncolor:
         masks, ncol = ncolor.label(masks,return_n=True) 
+        
+        print('\nncolor',np.unique(masks),ncol)
     else:
         masks = np.reshape(masks, shape)
         masks = masks.astype(np.uint16) if masks.max()<(2**16-1) else masks.astype(np.uint32)

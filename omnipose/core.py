@@ -16,6 +16,7 @@ import os, tifffile
 import time
 import mgen #ND rotation matrix
 from . import utils
+from .profile import pyinstrument_profile
 # from ncolor.format_labels import delete_spurs
 # from .plot import rgb_flow
 
@@ -3251,6 +3252,7 @@ def ensure_torch(*arrays, device=None, dtype=torch.float32):
         for arr in arrays
     )
 
+@pyinstrument_profile
 def _get_affinity_torch(initial, final, flow, dist, iscell, steps, fact, inds, supporting_inds, niter,  euler_offset=None,
                         device=torch_GPU,
                         # angle_cutoff=np.pi/2):
@@ -3368,7 +3370,7 @@ def _get_affinity_torch(initial, final, flow, dist, iscell, steps, fact, inds, s
     csum = torch.sum(connectivity,axis=0)
     
     cutoff = D+2 # not sure if this will generalize to 3d.. those spurs will be connected to possibly 3x3 pixels
-    cutoff = 3**(D-1) #+ 1
+    cutoff = 3**(D-1) # + 1
     keep = csum>=cutoff
    
 
@@ -3413,7 +3415,16 @@ def _get_affinity_torch(initial, final, flow, dist, iscell, steps, fact, inds, s
             # Only keep connections that are supported in more than two routes 
             # support = torch.sum(torch.stack(supportive_connectivity),dim=0)
 
+            # remove internal spurs 
+            connectivity[i][source_slc] = connectivity[-(i+1)][target_slc] = torch.where(csum[source_slc]>=7, 1, connectivity[i][source_slc])
+            # 1) Create a boolean mask, the same shape as connectivity[i][source_slc].
+            # mask = (csum[source_slc] >= 7)
 
+            # # 2) Use boolean indexing to set only those pixels to 1.
+            # connectivity[i][source_slc][mask] = 1
+            # connectivity[-(i+1)][target_slc][mask] = 1
+     
+            
             connectivity[i][source_slc] = connectivity[-(i+1)][target_slc] = torch_and([connectivity[i][source_slc],
                                                                                         connectivity[-(i+1)][target_slc],
                                                                                         
@@ -3429,10 +3440,13 @@ def _get_affinity_torch(initial, final, flow, dist, iscell, steps, fact, inds, s
                                                                                         # are connected not just directly, but in a neighborhood
                                                                                         support>2
                                                                                         ])
+            
 
             
 
+            
 
+  
     # # I could also just delete all non-cardinal connections...
     return connectivity
     

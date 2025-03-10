@@ -27,7 +27,6 @@ from PyQt6.QtCore import QPoint
 from PyQt6.QtGui import QCursor, QGuiApplication
 
 
-
 import importlib
 import importlib
 import inspect

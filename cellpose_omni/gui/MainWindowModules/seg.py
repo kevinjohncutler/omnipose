@@ -23,7 +23,7 @@ def initialize_seg(self, compute_affinity=False):
     logger.info(f'mask shape {self.shape}')
      
     
-    if not hasattr(self,'affinity_graph') or compute_affinity:
+    if not hasattr(self,'affinity_graph') or compute_affinity or self.affinity_graph.shape[-2:] != self.shape:
         logger.info('initializing affinity graph')
 
         
@@ -43,7 +43,8 @@ def initialize_seg(self, compute_affinity=False):
             
     
     
-    logger.info(f'affinity graph shape {self.affinity_graph.shape}')
+    logger.info(f'[initialize_seg] affinity graph shape {self.affinity_graph.shape}')
+    
     # self.pixelGridOverlay.initialize_colors_from_affinity() 
 
 def toggle_masks(self):

@@ -450,7 +450,7 @@ class ImageDraw(pg.ImageItem):
                 targets.append(target_coords)
                 
         else:
-            print('affinity graph not initialized') 
+            print('affinity graph not initialized',affinity.shape[-dim:], masks.shape) 
                
     
         # define a region around the source and target pixels
@@ -1209,55 +1209,63 @@ class GLPixelGridOverlay(GraphicsObject):
 
     def _generate_grid_lines_8(self):
         """
-        Build a (2*E, 2) float array of line endpoints for 8-neighbor adjacency,
-        plus a 3D array lineIndices of shape (Ny, Nx, ndirs) storing the line index.
-        We only go 'forward' directions to avoid duplicates.
+        Build a (2*E, 2) float array of line endpoints for 8-neighbor adjacency
+        (or however many directions are in self.parent.steps[:idx]).
+        Also build self.lineIndices of shape (Ny, Nx, ndirs).
+
+        This version does it in a vectorized manner to speed up initialization.
         """
-        # Suppose 'idx' is how many offsets you want:
-        idx = self.parent.inds[0][0]  
+        idx = self.parent.inds[0][0]
         neighbor_offsets = self.parent.steps[:idx]
-        print("Using offsets:", neighbor_offsets)
-        
-        coords = []
-        # lineIndices[j, i, d] -> which line index is used for pixel (i,j) and direction d
         ndirs = len(neighbor_offsets)
-        lineIndices = np.full((self.Ny, self.Nx, ndirs), -1, dtype=int)
+
+        # Prepare container for line indices: lineIndices[j, i, d] = which line
+        self.lineIndices = np.full((self.Ny, self.Nx, ndirs), -1, dtype=int)
+
+        all_coords = []   # Will accumulate [ (x1, y1), (x2, y2), ... ]
 
         line_index = 0
-        
-        for j in range(self.Ny):
-            for i in range(self.Nx):
-                # center of pixel (i,j)
-                cx = i + 0.5
-                cy = j + 0.5
+        # Create a meshgrid for all pixel centers
+        j_coords, i_coords = np.mgrid[0:self.Ny, 0:self.Nx]  # shape => (Ny, Nx)
+        cx = i_coords + 0.5
+        cy = j_coords + 0.5
 
-                # loop over each direction
-                for d, (dy, dx) in enumerate(neighbor_offsets):
-                    ni = i + dx
-                    nj = j + dy
+        for d, (dy, dx) in enumerate(neighbor_offsets):
+            # Compute neighbor coords
+            ni = i_coords + dx
+            nj = j_coords + dy
 
-                    # is neighbor in bounds?
-                    if (0 <= ni < self.Nx) and (0 <= nj < self.Ny):
-                        nx = ni + 0.5
-                        ny = nj + 0.5
+            # Mask in-bounds
+            mask = (ni >= 0) & (ni < self.Nx) & (nj >= 0) & (nj < self.Ny)
+            valid = np.where(mask)
 
-                        # We add two consecutive vertices => one line in the final buffer
-                        coords.append([cx, cy])
-                        coords.append([nx, ny])
+            # For each valid pixel, we have a line from (cx, cy) to (nx, ny)
+            x1 = cx[valid]
+            y1 = cy[valid]
+            x2 = x1 + dx
+            y2 = y1 + dy
 
-                        # record line index in lineIndices array
-                        lineIndices[j, i, d] = line_index
-                        line_index += 1
+            n_valid = x1.size
+            # Each line takes 2 vertices => 2*n_valid entries
+            coords = np.empty((2*n_valid, 2), dtype=np.float32)
 
-        # Convert coords to float32 array
-        coords = np.array(coords, dtype=np.float32)
-        print("Total lines:", line_index, "vertex_data shape:", coords.shape)
+            coords[0::2, 0] = x1
+            coords[0::2, 1] = y1
+            coords[1::2, 0] = x2
+            coords[1::2, 1] = y2
 
-        # Store lineIndices for future lookups
-        self.lineIndices = lineIndices
+            # Set lineIndices for each valid pixel to the line_index range
+            # each pixel gets exactly 1 line => line_index.. line_index + n_valid - 1
+            # Note each line has two vertices, but line_index counts "lines" not "vertices"
+            self.lineIndices[valid[0], valid[1], d] = np.arange(line_index, line_index + n_valid)
+
+            all_coords.append(coords)
+            line_index += n_valid
+
+        # Concatenate everything
         self.num_lines = line_index
-
-        return coords
+        vertex_data = np.concatenate(all_coords, axis=0)
+        return vertex_data
 
     def upload_data(self):
         """Upload the vertex data into a GPU buffer (VBO)."""
@@ -1416,24 +1424,85 @@ class GLPixelGridOverlay(GraphicsObject):
         return pg.QtGui.QPainterPath()
 
     def initialize_colors_from_affinity(self):
-        """Initialize the colors based on the existing affinity graph."""
+        """Initialize the colors using only the first 4 directions of the affinity graph."""
         affinity = self.parent.affinity_graph
         if affinity is None:
             print("Affinity graph is None")
             return
-    
-        ndirs = self.lineIndices.shape[2]  # Get the size of the third dimension
-    
-        for j in range(self.Ny):
-            for i in range(self.Nx):
-                for d in range(ndirs):  # Ensure we do not exceed the size of the third dimension
-                    line_index = self.lineIndices[j, i, d]
-                    if line_index >= 0:
-                        alpha = 1.0 if affinity[d, j, i] else 0.0
-                        self.color_data[2*line_index : 2*line_index+2] = alpha
 
-        # Upload the color data to the GPU
+        # We only want to match the 4 directions in lineIndices, ignoring the symmetric ones
+        affinity_4 = affinity[:4]  # shape => (4, Ny, Nx)
+
+        # lineIndices is shape => (Ny, Nx, 4)
+        ndirs_line = self.lineIndices.shape[2]
+        ndirs_aff = affinity_4.shape[0]
+        if ndirs_line != ndirs_aff:
+            print(f"Mismatch: lineIndices has {ndirs_line} directions, but affinity[:4] has {ndirs_aff} directions.")
+            return
+
+        # Flatten lineIndices in (d, j, i) order => shape (4 * Ny * Nx,)
+        lineIndices_t = self.lineIndices.transpose(2, 0, 1).ravel()
+
+        # Flatten affinity_4 similarly => shape (4 * Ny * Nx,)
+        affinity_t = affinity_4.reshape(ndirs_aff, -1).ravel()
+
+        # Reset all colors (alpha=0)
+        self.color_data[:] = 0.0
+
+        # Find valid lines (where lineIndices >= 0)
+        valid_mask = (lineIndices_t >= 0)
+        valid_indices = lineIndices_t[valid_mask].astype(int)    # Actual line indices
+        valid_alpha = affinity_t[valid_mask].astype(float)       # 1.0 or 0.0 from the affinity
+
+        # Each line has 2 vertices => line i covers color_data[2*i : 2*i+2]
+        pairs = np.stack([2 * valid_indices, 2 * valid_indices + 1], axis=1).ravel()
+        print('pairs', pairs.shape, valid_alpha.shape, self.color_data.shape, valid_indices.shape)
+        # Assign alpha for both endpoints of each line
+        # self.color_data[pairs] = np.repeat(valid_alpha, 2)
+        # 1) Repeat alpha so both endpoints of each line get the same value
+        vals1D = np.repeat(valid_alpha, 2)  # shape => (2 * num_valid_lines,)
+
+        # 2) Expand to (2 * num_valid_lines, 1)
+        vals2D = vals1D[:, None]
+
+        # 3) Tile across 4 columns so R=G=B=A=alpha
+        vals2D = np.tile(vals2D, (1, 4))  # shape => (2 * num_valid_lines, 4)
+
+        # 4) Assign to those rows in self.color_data
+        self.color_data[pairs] = vals2D
+
+        # Upload to GPU
         gl.glBindBuffer(gl.GL_ARRAY_BUFFER, self.color_id)
         gl.glBufferSubData(gl.GL_ARRAY_BUFFER, 0, self.color_data.nbytes, self.color_data)
         gl.glBindBuffer(gl.GL_ARRAY_BUFFER, 0)
+
+        self.update()
+        
+    def reset(self, Nx, Ny):
+        """
+        Re-initialize this overlay for a new grid size (Nx, Ny).
+        Recompute vertex data, line indices, color buffers, etc.
+        """
+        self.Nx = Nx
+        self.Ny = Ny
+
+        # 1) Regenerate the line coordinates
+        self.vertex_data = self._generate_grid_lines_8()  # uses updated Nx, Ny
+        # 2) Re-upload the vertex buffer
+        self.upload_data()
+
+        # 3) Reallocate color_data to match new self.num_lines
+        self.color_data = np.zeros((2*self.num_lines, 4), dtype=np.float32)
+        self.base_alpha = np.ones_like(self.color_data[:, 3])  # reset alpha=1
+
+        # 4) Re-initialize the color VBO
+        gl.glBindBuffer(gl.GL_ARRAY_BUFFER, self.color_id)
+        gl.glBufferData(gl.GL_ARRAY_BUFFER,
+                        self.color_data.nbytes,
+                        self.color_data,
+                        gl.GL_DYNAMIC_DRAW)
+        gl.glBindBuffer(gl.GL_ARRAY_BUFFER, 0)
+
+        # 5) Optionally re-run 'initialize_colors_from_affinity' for the new shape
+        self.initialize_colors_from_affinity()
         self.update()

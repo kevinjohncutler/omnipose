@@ -138,7 +138,7 @@ def update_plot(self):
 
 
 
-def reset(self):
+def reset(self, image=None):
     # ---- start sets of points ---- #
     self.selected = 0
     self.X2 = 0
@@ -167,7 +167,14 @@ def reset(self):
     # -- zero out image stack -- #
     self.opacity = 128 # how opaque masks should be
     self.outcolor = np.array([1,0,0,.5])*255
-    self.NZ, self.Ly, self.Lx = 1,512,512
+    
+    if image is None:
+        self.NZ, self.Ly, self.Lx = 1,512,512
+    else:
+        logger.info('resetting with image')
+        self.Ly, self.Lx = image.shape[-2:]
+        self.NZ = image.shape[-3] if image.ndim>2 else 1
+    
     self.saturation = [[0,255] for n in range(self.NZ)]
     self.gamma = 1
     self.slider.setMinimum(0)
@@ -181,8 +188,8 @@ def reset(self):
     # image matrix with a scale disk
     self.radii = 0*np.ones((self.Ly,self.Lx,4), np.uint8)
     
-    self.cellpix = np.zeros((1,self.Ly,self.Lx), np.uint32)
-    self.outpix = np.zeros((1,self.Ly,self.Lx), np.uint32)
+    self.cellpix = np.zeros((self.NZ,self.Ly,self.Lx), np.uint32)
+    self.outpix = np.zeros((self.NZ,self.Ly,self.Lx), np.uint32)
     
     self.masks = np.zeros((self.Ly,self.Lx), np.uint32)
     self.bounds = np.zeros((self.Ly,self.Lx), np.uint32)

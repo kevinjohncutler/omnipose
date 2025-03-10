@@ -5,6 +5,17 @@ from .. import io
 
 import time
 
+def timeit(func):
+    """Decorator that reports the execution time."""
+    def wrapper(*args, **kwargs):
+        start = time.time()
+        result = func(*args, **kwargs)
+        elapsed = time.time() - start
+        print(f"[TIMEIT] {func.__name__} took {elapsed:.3f}s")
+        return result
+    return wrapper
+    
+
 from PyQt6.QtWidgets import QApplication # could do all in init then import * in these 
 
 OMNI_INSTALLED = True
@@ -201,7 +212,14 @@ def get_thresholds(self):
         self.cellprob_threshold.setText('0.0')
         return 0.0, 0.0
 
+# @timeit
+
+
+# @pyinstrument_profile
 def run_mask_reconstruction(self):
+    # profiler = Profiler()
+    # profiler.start()
+
     # use_omni = 'omni' in self.current_model
     
     # needed to be replaced with recompute_masks
@@ -326,8 +344,10 @@ def run_mask_reconstruction(self):
     logger.info('%d cells found'%(len(misc.unique_nonzero(maski))))
     io._masks_to_gui(self) # replace this to show boundary emphasized masks
     self.show()
-
+    # profiler.stop()
+    # print(profiler.output_text(unicode=True, color=True))
         
+@timeit
 def compute_model(self):
     # self.progress.setValue(10)
     # QApplication.processEvents() 
