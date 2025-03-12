@@ -120,7 +120,6 @@ def make_buttons(self):
     self.RGBChoose = guiparts.RGBRadioButtons(self, row=b, col=0)
 
     
-    
     b+=5
     # c+=1
     label = QLabel('color map:')

@@ -237,6 +237,7 @@ class MainW(QMainWindow):
         self.pixelGridOverlay = guiparts.GLPixelGridOverlay(parent=self)
         self.pixelGridOverlay.setVisible(False) 
         self.p0.addItem(self.pixelGridOverlay)
+    
         
         # Move and resize the window
         cursor_pos = QCursor.pos()

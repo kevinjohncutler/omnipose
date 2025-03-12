@@ -11,21 +11,34 @@ import pyqtgraph as pg
 
 
 
-
 def color_choose(self):
-    
-    # old version forces colormap to onyl apply to image
-    # self.color = self.RGBDropDown.currentIndex()
-    # self.view = 0
-    # self.RGBChoose.button(self.view).setChecked(True)
-    
-    #new version allows users to select any color map and save it
-    # state = self.state[self.view]
-    
-    self.hist.gradient.loadPreset(self.cmaps[self.RGBDropDown.currentIndex()])
+    # 1) Load the preset gradient:
+    index = self.RGBDropDown.currentIndex()
+    preset = self.cmaps[index]          # e.g. "magma", "viridis", etc.
+    self.hist.gradient.loadPreset(preset)
+
+    # 2) Optionally modify the gradient stops:
+    # Only do this if you want "magma" to have transparent at the lower bound:
+    if preset in self.default_cmaps:
+        st = self.hist.gradient.saveState()
+        print('debug:', st['ticks'])  # e.g. [(0.0, (0, 0, 3, 255)), (0.25, (80, 18, 123, 255)), ...]
+
+        # Grab the first tick
+        pos, color = st['ticks'][0]          # only two items, not three
+        color = list(color)                  # convert tuple -> list so we can mutate alpha
+        color[3] = 0                         # set alpha = 0
+
+        # Reassign the modified color back into the tick
+        st['ticks'][0] = [pos, tuple(color)] # or use a list for color again
+
+        # Restore the gradient
+        self.hist.gradient.restoreState(st)
+
+    # 3) Save the current gradient state and re-apply highlight colors:
     self.states[self.view] = self.hist.saveState()
     self.set_tick_hover_color()
-    # self.update_plot()
+    
+    # self.update_plot()  # if you have a call to refresh the plot
 
 
 def set_hist_colors(self):

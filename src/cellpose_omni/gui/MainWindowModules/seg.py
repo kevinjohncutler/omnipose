@@ -171,17 +171,36 @@ def draw_layer(self, region=None, z=None):
             # No masks -> alpha=0
             sub_layerz[..., 3] = 0
 
+
+
         # 2) Outlines
         if self.outlinesOn:
             # We want the boundary pixels to have the same color as their underlying label,
             # even if masks are turned off. So we look up the mask label for those pixels
             # and assign color & full opacity.
+            # 
+            # If the "flow field" is toggled on (assume we track it with "self.flowOn"),
+            # we want the outlines to appear white instead. We'll do a conditional:
+            
             outl_region = self.outl_stack[z, y_min:y_max, x_min:x_max]
             outline_pixels = (outl_region > 0)
-            # color the boundary with the cellcolors of the underlying mask label
-            sub_layerz[outline_pixels, :3] = self.cellcolors[sub_mask_stack[outline_pixels]]
-            # fully opaque outline
-            sub_layerz[outline_pixels, 3] = 255
+            # if getattr(self, 'flowOn', False):
+            if self.view == 1:
+                self.img.setOpacity(.5)
+                image = self.flows[self.view-1][self.currentZ, y_min:y_max, x_min:x_max].copy()
+                image[outline_pixels, 3] = np.maximum(image[outline_pixels, 3],128)
+                sub_layerz[outline_pixels] = image[outline_pixels]
+            elif self.view == 2:
+                sub_layerz[outline_pixels] = [255//2]*3+[255]
+            else:
+                # otherwise, use the cell color
+                sub_layerz[outline_pixels, :3] = self.cellcolors[sub_mask_stack[outline_pixels]]
+                # fully opaque outline
+                sub_layerz[outline_pixels, 3] = 255
+                
+        else:
+            self.img.setOpacity(1)
+        
 
         # Put the subarray back into the main overlay
         self.layerz[y_min:y_max, x_min:x_max] = sub_layerz

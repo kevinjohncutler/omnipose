@@ -1166,8 +1166,15 @@ from pyqtgraph import GraphicsObject
 from PyQt6.QtWidgets import QGraphicsItem
 from PyQt6.QtGui import QPainter
 from PyQt6.QtCore import QRectF, Qt
+from PyQt6.QtGui import QSurfaceFormat
 
 import OpenGL.GL as gl
+
+fmt = QSurfaceFormat()
+fmt.setAlphaBufferSize(8)
+fmt.setProfile(QSurfaceFormat.CompatibilityProfile)
+QSurfaceFormat.setDefaultFormat(fmt)
+
 
 class GLPixelGridOverlay(GraphicsObject):
     """
@@ -1177,6 +1184,7 @@ class GLPixelGridOverlay(GraphicsObject):
 
     def __init__(self, parent):
         super().__init__()
+        
         self.parent = parent
         self.reset()
 
@@ -1261,7 +1269,6 @@ class GLPixelGridOverlay(GraphicsObject):
         # 1) Temporarily exit native painting so we can do CPU updates (not strictly required,
         #    but often safer if you do QPainter stuff).
         # painter.endNativePainting()
-
         # 2) Read the transform scale from the painter
         transform = painter.transform()
         scale = transform.m11()  # no rotation/shear assumed
@@ -1269,22 +1276,25 @@ class GLPixelGridOverlay(GraphicsObject):
         # print('yo', self.parent.coords[0].shape)
         # self._generate_grid_lines_8()
         # 3) Compute a smooth alpha factor from scale via a sigmoid
-        #    For example, fade out below 'threshold=1.0' with 'steepness=4.0'
-        alpha_scale = self.scale_to_alpha(scale, threshold=10.0, steepness=0.5)
+        alpha_scale = self.scale_to_alpha(scale, threshold=10.0, steepness=1/np.sqrt(2))
+        
         # 4) Multiply the original alpha (self.base_alpha) by alpha_scale
         #    so lines that were hidden remain hidden (base_alpha=0).
         final_alpha = self.base_alpha * alpha_scale
 
-        # 5) Update just the alpha channel in self.color_data
-        self.color_data[:, 3] = final_alpha
+        temp_color = self.color_data.copy()
+        temp_color[:, 3] *= final_alpha
+        print(final_alpha[0],scale)
 
         # 6) Upload the color data to the GPU in one call
         gl.glBindBuffer(gl.GL_ARRAY_BUFFER, self.color_id)
-        gl.glBufferSubData(gl.GL_ARRAY_BUFFER, 0, self.color_data.nbytes, self.color_data)
+        gl.glBufferSubData(gl.GL_ARRAY_BUFFER, 0, temp_color.nbytes, temp_color)
         gl.glBindBuffer(gl.GL_ARRAY_BUFFER, 0)
 
         # 7) Re-enter native painting for raw OpenGL calls
         painter.beginNativePainting()
+        # painter.setCompositionMode(QtGui.QPainter.CompositionMode_Source)
+        
         try:
             # Enable scissor if you want the viewbox clipping
             gl.glEnable(gl.GL_SCISSOR_TEST)
@@ -1292,6 +1302,8 @@ class GLPixelGridOverlay(GraphicsObject):
 
             gl.glEnable(gl.GL_BLEND)
             gl.glBlendFunc(gl.GL_SRC_ALPHA, gl.GL_ONE_MINUS_SRC_ALPHA)
+            # gl.glBlendFunc(gl.GL_SRC_ALPHA, gl.GL_SRC_ALPHA)
+            # gl.glBlendFuncSeparate(gl.GL_ONE, gl.GL_ONE_MINUS_SRC_ALPHA, gl.GL_ONE, gl.GL_ONE_MINUS_SRC_ALPHA)
 
             # Enable vertex array (positions)
             gl.glEnableClientState(gl.GL_VERTEX_ARRAY)
@@ -1308,7 +1320,7 @@ class GLPixelGridOverlay(GraphicsObject):
             dpix = self.parent.devicePixelRatio()
             line_width = 1.0 * inverse_scale * dpix
             gl.glLineWidth(line_width)
-
+            
             # Draw all lines
             gl.glDrawArrays(gl.GL_LINES, 0, 2 * self.num_lines)
 
@@ -1317,9 +1329,14 @@ class GLPixelGridOverlay(GraphicsObject):
             gl.glDisableClientState(gl.GL_COLOR_ARRAY)
             gl.glDisableClientState(gl.GL_VERTEX_ARRAY)
         finally:
+            # gl.glClearColor(0.0, 0.0, 0.0, 0.0)
+            # gl.glClear(gl.GL_COLOR_BUFFER_BIT | gl.GL_DEPTH_BUFFER_BIT)
+
             gl.glDisable(gl.GL_MULTISAMPLE)
             gl.glDisable(gl.GL_SCISSOR_TEST)
             gl.glDisable(gl.GL_BLEND)
+            
+
             painter.endNativePainting()  
     
     def toggle_lines_batch(self, indices, alpha=None, visible=False):
@@ -1339,7 +1356,7 @@ class GLPixelGridOverlay(GraphicsObject):
         new_alpha = 1.0 if visible else 0.0
         
         if alpha is None:
-            alpha = [1.0]*len(indices)
+            alpha = [new_alpha]*len(indices)
 
         # 1) Modify self.color_data in CPU memory.
         for i,a in zip(indices, alpha):
@@ -1481,6 +1498,8 @@ class GLPixelGridOverlay(GraphicsObject):
         # # 5) Optionally re-run 'initialize_colors_from_affinity' for the new shape
         # self.initialize_colors_from_affinity()
         # self.update()
+
+                
         logger.info("inside reset of GLPixelGridOverlay")
         self.Lx = self.parent.Lx
         self.Ly = self.parent.Ly

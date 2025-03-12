@@ -41,9 +41,6 @@ def update_layer(self):
     else:
         logger.info(f'no pixelGridOverlay to reset')
         
-
-    
-    
     self.draw_layer()
     self.update_roi_count()
     self.win.show()
@@ -128,7 +125,8 @@ def update_plot(self):
         self.hist.gradient.loadPreset(self.cmaps[self.view]) # select from predefined list
     else:
         self.hist.restoreState(state) #apply chosen color map
-        
+    
+    self.color_choose()
     self.set_hist_colors()
     
     # self.scale.setImage(self.radii, autoLevels=False)
