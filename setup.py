@@ -1,8 +1,8 @@
 from setuptools import setup, find_packages
 import sys, os
-sys.path.append(os.path.dirname(__file__))
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "src"))
 
-from dependencies import install_deps, gui_deps, distributed_deps
+from omnipose.dependencies import install_deps, gui_deps, distributed_deps
 
 with open('docs/requirements.txt') as f:
     doc_deps = [line.strip() for line in f if line.strip() and not line.startswith('#') and '-e .' not in line]
@@ -19,7 +19,10 @@ setup(
     long_description=long_description,
     long_description_content_type="text/markdown",
     url="https://github.com/kevinjohncutler/omnipose",
-    packages=find_packages(include=['omnipose', 'cellpose_omni']),
+    # packages=find_packages(include=['omnipose', 'cellpose_omni']),
+    packages=find_packages(where="src"),
+    package_dir={"": "src"},
+
     install_requires = install_deps,
     extras_require = {
       'gui': gui_deps,

@@ -1,5 +1,5 @@
 [build-system]
-requires = ["setuptools>=61", "wheel", "setuptools_scm"]
+requires = ["setuptools>=61", "wheel", "setuptools_scm", "numba"]
 build-backend = "setuptools.build_meta"
 
 [project]
@@ -18,4 +18,4 @@ dynamic = ["version",
 omnipose = "omnipose.__main__:main"
 
 [tool.setuptools_scm]
-write_to = "omnipose/_version.py"
+write_to = "src/omnipose/_version.py"
