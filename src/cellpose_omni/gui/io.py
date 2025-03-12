@@ -174,7 +174,7 @@ def _load_image(parent, filename=None, load_seg=True):
             
         _initialize_images(parent, image, channel_axis)
         parent.reset()
-        
+        parent.recenter()
         
         parent.loaded = True
     except Exception as e:
@@ -208,14 +208,11 @@ def _load_image(parent, filename=None, load_seg=True):
     else:
         logger.info('not loading segmentation, just the image')
         
-        
-
 
     if parent.loaded:
         logger.info(f'[_load_image] loaded image shape: {image.shape}')
         # parent.reset(image)
         parent.filename = filename
-        print(f'\n\n\n {parent.filename} \n\n\n')
         # filename = os.path.split(parent.filename)[-1]
         # _initialize_images(parent, image)
         parent.clear_all()
@@ -535,6 +532,7 @@ def _masks_to_gui(parent, format_labels=False):
     # print('calling masks to gui',masks.shape)
     parent.ncells = masks.max() #try to grab the cell count before ncolor
 
+    np.random.seed(42) #stability for ncolor, should not be needed at this point 
 
     if parent.ncolor:
         masks, ncol = ncolor.label(masks,return_n=True) 
@@ -551,8 +549,6 @@ def _masks_to_gui(parent, format_labels=False):
         parent.outl_stack = parent.bounds[np.newaxis,:,:]
 
 
-
-    np.random.seed(42) #try to make a bit more stable 
     
     if parent.ncolor:
         # Approach 1: use a dictionary to color cells but keep their original label
@@ -571,7 +567,6 @@ def _masks_to_gui(parent, format_labels=False):
     parent.cellcolors = np.concatenate((np.array([[255,255,255]]), colors), axis=0).astype(np.uint8)
     
     parent.draw_layer()
-    # parent.redraw_masks(masks=parent.masksOn, outlines=parent.outlinesOn) # add to obey outline/mask setting upon recomputing, missing outlines otherwise
     if parent.ncells>0:
         parent.toggle_mask_ops()
     parent.ismanual = np.zeros(parent.ncells, bool)

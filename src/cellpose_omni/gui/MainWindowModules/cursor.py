@@ -1,14 +1,13 @@
 import numpy as np
 
 # for cursor
-from PyQt6.QtWidgets import QGraphicsPathItem
-from PyQt6.QtGui import QPen, QBrush, QPainterPath, QTransform
-from PyQt6.QtGui import QCursor
+from PyQt6.QtGui import QBrush, QTransform, QCursor
 from PyQt6.QtCore import QPointF
 import pyqtgraph as pg
 
 # cursor highlight, maybe more of an annotation thing 
 def update_highlight(self, pos=None):
+
     if self.SCheckBox.isChecked():
         if pos is None:
             # Get the current global mouse position

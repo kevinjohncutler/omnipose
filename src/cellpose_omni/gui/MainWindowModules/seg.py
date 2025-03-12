@@ -111,15 +111,40 @@ def update_active_label(self):
     try:
         self.current_label = int(self.LabelInput.text())
         print(f"Active label updated to: {self.current_label}")
+        self.regenerate_cellcolors_for_active_label()
     except ValueError:
         print("Invalid label input.")
         
 def update_active_label_field(self):
     """Sync the active label input field with the current label."""
     self.LabelInput.setText(str(self.current_label))
+    self.update_active_label()
+
+
+from omnipose.utils import sinebow
+def regenerate_cellcolors_for_active_label(self):
+    print('regenerate_cellcolors_for_active_label', len(self.cellcolors), self.cellcolors)
+
+    needed_index = self.current_label  # the active label index
+    # Optionally also account for the maximum label in the mask stack if you'd like
+    if hasattr(self, 'mask_stack') and self.mask_stack.size > 0:
+        needed_index = max(needed_index, self.mask_stack.max())
+
+    # If the current color array is already big enough, do nothing
+    if needed_index < len(self.cellcolors):
+        return
+
+    # Otherwise, re-generate enough colors for all labels up to needed_index.
+    ncolors = needed_index + 1
+    # This assumes that io.sinebow(n) returns an (n x 3) float array in [0,1].
+    c = sinebow(ncolors)
+    colors = (np.array(list(c.values()))[1:,:3] * (2**8-1) ).astype(np.uint8)
+
+    # Convert sinebow from float in [0,1] to uint8 in [0..255]
+    self.cellcolors = np.concatenate((np.array([[0]*3]), colors), axis=0).astype(np.uint8)
+    # Keep track of how many colors we have
+    self.ncellcolors = len(self.cellcolors)
     
-
-
 
 def draw_layer(self, region=None, z=None):
         """
@@ -184,19 +209,21 @@ def draw_layer(self, region=None, z=None):
             
             outl_region = self.outl_stack[z, y_min:y_max, x_min:x_max]
             outline_pixels = (outl_region > 0)
-            # if getattr(self, 'flowOn', False):
+
             if self.view == 1:
+                # accentuate the flow edges 
                 self.img.setOpacity(.5)
                 image = self.flows[self.view-1][self.currentZ, y_min:y_max, x_min:x_max].copy()
                 image[outline_pixels, 3] = np.maximum(image[outline_pixels, 3],128)
                 sub_layerz[outline_pixels] = image[outline_pixels]
             elif self.view == 2:
+            # use gray on distance field
                 sub_layerz[outline_pixels] = [255//2]*3+[255]
             else:
                 # otherwise, use the cell color
                 sub_layerz[outline_pixels, :3] = self.cellcolors[sub_mask_stack[outline_pixels]]
                 # fully opaque outline
-                sub_layerz[outline_pixels, 3] = 255
+                sub_layerz[outline_pixels, 3] = 2 * 255 // 3
                 
         else:
             self.img.setOpacity(1)

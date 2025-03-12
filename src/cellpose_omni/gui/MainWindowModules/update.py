@@ -7,6 +7,7 @@ from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import QGraphicsItem
 from PyQt6 import QtCore
 import pyqtgraph as pg
+from PyQt6 import QtGui
 
 class NonInteractiveHistogramLUTItem(pg.HistogramLUTItem):
     def event(self, event):
@@ -117,7 +118,9 @@ def update_plot(self):
         # self.img.setLevels([0.0, 255.0])
         # self.set_hist()
     
+
     self.img.setImage(image,autoLevels=False)
+    
 
     # Let users customize color maps and have them persist 
     state = self.states[self.view]
@@ -143,10 +146,8 @@ def update_plot(self):
     self.show()
 
 
-
-
 def reset(self):
-    logger.info(f'maiwindow reset() called')
+    logger.info(f'mainwindow reset() called')
 
     # ---- start sets of points ---- #
     self.selected = 0
@@ -163,6 +164,8 @@ def reset(self):
     self.zdraw = []
     self.removed_cell = []
     self.cellcolors = np.array([255,255,255])[np.newaxis,:]
+    self.ncellcolors = 0
+    
     # -- set menus to default -- #
     self.color = 0
     self.RGBDropDown.setCurrentIndex(self.color)
@@ -212,6 +215,8 @@ def reset(self):
     
     #should reset affinity graph here too 
     self.initialize_seg()
+
+    # self.recenter()
     
     # # reinit overlay item 
     # if hasattr(self, 'pixelGridOverlay'):

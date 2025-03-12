@@ -2,79 +2,44 @@
 import signal, sys, os, pathlib, warnings, datetime, time
 import inspect, importlib, pkgutil
 
-# def handle_exception(exc_type, exc_value, exc_traceback):
-#     if issubclass(exc_type, KeyboardInterrupt):
-#         sys.__excepthook__(exc_type, exc_value, exc_traceback)
-#         return
-#     print("Uncaught exception:", exc_type, exc_value)
-#     import traceback
-#     traceback.print_tb(exc_traceback)
-
-# sys.excepthook = handle_exception
-
-# os.environ["QT_DEBUG_PLUGINS"] = "1"
-
 import numpy as np
-# np.seterr(all='raise')  # Raise exceptions instead of warnings
-
 
 from PyQt6 import QtGui, QtCore, QtWidgets
-from PyQt6.QtCore import Qt, pyqtSlot, QCoreApplication
-from PyQt6.QtWidgets import QMainWindow, QApplication, QWidget, QScrollBar, QComboBox, QGridLayout, QPushButton, QCheckBox, QLabel, QProgressBar, QLineEdit, QScrollArea
-from PyQt6.QtGui import QPalette
-
-from PyQt6.QtCore import QPoint
-from PyQt6.QtGui import QCursor, QGuiApplication
+from PyQt6.QtCore import pyqtSlot, QCoreApplication
+from PyQt6.QtWidgets import QMainWindow, QApplication
+from PyQt6.QtGui import QPalette, QCursor, QGuiApplication
 
 
-import importlib
 import importlib
 import inspect
+import types
 
 import pyqtgraph as pg
 pg.setConfigOptions(useOpenGL=True)
 
+# handle the "Painter path exceeds +/-32767 pixels." warning
+from PyQt6.QtGui import QSurfaceFormat
+fmt = QSurfaceFormat()
+fmt.setStencilBufferSize(8)  # 8-bit stencil
+QSurfaceFormat.setDefaultFormat(fmt)
+
 os.environ['QT_AUTO_SCREEN_SCALE_FACTOR'] = '1'
 
-from scipy.stats import mode
-# from scipy.ndimage import gaussian_filter
 
-# from . import guiparts, menus, io
 from cellpose_omni.gui import guiparts, menus, io
-from .. import models, dynamics
-from ..utils import download_url_to_file, masks_to_outlines, diameters 
-from ..io import get_image_files, imsave, imread, check_dir #OMNI_INSTALLED
-from ..transforms import resize_image #fixed import
-from ..plot import disk
-from omnipose.utils import normalize99, to_8_bit
-
-
-OMNI_INSTALLED = 1
-from .guiutils import checkstyle, get_unique_points, avg3d, interpZ
-
-from . import logger
+from .. import models
 
 
 ALLOWED_THEMES = ['light','dark']
-
-
+from . import PRELOAD_IMAGE, ICON_PATH
 
 import darkdetect
 import qdarktheme
-import qtawesome as qta
-
 
 # no more matplotlib just for colormaps
 from cmap import Colormap
-
 from . import MainWindowModules as submodules
-
-from . import PRELOAD_IMAGE, ICON_PATH
-
 import omnipose, cellpose_omni
-
-import importlib
-import types
 
 
 def run(image=PRELOAD_IMAGE):
@@ -189,11 +154,11 @@ class MainW(QMainWindow):
         self.imask = 0
 
         self.make_main_widget()
-    
         
         self.make_buttons() # no longer need to return b
-        # self.win.adjustSize()
+        # make_buttons calls make_viewbox
         
+        # self.win.adjustSize()
         
         # Instantiate the Colormap object
         cmap = Colormap("gist_ncar")
@@ -228,12 +193,9 @@ class MainW(QMainWindow):
                                 'model_name':'CP' + d.strftime("_%Y%m%d_%H%M%S")
                                }
         
-        
-        # Nx, Ny from image dimension
-        Nx = self.Lx
-        Ny = self.Ly
 
-        # Create the overlay item
+        # Create the overlay item - would be cleaner to add in make_viewbox, but 
+        # it needs the initializations of _load_image
         self.pixelGridOverlay = guiparts.GLPixelGridOverlay(parent=self)
         self.pixelGridOverlay.setVisible(False) 
         self.p0.addItem(self.pixelGridOverlay)
@@ -249,7 +211,7 @@ class MainW(QMainWindow):
   
         if screen is not None:
             available_rect = screen.availableGeometry()
-            self.move(available_rect.topLeft() + QtCore.QPoint(50, 50))
+            self.move(available_rect.topLeft() + QtCore.QPoint(20, 20))
     
 
         self.setAcceptDrops(True)
@@ -308,133 +270,6 @@ class MainW(QMainWindow):
         self.check_additional_modules()
         # Now update instance fields
         self.update_mainw_fields()
-        
-    # def update_mainw_fields_old(self):
-    #     """
-    #     For each whitelisted field in the MainW instance (e.g., 'layer'),
-    #     check if the file defining its class has changed. If so, update only
-    #     the methods defined directly in that class (i.e. in its __dict__)
-    #     on the existing instance.
-    #     """
-    #     # Whitelist: only update these fields.
-    #     fields_to_update = ['layer']
-        
-    #     # for field in fields_to_update:
-    #     for field, instance in self.__dict__.items():
-    #         # print(field)
-    #         instance = getattr(self, field, None)
-    #         if instance is None or not hasattr(instance, '__class__'):
-    #             continue
-            
-    #         old_cls = instance.__class__
-    #         module_name = old_cls.__module__
-    #         try:
-    #             module = importlib.import_module(module_name)
-    #             mod_file = getattr(module, '__file__', None)
-    #             if mod_file is None or not os.path.exists(mod_file):
-    #                 continue
-    #             # Get the current modification time (rounded to integer seconds)
-    #             new_mtime = self.get_mtime(mod_file)
-    #         except Exception as e:
-    #             print(f"Error checking module time for {field}: {e}")
-    #             continue
-
-    #         # Use the module's full name as the key in self.module_mtimes.
-    #         stored_mtime = self.module_mtimes.get(module_name)
-    #         if stored_mtime is not None and new_mtime == stored_mtime:
-    #             # No change detected – skip update.
-    #             continue
-
-    #         # Update the stored modification time for this module.
-    #         self.module_mtimes[module_name] = new_mtime
-
-    #         try:
-    #             new_cls = getattr(module, old_cls.__name__)
-    #         except Exception as e:
-    #             print(f"Error retrieving new class for {field}: {e}")
-    #             continue
-
-    #         # Only update if the class has actually changed.
-    #         if new_cls is old_cls:
-    #             continue
-
-    #         print(f"Updating instance '{field}' of class {old_cls.__name__}: {id(old_cls)} -> {id(new_cls)}")
-    #         # Loop over methods defined directly in new_cls (in its __dict__)
-    #         for key, new_method in new_cls.__dict__.items():
-    #             if callable(new_method):
-    #                 try:
-    #                     # Bind the new method to the existing instance.
-    #                     bound_method = new_method.__get__(instance, new_cls)
-    #                     setattr(instance, key, bound_method)
-    #                     print(f"  Updated {field}.{key}")
-    #                 except Exception as e:
-    #                     print(f"  Failed to update {field}.{key}: {e}")
-
-    
-    # def update_mainw_fields(self):
-    #     """
-    #     Updates methods on instance fields whose classes are explicitly defined in allowed modules.
-    #     Groups fields by module and checks the module file’s modification time only once.
-    #     Only methods defined directly in the class (__dict__) are updated.
-    #     """
-    #     # Only update fields whose class is defined in these allowed modules.
-    #     allowed_mods = ("cellpose_omni.gui.guiparts",)
-        
-    #     # Group fields by module name.
-    #     fields_by_module = {}
-    #     for field_name, instance in self.__dict__.items():
-    #         if instance is None or not hasattr(instance, '__class__'):
-    #             continue
-    #         cls = instance.__class__
-    #         module_name = cls.__module__
-    #         # Only process if the module is allowed.
-    #         if module_name not in allowed_mods:
-    #             continue
-    #         fields_by_module.setdefault(module_name, []).append((field_name, instance))
-        
-    #     # Process each module group.
-    #     for module_name, field_list in fields_by_module.items():
-    #         try:
-    #             module = importlib.import_module(module_name)
-    #             mod_file = getattr(module, '__file__', None)
-    #             if mod_file is None or not os.path.exists(mod_file):
-    #                 continue
-    #             new_mtime = self.get_mtime(mod_file)
-    #         except Exception as e:
-    #             print(f"Error checking module time for module '{module_name}': {e}")
-    #             continue
-            
-    #         stored_mtime = self.module_mtimes.get(module_name)
-    #         if stored_mtime is not None and new_mtime == stored_mtime:
-    #             # No change detected in this module – skip.
-    #             continue
-            
-    #         # Now, for each field in this module, update its methods.
-    #         for field_name, instance in field_list:
-    #             old_cls = instance.__class__
-    #             try:
-    #                 # Retrieve the updated class from the module.
-    #                 new_cls = getattr(module, old_cls.__name__)
-    #             except Exception as e:
-    #                 print(f"Error retrieving new class for field '{field_name}': {e}")
-    #                 continue
-                
-    #             if new_cls is old_cls:
-    #                 continue  # The class hasn't changed.
-                
-    #             print(f"Updating instance '{field_name}' of class {old_cls.__name__}: {id(old_cls)} -> {id(new_cls)}")
-    #             # Loop over methods defined directly in new_cls (from its __dict__).
-    #             for key, new_method in new_cls.__dict__.items():
-    #                 if callable(new_method):
-    #                     try:
-    #                         bound_method = new_method.__get__(instance, new_cls)
-    #                         setattr(instance, key, bound_method)
-    #                         print(f"  Updated {field_name}.{key}")
-    #                     except Exception as e:
-    #                         print(f"  Failed to update {field_name}.{key}: {e}")
-            
-    #         # After processing all fields from this module, update the stored modification time.
-    #         self.module_mtimes[module_name] = new_mtime
           
     def update_mainw_fields(self):
         """

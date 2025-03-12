@@ -18,7 +18,6 @@ SPACING = 3
 WIDTH_0 = 25
 
 from PyQt6.QtWidgets import QPlainTextEdit, QFrame
-
 from PyQt6.QtCore import QObject, QEvent
 
 class NoMouseFilter(QObject):
@@ -401,19 +400,18 @@ class ImageDraw(pg.ImageItem):
         r0, r1 = max(0, y - kr), min(y + kr + 1, height)
         c0, c1 = max(0, x - kr), min(x + kr + 1, width)
         arr_slc = (slice(r0, r1), slice(c0, c1))
+        # If the computed region has no area, skip drawing.
+        if r1 <= r0 or c1 <= c0:
+            return
 
         # Kernel slice
         kernel = self._kernel
         kr0, kr1 = max(0, kr - y), kr + (r1 - y)
         kc0, kc1 = max(0, kr - x), kr + (c1 - x)
+        if kr1 <= kr0 or kc1 <= kc0:
+            return
         ker_slc = (slice(kr0, kr1), slice(kc0, kc1))
         
-        # Dilated slice (expand by 1 in all directions)
-        d = 3
-        dil_r0, dil_r1 = max(0, r0 - d), min(r1 + d, height)
-        dil_c0, dil_c1 = max(0, c0 - d), min(c1 + d, width)
-        dil_slc = (slice(dil_r0, dil_r1), slice(dil_c0, dil_c1))
-
         # similar to _get_affinity, should check that too for some factoring out
         # source inds restricts to valid sources 
         source_indices = self.parent.ind_matrix[arr_slc][kernel[ker_slc]]
@@ -421,6 +419,14 @@ class ImageDraw(pg.ImageItem):
         source_coords = tuple(c[source_indices] for c in self.parent.coords)
         targets = []
         
+        
+        # Dilated slice (expand by 1 in all directions)
+        d = 1
+        dil_r0, dil_r1 = max(0, r0 - d), min(r1 + d, height)
+        dil_c0, dil_c1 = max(0, c0 - d), min(c1 + d, width)
+        dil_slc = (slice(dil_r0, dil_r1), slice(dil_c0, dil_c1))
+
+
         # print('fff\n', self.parent.coords[0].shape, np.prod(masks.shape), '\n')
         
         masks[source_coords] = label # apply it here
@@ -1166,14 +1172,8 @@ from pyqtgraph import GraphicsObject
 from PyQt6.QtWidgets import QGraphicsItem
 from PyQt6.QtGui import QPainter
 from PyQt6.QtCore import QRectF, Qt
-from PyQt6.QtGui import QSurfaceFormat
 
 import OpenGL.GL as gl
-
-fmt = QSurfaceFormat()
-fmt.setAlphaBufferSize(8)
-fmt.setProfile(QSurfaceFormat.CompatibilityProfile)
-QSurfaceFormat.setDefaultFormat(fmt)
 
 
 class GLPixelGridOverlay(GraphicsObject):
@@ -1284,7 +1284,7 @@ class GLPixelGridOverlay(GraphicsObject):
 
         temp_color = self.color_data.copy()
         temp_color[:, 3] *= final_alpha
-        print(final_alpha[0],scale)
+        # print(final_alpha[0],scale)
 
         # 6) Upload the color data to the GPU in one call
         gl.glBindBuffer(gl.GL_ARRAY_BUFFER, self.color_id)
@@ -1409,9 +1409,9 @@ class GLPixelGridOverlay(GraphicsObject):
         """
         return 1.0 / (1.0 + np.exp(-steepness * (scale - threshold)))
         
-    def shape(self):
-        """No mouse picking; return empty path."""
-        return pg.QtGui.QPainterPath()
+    # def shape(self):
+    #     """No mouse picking; return empty path."""
+    #     return pg.QtGui.QPainterPath()
 
     def initialize_colors_from_affinity(self):
         """Initialize the colors using only the first 4 directions of the affinity graph."""

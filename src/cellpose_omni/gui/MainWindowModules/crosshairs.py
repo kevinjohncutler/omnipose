@@ -26,3 +26,19 @@ def set_crosshair_colors(self):
     [l.setPen(pen) for l in self.vLineOrtho]
     [l.setPen(pen) for l in self.hLineOrtho]
         
+# this is really just for the crosshairs
+def mouse_moved(self, pos):
+    items = self.win.scene().items(pos)
+    for x in items: #why did this get deleted in CP2?
+        if x==self.p0:
+            mousePoint = self.p0.mapSceneToView(pos)
+            if self.CHCheckBox.isChecked():
+                self.vLine.setPos(mousePoint.x())
+                self.hLine.setPos(mousePoint.y())
+                
+                
+    #for x in items:
+    #    if not x==self.p0:
+    #        QtWidgets.QApplication.restoreOverrideCursor()
+    #        QtWidgets.QApplication.setOverrideCursor(QtCore.Qt.DefaultCursor)
+

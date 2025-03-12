@@ -21,7 +21,6 @@ def color_choose(self):
     # Only do this if you want "magma" to have transparent at the lower bound:
     if preset in self.default_cmaps:
         st = self.hist.gradient.saveState()
-        print('debug:', st['ticks'])  # e.g. [(0.0, (0, 0, 3, 255)), (0.25, (80, 18, 123, 255)), ...]
 
         # Grab the first tick
         pos, color = st['ticks'][0]          # only two items, not three
