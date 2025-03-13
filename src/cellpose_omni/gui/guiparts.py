@@ -437,32 +437,71 @@ class ImageDraw(pg.ImageItem):
         steps = self.parent.steps
         dim = self.parent.dim
         idx = self.parent.inds[0][0]
+        shape = self.parent.shape
         # print('affinity none?', affinity is None)
         # print('affinity shape', affinity.shape, np.any(affinity))
+        # print('source',source_coords)
+        # print('shape', shape)
         
 
         if affinity is not None and affinity.shape[-dim:] == masks.shape:
             for i in self.parent.non_self:
                 step = steps[i]
-                target_coords = tuple(c+s for c,s in zip(source_coords, step))
+                # target_coords = tuple(np.clip(c+s,0,l-1) for c,s,l in zip(source_coords, step, shape))
+                # print('A', np.array(target_coords).shape)
                 
-               # source_labels = masks[source_coords]
-                target_labels = masks[target_coords]
-                if label!=0:
-                    connect = target_labels==label
-                else:
-                    connect = False
+
+   
+                # neigh_indices = self.parent.neigh_inds[i]
+
+                # # sel = neigh_indices>-1 # non-foreground pixels have index -1, and that would mess up indexing
+                # # source_inds = self.parent.indexes[sel] # we therefore only deal with source pixels that have a valid target 
+                # # target_inds = neigh_indices[source_inds] # and these are the corresponding valid targets 
                 
-                # update affinity graph
-                affinity[i][source_coords] = affinity[-(i+1)][target_coords] = connect                
-                targets.append(target_coords)
+                # print('neight', neigh_indices[source_indices], source_indices)
+                # target_coords = tuple(self.parent.neighbors[:,i,source_indices])
+
+                # print('B',target_coords, masks[target_coords], label)
                 
+                # must remove self references 
+                # could check if the source is equal to target
+                # or do it loke in other ares, where i check for validdity with indexing matrix
+                # or I can do it like in get_affinity_torch, where I simply slice in each direction as needed
+                # the only real reason to do it with inds is becasue of the non-spatial affinity 
+                # witht he spatial array, it is simple to just avoid out of bounds with slicing to -1
+                # however, this apprach is using coords, not slices 
+                
+                tgt_coords = []
+                src_coords = []
+                valid = np.ones_like(source_coords[0])
+                for c,s,l in zip(source_coords, step, shape):
+                    tc = c+s
+                    is_valid = np.logical_and(tc>=0, tc<=l-1)
+                    valid = is_valid if valid is None else np.logical_and(valid, is_valid)
+                    tgt_coords.append(tc)
+                    src_coords.append(c)
+                        
+                if np.any(valid):
+                    tgt_coords = tuple(c[valid] for c in tgt_coords)
+                    src_coords = tuple(c[valid] for c in src_coords)
+                                        
+                    target_labels = masks[tgt_coords]
+                    if label!=0:
+                        connect = target_labels==label
+                    else:
+                        connect = False
+                    
+                    # update affinity graph
+                    affinity[i][src_coords] = affinity[-(i+1)][tgt_coords] = connect                
+                    targets.append(tgt_coords)
+                    
         else:
             print('affinity graph not initialized',affinity.shape[-dim:], masks.shape) 
                
     
         # define a region around the source and target pixels
         targets.append(source_coords)
+        
         surround_coords = tuple(np.concatenate(arrays, axis=0) for arrays in zip(*targets))
 
         
@@ -476,14 +515,11 @@ class ImageDraw(pg.ImageItem):
         # have to wait to update affinity after looping over all directions   
         for i in self.parent.non_self[:idx]:
             step = steps[i]
-            target_coords = tuple(c+s for c,s in zip(source_coords, step))
-            
-            inds = self.parent.pixelGridOverlay.lineIndices[source_coords +(i,)].tolist() # need 3.11 for this syntax?
-            
-            opp_target_coords = tuple(c-s for c,s in zip(source_coords, step))
-            # inds += self.parent.pixelGridOverlay.lineIndices[*opp_target_coords,i].tolist()
+            target_coords = tuple(np.clip(c+s,0,l-1) for c,s,l in zip(source_coords, step, shape))
+            opp_target_coords = tuple(np.clip(c-s,0,l-1) for c,s,l in zip(source_coords, step, shape))
+
+            inds = self.parent.pixelGridOverlay.lineIndices[source_coords + (i,)].tolist() 
             inds += self.parent.pixelGridOverlay.lineIndices[opp_target_coords+(i,)].tolist()
-            
 
             update_inds += inds
             update_alpha.append(affinity[i][source_coords])
@@ -506,9 +542,12 @@ class ImageDraw(pg.ImageItem):
         # some strangeness with outlines on and masks off, as if the masks are zero?
                     
         # update boundary
-        bd = affinity_to_boundary(masks[surround_coords], affinity[(Ellipsis,)+surround_coords], None, dim=dim)
-        bd = bd*masks[surround_coords]
-        bounds[surround_coords] = bd
+        if len(surround_coords):
+            # print('tt',len(targets), targets)
+            # print('sc',surround_coords)
+            bd = affinity_to_boundary(masks[surround_coords], affinity[(Ellipsis,)+surround_coords], None, dim=dim)
+            bd = bd*masks[surround_coords]
+            bounds[surround_coords] = bd
         
         
         # also take care of any orphaned masks
@@ -615,7 +654,7 @@ class ImageDraw(pg.ImageItem):
             # source_slc = (Ellipsis,)+tuple(source_slices[i])
             
             
-            # inds = self.parent.pixelGridOverlay.lineIndices[*target_coords,i].tolist()
+            # inds = self.parent.pixelGridOverlay.lineIndices[*target_coords,i].tolist() # 3.11+ for this syntax
             inds = self.parent.pixelGridOverlay.lineIndices[target_coords+(i,)].tolist()
             
             opp_target_coords = tuple(np.clip(c-s,0,l-1) for c,s,l in zip(source_coords, step,[Ly,Lx]))
@@ -709,14 +748,17 @@ class ImageDraw(pg.ImageItem):
 
 
         steps = self.parent.steps
+        shape = self.parent.shape
         dim = self.parent.dim
         idx = self.parent.inds[0][0]
 
         if affinity is not None and affinity.shape[-dim:] == masks.shape:
             for i in self.parent.non_self:
                 step = steps[i]
-                target_coords = tuple(c+s for c,s in zip(source_coords, step))
-                
+                # replace with neighhbors array
+                # print('target n', self.parent.neighbors.shape, np.array(target_coords).shape)
+                target_coords = tuple(np.clip(c+s,0,l-1) for c,s,l in zip(source_coords, step, shape))
+
                # source_labels = masks[source_coords]
                 target_labels = masks[target_coords]
                 if label!=0:
@@ -727,17 +769,15 @@ class ImageDraw(pg.ImageItem):
                 # update affinity graph
                 affinity[i][source_coords] = affinity[-(i+1)][target_coords] = connect
                 # affinity[i][target_coords] = affinity[-(i+1)][source_coords] = connect
-                
-                print(f"Before update: {np.sum(affinity)}")
-                affinity[i][source_coords] = affinity[-(i+1)][target_coords] = connect
-                print(f"After update: {np.sum(affinity)}")
-                                
+                                                
                 targets.append(target_coords)
                 
         else:
             print('affinity graph not initialized') 
                
     
+        # this block should be factored out 
+        
         # define a region around the source and target pixels
         targets.append(source_coords)
         surround_coords = tuple(np.concatenate(arrays, axis=0) for arrays in zip(*targets))
@@ -747,14 +787,12 @@ class ImageDraw(pg.ImageItem):
         # have to wait to update affinity after looping over all directions   
         for i in self.parent.non_self[:idx]:
             step = steps[i]
-            target_coords = tuple(c+s for c,s in zip(source_coords, step))
+            target_coords = tuple(np.clip(c+s,0,l-1) for c,s,l in zip(source_coords, step, shape))
+            opp_target_coords = tuple(np.clip(c-s,0,l-1) for c,s,l in zip(source_coords, step, shape))
+            
             
             inds = self.parent.pixelGridOverlay.lineIndices[source_coords +(i,)].tolist() # need 3.11 for this syntax?
-            
-            opp_target_coords = tuple(c-s for c,s in zip(source_coords, step))
-            # inds += self.parent.pixelGridOverlay.lineIndices[*opp_target_coords,i].tolist()
             inds += self.parent.pixelGridOverlay.lineIndices[opp_target_coords+(i,)].tolist()
-            
             
             update_inds += inds
             update_alpha.append(affinity[i][source_coords])

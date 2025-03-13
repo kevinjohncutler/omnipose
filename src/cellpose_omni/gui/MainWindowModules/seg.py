@@ -103,17 +103,26 @@ def toggle_affinity_graph(self):
     # if self.loaded:
     #     # self.update_plot()
     #     self.update_layer()
-    
-    
-
+        
 def update_active_label(self):
-    """Update self.current_label from the input field."""
     try:
         self.current_label = int(self.LabelInput.text())
         print(f"Active label updated to: {self.current_label}")
         self.regenerate_cellcolors_for_active_label()
     except ValueError:
         print("Invalid label input.")
+    
+    if self.current_label > 0:
+        # Example of using a color array/dict; adapt as needed
+        # for your actual color lookup
+        color = self.cellcolors[self.current_label % len(self.cellcolors)]
+        print('color', color)
+        self.LabelInput.setStyleSheet(
+            f"QLineEdit {{ border: 2px solid {color}; font-weight: bold; }}"
+        )
+    else:
+        # revert to default styling
+        self.LabelInput.setStyleSheet("")
         
 def update_active_label_field(self):
     """Sync the active label input field with the current label."""

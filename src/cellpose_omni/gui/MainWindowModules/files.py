@@ -9,6 +9,12 @@ def dropEvent(self, event):
         io._load_seg(self, filename=files[0])
     else:
         io._load_image(self, filename=files[0])
+        
+def dragEnterEvent(self, event):
+    if event.mimeData().hasUrls():
+        event.accept()
+    else:
+        event.ignore()
 
 def get_files(self):
     folder = os.path.dirname(self.filename)
