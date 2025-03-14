@@ -66,11 +66,11 @@ def toggle_masks(self):
         self.outlinesOn = False
         
     if not self.masksOn and not self.outlinesOn:
-        self.p0.removeItem(self.layer)
+        self.viewbox.removeItem(self.layer)
         self.layer_off = True
     else:
         if self.layer_off:
-            self.p0.addItem(self.layer)
+            self.viewbox.addItem(self.layer)
         self.draw_layer()
         self.update_layer()
     if self.loaded:

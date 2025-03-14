@@ -1,6 +1,7 @@
 from cellpose_omni.gui import logger # from __init__.py in parent directory
 
 from PyQt6 import QtGui, QtCore
+from PyQt6.QtWidgets import QAbstractItemView
 from PyQt6.QtGui import QPainter
 from PyQt6.QtWidgets import QApplication, QRadioButton, QWidget, QDialog, QButtonGroup, QSlider, QStyle, QStyleOptionSlider, QGridLayout, QPushButton, QLabel, QLineEdit, QDialogButtonBox, QComboBox
 import pyqtgraph as pg
@@ -20,6 +21,121 @@ WIDTH_0 = 25
 from PyQt6.QtWidgets import QPlainTextEdit, QFrame
 from PyQt6.QtCore import QObject, QEvent
 
+
+from PyQt6.QtWidgets import (
+    QDockWidget, QWidget, QVBoxLayout, QTableWidget,
+    QTableWidgetItem, QPushButton, QHeaderView, QSizePolicy
+)
+from PyQt6.QtCore import Qt
+
+class LinksDock(QDockWidget):
+    def __init__(self, links=None, parent=None):
+        super().__init__("Links Editor", parent)
+        self._links = list(links) if links else []
+
+        # Remove any explicit resize calls so the dock size is determined by Qt layouts
+        # or the user's manual dragging. 
+        # If you prefer some default width, set it smaller, e.g. self.resize(300, 400).
+
+        container = QWidget()
+        layout = QVBoxLayout()
+        container.setLayout(layout)
+        self.setWidget(container)
+
+        # Let the dock expand in the main window as needed
+        self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
+
+        # Create the table
+        self.table = QTableWidget()
+        self.table.setRowCount(max(20, len(self._links)))
+        self.table.setColumnCount(2)
+
+        # Optionally hide row/column headers
+        # self.table.verticalHeader().setVisible(False)
+        # self.table.horizontalHeader().setVisible(False)
+
+        # Make columns auto‐stretch
+        header = self.table.horizontalHeader()
+        header.setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
+
+        # Let the table fill the dock’s area
+        self.table.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
+
+        # Show grid lines, give a gray border, but remove the forced white background:
+        self.table.setShowGrid(True)
+        self.table.setStyleSheet("""
+            QTableWidget {
+                border: 1px solid gray;
+                /* No forced background-color here, 
+                   so it will inherit from the system/theme. */
+                alternate-background-color: rgba(128,128,128, 0.1);
+                gridline-color: rgba(128,128,128, 0.3);
+            }
+        """)
+
+        # Make row selection the default
+        self.table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
+        self.table.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
+        self.table.setAlternatingRowColors(True)
+
+        # Populate the table from _links
+        for row, (valA, valB) in enumerate(self._links):
+            if row >= self.table.rowCount():
+                break
+            self._set_item(row, 0, str(valA))
+            self._set_item(row, 1, str(valB))
+
+        layout.addWidget(self.table)
+
+        # Button to append rows
+        self.btnAddRow = QPushButton("Add Row")
+        self.btnAddRow.clicked.connect(self.addRow)
+        layout.addWidget(self.btnAddRow)
+
+        # Button to delete selected rows
+        self.btnRemoveRow = QPushButton("Delete Row")
+        self.btnRemoveRow.clicked.connect(self.removeSelectedRows)
+        layout.addWidget(self.btnRemoveRow)
+
+        # Track edits
+        self.table.itemChanged.connect(self.on_item_changed)
+
+    def _set_item(self, row, col, text):
+        item = QTableWidgetItem(text)
+        item.setFlags(item.flags() | Qt.ItemFlag.ItemIsEditable)
+        item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.table.setItem(row, col, item)
+
+    def addRow(self):
+        row = self.table.rowCount()
+        self.table.insertRow(row)
+        self._set_item(row, 0, "")
+        self._set_item(row, 1, "")
+
+    def removeSelectedRows(self):
+        selected_rows = self.table.selectionModel().selectedRows()
+        if not selected_rows:
+            return
+        for sel in reversed(selected_rows):
+            row = sel.row()
+            self.table.removeRow(row)
+            if row < len(self._links):
+                self._links.pop(row)
+
+    def on_item_changed(self, changed_item):
+        row = changed_item.row()
+        itemA = self.table.item(row, 0)
+        itemB = self.table.item(row, 1)
+        if itemA and itemB and itemA.text().isdigit() and itemB.text().isdigit():
+            valA = int(itemA.text())
+            valB = int(itemB.text())
+            while len(self._links) <= row:
+                self._links.append((0, 0))
+            self._links[row] = (valA, valB)
+
+    def getLinks(self):
+        return self._links
+        
 class NoMouseFilter(QObject):
     def eventFilter(self, obj, event):
         if event.type() in (QEvent.Type.GraphicsSceneMousePress,
@@ -214,8 +330,8 @@ class QuadButton(QPushButton):
         self.xrange = np.array([self.xpos-.2, self.xpos+1.2]) * parent.Lx/3
         self.yrange = np.array([self.ypos-.2, self.ypos+1.2]) * parent.Ly/3
         # change the zoom
-        parent.p0.setXRange(self.xrange[0], self.xrange[1])
-        parent.p0.setYRange(self.yrange[0], self.yrange[1])
+        parent.viewbox.setXRange(self.xrange[0], self.xrange[1])
+        parent.viewbox.setYRange(self.yrange[0], self.yrange[1])
         parent.show()
 
 

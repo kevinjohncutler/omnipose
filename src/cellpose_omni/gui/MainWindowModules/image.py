@@ -55,17 +55,17 @@ def gamma_change(self):
 
 
 def make_viewbox(self):
-    self.p0 = ViewBox(
+    self.viewbox = ViewBox(
         lockAspect=True,
         invertY=True,
         # border=pg.mkPen(color='red', width=1)
     )
     
-    self.p0.setCursor(QtCore.Qt.CrossCursor)
-    self.win.addItem(self.p0, 0, 0, rowspan=1, colspan=1)
-    self.p0.setMenuEnabled(False)
-    self.p0.setMouseEnabled(x=True, y=True)
-    self.img = pg.ImageItem(viewbox=self.p0, parent=self,levels=(0,255))
+    self.viewbox.setCursor(QtCore.Qt.CrossCursor)
+    self.win.addItem(self.viewbox, 0, 0, rowspan=1, colspan=1)
+    self.viewbox.setMenuEnabled(False)
+    self.viewbox.setMouseEnabled(x=True, y=True)
+    self.img = pg.ImageItem(viewbox=self.viewbox, parent=self,levels=(0,255))
     self.img.autoDownsample = False
     
     self.hist = guiparts.HistLUT(image=self.img,orientation='horizontal',gradientPosition='bottom')
@@ -75,16 +75,16 @@ def make_viewbox(self):
 
     self.layer = guiparts.ImageDraw(parent=self)
     
-    self.p0.scene().contextMenuItem = self.p0
-    self.p0.addItem(self.img)
-    self.p0.addItem(self.layer)
+    self.viewbox.scene().contextMenuItem = self.viewbox
+    self.viewbox.addItem(self.img)
+    self.viewbox.addItem(self.layer)
     
     # Create the highlight cursor
     self.highlight_rect = QGraphicsPathItem()
-    self.p0.addItem(self.highlight_rect)
+    self.viewbox.addItem(self.highlight_rect)
 
     # Connect mouse movement signal
-    self.p0.scene().sigMouseMoved.connect(self.update_highlight)
+    self.viewbox.scene().sigMouseMoved.connect(self.update_highlight)
     
 
 def compute_saturation(self):
@@ -100,13 +100,13 @@ def compute_saturation(self):
 
 def recenter(self):
     # Temporarily unlock the aspect ratio so autoRange can fit everything
-    self.p0.setAspectLocked(False)
+    self.viewbox.setAspectLocked(False)
 
     # Re-center and fit to the entire image
-    self.p0.autoRange(items=[self.img], padding=0.05)
+    self.viewbox.autoRange(items=[self.img], padding=0.05)
 
     # Re-lock aspect ratio if you want a square-ish zoom behavior
-    self.p0.setAspectLocked(True)
+    self.viewbox.setAspectLocked(True)
 
     # Unselect sector buttons
     self.quadbtns.setExclusive(False)

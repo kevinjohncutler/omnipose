@@ -12,8 +12,8 @@ def plot_clicked(self, event):
             if self.orthobtn.isChecked():
                 items = self.win.scene().items(event.scenePos())
                 for x in items:
-                    if x==self.p0:
-                        pos = self.p0.mapSceneToView(event.scenePos())
+                    if x==self.viewbox:
+                        pos = self.viewbox.mapSceneToView(event.scenePos())
                         x = int(pos.x())
                         y = int(pos.y())
                         if y>=0 and y<self.Ly and x>=0 and x<self.Lx:

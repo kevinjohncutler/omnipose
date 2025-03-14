@@ -875,6 +875,27 @@ def make_buttons(self):
     
     # self.l0.addWidget(QLabel(''), b, 0,1,TOOLBAR_WIDTH)        
 
+
+    self.toggleArrow = QtWidgets.QToolButton(self)
+    self.toggleArrow.setFixedSize(32, 32)
+    self.toggleArrow.setArrowType(QtCore.Qt.ArrowType.LeftArrow)
+    self.toggleArrow.setToolTip("Toggle Links Editor")
+    self.toggleArrow.clicked.connect(self.toggleLinksDock)
+
+    # Place it in the same row (b) but in a column to the right.
+    # For example, if you want it at the far right, you can
+    # add it to the same columns as the scroll bar but with right alignment:
+    self.l0.addWidget(
+        self.toggleArrow,
+        b,
+        TOOLBAR_WIDTH + 3,      # pick a column beyond your normal controls
+        1,
+        1,
+        alignment=Qt.AlignmentFlag.AlignRight
+    )
+
+
+
     # ---- drawing area ---- #
     self.win = pg.GraphicsLayoutWidget()
     self.win.viewport().setAttribute(QtCore.Qt.WidgetAttribute.WA_AcceptTouchEvents, False)

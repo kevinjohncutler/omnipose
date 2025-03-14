@@ -5,7 +5,7 @@ import inspect, importlib, pkgutil
 import numpy as np
 
 from PyQt6 import QtGui, QtCore, QtWidgets
-from PyQt6.QtCore import pyqtSlot, QCoreApplication
+from PyQt6.QtCore import pyqtSlot, QCoreApplication, Qt
 from PyQt6.QtWidgets import QMainWindow, QApplication
 from PyQt6.QtGui import QPalette, QCursor, QGuiApplication
 
@@ -198,7 +198,7 @@ class MainW(QMainWindow):
         # it needs the initializations of _load_image
         self.pixelGridOverlay = guiparts.GLPixelGridOverlay(parent=self)
         self.pixelGridOverlay.setVisible(False) 
-        self.p0.addItem(self.pixelGridOverlay)
+        self.viewbox.addItem(self.pixelGridOverlay)
     
         
         # Move and resize the window
@@ -213,6 +213,14 @@ class MainW(QMainWindow):
             available_rect = screen.availableGeometry()
             self.move(available_rect.topLeft() + QtCore.QPoint(20, 20))
     
+    
+        self.createDock()
+        viewMenu = self.menuBar().addMenu("View")
+        self.linksEditorAction = viewMenu.addAction("Links Editor")
+        self.linksEditorAction.setCheckable(True)
+        self.linksEditorAction.setChecked(False)
+        self.linksEditorAction.triggered.connect(self.toggleLinksDock)
+
 
         self.setAcceptDrops(True)
         self.win.show()
@@ -220,6 +228,27 @@ class MainW(QMainWindow):
         
         end_time = time.time()  # Record end time
         print(f"Init Time: {end_time - start_time:.4f} seconds")
+        
+
+
+    def toggleLinksDock(self):
+        """
+        Show/hide the dock, flip the arrow direction, and update the menu item check state.
+        """
+        if self.linksDock.isVisible():
+            self.linksDock.hide()
+            self.toggleArrow.setArrowType(QtCore.Qt.ArrowType.LeftArrow)
+            self.linksEditorAction.setChecked(False)
+        else:
+            self.linksDock.show()
+            self.toggleArrow.setArrowType(QtCore.Qt.ArrowType.DownArrow)
+            self.linksEditorAction.setChecked(True)
+
+    def createDock(self):        
+        self.linksDock = guiparts.LinksDock(self.links, self)
+        self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, self.linksDock)
+        # self.linksDock.hide()  # If we want it hidden at startup
+        
 
     def load_all_submodules(self):
         """

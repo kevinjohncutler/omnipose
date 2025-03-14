@@ -39,8 +39,8 @@ def compute_scale(self):
     # self.radii[yy,xx,2] = 0
     # self.radii[yy,xx,3] = 255
     # # self.update_plot()
-    # self.p0.setYRange(0,self.Ly+self.radii_padding)
-    # self.p0.setXRange(0,self.Lx)
+    # self.viewbox.setYRange(0,self.Ly+self.radii_padding)
+    # self.viewbox.setXRange(0,self.Lx)
     # self.win.show()
     # self.show()
     
@@ -48,10 +48,10 @@ def compute_scale(self):
 
 def toggle_scale(self):
     if self.scale_on:
-        self.p0.removeItem(self.scale)
+        self.viewbox.removeItem(self.scale)
         self.scale_on = False
     else:
-        self.p0.addItem(self.scale)
+        self.viewbox.addItem(self.scale)
         self.scale_on = True
     self.recenter()    
 

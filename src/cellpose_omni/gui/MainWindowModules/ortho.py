@@ -26,8 +26,8 @@ def make_orthoviews(self):
         self.pOrtho[j].addItem(self.vLineOrtho[j], ignoreBounds=False)
         self.pOrtho[j].addItem(self.hLineOrtho[j], ignoreBounds=False)
     
-    self.pOrtho[0].linkView(self.pOrtho[0].YAxis, self.p0)
-    self.pOrtho[1].linkView(self.pOrtho[1].XAxis, self.p0)
+    self.pOrtho[0].linkView(self.pOrtho[0].YAxis, self.viewbox)
+    self.pOrtho[1].linkView(self.pOrtho[1].XAxis, self.viewbox)
     
 
 def add_orthoviews(self):
@@ -45,8 +45,8 @@ def add_orthoviews(self):
     qGraphicsGridLayout.setRowStretchFactor(0, 2)
     qGraphicsGridLayout.setRowStretchFactor(1, 1)
     
-    #self.p0.linkView(self.p0.YAxis, self.pOrtho[0])
-    #self.p0.linkView(self.p0.XAxis, self.pOrtho[1])
+    #self.viewbox.linkView(self.viewbox.YAxis, self.pOrtho[0])
+    #self.viewbox.linkView(self.viewbox.XAxis, self.pOrtho[1])
     
     self.pOrtho[0].setYRange(0,self.Lx)
     self.pOrtho[0].setXRange(-self.dz/3,self.dz*2 + self.dz/3)
@@ -55,21 +55,21 @@ def add_orthoviews(self):
     # self.pOrtho[0].setLimits(minXRange=self.dz*2+self.dz/3*2)
     # self.pOrtho[1].setLimits(minYRange=self.dz*2+self.dz/3*2)
 
-    self.p0.addItem(self.vLine, ignoreBounds=False)
-    self.p0.addItem(self.hLine, ignoreBounds=False)
-    self.p0.setYRange(0,self.Lx)
-    self.p0.setXRange(0,self.Ly)
+    self.viewbox.addItem(self.vLine, ignoreBounds=False)
+    self.viewbox.addItem(self.hLine, ignoreBounds=False)
+    self.viewbox.setYRange(0,self.Lx)
+    self.viewbox.setXRange(0,self.Ly)
 
     self.win.show()
     self.show()
     
-    #self.p0.linkView(self.p0.XAxis, self.pOrtho[1])
+    #self.viewbox.linkView(self.viewbox.XAxis, self.pOrtho[1])
     
 def remove_orthoviews(self):
     self.win.removeItem(self.pOrtho[0])
     self.win.removeItem(self.pOrtho[1])
-    self.p0.removeItem(self.vLine)
-    self.p0.removeItem(self.hLine)
+    self.viewbox.removeItem(self.vLine)
+    self.viewbox.removeItem(self.hLine)
     
     # restore the layout
     qGraphicsGridLayout = self.win.ci.layout

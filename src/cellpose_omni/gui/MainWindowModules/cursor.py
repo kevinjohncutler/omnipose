@@ -12,13 +12,13 @@ def update_highlight(self, pos=None):
         if pos is None:
             # Get the current global mouse position
             mouse_pos = QCursor.pos()  # Get the cursor position in global coordinates
-            scene_mouse_pos = self.p0.scene().views()[0].mapFromGlobal(mouse_pos)  # Map to scene coordinates
+            scene_mouse_pos = self.viewbox.scene().views()[0].mapFromGlobal(mouse_pos)  # Map to scene coordinates
 
             # Convert scene_mouse_pos to QPointF
             pos = QPointF(scene_mouse_pos.x(), scene_mouse_pos.y())
 
         # Map the cursor position from scene to view coordinates
-        view_pos = self.p0.mapSceneToView(pos)
+        view_pos = self.viewbox.mapSceneToView(pos)
 
         # Get cursor position in image data coordinates
         x, y = int(view_pos.x()), int(view_pos.y())
