@@ -247,7 +247,8 @@ class MainW(QMainWindow):
     def createDock(self):        
         self.linksDock = guiparts.LinksDock(self.links, self)
         self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, self.linksDock)
-        # self.linksDock.hide()  # If we want it hidden at startup
+        self.resizeDocks([self.linksDock], [120], Qt.Horizontal)
+        self.linksDock.hide()  # If we want it hidden at startup
         
 
     def load_all_submodules(self):

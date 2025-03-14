@@ -877,7 +877,7 @@ def make_buttons(self):
 
 
     self.toggleArrow = QtWidgets.QToolButton(self)
-    self.toggleArrow.setFixedSize(32, 32)
+    self.toggleArrow.setFixedSize(24, 24)
     self.toggleArrow.setArrowType(QtCore.Qt.ArrowType.LeftArrow)
     self.toggleArrow.setToolTip("Toggle Links Editor")
     self.toggleArrow.clicked.connect(self.toggleLinksDock)

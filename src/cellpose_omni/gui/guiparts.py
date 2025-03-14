@@ -26,17 +26,66 @@ from PyQt6.QtWidgets import (
     QDockWidget, QWidget, QVBoxLayout, QTableWidget,
     QTableWidgetItem, QPushButton, QHeaderView, QSizePolicy
 )
+
+class MyTableWidget(QTableWidget):
+    def __init__(self, parentDock):
+        super().__init__()
+        self.parentDock = parentDock
+
+    def keyPressEvent(self, event):
+        if event.key() in (Qt.Key.Key_Return, Qt.Key.Key_Enter):
+            row = self.currentRow()
+            col = self.currentColumn()
+            if col < self.columnCount() - 1:
+                # Move to the next column in this row
+                super().keyPressEvent(event)
+                self.setCurrentCell(row, col + 1)
+            else:
+                # Last column -> create a new row
+                super().keyPressEvent(event)
+                self.parentDock.addRow()
+                self.setCurrentCell(row + 1, 0)
+        else:
+            super().keyPressEvent(event)
+
+from PyQt6.QtWidgets import QStyledItemDelegate
+from PyQt6.QtGui import QPen, QColor
 from PyQt6.QtCore import Qt
+
+class InnerGridDelegate(QStyledItemDelegate):
+    def paint(self, painter, option, index):
+        # First, let the default delegate paint the cell
+        super().paint(painter, option, index)
+        
+        # Determine the model's dimensions for this cell
+        model = index.model()
+        row = index.row()
+        col = index.column()
+        
+        pen = QPen(QColor(128,128,128,128))  # RGB (136,136,136) with alpha=50 (out of 255)
+        # pen = QPen(QColor("#88888811"))  # Light gray, semi-transparent
+        # pen = pg.mkPen(self.accent)
+
+        painter.setPen(pen)
+        
+        # Adjust the cell rect slightly for pixel alignment
+        # rect = option.rect.adjusted(0, 0, -0.5, -0.5)
+        rect = QtCore.QRectF(option.rect).adjusted(0, 0, -0.5, -0.5)
+        
+        # Draw vertical line on the right edge (if not last column)
+        if col < model.columnCount() - 1:
+            painter.drawLine(rect.topRight(), rect.bottomRight())
+        
+        # Draw horizontal line on the bottom edge (if not last row)
+        if row < model.rowCount() - 1:
+            painter.drawLine(rect.bottomLeft(), rect.bottomRight())
 
 class LinksDock(QDockWidget):
     def __init__(self, links=None, parent=None):
         super().__init__("Links Editor", parent)
         self._links = list(links) if links else []
-
-        # Remove any explicit resize calls so the dock size is determined by Qt layouts
-        # or the user's manual dragging. 
-        # If you prefer some default width, set it smaller, e.g. self.resize(300, 400).
-
+        
+    
         container = QWidget()
         layout = QVBoxLayout()
         container.setLayout(layout)
@@ -46,14 +95,18 @@ class LinksDock(QDockWidget):
         self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
 
         # Create the table
-        self.table = QTableWidget()
-        self.table.setRowCount(max(20, len(self._links)))
+        self.table = MyTableWidget(self)
+        self.table.setRowCount(max(3, len(self._links)))
         self.table.setColumnCount(2)
 
         # Optionally hide row/column headers
-        # self.table.verticalHeader().setVisible(False)
-        # self.table.horizontalHeader().setVisible(False)
-
+        self.table.verticalHeader().setVisible(False)
+        self.table.horizontalHeader().setVisible(False)
+        # Hide any text in the headers (e.g. no row numbers, no column titles)
+        # Force them to a very small size so they don’t show text
+  
+        
+        
         # Make columns auto‐stretch
         header = self.table.horizontalHeader()
         header.setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
@@ -61,23 +114,25 @@ class LinksDock(QDockWidget):
         # Let the table fill the dock’s area
         self.table.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
 
-        # Show grid lines, give a gray border, but remove the forced white background:
-        self.table.setShowGrid(True)
-        self.table.setStyleSheet("""
-            QTableWidget {
-                border: 1px solid gray;
-                /* No forced background-color here, 
-                   so it will inherit from the system/theme. */
-                alternate-background-color: rgba(128,128,128, 0.1);
-                gridline-color: rgba(128,128,128, 0.3);
-            }
-        """)
-
+        # self.table.setFrameShape(QFrame.Shape.NoFrame)  # turn off the default table frame
+        self.table.setShowGrid(False)
+        self.table.setFrameShape(QFrame.Shape.NoFrame)   # Turn off the outer frame
+        self.table.setItemDelegate(InnerGridDelegate())
+        
         # Make row selection the default
         self.table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         self.table.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
-        self.table.setAlternatingRowColors(True)
 
+        # Enable alternating row colors, and update the stylesheet accordingly:
+        alternating_color = "rgba(128, 128, 128, 0.1)"  
+        self.table.setAlternatingRowColors(True)
+        self.table.setStyleSheet(f"""
+            QTableWidget {{
+                /* Leave the normal background unchanged (inherited from theme) */
+                alternate-background-color: {alternating_color};
+            }}
+        """)
+        
         # Populate the table from _links
         for row, (valA, valB) in enumerate(self._links):
             if row >= self.table.rowCount():
@@ -99,6 +154,8 @@ class LinksDock(QDockWidget):
 
         # Track edits
         self.table.itemChanged.connect(self.on_item_changed)
+        
+        
 
     def _set_item(self, row, col, text):
         item = QTableWidgetItem(text)
