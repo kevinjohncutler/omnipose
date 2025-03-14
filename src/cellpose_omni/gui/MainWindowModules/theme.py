@@ -12,33 +12,23 @@ import pyqtgraph as pg
 
 
 def color_choose(self):
-    # 1) Load the preset gradient:
-    index = self.RGBDropDown.currentIndex()
-    preset = self.cmaps[index]          # e.g. "magma", "viridis", etc.
+    idx = self.RGBDropDown.currentIndex()
+    preset = self.cmaps[idx]
     self.hist.gradient.loadPreset(preset)
 
-    # 2) Optionally modify the gradient stops:
-    # Only do this if you want "magma" to have transparent at the lower bound:
-    if preset in self.default_cmaps:
+    if self.view != 0 and preset in self.default_cmaps:
         st = self.hist.gradient.saveState()
-
-        # Grab the first tick
-        pos, color = st['ticks'][0]          # only two items, not three
-        color = list(color)                  # convert tuple -> list so we can mutate alpha
-        color[3] = 0                         # set alpha = 0
-
-        # Reassign the modified color back into the tick
-        st['ticks'][0] = [pos, tuple(color)] # or use a list for color again
-
-        # Restore the gradient
+        pos, color = st['ticks'][0]
+        color = list(color)
+        color[3] = 0
+        st['ticks'][0] = [pos, tuple(color)]
         self.hist.gradient.restoreState(st)
 
-    # 3) Save the current gradient state and re-apply highlight colors:
-    self.states[self.view] = self.hist.saveState()
-    self.set_tick_hover_color()
-    
-    # self.update_plot()  # if you have a call to refresh the plot
+    if not hasattr(self.hist.gradient, 'view_states'):
+        self.hist.gradient.view_states = {}
 
+    self.hist.gradient.view_states[self.view] = self.hist.gradient.saveState()
+    self.set_hist_colors()
 
 def set_hist_colors(self):
     region = self.hist.region

@@ -1226,6 +1226,38 @@ class HistLUT(pg.HistogramLUTItem):
         self._orig_mouseReleaseEvent = pg.HistogramLUTItem.mouseReleaseEvent
         # You can also introduce a flag:
         self.show_histogram = True
+        
+        self._view = 0
+        if not hasattr(self.gradient, 'view_states'):
+            self.gradient.view_states = {}
+
+        # Connect changes so I store the new gradient state whenever a user moves ticks, etc.
+        if hasattr(self.gradient, 'sigGradientChanged'):
+            self.gradient.sigGradientChanged.connect(self._on_gradient_changed)
+        elif hasattr(self.gradient, 'sigGradientChangeFinished'):
+            self.gradient.sigGradientChangeFinished.connect(self._on_gradient_changed)
+    
+    def set_view(self, v, preset=None, default_cmaps=None):
+        self._view = v
+        st = self.gradient.view_states.get(v, None)
+        if st is not None:
+            self.gradient.restoreState(st)
+        else:
+            if preset is not None:
+                self.gradient.loadPreset(preset)
+                if v != 0 and default_cmaps and (preset in default_cmaps):
+                    s2 = self.gradient.saveState()
+                    pos, color = s2['ticks'][0]
+                    color = list(color)
+                    color[3] = 0
+                    s2['ticks'][0] = [pos, tuple(color)]
+                    self.gradient.restoreState(s2)
+                self.gradient.view_states[v] = self.gradient.saveState()
+
+    def _on_gradient_changed(self):
+        if not hasattr(self.gradient, 'view_states'):
+            self.gradient.view_states = {}
+        self.gradient.view_states[self._view] = self.gradient.saveState()
 
     def mousePressEvent(self, event):
         if not self.show_histogram:
@@ -1291,11 +1323,9 @@ class HistLUT(pg.HistogramLUTItem):
             else:
                 p.drawLine(gradRect.topLeft(), gradRect.bottomLeft())
                 p.drawLine(gradRect.topRight(), gradRect.bottomRight())
-                
-                
-        #change where gradienteditoritem is called and pass in my custom one
-        
-                
+            
+
+
 class GradEditor(pg.GradientEditorItem):
     sigGradientChanged = QtCore.pyqtSignal(object)
     sigGradientChangeFinished = QtCore.pyqtSignal(object)

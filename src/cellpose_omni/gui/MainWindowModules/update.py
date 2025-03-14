@@ -87,20 +87,17 @@ def update_plot(self):
         # restore to uint8
         image *= 255
 
-        # if self.color==0:
-        #     self.img.setImage(image, autoLevels=False, lut=None)
-        # elif self.color>0 and self.color<4:
-        #     if not self.onechan:
-        #         image = image[:,:,self.color-1]
-        #     self.img.setImage(image, autoLevels=False, lut=self.cmap[self.color])
-        # elif self.color==4:
-        #     if not self.onechan:
-        #         image = image.mean(axis=-1)
-        #     self.img.setImage(image, autoLevels=False, lut=None)
-        # elif self.color==5:
-        #     if not self.onechan:
-        #         image = image.mean(axis=-1)
-        #     self.img.setImage(image, autoLevels=False, lut=self.cmap[0])
+        # Decide whether to treat it as grayscale or color:
+        if image.ndim == 3 and image.shape[-1] == 1:
+            # Single-channel (H, W, 1) => reshape to (H, W) so we can apply LUT.
+            image = image[..., 0]
+            self.img.setImage(image, autoLevels=False)
+        elif image.ndim == 3 and image.shape[-1] in (3, 4):
+            # Multi-channel (RGB or RGBA): show color image, no LUT.
+            self.img.setImage(image, autoLevels=False, lut=None)
+        else:
+            # Otherwise, assume it's already 2D or something else.
+            self.img.setImage(image, autoLevels=False)
         
     else:
         image = np.zeros((self.Ly,self.Lx), np.uint8)
@@ -122,16 +119,24 @@ def update_plot(self):
     self.img.setImage(image,autoLevels=False)
     
 
-    # Let users customize color maps and have them persist 
-    state = self.states[self.view]
-    if state is None: #should add a button to reset state to none and update plot
-        self.hist.gradient.loadPreset(self.cmaps[self.view]) # select from predefined list
-    else:
-        self.hist.restoreState(state) #apply chosen color map
+    # # Let users customize color maps and have them persist 
+    # state = self.states[self.view]
+    # if state is None: #should add a button to reset state to none and update plot
+    #     self.hist.gradient.loadPreset(self.cmaps[self.view]) # select from predefined list
+    # else:
+    #     self.hist.restoreState(state) #apply chosen color map
     
-    self.color_choose()
+    # self.color_choose()
+    # self.set_hist_colors()
+    
+    self.hist.set_view(
+        v=self.view,
+        preset=self.cmaps[self.view],
+        default_cmaps=self.default_cmaps
+    )
+    
     self.set_hist_colors()
-    
+        
     # self.scale.setImage(self.radii, autoLevels=False)
     # self.scale.setLevels([0.0,255.0])
     #self.img.set_ColorMap(self.bwr)
@@ -174,7 +179,10 @@ def reset(self):
     self.SCheckBox.setChecked(True)
     # self.SCheckBox.setEnabled(False)
     self.restore_masks = 0
-    self.states = [None for i in range(len(self.default_cmaps))] 
+    # self.states = [None for i in range(len(self.default_cmaps))] 
+    # if not hasattr(self.hist.gradient, 'view_states'):
+    #     self.hist.gradient.view_states = {}
+    
 
     # -- zero out image stack -- #
     self.opacity = 128 # how opaque masks should be

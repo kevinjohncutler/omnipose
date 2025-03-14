@@ -507,8 +507,8 @@ def make_buttons(self):
     # AFFINITY GRAPH TOGGLE
     b += 1
     self.agridOn = False  # Turn off by default
-    self.ACheckBox = QCheckBox('pixel grid')
-    self.ACheckBox.setToolTip('Press A toggle pixel grid overlay')
+    self.ACheckBox = QCheckBox('affinity graph')
+    self.ACheckBox.setToolTip('Press A toggle affinity graph overlay')
     self.ACheckBox.setStyleSheet(self.checkstyle)
     self.ACheckBox.setFont(self.medfont)
     self.ACheckBox.setChecked(False)

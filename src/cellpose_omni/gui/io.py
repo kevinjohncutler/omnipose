@@ -41,16 +41,18 @@ def read_image_with_channel_axis(filename):
     img = iio.imread(filename)
     meta = iio.immeta(filename)
     
-    channel_axis = None  # default to None
 
     if 'axes' in meta:
         axes = meta['axes']
         # If 'C' is present, use its index.
         if 'C' in axes:
             channel_axis = axes.index('C')
+            # convert to negative index
+            if channel_axis == img.ndim:
+                channel_axis = -1
         else:
             channel_axis = None
-            
+    
     elif 'mode' in meta:
         mode = meta['mode']
         # Only consider modes that imply multiple channels.
@@ -62,6 +64,12 @@ def read_image_with_channel_axis(filename):
     else:
         # If neither 'axes' nor 'mode' is provided, we return None.
         channel_axis = None
+    
+    if channel_axis is None:
+        print('\n')
+        print(meta)
+        print('\n')
+        
     
     return img, channel_axis, meta
 
@@ -165,8 +173,10 @@ def _load_image(parent, filename=None, load_seg=True):
         
     # from here, we now will just be loading an image and a mask image file format, not npy 
     try:
-        logger.info(f'loading image: {filename}')
+        logger.info(f'[_laod image] loading image: {filename}')
         image, channel_axis, meta = read_image_with_channel_axis(filename)
+        logger.info(f'[_laod image] image shape: {image.shape}, channel_axis: {channel_axis}')
+
         # transform image to CYX
         # if image.ndim ==3 and image.shape[-1] == 3:
         #     print('Assuming RGB image, converting to CYX')
@@ -242,14 +252,28 @@ def _initialize_images(parent, image, channel_axis):
     image : numpy.ndarray
         The normalized image with shape (z, height, width, 3).
     """
-    import numpy as np
     
-    parent.onechan = False
+    parent.onechan = channel_axis is None
     parent.shape = image.shape
     logger.info(f'initializing image, original shape: {image.shape}')
     
+    # check if the image is grayscale saved as RGB
+    # not usually a good idea, but there are valid reasons to do this 
+    # for compatibility with image editing software
+
+    if channel_axis in (-1,None) and image.shape[-1] in (3,4):
+        tol = 1e-3
+        gray_mask = np.sum(np.diff(image[...,:3],axis=-1),axis=-1) < tol
+        if np.all(gray_mask):
+            image = image[...,0]
+
+        logger.info('Detected RGB image with grayscale data, converting to single-channel')    
+        channel_axis = None
+        parent.onechan = True
+        
+        
     # Move the specified channel axis to the last position (if any).
-    if channel_axis is not None:
+    if not parent.onechan:
         image = np.moveaxis(image, channel_axis, -1)
         # If we end up with a 3D array, check if the last dimension is color
         # (3 or 4 channels). If so, treat it as (H, W, C) for a single-plane image.
@@ -263,20 +287,14 @@ def _initialize_images(parent, image, channel_axis):
     else:
         # No explicit channel axis was given => assume grayscale.
         if image.ndim == 2:
-            # (H, W) => add a "Z" axis of size 1 => (1, H, W).
+            # (H, W) => add a "Z" axis of size 1 and a channel axis of size 1 => (1, H, W, 1)
             image = image[np.newaxis, ...]
-            # Then replicate that single channel to get 3 channels.
-            image = np.stack([image, image, image], axis=-1)
+            image = image[..., np.newaxis]
         elif image.ndim == 3:
-            # Could be (Z, H, W) grayscale or something else. If truly grayscale,
-            # you can replicate the channel here if desired. For consistency:
+            # If the image is (Z, H, W) grayscale, add a channel axis if not present
             if image.shape[-1] not in (3, 4):
-                # If last axis isn't a color axis, treat it as multi-Z grayscale => add a channel:
                 image = image[..., np.newaxis]
-                # Then replicate to 3 channels.
-                image = np.concatenate([image]*3, axis=-1)
         else:
-            # Fallback if it doesn't match known patterns.
             raise ValueError(f'Unexpected shape for a grayscale image: {image.shape}')
 
     # If we're left with 3D, assume single-plane color => shape (H, W, C).
@@ -361,6 +379,7 @@ def _load_seg(parent, filename=None, image=None, image_file=None, channel_axis=N
         if found_image:
             try:
                 # image = imread(parent.filename)
+                print('reading here')
                 image, channel_axis, meta = read_image_with_channel_axis(filename)
 
             except:

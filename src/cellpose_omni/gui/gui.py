@@ -231,6 +231,7 @@ class MainW(QMainWindow):
         
 
 
+
     def toggleLinksDock(self):
         """
         Show/hide the dock, flip the arrow direction, and update the menu item check state.
@@ -249,8 +250,8 @@ class MainW(QMainWindow):
         self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, self.linksDock)
         self.resizeDocks([self.linksDock], [120], Qt.Horizontal)
         self.linksDock.hide()  # If we want it hidden at startup
-        
-
+    
+    
     def load_all_submodules(self):
         """
         Dynamically imports every .py module in submodules/ 
