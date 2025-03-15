@@ -14,23 +14,36 @@ import pyqtgraph as pg
 def color_choose(self):
     idx = self.RGBDropDown.currentIndex()
     preset = self.cmaps[idx]
+    
+    # Ensure consistent item state by saving/restoring on self.hist (the HistogramLUTItem)
+    # self.hist.restoreState(self.hist.saveState())
+    
+    # Load the preset on the histogram's gradient
     self.hist.gradient.loadPreset(preset)
-
+    
+    # If it's not the raw image view, apply alpha=0 to the first tick if in default_cmaps
     if self.view != 0 and preset in self.default_cmaps:
-        st = self.hist.gradient.saveState()
-        pos, color = st['ticks'][0]
+        st = self.hist.saveState()  # entire histogram LUT state
+        pos, color = st['gradient']['ticks'][0]
         color = list(color)
         color[3] = 0
-        st['ticks'][0] = [pos, tuple(color)]
-        self.hist.gradient.restoreState(st)
-
-    if not hasattr(self.hist.gradient, 'view_states'):
-        self.hist.gradient.view_states = {}
-
-    self.hist.gradient.view_states[self.view] = self.hist.gradient.saveState()
+        st['gradient']['ticks'][0] = [pos, tuple(color)]
+        self.hist.restoreState(st)
+    
+    # Store final histogram LUT state in self.hist.view_states
+    if not hasattr(self.hist, 'view_states'):
+        self.hist.view_states = {}
+    
+    st2 = self.hist.saveState()
+    if st2['gradient'].get('mode') == 'mono':
+        st2['gradient']['mode'] = 'rgb'
+    self.hist.view_states[self.view] = st2
+    
+    # Final styling
     self.set_hist_colors()
 
 def set_hist_colors(self):
+
     region = self.hist.region
     # c = self.palette().brush(QPalette.ColorRole.Text).color() # selects white or black from palette
     # selecting from the palette can be handy, but the corresponding colors in light and dark mode do not match up well
@@ -80,7 +93,7 @@ def set_hist_colors(self):
     self.hist.axis.style['tickAlpha'] = 0
     self.hist.axis.logMode = 1
     # self.hist.plot.opts['antialias'] = 1
-    self.hist.setLevels(min=0, max=255)
+    # self.hist.setLevels(min=0, max=255)
     
     # policy = QtWidgets.QSizePolicy()
     # policy.setRetainSizeWhenHidden(True)

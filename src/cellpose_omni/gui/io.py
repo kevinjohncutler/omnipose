@@ -501,6 +501,14 @@ def _load_seg(parent, filename=None, image=None, image_file=None, channel_axis=N
         # parent.initialize_model() 
     
     
+    #  reinit overlay item 
+    if hasattr(parent, 'pixelGridOverlay'):
+        logger.info(f'resetting pixel grid')
+        parent.pixelGridOverlay.reset()
+    else:
+        logger.info(f'no pixelGridOverlay to reset')
+        
+    
     parent.enable_buttons()
     parent.update_layer()
     logger.info('loaded segmentation, enabling buttons')

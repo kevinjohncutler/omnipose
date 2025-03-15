@@ -117,7 +117,7 @@ def make_buttons(self):
     
     self.view = 0 # 0=image, 1=flowsXY, 2=flowsZ, 3=cellprob
     self.color = 0 # 0=RGB, 1=gray, 2=R, 3=G, 4=B
-    self.RGBChoose = guiparts.RGBRadioButtons(self, row=b, col=0)
+    self.ViewChoose = guiparts.ViewRadioButtons(self, row=b, col=0)
 
     
     b+=5
@@ -495,7 +495,7 @@ def make_buttons(self):
 
     # OUTLINE TOGGLE
     b += 1
-    self.outlinesOn = False  # Turn off by default
+    self.outlinesOn = True  # Turn on by default
     self.OCheckBox = QCheckBox('outlines')
     self.OCheckBox.setToolTip('Press Z or O to toggle outlines')
     self.OCheckBox.setStyleSheet(self.checkstyle)

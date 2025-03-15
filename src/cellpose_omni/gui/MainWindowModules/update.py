@@ -35,12 +35,12 @@ def update_layer(self):
     logger.info(f'updating layer {self.loaded}')
     
         
-    # reinit overlay item 
-    if hasattr(self, 'pixelGridOverlay'):
-        logger.info(f'resetting pixel grid')
-        self.pixelGridOverlay.reset()
-    else:
-        logger.info(f'no pixelGridOverlay to reset')
+    # # reinit overlay item 
+    # if hasattr(self, 'pixelGridOverlay'):
+    #     logger.info(f'resetting pixel grid')
+    #     self.pixelGridOverlay.reset()
+    # else:
+    #     logger.info(f'no pixelGridOverlay to reset')
         
     self.draw_layer()
     self.update_roi_count()
@@ -69,7 +69,6 @@ def update_plot(self):
     else:
         self.scroll.show()
             
-        
     if self.view==0:
         # self.hist.restoreState(self.histmap_img)
         image = self.stack[self.currentZ]
@@ -98,45 +97,39 @@ def update_plot(self):
         else:
             # Otherwise, assume it's already 2D or something else.
             self.img.setImage(image, autoLevels=False)
-        
+    
+    elif self.view==4:
+        image = self.csum#.astype(np.float32)# will need to generalize to Z
     else:
         image = np.zeros((self.Ly,self.Lx), np.uint8)
-        if len(self.flows)>=self.view-1 and len(self.flows[self.view-1])>0:
+        if len(self.flows)>=self.view-2 and len(self.flows[self.view-1])>0:
             image = self.flows[self.view-1][self.currentZ]
     
             
-        # if self.view==2: # distance
-        #     # self.img.setImage(image,lut=pg.colormap.get('magma').getLookupTable(), levels=(0,255))
-        #     self.img.setImage(image,autoLevels=False)
-        # elif self.view==3: #boundary
-        #     self.img.setImage(image,sutoLevels=False)
-        # else:
-        #     self.img.setImage(image, autoLevels=False, lut=None)
-        # self.img.setLevels([0.0, 255.0])
-        # self.set_hist()
-    
-
-    self.img.setImage(image,autoLevels=False)
-    
-
-    # # Let users customize color maps and have them persist 
-    # state = self.states[self.view]
-    # if state is None: #should add a button to reset state to none and update plot
-    #     self.hist.gradient.loadPreset(self.cmaps[self.view]) # select from predefined list
-    # else:
-    #     self.hist.restoreState(state) #apply chosen color map
-    
-    # self.color_choose()
-    # self.set_hist_colors()
-    
+    # levels = (0, image.max())
+    # self.img.setImage(image, autoLevels=False)#, levels=levels)
+   
     self.hist.set_view(
         v=self.view,
         preset=self.cmaps[self.view],
         default_cmaps=self.default_cmaps
     )
     
+    # Or manually set the range to 0..8
+    # self.img.setImage(image, autoLevels=False, levels=levels)
+    self.img.setImage(image, autoLevels=False)
+    
     self.set_hist_colors()
-        
+    
+    # self.hist.autoHistogramRange()
+    # 3) Now read the user’s chosen region and “zoom” to it
+    # mn, mx = self.hist.region.getRegion()
+    # self.hist.vb.setRange(xRange=(mn, mx), padding=.05)
+
+    # # (Optional) If you want to prevent re‐auto‐ranging each time,
+    # # disable autoRange on the histogram’s viewbox:
+    # self.hist.vb.enableAutoRange(axis=pg.ViewBox.XAxis, enable=False)
+            
     # self.scale.setImage(self.radii, autoLevels=False)
     # self.scale.setLevels([0.0,255.0])
     #self.img.set_ColorMap(self.bwr)
@@ -175,7 +168,7 @@ def reset(self):
     self.color = 0
     self.RGBDropDown.setCurrentIndex(self.color)
     self.view = 0
-    self.RGBChoose.button(self.view).setChecked(True)
+    self.ViewChoose.button(self.view).setChecked(True)
     self.SCheckBox.setChecked(True)
     # self.SCheckBox.setEnabled(False)
     self.restore_masks = 0
@@ -222,7 +215,7 @@ def reset(self):
     self.links = None
     
     #should reset affinity graph here too 
-    self.initialize_seg()
+    self.initialize_seg(compute_affinity=True) # compute_affinity=True means reset affinity
 
     # self.recenter()
     

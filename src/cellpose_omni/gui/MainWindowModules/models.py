@@ -324,6 +324,8 @@ def run_mask_reconstruction(self):
             
             # update the full affinity graph - maybe easiest to use spatical affinity format?
             self.affinity_graph = core.spatial_affinity(affinity_graph, coords, self.shape)
+            self.csum = np.sum(self.affinity_graph,axis=0)            
+            
              
         else:
             self.bounds = bounds 
@@ -462,7 +464,7 @@ def compute_model(self):
     
     
     # repeated logic, factor out
-    self.initialize_seg(compute_affinity=True) # may not need to run agaain now
+    self.initialize_seg(compute_affinity=True) # may not need to run again now
     
     if self.AffinityCheck.isChecked():
         self.neighbors = augmented_affinity[:self.dim]
@@ -474,11 +476,11 @@ def compute_model(self):
         
         # update the full affinity graph - maybe easiest to use spatical affinity format?
         self.affinity_graph = core.spatial_affinity(affinity_graph, coords, self.shape)
-            
+        self.csum = np.sum(self.affinity_graph,axis=0)            
     else:
         self.bounds = bounds
         
-    print('updating affinity')
+    print('updating affinity', self.csum.max(), self.affinity_graph.shape)
     self.pixelGridOverlay.initialize_colors_from_affinity() 
         
 

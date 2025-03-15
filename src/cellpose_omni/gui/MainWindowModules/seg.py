@@ -46,7 +46,8 @@ def initialize_seg(self, compute_affinity=False):
             # self.affinity_graph[...,*coords] = affinity_graph
             self.affinity_graph[(Ellipsis,)+coords] = affinity_graph
             
-    
+    self.csum = np.sum(self.affinity_graph,axis=0)            
+
     
     logger.info(f'[initialize_seg] affinity graph {self.affinity_graph.shape} {self.affinity_graph.sum()}')
     
@@ -89,7 +90,6 @@ def toggle_ncolor(self):
         self.update_layer()
 
 def toggle_affinity_graph(self):
-    print('yoyo')
     if self.ACheckBox.isChecked():
         self.affinityOn = True
         self.affinityOverlay._generate_lines()
@@ -204,7 +204,6 @@ def draw_layer(self, region=None, z=None):
         else:
             # No masks -> alpha=0
             sub_layerz[..., 3] = 0
-
 
 
         # 2) Outlines

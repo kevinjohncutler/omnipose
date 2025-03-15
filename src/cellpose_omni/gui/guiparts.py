@@ -406,21 +406,21 @@ class TypeRadioButtons(QButtonGroup):
             if b==0:
                 button.setChecked(True)
             self.addButton(button, b)
-            button.toggled.connect(lambda: self.btnpress(parent))
+            button.toggled.connect(self.btnpress)
             self.parent.l0.addWidget(button, row+b,col,1,2)
         self.setExclusive(True)
         #self.buttons.
 
-    def btnpress(self, parent):
+    def btnpress(self):
         b = self.checkedId()
         self.parent.cell_type = b
 
-class RGBRadioButtons(QButtonGroup):
+class ViewRadioButtons(QButtonGroup):
     def __init__(self, parent=None, row=0, col=0):
-        super(RGBRadioButtons, self).__init__()
+        super(ViewRadioButtons, self).__init__()
         parent.color = 0
         self.parent = parent
-        self.bstr = ["image", "flow field", "distance field", "boundary logits"]
+        self.bstr = ["image", "flow field", "distance field", "boundary logits", "affinity sum"]
         #self.buttons = QButtonGroup()
         self.dropdown = []
         for b in range(len(self.bstr)):
@@ -430,16 +430,24 @@ class RGBRadioButtons(QButtonGroup):
             if b==0:
                 button.setChecked(True)
             self.addButton(button, b)
-            button.clicked.connect(lambda: self.btnpress(parent)) #"toggled" sends update twice
+            button.clicked.connect(self.btnpress) #"toggled" sends update twice
             self.parent.l0.addWidget(button, row+b,col,1,2)
         # self.setExclusive(True)
         #self.buttons.
 
-    def btnpress(self, parent):
+    def btnpress(self):
         b = self.checkedId()
         self.parent.view = b
+        
+        # set some defaults
+        # if b in (1,2,3,4):
+        isImg = b==0
+        self.parent.outlinesOn = isImg
+        self.parent.OCheckBox.setChecked(isImg)
+
+        
         if self.parent.loaded:
-            self.parent.update_layer()
+            # self.parent.update_layer()
             self.parent.update_plot()
 
 
@@ -1206,77 +1214,131 @@ class RangeSlider(QSlider):
 
 
 
-    
 class HistLUT(pg.HistogramLUTItem):
-    sigLookupTableChanged = QtCore.pyqtSignal(object)
-    sigLevelsChanged = QtCore.pyqtSignal(object)
-    sigLevelChangeFinished = QtCore.pyqtSignal(object)
+    # sigLookupTableChanged = QtCore.pyqtSignal(object)
+    # sigLevelsChanged = QtCore.pyqtSignal(object)
+    # sigLevelChangeFinished = QtCore.pyqtSignal(object)
 
     def __init__(self, image=None, fillHistogram=True, levelMode='mono',
                  gradientPosition='right', orientation='vertical'):
-        super().__init__(image=image,fillHistogram=fillHistogram,levelMode=levelMode,
-                         gradientPosition=gradientPosition,orientation=orientation)
-        
-        # self.gradient = GradientEditorItem(orientation=self.gradientPosition)
-        # self.gradient = GradEditor(orientation=self.gradientPosition) #overwrite with mine
-        
-        # Cache the original mouse event methods from the base class.
-        self._orig_mousePressEvent = pg.HistogramLUTItem.mousePressEvent
-        self._orig_mouseMoveEvent = pg.HistogramLUTItem.mouseMoveEvent
-        self._orig_mouseReleaseEvent = pg.HistogramLUTItem.mouseReleaseEvent
-        # You can also introduce a flag:
-        self.show_histogram = True
-        
-        self._view = 0
-        if not hasattr(self.gradient, 'view_states'):
-            self.gradient.view_states = {}
+        super().__init__(
+            image=image,
+            fillHistogram=fillHistogram,
+            levelMode=levelMode,
+            gradientPosition=gradientPosition,
+            orientation=orientation
+        )
+        self._orig_mousePressEvent = super().mousePressEvent
+        self._orig_mouseMoveEvent = super().mouseMoveEvent
+        self._orig_mouseReleaseEvent = super().mouseReleaseEvent
 
-        # Connect changes so I store the new gradient state whenever a user moves ticks, etc.
+        self.imageitem = image
+        self._view = 0
+        # Make sure there's a place to store full item states for each view.
+        if not hasattr(self, 'view_states'):
+            self.view_states = {}
+
+        # Connect signals for color stops...
         if hasattr(self.gradient, 'sigGradientChanged'):
             self.gradient.sigGradientChanged.connect(self._on_gradient_changed)
         elif hasattr(self.gradient, 'sigGradientChangeFinished'):
             self.gradient.sigGradientChangeFinished.connect(self._on_gradient_changed)
-    
+
+        # ...and region/levels so we capture user changes to min/max handles.
+        self.region.sigRegionChanged.connect(self._on_region_changed)
+        self.region.sigRegionChangeFinished.connect(self._on_region_changed)
+
     def set_view(self, v, preset=None, default_cmaps=None):
         self._view = v
-        st = self.gradient.view_states.get(v, None)
+        st = self.view_states.get(v)  # This is the *full item* state, not just gradient.
+
         if st is not None:
-            self.gradient.restoreState(st)
+            self.restoreState(st)  # calls HistogramLUTItem.restoreState(st)
         else:
+            print('loading preset')
+            self.autoRange()
+
+            # No stored state for this view => optionally load a preset
             if preset is not None:
                 self.gradient.loadPreset(preset)
                 if v != 0 and default_cmaps and (preset in default_cmaps):
-                    s2 = self.gradient.saveState()
-                    pos, color = s2['ticks'][0]
-                    color = list(color)
-                    color[3] = 0
-                    s2['ticks'][0] = [pos, tuple(color)]
-                    self.gradient.restoreState(s2)
-                self.gradient.view_states[v] = self.gradient.saveState()
+                    # If we want alpha=0 on the first tick for non-zero views:
+                    st2 = self.gradient.saveState()  # Just the gradient sub-dict
+                    if 'ticks' in st2:
+                        pos, color = st2['ticks'][0]
+                        color = list(color)
+                        color[3] = 0
+                        st2['ticks'][0] = [pos, tuple(color)]
+                    # Re‐apply that sub‐dict to the item’s gradient
+                    self.gradient.restoreState(st2)
+
+            # Then store the entire item’s state now that it’s configured
+            self._store_current_state()
 
     def _on_gradient_changed(self):
-        if not hasattr(self.gradient, 'view_states'):
-            self.gradient.view_states = {}
-        self.gradient.view_states[self._view] = self.gradient.saveState()
+        # Called when the user moves color stops in the gradient
+        self._store_current_state()
+
+    def _on_region_changed(self):
+        # Called when the user adjusts the min/max region handles
+        self._store_current_state()
+
+    def _store_current_state(self):
+        # Make sure we have a dict for saving full states
+        if not hasattr(self, 'view_states'):
+            self.view_states = {}
+
+        # Save the entire item state, e.g. { 'levels': [...], 'gradient': {...}, ... }
+        st = self.saveState()
+        self.view_states[self._view] = st
 
     def mousePressEvent(self, event):
         if not self.show_histogram:
             event.accept()  # Block interaction
         else:
             # Call the cached base-class handler explicitly.
-            self._orig_mousePressEvent(self, event)
+            self._orig_mousePressEvent(event)
 
     def mouseMoveEvent(self, event):
         if not self.show_histogram:
             event.accept()
         else:
-            self._orig_mouseMoveEvent(self, event)
+            self._orig_mouseMoveEvent(event)
 
     def mouseReleaseEvent(self, event):
         if not self.show_histogram:
             event.accept()
         else:
-            self._orig_mouseReleaseEvent(self, event)
+            self._orig_mouseReleaseEvent(event)
+
+    def mouseDoubleClickEvent(self, event):
+        # Make sure the region is visible
+        self.region.setVisible(True)
+
+        # Actually auto‐range the region
+        self.autoHistogramRange()
+
+        # If you want to be certain, also manually set the region to the new min/max
+        # mn, mx = self.getHistogramRange()
+        # self.region.setRegion((mn, mx))
+        # self.vb.setRange(xRange=(mn, mx), padding=.05) # this scales the view to fill, not the actual range itself
+
+        self.autoRange()
+        # Force a redraw
+        self.update()
+        self._store_current_state()
+
+        # If base class has no doubleClickEvent, you can omit this next call.
+        # If you do want to pass it on, call it by class name:
+        pg.HistogramLUTItem.mouseDoubleClickEvent(self, event)
+    
+    def autoRange(self):
+        data = self.imageitem.image
+        if data is not None and data.size > 0:
+            min_val, max_val = float(data.min()), float(data.max())
+            self.setLevels(min_val, max_val)          # sets internal LUT mapping
+            self.region.setRegion((min_val, max_val)) # sets the slider region
+
 
     def paint(self, p, *args):
         # paint the bounding edges of the region item and gradient item with lines
