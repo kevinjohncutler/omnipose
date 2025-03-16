@@ -192,14 +192,15 @@ class LinksDock(QDockWidget):
 
     def getLinks(self):
         return self._links
-        
-class NoMouseFilter(QObject):
-    def eventFilter(self, obj, event):
-        if event.type() in (QEvent.Type.GraphicsSceneMousePress,
-                            QEvent.Type.GraphicsSceneMouseMove,
-                            QEvent.Type.GraphicsSceneMouseRelease):
-            return True  # Consume the event.
-        return super().eventFilter(obj, event)
+ 
+# not used?       
+# class NoMouseFilter(QObject):
+#     def eventFilter(self, obj, event):
+#         if event.type() in (QEvent.Type.GraphicsSceneMousePress,
+#                             QEvent.Type.GraphicsSceneMouseMove,
+#                             QEvent.Type.GraphicsSceneMouseRelease):
+#             return True  # Consume the event.
+#         return super().eventFilter(obj, event)
 
 class TextField(QPlainTextEdit):
     clicked= QtCore.pyqtSignal()
@@ -1328,9 +1329,11 @@ class HistLUT(pg.HistogramLUTItem):
         self.update()
         self._store_current_state()
 
-        # If base class has no doubleClickEvent, you can omit this next call.
-        # If you do want to pass it on, call it by class name:
-        pg.HistogramLUTItem.mouseDoubleClickEvent(self, event)
+        # Do NOT call the parent double-click handler:
+        # pg.HistogramLUTItem.mouseDoubleClickEvent(self, event)
+
+        # Accept the event to prevent it from bubbling up
+        event.accept()
     
     def autoRange(self):
         data = self.imageitem.image

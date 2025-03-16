@@ -2,7 +2,7 @@ from .. import logger # from __init__.py in parent directory
 from omnipose.utils import normalize99
 import numpy as np
 
-from PyQt6.QtGui import QPalette
+from PyQt6.QtGui import QPalette, QCursor
 from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import QGraphicsItem
 from PyQt6 import QtCore
@@ -29,23 +29,24 @@ def update_shape(self):
     self.shape = (self.Ly, self.Lx)
     # self.pixelGridOverlay.update_size(self.Lx, self.Ly)
     
-    
-    
 def update_layer(self):
     logger.info(f'updating layer {self.loaded}')
-    
-        
-    # # reinit overlay item 
-    # if hasattr(self, 'pixelGridOverlay'):
-    #     logger.info(f'resetting pixel grid')
-    #     self.pixelGridOverlay.reset()
-    # else:
-    #     logger.info(f'no pixelGridOverlay to reset')
-        
     self.draw_layer()
     self.update_roi_count()
     self.win.show()
     self.show()
+    
+def update_layer_and_graph(self):
+    self.update_layer()
+    # reinit overlay item 
+    # torn on whether to just include this in update_layer
+    # it's not limiting performance to have it there, but usually not necessary 
+    if hasattr(self, 'pixelGridOverlay'):
+        logger.info(f'resetting pixel grid')
+        self.pixelGridOverlay.reset()
+    else:
+        logger.info(f'no pixelGridOverlay to reset')
+        
 
 def draw_change(self):
     if not self.SCheckBox.isChecked():
@@ -76,7 +77,7 @@ def update_plot(self):
             # show single channel
             image = self.stack[self.currentZ,:,:,0]
         
-        vals = self.slider.value()
+        vals = self.contrast_slider.value()
         image = normalize99(image,lower=vals[0],upper=vals[1])**self.gamma 
         # maybe should not directly modify image? Use viewer isntead?
         
@@ -136,13 +137,12 @@ def update_plot(self):
     if self.NZ>1 and self.orthobtn.isChecked():
         self.update_ortho()
     
-    # self.slider.setLow(self.saturation[self.currentZ][0])
-    # self.slider.setHigh(self.saturation[self.currentZ][1])
+    # self.contrast_slider.setLow(self.saturation[self.currentZ][0])
+    # self.contrast_slider.setHigh(self.saturation[self.currentZ][1])
     # if self.masksOn or self.outlinesOn:
     #     self.layer.setImage(self.layerz[self.currentZ], autoLevels=False) #<<< something to do with it 
     self.win.show()
     self.show()
-
 
 def reset(self):
     logger.info(f'mainwindow reset() called')
@@ -195,9 +195,9 @@ def reset(self):
     
     self.saturation = [[0,255] for n in range(self.NZ)]
     self.gamma = 1
-    self.slider.setMinimum(0)
-    self.slider.setMaximum(100)
-    self.slider.show()
+    self.contrast_slider.setMinimum(0)
+    self.contrast_slider.setMaximum(100)
+    self.contrast_slider.show()
     self.currentZ = 0
     self.flows = [[],[],[],[],[[]]]
     
@@ -219,12 +219,12 @@ def reset(self):
 
     # self.recenter()
     
-    # # reinit overlay item 
-    # if hasattr(self, 'pixelGridOverlay'):
-    #     logger.info(f'resetting pixel grid')
-    #     self.pixelGridOverlay.reset()
-    # else:
-    #     logger.info(f'no pixelGridOverlay to reset')
+    # reinit overlay item 
+    if hasattr(self, 'pixelGridOverlay'):
+        logger.info(f'resetting pixel grid')
+        self.pixelGridOverlay.reset()
+    else:
+        logger.info(f'no pixelGridOverlay to reset')
         
     
     self.ismanual = np.zeros(0, 'bool')
@@ -235,4 +235,23 @@ def reset(self):
     self.filename = []
     self.loaded = False
     self.recompute_masks = False
-    
+
+def eventFilter(self, obj, event):
+    # Filter events only for the viewport, ignoring sliders/other widgets.
+    if obj != self.win.viewport():
+        return False
+
+    # Print debug info if needed.
+    # print('eventFilter', obj, event.type())
+
+    if event.type() == QtCore.QEvent.Type.Leave:
+        self.highlight_rect.hide()
+        return True
+
+    elif event.type() == QtCore.QEvent.Type.MouseMove:
+        widget_pos = self.win.viewport().mapFromGlobal(QCursor.pos())
+        if not self.win.viewport().rect().contains(widget_pos):
+            self.highlight_rect.hide()
+            return True
+
+    return False

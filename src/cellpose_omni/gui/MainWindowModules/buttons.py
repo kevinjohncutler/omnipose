@@ -283,23 +283,22 @@ def make_buttons(self):
     # IMAGE RESCALING slider
     b-=1
     c = 1
-    self.slider = superqt.QLabeledDoubleRangeSlider(QtCore.Qt.Orientation.Horizontal)
-    self.slider.setDecimals(2) 
-    # self.slider.label_shift_x = -10
+    self.contrast_slider = superqt.QLabeledDoubleRangeSlider(QtCore.Qt.Orientation.Horizontal)
+    self.contrast_slider.setDecimals(2) 
+    # self.contrast_slider.label_shift_x = -10
     
-    self.slider.setHandleLabelPosition(superqt.QLabeledRangeSlider.LabelPosition.NoLabel)
-    self.slider.setEdgeLabelMode(superqt.QLabeledRangeSlider.EdgeLabelMode.LabelIsValue)
-    self.slider.valueChanged.connect(lambda: self.level_change())
+    self.contrast_slider.setHandleLabelPosition(superqt.QLabeledRangeSlider.LabelPosition.NoLabel)
+    self.contrast_slider.setEdgeLabelMode(superqt.QLabeledRangeSlider.EdgeLabelMode.LabelIsValue)
+    self.contrast_slider.valueChanged.connect(lambda: self.level_change())
 
-    # self.slider.setStyleSheet(guiparts.horizontal_slider_style())
 
     # CONSTRAST SLIDER
-    self.slider.setMinimum(0.0)
-    self.slider.setMaximum(100.0)
-    self.slider.setValue((0.1,99.9))  
-    self.slider._max_label.setFont(self.medfont)
-    self.slider._min_label.setFont(self.medfont)
-    self.l0.addWidget(self.slider, b,c+1,1,TOOLBAR_WIDTH-(c+1))
+    self.contrast_slider.setMinimum(0.0)
+    self.contrast_slider.setMaximum(100.0)
+    self.contrast_slider.setValue((0.1,99.9))  
+    self.contrast_slider._max_label.setFont(self.medfont)
+    self.contrast_slider._min_label.setFont(self.medfont)
+    self.l0.addWidget(self.contrast_slider, b,c+1,1,TOOLBAR_WIDTH-(c+1))
 
     
     icon = qta.icon("ph.scissors-fill", color="#888888")  # Use scissors icon with color
@@ -343,12 +342,7 @@ def make_buttons(self):
     
     self.gamma = 1.0
     self.gamma_slider = superqt.QLabeledDoubleSlider(QtCore.Qt.Orientation.Horizontal)
-    # self.gamma_slider.setHandleLabelPosition(superqt.QLabeledSlider.LabelPosition.NoLabel)
-    # self.gamma_slider.setEdgeLabelMode(superqt.QLabeledSlider.EdgeLabelMode.LabelIsValue)
     self.gamma_slider.valueChanged.connect(lambda: self.gamma_change())
-
-    # self.gamma_slider.setStyleSheet(guiparts.horizontal_slider_style())
-    
     self.gamma_slider.setMinimum(0)
     self.gamma_slider.setMaximum(2)
     self.gamma_slider.setValue(self.gamma) 

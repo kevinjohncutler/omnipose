@@ -65,12 +65,6 @@ def read_image_with_channel_axis(filename):
         # If neither 'axes' nor 'mode' is provided, we return None.
         channel_axis = None
     
-    if channel_axis is None:
-        print('\n')
-        print(meta)
-        print('\n')
-        
-    
     return img, channel_axis, meta
 
 def _init_model_list(parent):
@@ -170,12 +164,15 @@ def _load_image(parent, filename=None, load_seg=True):
             parent, "Load image"
             )
         filename = name[0]
+    
+    if hasattr(parent, 'hist'):
+        parent.hist.view_states = {}
         
     # from here, we now will just be loading an image and a mask image file format, not npy 
     try:
-        logger.info(f'[_laod image] loading image: {filename}')
+        logger.info(f'[_load image] loading image: {filename}')
         image, channel_axis, meta = read_image_with_channel_axis(filename)
-        logger.info(f'[_laod image] image shape: {image.shape}, channel_axis: {channel_axis}')
+        logger.info(f'[_load image] image shape: {image.shape}, channel_axis: {channel_axis}')
 
         # transform image to CYX
         # if image.ndim ==3 and image.shape[-1] == 3:
@@ -509,6 +506,15 @@ def _load_seg(parent, filename=None, image=None, image_file=None, channel_axis=N
         logger.info(f'no pixelGridOverlay to reset')
         
     
+    if 'hist_states' in dat:
+        parent.hist.view_states = dat['hist_states']
+        logger.info(f'Loaded histogram states from {filename}')
+    else:
+        parent.hist.view_states = {}
+        logger.info('No histogram states found in seg file; resetting.')
+
+    
+    
     parent.enable_buttons()
     parent.update_layer()
     logger.info('loaded segmentation, enabling buttons')
@@ -677,30 +683,17 @@ def _save_outlines(parent):
 #     logger.info('%d RoIs saved to %s'%(parent.ncells, base + '_seg.npy'))
 
 def _save_sets(parent):
-    """
-    Save segmentation information but exclude the raw/normalized image data.
-    """
     filename = parent.filename
     base = os.path.splitext(filename)[0]
     flow_threshold, cellprob_threshold = parent.get_thresholds()
-    
-    print(f'\n saving {parent.dim} {parent.affinity_graph.sum()}')
 
     seg_dict = {
         'filename': parent.filename,
-        # 'mask_stack': parent.mask_stack,             
-        # 'outl_stack': parent.outl_stack,     
-        'masks': parent.mask_stack.squeeze(),             
-        'bounds': parent.outl_stack.squeeze(),     
+        'masks': parent.mask_stack.squeeze(),
+        'bounds': parent.outl_stack.squeeze(),
         'affinity_graph': parent.affinity_graph,
-               
-        'colors': parent.cellcolors[1:],      # skip the dummy color index=0
+        'colors': parent.cellcolors[1:], # skip the dummy color index=0
         'flows': parent.flows,
-        # 'coords': parent.coords,
-        # 'steps': parent.steps,
-        # 'non_self': parent.non_self,
-        # 'inds': parent.inds,
-        # 'dim': parent.dim,
         'saturation': parent.saturation,
         'ismanual': parent.ismanual,
         'manual_changes': parent.track_changes,
@@ -715,6 +708,10 @@ def _save_sets(parent):
         ],
     }
 
+    # 1) If your histogram has a dict of states, store it
+    #    So each image's LUT config is saved uniquely
+    if hasattr(parent.hist, 'view_states'):
+        seg_dict['hist_states'] = parent.hist.view_states
+
     np.save(base + '_seg.npy', seg_dict, allow_pickle=True)
     logger.info(f'{parent.ncells} RoIs + data saved to {base}_seg.npy')
-    

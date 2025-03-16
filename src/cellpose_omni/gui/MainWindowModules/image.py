@@ -6,6 +6,7 @@ from PyQt6.QtWidgets import QGraphicsPathItem
 from PyQt6 import QtGui, QtCore, QtWidgets
 
 from .. import guiparts
+from .. import logger
 
 import numpy as np
 
@@ -29,7 +30,7 @@ def update_ztext(self):
 
 def level_change(self):
     if self.loaded:
-        vals = self.slider.value()
+        vals = self.contrast_slider.value()
         self.ops_plot = {'saturation': vals}
         self.saturation[self.currentZ] = vals
         self.update_plot()
@@ -51,8 +52,6 @@ def gamma_change(self):
     # self.highlight_rect = pg.QtWidgets.QGraphicsRectItem()
     # self.highlight_rect.setPen(pg.mkPen(color='red', width=1))
     # self.highlight_rect.setBrush(pg.mkBrush(color=(255, 0, 0, 50)))  # Semi-transparent fill 
-
-
 
 def make_viewbox(self):
     self.viewbox = ViewBox(
@@ -85,14 +84,13 @@ def make_viewbox(self):
 
     # Connect mouse movement signal
     self.viewbox.scene().sigMouseMoved.connect(self.update_highlight)
-    
 
 def compute_saturation(self):
     # compute percentiles from stack
     self.saturation = []
     for n in range(len(self.stack)):
         # reverted for cellular images, maybe there can be an option?
-        vals = self.slider.value()
+        vals = self.contrast_slider.value()
 
         self.saturation.append([np.percentile(self.stack[n].astype(np.float32),vals[0]),
                                 np.percentile(self.stack[n].astype(np.float32),vals[1])])
@@ -115,3 +113,23 @@ def recenter(self):
     self.quadbtns.setExclusive(True)
     
     print('recentering')
+
+def eventFilter(self, obj, event):
+    # Filter events only for the viewport, ignoring sliders/other widgets.
+    if obj != self.win.viewport():
+        return False
+
+    # Print debug info if needed.
+    # print('eventFilter', obj, event.type())
+
+    if event.type() == QtCore.QEvent.Type.Leave:
+        self.highlight_rect.hide()
+        return True
+
+    elif event.type() == QtCore.QEvent.Type.MouseMove:
+        widget_pos = self.win.viewport().mapFromGlobal(QCursor.pos())
+        if not self.win.viewport().rect().contains(widget_pos):
+            self.highlight_rect.hide()
+            return True
+
+    return False

@@ -98,7 +98,7 @@ def run(image=PRELOAD_IMAGE):
     end_time = time.time()  # Record end time
     print(f"Total Time: {end_time - start_time:.4f} seconds")
 
-
+    app.installEventFilter(win)
     ret = app.exec()
     sys.exit(ret)
     
@@ -222,6 +222,7 @@ class MainW(QMainWindow):
         self.linksEditorAction.triggered.connect(self.toggleLinksDock)
 
 
+        
         self.setAcceptDrops(True)
         self.win.show()
         self.show()
@@ -229,7 +230,6 @@ class MainW(QMainWindow):
         end_time = time.time()  # Record end time
         print(f"Init Time: {end_time - start_time:.4f} seconds")
         
-
 
 
     def toggleLinksDock(self):

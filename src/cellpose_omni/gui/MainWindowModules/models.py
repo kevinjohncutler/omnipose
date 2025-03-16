@@ -349,7 +349,7 @@ def run_mask_reconstruction(self):
     # profiler.stop()
     # print(profiler.output_text(unicode=True, color=True))
         
-@timeit
+# @timeit
 def compute_model(self):
     # self.progress.setValue(10)
     # QApplication.processEvents() 
@@ -482,6 +482,7 @@ def compute_model(self):
         
     print('updating affinity', self.csum.max(), self.affinity_graph.shape)
     self.pixelGridOverlay.initialize_colors_from_affinity() 
+    # self.pixelGridOverlay.reset() 
         
 
     if not do_3D:
