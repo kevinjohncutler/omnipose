@@ -18,9 +18,17 @@ import numpy as np
 if not hasattr(np, 'ulong'):
     np.ulong = np.uint64
 
-import pkg_resources
 __all__ = ['core', 'utils', 'loss', 'plot', 'misc', 'cli', 'data', 'gpu', 'stacks', 'measure']
-__version__ = pkg_resources.get_distribution("omnipose").version
+
+import pkg_resources
+
+try:
+    __version__ = pkg_resources.get_distribution("omnipose").version
+except pkg_resources.DistributionNotFound:
+    # Fallback for when the distribution is not installed yet
+    __version__ = "0.0.0"
+    
+    
 def __getattr__(name):
     if name in __all__:
         import importlib

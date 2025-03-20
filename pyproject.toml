@@ -17,5 +17,5 @@ dynamic = ["version",
 # entry point for CLI 
 omnipose = "omnipose.__main__:main"
 
-[tool.setuptools_scm]
-write_to = "src/omnipose/_version.py"
+# [tool.setuptools_scm]
+# write_to = "src/omnipose/_version.py"
