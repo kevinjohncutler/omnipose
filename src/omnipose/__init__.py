@@ -20,11 +20,11 @@ if not hasattr(np, 'ulong'):
 
 __all__ = ['core', 'utils', 'loss', 'plot', 'misc', 'cli', 'data', 'gpu', 'stacks', 'measure']
 
-import pkg_resources
+from importlib.metadata import version, PackageNotFoundError
 
 try:
-    __version__ = pkg_resources.get_distribution("omnipose").version
-except pkg_resources.DistributionNotFound:
+    __version__ = version("omnipose")
+except PackageNotFoundError:
     # Fallback for when the distribution is not installed yet
     __version__ = "0.0.0"
     
