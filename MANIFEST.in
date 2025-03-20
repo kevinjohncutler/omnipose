@@ -1,10 +1,8 @@
 include README.rst
 include LICENSE
 include dependencies.py
-recursive-include omnipose/cellpose_omni *
-prune scripts
-prune docs
-graft docs/test_files
-prune plugins
+recursive-include src *
+include docs/requirements.txt
+recursive-include docs/test_files *
 
 
