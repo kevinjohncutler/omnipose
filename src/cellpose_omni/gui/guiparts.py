@@ -1214,7 +1214,7 @@ class RangeSlider(QSlider):
                                              opt.upsideDown)
 
 
-
+    
 class HistLUT(pg.HistogramLUTItem):
     # sigLookupTableChanged = QtCore.pyqtSignal(object)
     # sigLevelsChanged = QtCore.pyqtSignal(object)
@@ -1251,30 +1251,151 @@ class HistLUT(pg.HistogramLUTItem):
 
     def set_view(self, v, preset=None, default_cmaps=None):
         self._view = v
-        st = self.view_states.get(v)  # This is the *full item* state, not just gradient.
+        state = self.view_states.get(v)  # This is the *full item* state, not just gradient.
 
-        if st is not None:
-            self.restoreState(st)  # calls HistogramLUTItem.restoreState(st)
+
+            
+        if state is not None:
+            self.restoreState(state)  # calls HistogramLUTItem.restoreState(state)
         else:
-            print('loading preset')
             self.autoRange()
 
             # No stored state for this view => optionally load a preset
             if preset is not None:
                 self.gradient.loadPreset(preset)
+                
                 if v != 0 and default_cmaps and (preset in default_cmaps):
                     # If we want alpha=0 on the first tick for non-zero views:
-                    st2 = self.gradient.saveState()  # Just the gradient sub-dict
-                    if 'ticks' in st2:
-                        pos, color = st2['ticks'][0]
+                    state = self.gradient.saveState()  # Just the gradient sub-dict
+                    if 'ticks' in state:
+                        pos, color = state['ticks'][0]
                         color = list(color)
                         color[3] = 0
-                        st2['ticks'][0] = [pos, tuple(color)]
+                        state['ticks'][0] = [pos, tuple(color)]
                     # Re‐apply that sub‐dict to the item’s gradient
-                    self.gradient.restoreState(st2)
+                    self.gradient.restoreState(state)
 
             # Then store the entire item’s state now that it’s configured
             self._store_current_state()
+
+    def setDiscreteMode(self, discrete: bool, n_bands: int = 5):
+        """
+        Toggle the gradient's mode between discrete and continuous.
+        When discrete is True, override the gradient's paint method with a custom
+        _discrete_gradient_paint method that draws discrete color blocks.
+        Also disable any caching and hide gradRect so that only the discrete drawing is visible.
+        When False, restore the original paint method and show gradRect.
+        """
+        self.discrete_mode = discrete
+        if discrete:
+            # Force the gradient to RGB mode.
+            st = self.gradient.saveState()
+            if st.get('mode', '').lower() == 'hsv':
+                st['mode'] = 'rgb'
+                self.gradient.restoreState(st)
+            # Save original paint method if not already saved.
+            if not hasattr(self.gradient, '_original_paint'):
+                self.gradient._original_paint = self.gradient.paint
+            # Store the number of discrete bands.
+            self.gradient._discrete_n_bands = n_bands
+            # Set a pointer to the parent HistLUT instance.
+            self.gradient._parent_histlut = self
+            # Override the paint method with our custom discrete painter.
+            self.gradient.paint = self._discrete_gradient_paint.__get__(self.gradient, type(self.gradient))
+            # Hide the continuous gradient: disable gradRect painting and caching.
+            self.gradient.gradRect.hide()
+            self.gradient.setCacheMode(QGraphicsItem.CacheMode.NoCache)
+            self.gradient.gradRect.setCacheMode(QGraphicsItem.CacheMode.NoCache)
+            self.gradient.gradRect.setFlag(QGraphicsItem.GraphicsItemFlag.ItemHasNoContents, True)
+
+            self.gradient.update()
+        else:
+            if hasattr(self.gradient, '_original_paint'):
+                self.gradient.paint = self.gradient._original_paint
+            self.gradient.gradRect.show()
+            self.gradient.gradRect.setFlag(QGraphicsItem.GraphicsItemFlag.ItemHasNoContents, False)
+
+            self.gradient.update()
+        
+
+    def _discrete_gradient_paint(self, painter, opt, widget=None):
+        """
+        Custom paint method for a gradient item that draws discrete color bands
+        without gaps between them. Each band is drawn as a solid rectangle using
+        integer boundaries computed to exactly fill the drawing area, with a 1-pixel overlap
+        between adjacent bands to cover any rounding gaps.
+        """
+        painter.save()
+        painter.setRenderHint(QtGui.QPainter.RenderHint.Antialiasing, False)
+        painter.setRenderHint(QtGui.QPainter.RenderHint.SmoothPixmapTransform, False)
+        painter.setCompositionMode(QtGui.QPainter.CompositionMode_Source)
+        # painter.setPen(Qt.NoPen)
+        
+        # Get the drawing rectangle from gradRect as an integer QRect.
+        rect = self.gradRect.rect().toRect()
+        nBands = getattr(self, '_discrete_n_bands', 5)
+        
+        if rect.width() >= rect.height():
+            # Horizontal orientation: divide width exactly among bands.
+            total_width = rect.width()
+            base_width = total_width // nBands
+            remainder = total_width % nBands
+            x = rect.left()
+            for i in range(nBands):
+                extra = 1 if i < remainder else 0
+                w = base_width + extra
+                # For all bands except the last, add 1 pixel to the right boundary to force overlap.
+                if i < nBands - 1:
+                    bandRect = QtCore.QRect(x, rect.top(), w + 1, rect.height())
+                else:
+                    bandRect = QtCore.QRect(x, rect.top(), w, rect.height())
+                frac = (i + 0.5) / nBands
+                qcol = self._parent_histlut._sample_colormap(frac)
+                painter.setBrush(QtGui.QBrush(qcol, Qt.BrushStyle.SolidPattern))
+                painter.drawRect(bandRect)
+                x += w
+        else:
+            # Vertical orientation: divide height exactly among bands.
+            total_height = rect.height()
+            base_height = total_height // nBands
+            remainder = total_height % nBands
+            y = rect.top()
+            for i in range(nBands):
+                extra = 1 if i < remainder else 0
+                h = base_height + extra
+                if i < nBands - 1:
+                    bandRect = QtCore.QRect(rect.left(), y, rect.width(), h + 1)
+                else:
+                    bandRect = QtCore.QRect(rect.left(), y, rect.width(), h)
+                frac = (i + 0.5) / nBands
+                qcol = self._parent_histlut._sample_colormap(frac)
+                painter.setBrush(QtGui.QBrush(qcol, Qt.BrushStyle.SolidPattern))
+                painter.drawRect(bandRect)
+                y += h
+        
+        painter.restore()
+            
+    def _sample_colormap(self, fraction: float) -> QtGui.QColor:
+        """
+        Sample the current colormap at the given fraction (0 to 1) and return a fully opaque QColor.
+        Instead of using .map(), this uses the lookup table directly.
+        """
+        # Force the gradient into RGB mode every time.
+        st = self.gradient.saveState()
+        if st.get('mode', '').lower() == 'hsv':
+            st['mode'] = 'rgb'
+            self.gradient.restoreState(st)
+        
+        lut = self.gradient.colorMap().getLookupTable(nPts=256)
+        idx = int(round(fraction * 255))
+        idx = max(0, min(idx, 255))
+        entry = lut[idx]
+        if len(entry) == 3:
+            r, g, b = entry
+            a = 255
+        else:
+            r, g, b, a = entry
+        return QtGui.QColor(r, g, b, 255)
 
     def _on_gradient_changed(self):
         # Called when the user moves color stops in the gradient
@@ -1290,8 +1411,8 @@ class HistLUT(pg.HistogramLUTItem):
             self.view_states = {}
 
         # Save the entire item state, e.g. { 'levels': [...], 'gradient': {...}, ... }
-        st = self.saveState()
-        self.view_states[self._view] = st
+        state = self.saveState()
+        self.view_states[self._view] = state
 
     def mousePressEvent(self, event):
         if not self.show_histogram:
@@ -1319,11 +1440,6 @@ class HistLUT(pg.HistogramLUTItem):
         # Actually auto‐range the region
         self.autoHistogramRange()
 
-        # If you want to be certain, also manually set the region to the new min/max
-        # mn, mx = self.getHistogramRange()
-        # self.region.setRegion((mn, mx))
-        # self.vb.setRange(xRange=(mn, mx), padding=.05) # this scales the view to fill, not the actual range itself
-
         self.autoRange()
         # Force a redraw
         self.update()
@@ -1343,86 +1459,56 @@ class HistLUT(pg.HistogramLUTItem):
             self.region.setRegion((min_val, max_val)) # sets the slider region
 
 
-    def paint(self, p, *args):
-        # paint the bounding edges of the region item and gradient item with lines
-        # connecting them
-        if self.levelMode != 'mono' or not self.region.isVisible():
-            return
+    # def paint(self, p, *args):
+    #     # paint the bounding edges of the region item and gradient item with lines
+    #     # connecting them
+    #     if self.levelMode != 'mono' or not self.region.isVisible():
+    #         return
+    #     print('ddd')
+    #     pen = self.region.lines[0].pen
 
-        pen = self.region.lines[0].pen
+    #     mn, mx = self.getLevels()
+    #     vbc = self.vb.viewRect().center()
+    #     gradRect = self.gradient.mapRectToParent(self.gradient.gradRect.rect())
+    #     if self.orientation == 'vertical':
+    #         p1mn = self.vb.mapFromViewToItem(self, Point(vbc.x(), mn)) + Point(0, 5)
+    #         p1mx = self.vb.mapFromViewToItem(self, Point(vbc.x(), mx)) - Point(0, 5)
+    #         if self.gradientPosition == 'right':
+    #             p2mn = gradRect.bottomLeft()
+    #             p2mx = gradRect.topLeft()
+    #         else:
+    #             p2mn = gradRect.bottomRight()
+    #             p2mx = gradRect.topRight()
+    #     else:
+    #         p1mn = self.vb.mapFromViewToItem(self, Point(mn, vbc.y())) - Point(5, 0)
+    #         p1mx = self.vb.mapFromViewToItem(self, Point(mx, vbc.y())) + Point(5, 0)
+    #         if self.gradientPosition == 'bottom':
+    #             p2mn = gradRect.topLeft()
+    #             p2mx = gradRect.topRight()
+    #         else:
+    #             p2mn = gradRect.bottomLeft()
+    #             p2mx = gradRect.bottomRight()
 
-        mn, mx = self.getLevels()
-        vbc = self.vb.viewRect().center()
-        gradRect = self.gradient.mapRectToParent(self.gradient.gradRect.rect())
-        if self.orientation == 'vertical':
-            p1mn = self.vb.mapFromViewToItem(self, Point(vbc.x(), mn)) + Point(0, 5)
-            p1mx = self.vb.mapFromViewToItem(self, Point(vbc.x(), mx)) - Point(0, 5)
-            if self.gradientPosition == 'right':
-                p2mn = gradRect.bottomLeft()
-                p2mx = gradRect.topLeft()
-            else:
-                p2mn = gradRect.bottomRight()
-                p2mx = gradRect.topRight()
-        else:
-            p1mn = self.vb.mapFromViewToItem(self, Point(mn, vbc.y())) - Point(5, 0)
-            p1mx = self.vb.mapFromViewToItem(self, Point(mx, vbc.y())) + Point(5, 0)
-            if self.gradientPosition == 'bottom':
-                p2mn = gradRect.topLeft()
-                p2mx = gradRect.topRight()
-            else:
-                p2mn = gradRect.bottomLeft()
-                p2mx = gradRect.bottomRight()
+    #     p.setRenderHint(QtGui.QPainter.RenderHint.Antialiasing)
+        
+    #     for pen in [pen]: #get rid of first entry, shadow of some sort
+    #         p.setPen(pen)
 
-        p.setRenderHint(QtGui.QPainter.RenderHint.Antialiasing)
-        for pen in [pen]: #get rid of first entry, shadow of some sort
-            p.setPen(pen)
+    #         # lines from the linear region item bounds to the gradient item bounds
+    #         p.drawLine(p1mn, p2mn)
+    #         p.drawLine(p1mx, p2mx)
 
-            # lines from the linear region item bounds to the gradient item bounds
-            p.drawLine(p1mn, p2mn)
-            p.drawLine(p1mx, p2mx)
-
-            # lines bounding the edges of the gradient item
-            if self.orientation == 'vertical':
-                p.drawLine(gradRect.topLeft(), gradRect.topRight())
-                p.drawLine(gradRect.bottomLeft(), gradRect.bottomRight())
-            else:
-                p.drawLine(gradRect.topLeft(), gradRect.bottomLeft())
-                p.drawLine(gradRect.topRight(), gradRect.bottomRight())
+    #         # lines bounding the edges of the gradient item
+    #         if self.orientation == 'vertical':
+    #             p.drawLine(gradRect.topLeft(), gradRect.topRight())
+    #             p.drawLine(gradRect.bottomLeft(), gradRect.bottomRight())
+    #         else:
+    #             p.drawLine(gradRect.topLeft(), gradRect.bottomLeft())
+    #             p.drawLine(gradRect.topRight(), gradRect.bottomRight())
             
 
 
-class GradEditor(pg.GradientEditorItem):
-    sigGradientChanged = QtCore.pyqtSignal(object)
-    sigGradientChangeFinished = QtCore.pyqtSignal(object)
-    
-    def __init__(self, *args, **kargs):
-        super().__init__(*args, **kargs)
-              
-                
-# class Tick2(pg.Tick):  ## NOTE: Making this a subclass of GraphicsObject instead results in
-#                                     ## activating this bug: https://bugreports.qt-project.org/browse/PYSIDE-86
-#     ## private class
 
-#     # When making Tick a subclass of QtWidgets.QGraphicsObject as origin,
-#     # ..GraphicsScene.items(self, *args) will get Tick object as a
-#     # class of QtGui.QMultimediaWidgets.QGraphicsVideoItem in python2.7-PyQt5(5.4.0)
-
-#     sigMoving = QtCore.pyqtSignal(object, object)
-#     sigMoved = QtCore.pyqtSignal(object)
-#     sigClicked = QtCore.pyqtSignal(object, object)
-    
-#     # def __init__(self, pos, color, movable=True, scale=10, pen='w', removeAllowed=True):
-#     #     super().__init__(pos=pos,color=color,movable=movable,scale=scale,pen=pen,removeAllowed=removeAllowed)
-#     def __init__(self,*args):
-#         super.__init__(*args)
-
-#     def paint(self, p, *args):
-#         p.setRenderHints(QtGui.QPainter.RenderHint.Antialiasing)
-#         p.fillPath(self.pg, fn.mkBrush(self.color))
-        
-#         p.setPen(self.currentPen)
-#         p.setHoverPen(self.hoverPen)
-#         p.drawPath(self.pg)
 
 from PyQt6.QtWidgets import QPushButton
 from PyQt6.QtGui import QPalette

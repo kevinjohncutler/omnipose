@@ -318,7 +318,7 @@ def _initialize_images(parent, image, channel_axis):
     image -= img_min
     if img_max > img_min + 1e-3:
         image /= (img_max - img_min)
-    image *= 255
+    # image *= 255
 
     # Update parent fields.
     parent.stack = image
@@ -508,7 +508,7 @@ def _load_seg(parent, filename=None, image=None, image_file=None, channel_axis=N
     
     if 'hist_states' in dat:
         parent.hist.view_states = dat['hist_states']
-        logger.info(f'Loaded histogram states from {filename}')
+        logger.info(f'Loaded histogram states from seg file')
     else:
         parent.hist.view_states = {}
         logger.info('No histogram states found in seg file; resetting.')

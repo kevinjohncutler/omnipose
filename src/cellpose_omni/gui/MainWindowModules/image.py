@@ -112,7 +112,6 @@ def recenter(self):
         self.quadbtns.button(b).setChecked(False)
     self.quadbtns.setExclusive(True)
     
-    print('recentering')
 
 def eventFilter(self, obj, event):
     # Filter events only for the viewport, ignoring sliders/other widgets.

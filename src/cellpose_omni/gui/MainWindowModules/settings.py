@@ -26,7 +26,7 @@ def get_channels(self):
 
 
 def compute_scale(self):
-    print('deprecate this?')
+    # print('deprecate this?')
     self.diameter = float(self.Diameter.text())
     self.pr = int(float(self.Diameter.text()))
     # self.radii_padding = int(self.pr*1.25)

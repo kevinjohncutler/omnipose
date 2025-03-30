@@ -21,6 +21,7 @@ pg.setConfigOptions(useOpenGL=True)
 from PyQt6.QtGui import QSurfaceFormat
 fmt = QSurfaceFormat()
 fmt.setStencilBufferSize(8)  # 8-bit stencil
+fmt.setSamples(0)              # Disable multisampling to avoid stipple artifacts - doesn't help
 QSurfaceFormat.setDefaultFormat(fmt)
 
 os.environ['QT_AUTO_SCREEN_SCALE_FACTOR'] = '1'

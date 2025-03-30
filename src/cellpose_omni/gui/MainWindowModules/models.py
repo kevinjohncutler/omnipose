@@ -456,8 +456,8 @@ def compute_model(self):
     else:
         self.flows[2] = np.zeros_like(self.flows[1])
         
-    print('computing model', masks.shape)
     self.masks = masks
+    
     # boundary and affinity
     bounds = flows[-1]
     augmented_affinity = flows[-2]
@@ -480,7 +480,6 @@ def compute_model(self):
     else:
         self.bounds = bounds
         
-    print('updating affinity', self.csum.max(), self.affinity_graph.shape)
     self.pixelGridOverlay.initialize_colors_from_affinity() 
     # self.pixelGridOverlay.reset() 
         

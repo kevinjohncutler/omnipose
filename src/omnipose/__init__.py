@@ -14,9 +14,9 @@ from numba.core.errors import NumbaPendingDeprecationWarning
 warnings.simplefilter('ignore', category=NumbaPendingDeprecationWarning)
 
 # fix ulong
-import numpy as np
-if not hasattr(np, 'ulong'):
-    np.ulong = np.uint64
+# import numpy as np
+# if not hasattr(np, 'ulong'):
+#     np.ulong = np.uint64
 
 __all__ = ['core', 'utils', 'loss', 'plot', 'misc', 'cli', 'data', 'gpu', 'stacks', 'measure']
 
@@ -41,3 +41,5 @@ def __dir__():
     # show submodules in __all__ plus anything else in globals
     return sorted(__all__ + [x for x in globals().keys() if not x.startswith('_')])
     
+
+

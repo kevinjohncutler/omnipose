@@ -9,17 +9,6 @@ from PyQt6 import QtCore
 import pyqtgraph as pg
 from PyQt6 import QtGui
 
-class NonInteractiveHistogramLUTItem(pg.HistogramLUTItem):
-    def event(self, event):
-        # When in non-interactive mode, simply consume mouse and hover events.
-        if event.type() in (QtCore.QEvent.Type.GraphicsSceneMousePress,
-                            QtCore.QEvent.Type.GraphicsSceneMouseMove,
-                            QtCore.QEvent.Type.GraphicsSceneMouseRelease,
-                            QtCore.QEvent.Type.GraphicsSceneHoverEnter,
-                            QtCore.QEvent.Type.GraphicsSceneHoverMove,
-                            QtCore.QEvent.Type.GraphicsSceneHoverLeave):
-            return True  # Consume the event; do nothing.
-        return super().event(event)
 
 def update_roi_count(self):
     self.roi_count.setText(f'{self.ncells} RoIs')        
@@ -79,68 +68,63 @@ def update_plot(self):
         
         vals = self.contrast_slider.value()
         image = normalize99(image,lower=vals[0],upper=vals[1])**self.gamma 
-        # maybe should not directly modify image? Use viewer isntead?
+        # maybe should not directly modify image? Use viewer instead?
         
         if self.invert.isChecked():
             image = 1-image
-        
-        # restore to uint8
-        image *= 255
 
-        # Decide whether to treat it as grayscale or color:
-        if image.ndim == 3 and image.shape[-1] == 1:
-            # Single-channel (H, W, 1) => reshape to (H, W) so we can apply LUT.
-            image = image[..., 0]
-            self.img.setImage(image, autoLevels=False)
-        elif image.ndim == 3 and image.shape[-1] in (3, 4):
-            # Multi-channel (RGB or RGBA): show color image, no LUT.
-            self.img.setImage(image, autoLevels=False, lut=None)
-        else:
-            # Otherwise, assume it's already 2D or something else.
-            self.img.setImage(image, autoLevels=False)
-    
     elif self.view==4:
-        image = self.csum#.astype(np.float32)# will need to generalize to Z
+        image = self.csum.astype(np.float32)# will need to generalize to Z
     else:
         image = np.zeros((self.Ly,self.Lx), np.uint8)
         if len(self.flows)>=self.view-2 and len(self.flows[self.view-1])>0:
-            image = self.flows[self.view-1][self.currentZ]
+            image = self.flows[self.view-1][self.currentZ] #/ 255 
     
-            
-    # levels = (0, image.max())
-    # self.img.setImage(image, autoLevels=False)#, levels=levels)
-   
+
     self.hist.set_view(
         v=self.view,
         preset=self.cmaps[self.view],
         default_cmaps=self.default_cmaps
     )
     
-    # Or manually set the range to 0..8
-    # self.img.setImage(image, autoLevels=False, levels=levels)
-    self.img.setImage(image, autoLevels=False)
+    # Set the histogram levels for the image.
+    dmin, dmax = float(image.min()), float(image.max())
+    if dmax == dmin:
+        dmax = dmin + 1.0
+    levels = (dmin, dmax)
+    lut = None
+
+        
+    if self.view==4:     
+        nBands = int(dmax+1)  # assuming image values are integers 0..(nBands-1)
+        self.hist.setDiscreteMode(True, n_bands=nBands)  # this overrides the gradient painting
+        # Force image levels to exactly match discrete bands (e.g. 0 to nBands-1)
+        levels=(0, nBands-1)
+        
+    else:
+        self.hist.setDiscreteMode(False)  # restore continuous mode
+
+    print(levels, image.ndim, image.shape, lut)
     
+    # Decide whether to treat it as grayscale or color:
+    if image.ndim == 3 and image.shape[-1] == 1:
+        # Single-channel (H, W, 1) => reshape to (H, W) so we can apply LUT.
+        image = image[..., 0]
+        self.img.setImage(image, autoLevels=False, levels=levels)
+    elif image.ndim == 3 and image.shape[-1] in (3, 4):
+        # Multi-channel (RGB or RGBA): show color image, no LUT.
+        self.img.setImage(image, autoLevels=False, levels=levels, lut=lut)
+    else:
+        # Otherwise, assume it's already 2D or something else.
+        self.img.setImage(image, autoLevels=False, levels=levels)
+
+
     self.set_hist_colors()
     
-    # self.hist.autoHistogramRange()
-    # 3) Now read the user’s chosen region and “zoom” to it
-    # mn, mx = self.hist.region.getRegion()
-    # self.hist.vb.setRange(xRange=(mn, mx), padding=.05)
-
-    # # (Optional) If you want to prevent re‐auto‐ranging each time,
-    # # disable autoRange on the histogram’s viewbox:
-    # self.hist.vb.enableAutoRange(axis=pg.ViewBox.XAxis, enable=False)
-            
-    # self.scale.setImage(self.radii, autoLevels=False)
-    # self.scale.setLevels([0.0,255.0])
-    #self.img.set_ColorMap(self.bwr)
     if self.NZ>1 and self.orthobtn.isChecked():
         self.update_ortho()
     
-    # self.contrast_slider.setLow(self.saturation[self.currentZ][0])
-    # self.contrast_slider.setHigh(self.saturation[self.currentZ][1])
-    # if self.masksOn or self.outlinesOn:
-    #     self.layer.setImage(self.layerz[self.currentZ], autoLevels=False) #<<< something to do with it 
+
     self.win.show()
     self.show()
 

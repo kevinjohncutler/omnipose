@@ -3252,7 +3252,7 @@ def ensure_torch(*arrays, device=None, dtype=torch.float32):
         for arr in arrays
     )
 
-@pyinstrument_profile
+# @pyinstrument_profile
 def _get_affinity_torch(initial, final, flow, dist, iscell, steps, fact, inds, supporting_inds, niter,  euler_offset=None,
                         device=torch_GPU,
                         # angle_cutoff=np.pi/2):

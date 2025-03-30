@@ -158,6 +158,7 @@ def imread(filename):
 
 def imwrite(filename, arr, **kwargs):
     # should transition to imagecodecs instead, faster for webp, probably others too 
+    # cv2 does not support jpeg xl, but imagecodecs does
 
     ext = os.path.splitext(filename)[-1].lower()
     if ext in ['.tif', '.tiff']:
