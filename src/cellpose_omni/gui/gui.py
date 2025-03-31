@@ -222,8 +222,9 @@ class MainW(QMainWindow):
         self.linksEditorAction.setChecked(False)
         self.linksEditorAction.triggered.connect(self.toggleLinksDock)
 
-
-        
+        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
+        self.setAutoFillBackground(False)
+                
         self.setAcceptDrops(True)
         self.win.show()
         self.show()
