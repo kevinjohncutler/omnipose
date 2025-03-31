@@ -8,6 +8,7 @@ COLORS = [rgb2hex(c[i][:3]) for i in range(1,N+1)] #can only do RBG, not RGBA fo
 
 
 import pyqtgraph as pg
+import numpy as np
 
 
 
@@ -92,7 +93,8 @@ def set_hist_colors(self):
     self.hist.axis.style['showValues'] = 0
     self.hist.axis.style['tickAlpha'] = 0
     self.hist.axis.logMode = 1
-    # self.hist.plot.opts['antialias'] = 1
+    self.hist.plot.opts['antialias'] = 1
+    # self.hist.plot.opts['stepMode'] = True
     # self.hist.setLevels(min=0, max=255)
     
     # policy = QtWidgets.QSizePolicy()
@@ -109,7 +111,3 @@ def set_tick_hover_color(self):
 def set_button_color(self):
     color = '#eeeeee' if self.darkmode else '#888888'
     self.ModelButton.setStyleSheet('border: 2px solid {};'.format(color))
-        
-
-
-

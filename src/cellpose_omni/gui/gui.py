@@ -16,12 +16,12 @@ import types
 
 import pyqtgraph as pg
 pg.setConfigOptions(useOpenGL=True)
+# pg.setConfigOptions(enableExperimental=True)
 
 # handle the "Painter path exceeds +/-32767 pixels." warning
 from PyQt6.QtGui import QSurfaceFormat
 fmt = QSurfaceFormat()
 fmt.setStencilBufferSize(8)  # 8-bit stencil
-fmt.setSamples(0)              # Disable multisampling to avoid stipple artifacts - doesn't help
 QSurfaceFormat.setDefaultFormat(fmt)
 
 os.environ['QT_AUTO_SCREEN_SCALE_FACTOR'] = '1'
@@ -116,7 +116,10 @@ class MainW(QMainWindow):
         self.class_sources = {}   # maps (module_name, class_name) to the class's source code
         # Discover & load all submodules
         self.modules = self.load_all_submodules()
+        print('modules',self.modules)
         self.patch_all_submodules()
+        
+        
         
         
         # --- New: Register external modules ---
@@ -222,9 +225,7 @@ class MainW(QMainWindow):
         self.linksEditorAction.setChecked(False)
         self.linksEditorAction.triggered.connect(self.toggleLinksDock)
 
-        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
-        self.setAutoFillBackground(False)
-                
+
         self.setAcceptDrops(True)
         self.win.show()
         self.show()

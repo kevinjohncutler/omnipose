@@ -68,6 +68,7 @@ def make_viewbox(self):
     self.img.autoDownsample = False
     
     self.hist = guiparts.HistLUT(image=self.img,orientation='horizontal',gradientPosition='bottom')
+    self.gradient = self.hist.gradient
     self.opacity_effect = QtWidgets.QGraphicsOpacityEffect()
     self.hist.setGraphicsEffect(self.opacity_effect)
     self.win.addItem(self.hist,col=0,row=1)

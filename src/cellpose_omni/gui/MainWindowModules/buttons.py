@@ -893,6 +893,10 @@ def make_buttons(self):
     # ---- drawing area ---- #
     self.win = pg.GraphicsLayoutWidget()
     self.win.viewport().setAttribute(QtCore.Qt.WidgetAttribute.WA_AcceptTouchEvents, False)
+    # self.win.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
+    # self.win.setAutoFillBackground(False)
+                
+    
     self.l0.addWidget(self.win, 0, TOOLBAR_WIDTH+1, b, 3*b)
     self.win.scene().sigMouseClicked.connect(lambda event: self.plot_clicked(event))
     self.win.scene().sigMouseMoved.connect(lambda pos: self.mouse_moved(pos))
