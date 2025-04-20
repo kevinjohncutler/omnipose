@@ -10,17 +10,21 @@ import dask
 
 def shifts_to_slice(shifts, shape, pad=0):
     """
-    Find the minimal crop box from time lapse registration shifts.
-    """    
-    # Convert shifts to integers
-    shifts = np.round(shifts).astype(int)
-    
-    # Create a slice for each dimension
-    slices = tuple(slice(max(0, np.max(shifts[:, dim])-pad), 
-                         min(shape[dim], shape[dim] + np.min(shifts[:, dim])+pad))
-                   for dim in range(shifts.shape[1]))
-    
-    return slices
+    Find the minimal crop box from registration shifts.
+    """
+    import math
+    shifts = np.asarray(shifts, dtype=float)
+ 
+    slices = []
+    for dim in range(shifts.shape[1]):
+        max_shift = shifts[:, dim].max()   # most‑positive  (shift to the right / down)
+        min_shift = shifts[:, dim].min()   # most‑negative (shift to the left  / up)
+ 
+        start = max(0, math.ceil(max_shift - pad))
+        stop  = min(shape[dim], math.floor(shape[dim] + min_shift + pad))
+        slices.append(slice(start, stop))
+ 
+    return tuple(slices)
     
 
 def make_unique(masks):

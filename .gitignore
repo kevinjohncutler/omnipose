@@ -13,6 +13,9 @@ omnipose.egg-info
 # C extensions
 *.so
 
+# macOS
+.DS_Store
+
 # Distribution / packaging
 .Python
 build/

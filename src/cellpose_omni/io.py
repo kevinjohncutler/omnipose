@@ -177,6 +177,18 @@ def imwrite(filename, arr, **kwargs):
             # note: webp quality should be >100 for "lossless" compression, though a few pixels still differ 
             # 0 still looks really really good, though
             params = [cv2.IMWRITE_WEBP_QUALITY, quality]
+        elif ext == '.jxl':
+            quality = kwargs.pop('quality', 95)
+            effort = kwargs.pop('effort', 7)
+            distance = kwargs.pop('distance', 1.0)
+            decoding_speed = kwargs.pop('decoding_speed', 0)
+            params = [
+                cv2.IMWRITE_JPEGXL_QUALITY, quality,
+                cv2.IMWRITE_JPEGXL_EFFORT, effort,
+                cv2.IMWRITE_JPEGXL_DISTANCE, distance,
+                cv2.IMWRITE_JPEGXL_DECODING_SPEED, decoding_speed
+            ]    
+        
         else:
             # For any other extension, no special parameters are set.
             params = []
@@ -198,7 +210,61 @@ def imwrite(filename, arr, **kwargs):
         # Write the image with the combined parameters.
         cv2.imwrite(filename, arr, params + extra_params)
         
-        
+
+import os
+import numpy as np
+import tifffile
+import imagecodecs
+
+def imwrite(filename, arr, **kwargs):
+    """
+    Save an image to file using imagecodecs for encoding.
+    
+    Supported extensions (besides .tif/.tiff and .npy):
+      - .png: uses imagecodecs.png_encode (accepts 'compression')
+      - .jpg, .jpeg, .jp2: uses imagecodecs.jpeg_encode (accepts 'quality')
+      - .webp: uses imagecodecs.webp_encode (accepts 'quality'; note that quality values above 100 are interpreted as lossless)
+      - .jxl: uses imagecodecs.jpegxl_encode (accepts 'quality', 'effort', 'distance', 'decoding_speed')
+    For other extensions, PNG encoding is used as a fallback.
+    
+    Note: Unlike OpenCV, imagecodecs expects RGB/RGBA (not BGR/BGRA) channel ordering.
+    """
+    ext = os.path.splitext(filename)[-1].lower()
+    
+    if ext in ['.tif', '.tiff']:
+        tifffile.imwrite(filename, arr, **kwargs)
+        return
+    elif ext == '.npy':
+        np.save(filename, arr, **kwargs)
+        return
+
+    # Determine which encoder function to use based on the extension.
+    encoded = None
+    if ext == '.png':
+        # For PNG, get 'compression'; other kwargs may be passed to the encoder.
+        compression = kwargs.pop('compression', 9)
+        encoded = imagecodecs.png_encode(arr, compression=compression, **kwargs)
+    elif ext in ['.jpg', '.jpeg', '.jp2']:
+        level = kwargs.pop('level', 95)
+        encoded = imagecodecs.jpeg_encode(arr, level=level, **kwargs)
+    elif ext == '.webp':
+        quality = kwargs.pop('quality', 0)
+        encoded = imagecodecs.webp_encode(arr, quality=quality, **kwargs)
+    elif ext == '.jxl':
+        effort = kwargs.pop('effort', 1)
+        distance = kwargs.pop('distance', 1.0)
+        encoded = imagecodecs.jpegxl_encode(arr,
+                                            effort=effort,
+                                            distance=distance,
+                                            **kwargs)
+    else:
+        # For unsupported extensions, default to PNG.
+        encoded = imagecodecs.png_encode(arr, **kwargs)
+    
+    # Write the encoded byte buffer to the file.
+    with open(filename, 'wb') as f:
+        f.write(encoded)
+
 
 def imsave(filename, arr):
     io_logger.warning('WARNING: imsave is deprecated, use io.imwrite instead')

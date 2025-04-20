@@ -7,7 +7,7 @@ mpl.rcParams['text.usetex'] = False      # Avoid LaTeX (which converts text to p
 
 from matplotlib.figure import Figure
 from matplotlib.backends.backend_agg import FigureCanvasAgg as FigureCanvas
-import matplotlib.pyplot as plt
+# import matplotlib.pyplot as plt
 
 import types
 
@@ -49,6 +49,7 @@ def setup():
     # Define rc_params
     rc_params = {
         'figure.dpi': 300,
+        'figure.figsize': (2, 2),      
         'image.cmap': 'gray',
         'image.interpolation': 'nearest',
         'figure.frameon': False,
@@ -297,10 +298,14 @@ def colorize(im, colors=None, color_weights=None, offset=0, channel_axis=-1):
 
 #     return rgb
 
+
+
 def colorize_GPU(im, colors=None, color_weights=None, intervals=None, offset=0):
     import torch
     import numpy as np
     import string
+    from opt_einsum import contract
+    
 
     C = im.shape[0]  # Number of input channels
     device = im.device
@@ -344,14 +349,335 @@ def colorize_GPU(im, colors=None, color_weights=None, intervals=None, offset=0):
         colors *= color_weights.unsqueeze(-1)
 
     # Perform einsum operation
-    rgb = torch.einsum(einsum_eq, im.float(), aggregator.float(), colors.float())
+    # rgb = torch.einsum(einsum_eq, im.float(), aggregator.float(), colors.float())
+    rgb = contract(einsum_eq, im.float(), aggregator.float(), colors.float()) # big difference on CPU
+    
+    
 
     # Squeeze the interval dimension if no intervals are used
     if N==1:
         rgb = rgb.squeeze(0)  # Shape: [spatial_dims..., 3]
 
     return rgb
+
+
+def colorize_dask(im_dask, colors=None, color_weights=None, intervals=None, offset=0):
+    import dask.array as da
+    import numpy as np
+
+    # Get the channel count and spatial shape.
+    C = im_dask.shape[0]
+    spatial_shape = im_dask.shape[1:]
+    spatial_size = np.prod(spatial_shape)
     
+    # If intervals is not provided, treat the entire channel set as one interval.
+    if intervals is None:
+        intervals = [C]
+    N = len(intervals)
+    
+    # Build aggregator matrix of shape (C, N)
+    aggregator = np.zeros((C, N), dtype=np.float32)
+    start = 0
+    for i, size in enumerate(intervals):
+        aggregator[start:start + size, i] = 1.0 / size
+        start += size
+
+    # Create default colors if not provided; shape will be (C, 3)
+    if colors is None:
+        angle = np.linspace(0, 1, C, endpoint=False) * 2 * np.pi + offset
+        angles = np.stack([angle, angle + 2*np.pi/3, angle + 4*np.pi/3], axis=-1)
+        colors = (np.cos(angles) + 1.0) / 2.0
+    if color_weights is not None:
+        colors *= color_weights[:, None]
+
+    # Combine aggregator and colors: shape (C, N, 3)
+    aggregator_colors = aggregator[..., None] * colors[:, None, :]
+    
+    # Reshape aggregator_colors to (C, N*3)
+    agg_col_reshaped = aggregator_colors.reshape(C, N * 3)
+    
+    # Reshape the dask array to (C, Z*Y*X)
+    # im_flat = im_dask.reshape(C, -1,limit='')
+    im_flat = im_dask.reshape(C, -1)
+    
+    
+    # Contract over the channel dimension using dot:
+    # Compute a dot product: (N*3, Z*Y*X) = (C, N*3).T dot (C, Z*Y*X)
+    out_flat = da.dot(agg_col_reshaped.T, im_flat)
+    
+    # Reshape the output to (N, 3, Z, Y, X)
+    out_reshaped = out_flat.reshape(N, 3, *spatial_shape)
+    # Move the channel axis to the end: (N, Z, Y, X, 3)
+    out_final = da.moveaxis(out_reshaped, 1, -1)
+    
+    # For a single interval, squeeze out the interval dimension
+    if N == 1:
+        out_final = out_final.squeeze(axis=0)
+        
+    return out_final
+    
+def colorize_dask_fast(im_dask, colors=None, color_weights=None, intervals=None, offset=0):
+    import dask.array as da
+    import numpy as np
+
+    C = im_dask.shape[0]
+    spatial_shape = im_dask.shape[1:]
+    spatial_size = np.prod(spatial_shape)
+
+    if intervals is None:
+        intervals = [C]
+    N = len(intervals)
+
+    # Precompute aggregator matrix (C, N)
+    aggregator = np.zeros((C, N), dtype=np.float32)
+    start = 0
+    for i, size in enumerate(intervals):
+        aggregator[start:start + size, i] = 1.0 / size
+        start += size
+
+    # Compute colors (C, 3)
+    if colors is None:
+        angle = np.linspace(0, 1, C, endpoint=False) * 2 * np.pi + offset
+        angles = np.stack([angle, angle + 2 * np.pi / 3, angle + 4 * np.pi / 3], axis=-1)
+        colors = (np.cos(angles) + 1.0) / 2.0
+    if color_weights is not None:
+        colors *= color_weights[:, None]
+
+    # Precompute final weighting matrix: (C, N, 3)
+    weights = aggregator[..., None] * colors[:, None, :]  # shape (C, N, 3)
+
+    # Collapse color dimensions early: (C, N*3)
+    weights_flat = weights.reshape(C, N * 3)
+
+    # Flatten input to shape (C, ZYX)
+    im_flat = im_dask.reshape(C, -1)
+
+    # Matrix multiplication: (N*3, ZYX)
+    out_flat = da.dot(weights_flat.T, im_flat)
+
+    # Reshape to (N, 3, Z, Y, X)
+    out = out_flat.reshape(N, 3, *spatial_shape)
+
+    # Move color channel to last axis: (N, Z, Y, X, 3)
+    out = da.moveaxis(out, 1, -1)
+
+    # If single interval, squeeze it out
+    if N == 1:
+        out = out.squeeze(axis=0)
+
+    return out
+    
+
+    
+# def colorize_dask_2(im_dask, colors=None, color_weights=None, intervals=None, offset=0): slow
+#     import dask.array as da
+#     import numpy as np
+
+#     # Determine the number of channels
+#     C = im_dask.shape[0]
+#     if intervals is None:
+#         intervals = [C]
+#     N = len(intervals)
+
+#     # Build the aggregator matrix (C, N)
+#     aggregator = np.zeros((C, N), dtype=np.float32)
+#     start = 0
+#     for i, size in enumerate(intervals):
+#         aggregator[start:start+size, i] = 1.0 / size
+#         start += size
+
+#     # Generate default colors if not provided (shape: (C, 3))
+#     if colors is None:
+#         angle = np.linspace(0, 1, C, endpoint=False) * 2 * np.pi + offset
+#         angles = np.stack([angle, angle + 2*np.pi/3, angle + 4*np.pi/3], axis=-1)
+#         colors = (np.cos(angles) + 1.0) / 2.0
+#     if color_weights is not None:
+#         colors *= color_weights[:, None]
+
+#     # Compute aggregator_colors: shape (C, N, 3)
+#     aggregator_colors = aggregator[..., None] * colors[:, None, :]
+
+#     # Use tensordot to contract the channel axis
+#     # im_dask has shape (C, ...); aggregator_colors has shape (C, N, 3)
+#     # tensordot over axis 0 will yield an output of shape (..., N, 3)
+#     out = da.tensordot(im_dask, aggregator_colors, axes=([0], [0]))
+    
+#     # Rearrange axes: move the N-axis (currently second-to-last) to the front,
+#     # so the output shape becomes (N, ..., 3)
+#     out = da.moveaxis(out, -2, 0)
+    
+#     # If only one interval is used, squeeze out the extra dimension
+#     if N == 1:
+#         out = out.squeeze(axis=0)
+        
+#     return out
+
+def colorize_dask(im_dask, colors=None, color_weights=None, intervals=None, offset=0): # slower
+    import dask.array as da
+    import numpy as np
+    from opt_einsum import contract
+
+    # Determine the number of channels
+    C = im_dask.shape[0]
+    if intervals is None:
+        intervals = [C]
+    N = len(intervals)
+    
+    # Build the aggregator matrix of shape (C, N)
+    aggregator = np.zeros((C, N), dtype=np.float32)
+    start = 0
+    for i, size in enumerate(intervals):
+        aggregator[start:start+size, i] = 1.0 / size
+        start += size
+
+    # Generate default colors if none provided; result shape is (C, 3)
+    if colors is None:
+        angle = np.linspace(0, 1, C, endpoint=False) * 2 * np.pi + offset
+        angles = np.stack([angle, angle + 2 * np.pi / 3, angle + 4 * np.pi / 3], axis=-1)
+        colors = (np.cos(angles) + 1.0) / 2.0
+
+    # Apply any provided color weights
+    if color_weights is not None:
+        colors *= color_weights[:, None]
+
+    # Combine aggregator and colors to form an array of shape (C, N, 3)
+    aggregator_colors = aggregator[..., None] * colors[:, None, :]
+
+    # Use dask.array.einsum to perform the colorization
+    # out = da.einsum('c..., cnr -> n...r', im_dask, aggregator_colors)
+    out = contract('c..., cnr -> n...r', im_dask, aggregator_colors)
+    
+    
+    # If only one interval is used, squeeze out the extra axis
+    if N == 1:
+        out = out.squeeze(axis=0)
+        
+    return out
+    
+def colorize_dask(im_dask, colors=None, color_weights=None, intervals=None, offset=0):
+    import numpy as np
+    from opt_einsum import contract
+    import dask
+
+    # Number of channels
+    C = im_dask.shape[0]
+    spatial_shape = im_dask.shape[1:]
+    spatial_size = np.prod(spatial_shape)
+
+    # Interval setup
+    if intervals is None:
+        intervals = [C]
+    N = len(intervals)
+
+    # Build aggregator: shape (C, N)
+    aggregator = np.zeros((C, N), dtype=np.float32)
+    start = 0
+    for i, size in enumerate(intervals):
+        aggregator[start : start + size, i] = 1.0 / size
+        start += size
+
+    # Default color generation: shape (C, 3)
+    if colors is None:
+        angle = np.linspace(0, 1, C, endpoint=False) * 2 * np.pi + offset
+        angles = np.stack([angle, angle + 2 * np.pi / 3, angle + 4 * np.pi / 3], axis=-1)
+        colors = (np.cos(angles) + 1.0) / 2.0
+
+    # Apply any color weights
+    if color_weights is not None:
+        colors *= color_weights[:, None]
+
+    # Combine aggregator and colors: shape (C, N, 3)
+    # Keep this as a NumPy array to avoid a big Dask overhead
+    agg_colors = aggregator[..., None] * colors[:, None, :]
+
+    # Flatten input from (C, Z, Y, X) -> (C, Z*Y*X)
+    with dask.config.set(**{'array.slicing.split_large_chunks': False}):
+    
+        im_flat = im_dask.reshape(C, spatial_size)
+
+    # Perform a single einsum contraction:
+    # cX * cNr -> NXr
+    # c -> channel axis, X -> flattened spatial axis, N-> interval groups, r -> RGB
+    out_flat = contract('cX,cNr->NXr', im_flat, agg_colors)
+
+    # Reshape from (N, X, 3) -> (N, Z, Y, X, 3)
+    out = out_flat.reshape(N, *spatial_shape, 3)
+
+    # For a single interval, remove the interval dimension
+    if N == 1:
+        out = out[0]  # shape (Z, Y, X, 3)
+
+    return out
+    
+
+def colorize_dask_matmul(im_dask, colors=None, color_weights=None, intervals=None, offset=0):
+    """
+    A faster version of colorize_dask that uses a single matrix multiply instead
+    of explicit loops or opt_einsum for the core contraction step.
+    """
+    import numpy as np
+    import dask
+    
+    
+    # Number of channels
+    C = im_dask.shape[0]
+    spatial_shape = im_dask.shape[1:]
+    spatial_size = np.prod(spatial_shape)
+
+    # Interval setup
+    if intervals is None:
+        intervals = [C]
+    N = len(intervals)
+
+    # Build aggregator: shape (C, N)
+    aggregator = np.zeros((C, N), dtype=np.float32)
+    start = 0
+    for i, size in enumerate(intervals):
+        aggregator[start : start + size, i] = 1.0 / size
+        start += size
+
+    # Default color generation: shape (C, 3)
+    if colors is None:
+        angle = np.linspace(0, 1, C, endpoint=False) * 2 * np.pi + offset
+        angles = np.stack([angle, angle + 2 * np.pi / 3, angle + 4 * np.pi / 3], axis=-1)
+        colors = (np.cos(angles) + 1.0) / 2.0  # shape (C, 3)
+
+    # Apply any color weights
+    if color_weights is not None:
+        colors = colors * color_weights[:, None]
+
+    # aggregator (C, N), colors (C, 3)
+    # aggregator[..., None] * colors => shape (C, N, 3)
+    # then collapse to shape (C, N*3) so that a single matrix multiply can be used
+    combined = (aggregator[..., None] * colors[:, None, :]).reshape(C, N * 3).astype(np.float32)
+
+    # Flatten the input image: (C, Z, Y, X) -> (C, Z*Y*X)
+    # Casting to float32 can help ensure everything matches for the matrix multiply
+    with dask.config.set(**{'array.slicing.split_large_chunks': False}):
+        im_flat = im_dask.reshape(C, spatial_size, merge_chunks=True).astype(np.float32)
+        # im_flat = da.reshape(im_dask, (C, spatial_size), merge_chunks=True).astype(np.float32)
+        
+
+    # Matrix multiplication:
+    #   im_flat^T is shape (X, C)
+    #   combined is shape (C, N*3)
+    # => result is shape (X, N*3)
+    out_mat = im_flat.T @ combined
+
+    # Reshape:
+    #   out_mat:  (X, N*3)
+    #   => (X, N, 3) => transpose to (N, X, 3)
+    out_flat = out_mat.reshape(spatial_size, N, 3).transpose(1, 0, 2)
+
+    # Finally shape it to (N, Z, Y, X, 3)
+    out = out_flat.reshape(N, *spatial_shape, 3)
+
+    # If only one interval, remove that dimension to keep the same behavior
+    if N == 1:
+        out = out[0]  # shape (Z, Y, X, 3)
+
+    return out
+
 def apply_ncolor(masks,offset=0,cmap=None,max_depth=20,expand=True, maxv=1, greedy=False):
 
     import ncolor

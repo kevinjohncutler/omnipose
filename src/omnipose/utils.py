@@ -40,7 +40,26 @@ def get_module(x):
         return torch
     else:
         raise ValueError("Input must be a numpy array, a tuple, a torch tensor, an integer, or a float")
-    
+
+def safe_divide(num, den, cutoff=0):
+    """ Division ignoring zeros and NaNs in the denominator.""" 
+    module = get_module(num)
+    valid_den = (den > cutoff) & module.isfinite(den) #isfinite catches both nan and inf
+
+    if module == np:
+        r = num.astype(np.float32, copy=False)
+        r = np.divide(r, den, out=np.zeros_like(r), where=valid_den)
+    elif module == torch:
+        r = num.float()
+        den = den.float()
+        small_val = torch.finfo(den.dtype).tiny  # smallest positive representable number
+        safe_den = torch.where(valid_den, den, small_val)
+        r = torch.div(r, safe_den)
+    else:
+        raise TypeError("num must be a numpy array or a PyTorch tensor")
+
+    return r
+
 def rescale(T, floor=None, ceiling=None, exclude_dims=None):
     module = get_module(T)
     if exclude_dims is not None:
@@ -349,24 +368,7 @@ def torch_norm(a,dim=0,keepdim=False):
 
 
 
-def safe_divide(num, den, cutoff=0):
-    """ Division ignoring zeros and NaNs in the denominator.""" 
-    module = get_module(num)
-    valid_den = (den > cutoff) & module.isfinite(den) #isfinite catches both nan and inf
 
-    if module == np:
-        r = num.astype(np.float32, copy=False)
-        r = np.divide(r, den, out=np.zeros_like(r), where=valid_den)
-    elif module == torch:
-        r = num.float()
-        den = den.float()
-        small_val = torch.finfo(den.dtype).tiny  # smallest positive representable number
-        safe_den = torch.where(valid_den, den, small_val)
-        r = torch.div(r, safe_den)
-    else:
-        raise TypeError("num must be a numpy array or a PyTorch tensor")
-
-    return r
 
 def bin_counts(data, num_bins=256):
     """Compute the counts of values in bins.
@@ -866,6 +868,8 @@ def moving_average(x, w):
 # def is_integer(var):
 #     return isinstance(var, int) or isinstance(var, np.integer) or (isinstance(var, torch.Tensor) and var.is_integer())
 
+
+
 def is_integer(var):
     # Check for Python integer
     if isinstance(var, int):
@@ -876,8 +880,11 @@ def is_integer(var):
     # Check for NumPy array or memmap with integer dtype
     elif isinstance(var, (np.ndarray, np.memmap)) and np.issubdtype(var.dtype, np.integer):
         return True
+    # Check for Dask array with integer dtype
+    elif isinstance(var, da.Array) and np.issubdtype(var.dtype, np.integer):
+        return True
     # Check for PyTorch tensor with integer type
-    elif isinstance(var, torch.Tensor) and var.is_floating_point() is False:
+    elif isinstance(var, torch.Tensor) and not var.is_floating_point():
         return True
     # Not an integer or integer-like object
     return False
