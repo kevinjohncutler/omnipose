@@ -104,7 +104,7 @@ def update_plot(self):
     else:
         self.hist.setDiscreteMode(False)  # restore continuous mode
 
-    print(levels, image.ndim, image.shape, lut)
+    # print('ttt',levels, image.ndim, image.shape, lut)
     
     # Decide whether to treat it as grayscale or color:
     if image.ndim == 3 and image.shape[-1] == 1:

@@ -21,7 +21,8 @@ from .profile import pyinstrument_profile
 # from .plot import rgb_flow
 
 from .gpu import empty_cache # for clearing memory after follow_flows
-from .misc import meshgrid
+from .misc import meshgrid, vector_to_arrow
+from .stacks import shifts_to_slice
 # from torchvf.losses import ivp_loss
 # from typing import Any, Dict, List, Set, Tuple, Union, Callable
 from typing import List
@@ -1586,6 +1587,7 @@ def compute_masks(dP, dist, affinity_graph=None, bd=None, p=None, coords=None, i
         if bounds is None:
             if verbose:
                 print('Default clustering on, finding boundaries via affinity.')
+            print('TO-DO: replace with _get_affinity_torch')
             affinity_graph, neighbors, neigh_inds, bounds = _get_affinity(steps,masks,dP_pad,dt_pad,p,inds, pad=pad)
 
             # boundary finder gets rid of some edge pixels, remove these from the mask 
@@ -3168,52 +3170,46 @@ def parametrize_contours(steps, labs, unique_L, neigh_inds, step_ok, csum):
                 
     return contours  
 
-# @njit
-# def get_neigh_inds(coords,shape,steps):
-#     """
-#     For L pixels and S steps, find the neighboring pixel indexes 
-#     0,1,...,L for each step. Background index is -1. Returns:
-    
-    
-#     Parameters
-#     ----------
-#     coords: tuple or ND array
-#         coordinates of nonzero pixels, <dim>x<npix>
-    
-#     shape: tuple or list, int
-#         shape of the image array
-        
-#     steps: ND array, int
-#         list or array of ND steps to neighbors 
-    
-#     Returns
-#     -------
-#     indexes: 1D array
-#         list of pixel indexes 0,1,...L-1
-        
-#     neigh_inds: 2D array
-#         SxL array corresponding to affinity graph
-    
-#     ind_matrix: ND array
-#         indexes inserted into the ND image volume
-#     """
-#     npix = len(coords[1])
-#     indexes = np.arange(npix)
-#     ind_matrix = -np.ones(shape,int)
-#     ind_matrix[tuple(coords)] = indexes
-#     neigh_inds = []
-#     for s in steps:
-#         neigh = tuple(coords+s[np.newaxis].T)
-#         neigh_indices = ind_matrix[neigh]
-#         neigh_inds.append(neigh_indices)
-#     neigh_inds = np.array(neigh_inds)
-#     return indexes, neigh_inds, ind_matrix
+
 
 
 def divergence_torch(y):
     dim = y.shape[1]
     dims = [k for k in range(-dim,0)]
     return torch.stack([torch.gradient(y[:,k],dim=k)[0] for k in dims]).sum(dim=0)
+    
+
+def divergence_torch(y):
+    """
+    Divergence for a batched D‑vector field stored as (B, D, *spatial).
+
+    * **GPU / MPS** → use a single call to ``torch.gradient`` (fast, parallel).
+    * **CPU**       → compute only the gradients actually needed,
+      one component at a time, to avoid the unnecessary D² work that the
+      vectorised call performs on the CPU.
+
+    Returns
+    -------
+    div : torch.Tensor
+        Shape ``(B, *spatial)`` – divergence of ``y``.
+    """
+    B, D, *spatial = y.shape
+    if y.device.type == 'cpu':
+        # Allocate output once and fill in‑place
+        div = torch.zeros((B, *spatial), dtype=y.dtype, device=y.device)
+        for d in range(D):                          # loop over spatial axes
+            comp   = y[:, d]                        # (B, *spatial)
+            axis   = d + 1                          # 0=batch, 1=first spatial …
+            grad_d = torch.gradient(comp, dim=axis)[0]
+            div   += grad_d
+        return div
+    else:
+        spatial_axes = list(range(-len(spatial), 0))      # e.g. [-2,‑1] in 2‑D
+        grads = torch.gradient(y, dim=spatial_axes)       # tuple length == D
+        div = sum(g[:, d] for d, g in enumerate(grads))   # pick aligned comps
+        return div
+    
+    
 
 # def divergence_torch(y):
 #     dim = y.shape[1]
@@ -3253,7 +3249,8 @@ def ensure_torch(*arrays, device=None, dtype=torch.float32):
     )
 
 # @pyinstrument_profile
-def _get_affinity_torch(initial, final, flow, dist, iscell, steps, fact, inds, supporting_inds, niter,  euler_offset=None,
+def _get_affinity_torch(initial, final, flow, dist, iscell, steps, fact, inds, supporting_inds, 
+                        niter,  euler_offset=None,
                         device=torch_GPU,
                         # angle_cutoff=np.pi/2):
                         # angle_cutoff=np.pi/2):
@@ -3295,7 +3292,7 @@ def _get_affinity_torch(initial, final, flow, dist, iscell, steps, fact, inds, s
     # div = divergence_torch(mu_norm)
     # print('debug', torch.sum(iscell), torch.max(mag), torch.mean(mag.squeeze()[iscell]), torch.mean(utils.torch_norm(mu_norm,dim=1,keepdim=False)[iscell]))
     div_cutoff = 1/3 # this alone follows internal boundaries quite well 
-    div_cutoff = 0
+    div_cutoff = 0    
     
     if euler_offset is None:
         euler_offset = 2*np.sqrt(D)
@@ -3312,7 +3309,9 @@ def _get_affinity_torch(initial, final, flow, dist, iscell, steps, fact, inds, s
         # mag_cutoff = np.sqrt(D) # could be higher or based on niter
         mag_cutoff = 3
 
-    slow = mag<mag_cutoff
+    # not used anymore?
+    # slow = mag<mag_cutoff
+    
     sink = div<div_cutoff
     # sink = dist>D # this is actually much more rubust? 
     # sink = dist>np.sqrt(niter/2) # niter based on the mean distance field, no need to recompute that 
@@ -3330,16 +3329,21 @@ def _get_affinity_torch(initial, final, flow, dist, iscell, steps, fact, inds, s
     # instead of computing divergence with built-in gradient, I can do it manually
     # this is more precise, but still dodn't really show any improvement 
     # div = torch.zeros_like(div)
+    
+    # source and target slices are arranges so that the target is always in bounds
+    # source is offset opposite the direciton of the step for this to be true 
         
     s1,s2,s3 = slice(1,None), slice(0,-1), slice(None,None) # this needs to be generalized to D dimensions
     for i in range(S):
         for j in range(D):
             s = steps[i][j]
             target_slices[i][j], source_slices[i][j] = (s1,s2) if s>0 else (s2,s1) if s<0 else (s3,s3)
+            
     
     # print('target slices')
-    # for s in target_slices:
-    #     print(s)
+    # for ts,ss,step in zip(target_slices, source_slices, steps):
+    #     print(f'source {ss},  target{ts}, {step} {vector_to_arrow(step)}')
+        
 
     for i in range(S//2): # appears to work 
 
@@ -3358,10 +3362,14 @@ def _get_affinity_torch(initial, final, flow, dist, iscell, steps, fact, inds, s
     # I wonder if this angle should depend on cardinal vs ordinal...
     # is_parallel = torch.acos(cos.clamp(-1,1))<=angle_cutoff    
     # with torch.no_grad():
-    is_parallel = cos.clamp(-1, 1) >= np.cos(angle_cutoff)
+    # is_parallel = cos.clamp(-1, 1) >= np.cos(angle_cutoff) # still need a clamp here? Don't think so
+    is_parallel = cos >= np.cos(angle_cutoff)
     
-    # this is actually superior to my old method, the near condition can have poor behavior on Drad 
+    # this is actually superior to my old method, the near condition can have poor behavior on Drad
+    # The slow criterion is not used anymore? 
     connectivity = torch.logical_or(is_parallel, is_sink) 
+    # print('c', connectivity.shape, is_parallel.shape)
+    
     
     connectivity[S//2] = 0 # do not allow self connection via this criterion 
     
@@ -3381,40 +3389,83 @@ def _get_affinity_torch(initial, final, flow, dist, iscell, steps, fact, inds, s
     #         continue   
     #     else:
     
+    valid_mask = utils.precompute_valid_mask(DIMS,steps,device=keep.device)
+    # print('valid',valid_mask.shape)
+    # print(connectivity[~valid_mask])
+    
     ### MIGHT HAVE source_slices, target_slices flipped...
     
-    non_self = np.array(list(set(np.arange(len(steps)))-{inds[0][0]})) # I need these to be in order
-    for i in non_self:
+    self_idx = inds[0][0]
+    non_self = np.array(list(set(np.arange(len(steps)))-{self_idx})) # I need these to be in order
+    # print('non self',non_self)  
+    # print('supporting_inds',supporting_inds)
+    # for i in non_self:
+    for i in range(S//2):
+    # for i in [0,1,2]:
+    # for i in [3]:
+     
         if 1:
             tuples = supporting_inds[i]
+            # print('tuples',tuples)
             # source_support = []
             # target_support = []
             target_slc = (Ellipsis,)+tuple(target_slices[i])
             source_slc = (Ellipsis,)+tuple(source_slices[i])
             
             support = torch.zeros_like(keep[source_slc],dtype=torch.int32)
+            # support = torch.zeros_like(keep,dtype=torch.int32)
+            
             
             # as it tuns out, the corresponding connectivities are already in the right order 
             n_tuples = len(tuples)
-            for j in range(n_tuples):
+            # now we loop over all possible paths from source to target 
+            # some paths lead to oob zone, though 
+            for j in range(n_tuples): 
                 f_inds = tuples[j]
                 b_inds = tuple(S-1-np.array(tuples[-(j+1)]))
                 # could also do 
                 # b_inds = tuple(S-1-np.array(f_inds[::-1]))
                 
-                # print(i, j, f_inds,b_inds)
+                # print(i, j, f_inds, b_inds, steps[i], [steps[k] for k in f_inds], [steps[k] for k in b_inds])
+                # print(i, j, f_inds, b_inds, steps[i], vector_to_arrow(steps[i]), 
+                #       vector_to_arrow([steps[k] for k in f_inds]), 
+                #       vector_to_arrow([steps[k] for k in b_inds]))
+
                     
                 for f,b in zip(f_inds,b_inds):
                     # connectivity in the forward direction at the source pixel
                     # supportive_connectivity.append(torch.logical_and(connectivity[f][source_slc], connectivity[b][target_slc])) 
                     # support.add_(torch.logical_and(connectivity[f][source_slc], connectivity[b][target_slc]))
                     # support+= torch.logical_and(connectivity[f][source_slc], connectivity[b][target_slc]))
-                    support = support.add(torch.logical_and(connectivity[f][source_slc], connectivity[b][target_slc]))
+                    # support = support.add(torch.logical_and(connectivity[f][source_slc], connectivity[b][target_slc]))
+                    
+                    support = support.add(torch_and([connectivity[f][source_slc], 
+                                                     connectivity[b][target_slc],
+                                                     valid_mask[f][source_slc],
+                                                     valid_mask[b][target_slc],
+                                                     ]))
                     
                     
-            # Only keep connections that are supported in more than two routes 
-            # support = torch.sum(torch.stack(supportive_connectivity),dim=0)
-
+                    # source and target cannot be defined by the f ab b becasue those are different directions
+                    # could do an intersection of the steps so that we only add to the support within directions
+                    # step_intersect = np.sign(steps[f]+steps[b])
+                    # idx_intersect = np.nonzero((steps==step_intersect).all(axis=1))[0][0]
+                    # print(step_intersect, vector_to_arrow(step_intersect), idx_intersect) 
+                    # target_slc_intersect = (Ellipsis,)+tuple(target_slices[idx_intersect])
+                    # source_slc_intersect = (Ellipsis,)+tuple(source_slices[idx_intersect])
+                    # print('ff',source_slc_intersect, target_slc_intersect)
+                    
+                    # print('\tddddddd',shifts_to_slice([steps[f],steps[b]],support.shape))
+                    
+                    # common_slc = (Ellipsis,)+ shifts_to_slice([steps[f],steps[b]],support.shape)
+                    # print('common_slc',common_slc)
+                    # support = support.add(torch.logical_and(connectivity[f][source_slc], connectivity[b][target_slc]))
+                    # support[common_slc] = torch.logical_and(connectivity[f][source_slc][common_slc], connectivity[b][target_slc][common_slc])
+                    
+                    # one option: add an index check, leigh neigh inds array to see if >0 for oob 
+                    
+                    
+                    
             # remove internal spurs 
             connectivity[i][source_slc] = connectivity[-(i+1)][target_slc] = torch.where(csum[source_slc]>=7, 1, connectivity[i][source_slc])
             # 1) Create a boolean mask, the same shape as connectivity[i][source_slc].
@@ -3424,7 +3475,6 @@ def _get_affinity_torch(initial, final, flow, dist, iscell, steps, fact, inds, s
             # connectivity[i][source_slc][mask] = 1
             # connectivity[-(i+1)][target_slc][mask] = 1
      
-            
             connectivity[i][source_slc] = connectivity[-(i+1)][target_slc] = torch_and([connectivity[i][source_slc],
                                                                                         connectivity[-(i+1)][target_slc],
                                                                                         
@@ -3438,7 +3488,9 @@ def _get_affinity_torch(initial, final, flow, dist, iscell, steps, fact, inds, s
                                                                                         
                                                                                         # support connectiosn ensures that the hypervoxels
                                                                                         # are connected not just directly, but in a neighborhood
-                                                                                        support>2
+                                                                                        support>2 # Only keep connections that are supported in more than two routes 
+                                                                                        # support[source_slc]>2,
+                                                                                        # support[target_slc]>2 
                                                                                         ])
             
 
@@ -3450,12 +3502,36 @@ def _get_affinity_torch(initial, final, flow, dist, iscell, steps, fact, inds, s
     # # I could also just delete all non-cardinal connections...
     return connectivity
     
-
-from functools import reduce
-def torch_and(tlist):
-    return reduce(torch.logical_and, tlist)
-
     
+
+from functools import reduce      
+def torch_and_cpu(tensors):
+    """
+    Pair-wise logical AND using functools.reduce.
+    Faster on CPU where kernel-launch overhead is negligible.
+    """
+    return reduce(torch.logical_and, tensors)
+
+def torch_and_gpu(tensors):
+    """
+    Vectorized logical AND via torch.all after stacking.
+    Single kernel makes it faster on GPU.
+    """
+    return torch.all(torch.stack(tuple(tensors), dim=0), dim=0)
+
+def torch_and(tensors):
+    """
+    Dispatch to torch_and_cpu or torch_and_gpu depending on the
+    device of the first tensor in *tensors*.
+    """
+    dev = tensors[0].device if tensors else torch.device('cpu')
+    if dev.type == 'cpu':
+        return torch_and_cpu(tensors)
+    else:
+        return torch_and_gpu(tensors)
+    
+
+
 # padding the arrays makes "step indexing" really easy
 # if this were not done, then the indexing would  get wierd for boundary pixels
 def _get_affinity(steps, mask_pad, mu_pad, dt_pad, p, p0, 

@@ -609,7 +609,6 @@ def make_buttons(self):
     self.ChanNumber.setFixedHeight(WIDTH_0)
     self.l0.addWidget(self.ChanNumber, b, TOOLBAR_WIDTH-2,1,2)
 
-# .py, .rst, 
     # AFFINITY seg 
     b-=2
     self.AffinityCheck = QCheckBox('affinity graph reconstruction')
@@ -635,13 +634,23 @@ def make_buttons(self):
     # # self.toggle_scale() # toggle (off) 
     
     # SIZE MODEL
-    b+=1
+    # b+=1
     # self.SizeModel = QCheckBox('SizeModel rescaling')
     # self.SizeModel.setStyleSheet(self.checkstyle)
     # self.SizeModel.setFont(self.medfont)
     # self.SizeModel.setChecked(False)
     # self.SizeModel.setToolTip('sets whether or not to use a SizeModel for rescaling \nprior to running network')
     # self.l0.addWidget(self.SizeModel, b,0,1,2)
+
+    # TILING CHECKBOX
+    b+=1
+    self.tile = QCheckBox('tile for inference')
+    self.tile.setStyleSheet(self.checkstyle)
+    self.tile.setFont(self.medfont)
+    self.tile.setChecked(False)
+    self.tile.setToolTip('sets whether or not to split the image into tiles for inference')
+    self.l0.addWidget(self.tile, b,0,1,2)
+    
 
 
     # BOUNDARY FIELD CHECKBOX (sets nclasses to 3 instead of 2)

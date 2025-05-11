@@ -201,6 +201,7 @@ class MainW(QMainWindow):
         # Create the overlay item - would be cleaner to add in make_viewbox, but 
         # it needs the initializations of _load_image
         self.pixelGridOverlay = guiparts.GLPixelGridOverlay(parent=self)
+        self.pixelGridOverlay.setZValue(3)   # ensure grid stays above everything
         self.pixelGridOverlay.setVisible(False) 
         self.viewbox.addItem(self.pixelGridOverlay)
     

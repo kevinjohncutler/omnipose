@@ -430,7 +430,7 @@ def compute_model(self):
                                     progress=self.progress,
                                     verbose=self.verbose.isChecked(),
                                     omni=omni, 
-                                    tile=False,
+                                    tile=self.tile.isChecked(),
                                     affinity_seg=self.AffinityCheck.isChecked(),
                                     cluster = self.cluster.isChecked(),
                                     transparency=True,

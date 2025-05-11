@@ -1,5 +1,4 @@
 import numpy as np
-import torch
 import dask
 from dask import array as da 
 
@@ -1084,6 +1083,44 @@ def border_indices(tyx):
             indices.append(np.where(mask)[0])
     return np.concatenate(indices)
 
+
+def precompute_valid_mask(shape, steps, device=None):
+    """
+    Boolean mask telling whether both a pixel and its neighbour at offset
+    `steps[k]` are inside an N-D volume.
+
+    Parameters
+    ----------
+    shape : tuple[int]
+        Spatial dimensions, e.g. (Y, X)   or   (Z, Y, X).
+    steps : list[tuple[int]]
+        Offset table returned by `kernel_setup(dim)`.
+    device : torch.device or None
+        Device for the returned tensor.
+
+    Returns
+    -------
+    valid : torch.BoolTensor        # shape (K, 1, *shape)
+    """
+    dim   = len(shape)
+    step  = torch.as_tensor(steps, dtype=torch.int64, device=device)  # (K, dim)
+    K     = step.shape[0]
+
+    # start with all-true, then clear forbidden strips axis by axis
+    valid = torch.ones((K,)+tuple(shape), dtype=torch.bool, device=device)
+
+    for ax, size in enumerate(shape):
+        coord = torch.arange(size, device=device)                                   # (size,)
+        coord = coord.reshape((1,)+ (1,)*ax + (size,) + (1,)*(dim-ax-1))            # (1,…,size,…,1)
+
+        neg = torch.clamp(-step[:, ax], min=0).reshape((K,)+ (1,)*dim)              # (K,1,1,…)
+        pos = torch.clamp( step[:, ax], min=0).reshape((K,)+ (1,)*dim)
+
+        valid &= (coord >= neg) & (coord < size - pos)
+
+    # Insert singleton channel dimension so output matches connectivity (K,1,*shape)
+    valid = valid.unsqueeze(1)
+    return valid
 
 # @njit 
 # def get_neighbors(coords, steps, dim, shape, edges=None, pad=0):

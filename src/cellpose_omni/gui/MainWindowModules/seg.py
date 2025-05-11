@@ -107,7 +107,7 @@ def toggle_affinity_graph(self):
 def update_active_label(self):
     try:
         self.current_label = int(self.LabelInput.text())
-        print(f"Active label updated to: {self.current_label}")
+        print(f"Active label updated to: {self.current_label}") 
         self.regenerate_cellcolors_for_active_label()
     except ValueError:
         print("Invalid label input.")

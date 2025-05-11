@@ -1600,7 +1600,6 @@ class GLPixelGridOverlay(GraphicsObject):
 
     def __init__(self, parent):
         super().__init__()
-        
         self.parent = parent
         self.reset()
 
@@ -1804,7 +1803,7 @@ class GLPixelGridOverlay(GraphicsObject):
         gl.glBindBuffer(gl.GL_ARRAY_BUFFER, self.color_id)
         gl.glBufferSubData(
             gl.GL_ARRAY_BUFFER,
-            0,
+            0, 
             self.color_data.nbytes,
             self.color_data
         )

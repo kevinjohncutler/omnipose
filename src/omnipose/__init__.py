@@ -18,7 +18,7 @@ warnings.simplefilter('ignore', category=NumbaPendingDeprecationWarning)
 # if not hasattr(np, 'ulong'):
 #     np.ulong = np.uint64
 
-__all__ = ['core', 'utils', 'loss', 'plot', 'misc', 'cli', 'data', 'gpu', 'stacks', 'measure']
+__all__ = ['core', 'utils', 'loss', 'plot', 'misc', 'cli', 'data', 'gpu', 'stacks', 'measure', 'profile']
 
 from importlib.metadata import version, PackageNotFoundError
 

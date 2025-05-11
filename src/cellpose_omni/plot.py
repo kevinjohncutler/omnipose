@@ -160,7 +160,8 @@ def show_segmentation(fig, img, maski, flowi, bdi=None, channels=None, file_name
     # the mask_overlay function changes colors (preserves only hue I think). The label2rgb function from
     # skimage.color works really well. 
     if omni and SKIMAGE_ENABLED and OMNI_INSTALLED:
-        m,n = ncolor.label(maski,max_depth=20,return_n=True)
+        m,n = ncolor.label(maski,max_depth=20,return_n=True) if np.any(maski) else (maski,1)
+        # print(m.shape, n)
         c = sinebow(n)
         clrs = np.array(list(c.values()))[1:]
         

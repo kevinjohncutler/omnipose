@@ -64,7 +64,7 @@ class AffinityLoss(torch.nn.Module):
         #     niter = int(2*(self.dim+1)*torch.mean(dist_pred[(Ellipsis,)+coords]) / 2)
         niter = 10
         
-        # this should be paralleized 
+        # this should be parallelized - _get_affinity_torch does not work with a batch dimension at the moment> 
         ags = []
         fps = []
         bds = []
@@ -82,7 +82,6 @@ class AffinityLoss(torch.nn.Module):
                                         solver = "euler")[-1] 
             
             fps.append(final_points)
-
             affinity_graph = _get_affinity_torch(initial_points, 
                                                 final_points, 
                                                 f/5., #<<<<<<<<<<< add support for other options here 
