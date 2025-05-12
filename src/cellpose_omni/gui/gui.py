@@ -91,7 +91,7 @@ def run(image=PRELOAD_IMAGE):
         win.set_hist_colors()
         win.set_button_color()
         win.set_crosshair_colors()
-        win.SCheckBox.update_icons() 
+        win.PencilCheckBox.update_icons() 
         # win.update_plot()
     app.paletteChanged.connect(sync_theme_with_system)             
     sync_theme_with_system()

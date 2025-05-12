@@ -531,7 +531,7 @@ class ImageDraw(pg.ImageItem):
     def _canDraw(self, event):
         """Checks if conditions allow drawing instead of panning."""
         # If brush_size is 0 or space is pressed, do not draw
-        if not self.parent.SCheckBox.isChecked():
+        if not self.parent.PencilCheckBox.isChecked():
             return False
         if getattr(self.parent, 'spacePressed', False):
             return False

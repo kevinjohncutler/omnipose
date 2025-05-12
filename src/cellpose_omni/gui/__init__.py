@@ -24,7 +24,7 @@ for path,file in zip(test_images,files):
         download_url_to_file('https://github.com/kevinjohncutler/omnipose/blob/main/docs/test_files/'+file+'?raw=true',
                                 path, progress=True)
 PRELOAD_IMAGE = str(test_images[-1])
-DEFAULT_MODEL = 'bact_phase_omni'
+DEFAULT_MODEL = 'bact_phase_affinity'
 
 
 

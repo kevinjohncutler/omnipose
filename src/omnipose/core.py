@@ -46,7 +46,7 @@ C2_MODELS = ['bact_phase_cp',
 C1_BD_MODELS = ['plant_omni']
 
 # This will be the affinity seg models 
-C1_MODELS = []
+C1_MODELS = ['bact_phase_affinity']
 
 import torch
 # mse = torch.nn.MSELoss()
@@ -1471,6 +1471,7 @@ def compute_masks(dP, dist, affinity_graph=None, bd=None, p=None, coords=None, i
                         supporting_inds = utils.get_supporting_inds(steps)
 
                         # print('p',final_points.shape, initial_points.shape)
+                        # if we can keep the points and predictions on GPU, we could make this a lot faster...
                         affinity_graph = _get_affinity_torch(initial_points, 
                                                             final_points, 
                                                             dP_pad, #<<<<<<<<<<< add support for other options here 
@@ -3173,7 +3174,7 @@ def parametrize_contours(steps, labs, unique_L, neigh_inds, step_ok, csum):
 
 
 
-def divergence_torch(y):
+def divergence_torch_old(y):
     dim = y.shape[1]
     dims = [k for k in range(-dim,0)]
     return torch.stack([torch.gradient(y[:,k],dim=k)[0] for k in dims]).sum(dim=0)
@@ -3181,21 +3182,21 @@ def divergence_torch(y):
 
 def divergence_torch(y):
     """
-    Divergence for a batched D‑vector field stored as (B, D, *spatial).
+    Divergence for a batched D-vector field stored as ``(B, D, *spatial)``.
 
-    * **GPU / MPS** → use a single call to ``torch.gradient`` (fast, parallel).
-    * **CPU**       → compute only the gradients actually needed,
-      one component at a time, to avoid the unnecessary D² work that the
-      vectorised call performs on the CPU.
+    * **GPU / MPS** -> use a single call to ``torch.gradient`` (fast, parallel).
+    * **CPU**       -> compute only the gradients actually needed, one component
+      at a time, to avoid the unnecessary D^2 work that the vectorised call
+      performs on the CPU.
 
     Returns
     -------
     div : torch.Tensor
-        Shape ``(B, *spatial)`` – divergence of ``y``.
+        Shape ``(B, *spatial)`` - divergence of ``y``.
     """
     B, D, *spatial = y.shape
     if y.device.type == 'cpu':
-        # Allocate output once and fill in‑place
+        # Allocate output once and fill in-place
         div = torch.zeros((B, *spatial), dtype=y.dtype, device=y.device)
         for d in range(D):                          # loop over spatial axes
             comp   = y[:, d]                        # (B, *spatial)
@@ -3204,49 +3205,30 @@ def divergence_torch(y):
             div   += grad_d
         return div
     else:
-        spatial_axes = list(range(-len(spatial), 0))      # e.g. [-2,‑1] in 2‑D
+        spatial_axes = list(range(-len(spatial), 0))      # e.g. [-2,-1] in 2-D.
         grads = torch.gradient(y, dim=spatial_axes)       # tuple length == D
         div = sum(g[:, d] for d, g in enumerate(grads))   # pick aligned comps
         return div
     
-    
 
-# def divergence_torch(y):
-#     dim = y.shape[1]
-#     return torch.stack([torch.gradient(y[:, k], axis=k+1)[0] for k in range(dim)]).sum(dim=0)
-
-# def divergence_torch_optimized(y):
-#     B, D, *DIMS = y.shape
-#     div = torch.zeros([B,*DIMS], dtype=y.dtype, device=y.device)
-#     for d in range(-D,0):
-#         div += torch.gradient(y[:, d], dim=d)[0]
-#     # for d in range(D):
-#     #     print(y[:,d].shape,d)
-#     #     div += torch.gradient(y[:, d], dim=d+1)[0]
-#     return div
-
-
-# def gradient_torch(y, dim):
-#     grad = (y[..., 2:-1] - y[..., :-3]) / 2
-#     grad = torch.cat((y[..., :1] - y[..., 1:2], grad, y[..., -2:-1] - y[..., -3:-2]), dim=dim)
-#     return grad
-
-# def divergence_torch(y):
-#     B, D, *DIMS = y.shape
-#     div = torch.zeros([B,*DIMS], dtype=y.dtype, device=y.device)
-#     for d in range(D):
-#         div += gradient_torch(y[:, d], dim=d+1)
-#     return div
-
-
-
-
-def ensure_torch(*arrays, device=None, dtype=torch.float32):
+def _ensure_torch(*arrays, device=None, dtype=torch.float32):
     """Convert numpy arrays to torch tensors if needed."""
     return tuple(
         torch.tensor(arr, dtype=dtype, device=device).unsqueeze(0) if isinstance(arr, np.ndarray) else arr
         for arr in arrays
     )
+
+# def _ensure_torch(*arrays, device=None, dtype=torch.float32):
+#     """Convert NumPy arrays to torch tensors on *device* with an extra batch dim."""
+#     out = []
+#     for arr in arrays:
+#         if torch.is_tensor(arr):
+#             out.append(arr.to(device=device, dtype=dtype, copy=False))
+#         else:
+#             # NumPy / list → Tensor and prepend batch axis
+#             t = torch.as_tensor(arr, dtype=dtype, device=device).unsqueeze(0)
+#             out.append(t)
+#     return tuple(out)
 
 # @pyinstrument_profile
 def _get_affinity_torch(initial, final, flow, dist, iscell, steps, fact, inds, supporting_inds, 
@@ -3262,7 +3244,19 @@ def _get_affinity_torch(initial, final, flow, dist, iscell, steps, fact, inds, s
 
                         # angle_cutoff=np.pi/4):
     # print('using torch affinity - not equivalent YET, displacement vs flow field')
-    initial, final, flow, dist, iscell = ensure_torch(initial, final, flow, dist, iscell, device=device)
+    # print([arr.shape for arr in [initial, final, flow, dist, iscell]])
+    # print([isinstance(arr, np.ndarray) for arr in [initial, final, flow, dist, iscell]])
+    
+    
+    initial, final, flow, dist, iscell = _ensure_torch(initial, final, flow, dist, iscell, device=device)
+    # print([arr.shape for arr in [initial, final, flow, dist, iscell]])
+    
+    # print([isinstance(arr, np.ndarray) for arr in [initial, final, flow, dist, iscell]])
+    # print([isinstance(arr, torch.Tensor) for arr in [initial, final, flow, dist, iscell]])
+    # print(device)
+    # print([arr.device for arr in [initial, final, flow, dist, iscell]])
+
+    
     # compute the displacment vector field; repalcingflow with this does not seem to make a difference now
     # which means we could possibly forgo euler integration altogether 
     # using the displacmeent avoids some internal boundaries 
@@ -3379,24 +3373,16 @@ def _get_affinity_torch(initial, final, flow, dist, iscell, steps, fact, inds, s
     
     cutoff = D+2 # not sure if this will generalize to 3d.. those spurs will be connected to possibly 3x3 pixels
     cutoff = 3**(D-1) # + 1
-    keep = csum>=cutoff
-   
+    keep = csum>=cutoff   
 
-    # for i in range(S//2):
-    #     if 1:
-    # for i in range(S): # for now, keep full loop to ensure we are not asymmetric, canm reduce to //2 later , otherwise use non-self list
-    #     if i==S//2:
-    #         continue   
-    #     else:
-    
+
     valid_mask = utils.precompute_valid_mask(DIMS,steps,device=keep.device)
     # print('valid',valid_mask.shape)
     # print(connectivity[~valid_mask])
     
-    ### MIGHT HAVE source_slices, target_slices flipped...
     
-    self_idx = inds[0][0]
-    non_self = np.array(list(set(np.arange(len(steps)))-{self_idx})) # I need these to be in order
+    # self_idx = inds[0][0]
+    # non_self = np.array(list(set(np.arange(len(steps)))-{self_idx})) # I need these to be in order
     # print('non self',non_self)  
     # print('supporting_inds',supporting_inds)
     # for i in non_self:
@@ -3442,7 +3428,7 @@ def _get_affinity_torch(initial, final, flow, dist, iscell, steps, fact, inds, s
                     support = support.add(torch_and([connectivity[f][source_slc], 
                                                      connectivity[b][target_slc],
                                                      valid_mask[f][source_slc],
-                                                     valid_mask[b][target_slc],
+                                                    #  valid_mask[b][target_slc], # no need to check backwards too, reference same point
                                                      ]))
                     
                     
@@ -3478,7 +3464,7 @@ def _get_affinity_torch(initial, final, flow, dist, iscell, steps, fact, inds, s
             connectivity[i][source_slc] = connectivity[-(i+1)][target_slc] = torch_and([connectivity[i][source_slc],
                                                                                         connectivity[-(i+1)][target_slc],
                                                                                         
-                                                                                        # connectiosn should only exist of both hypervoxels are foreground
+                                                                                        # connections should only exist if both hypervoxels are foreground
                                                                                         iscell[source_slc],
                                                                                         iscell[target_slc],
                                                                                         

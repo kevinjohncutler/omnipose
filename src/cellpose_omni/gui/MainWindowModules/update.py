@@ -38,7 +38,7 @@ def update_layer_and_graph(self):
         
 
 def draw_change(self):
-    if not self.SCheckBox.isChecked():
+    if not self.PencilCheckBox.isChecked():
         self.highlight_rect.hide()
     else:
         self.update_highlight()
@@ -153,8 +153,8 @@ def reset(self):
     self.RGBDropDown.setCurrentIndex(self.color)
     self.view = 0
     self.ViewChoose.button(self.view).setChecked(True)
-    self.SCheckBox.setChecked(True)
-    # self.SCheckBox.setEnabled(False)
+    self.PencilCheckBox.setChecked(False)
+    # self.PencilCheckBox.setEnabled(False)
     self.restore_masks = 0
     # self.states = [None for i in range(len(self.default_cmaps))] 
     # if not hasattr(self.hist.gradient, 'view_states'):

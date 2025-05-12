@@ -255,6 +255,8 @@ class eval_set(torch.utils.data.Dataset):
                    normalize=True, 
                    tile_overlap=0.1, return_conv=False):
     
+        # need to check that model.net returns a tensor... almost certainly is
+    
         for imgi in batch:
             IMG, subs, shape, inds = make_tiles_ND(imgi,
                                                 bsize=bsize,

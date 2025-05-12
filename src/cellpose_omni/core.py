@@ -385,7 +385,7 @@ class UnetModel():
         return y, style
                 
     def _run_nets(self, img, net_avg=True, augment=False, tile=False, normalize=True,
-                  tile_overlap=0.1, bsize=224, return_conv=False, progress=None):
+                  tile_overlap=0.1, bsize=224, return_conv=False, to_numpy=True, progress=None):
         """ run network (if more than one, loop over networks and average results
 
         Parameters
@@ -424,7 +424,7 @@ class UnetModel():
         if isinstance(self.pretrained_model, str) or not net_avg:  
             y, style = self._run_net(img, augment=augment, tile=tile, normalize=normalize,
                                      tile_overlap=tile_overlap,
-                                     bsize=bsize, return_conv=return_conv)
+                                     bsize=bsize, return_conv=return_conv, to_numpy=to_numpy)
         else:  
             for j in range(len(self.pretrained_model)):
                 # load model if needed, should have already loaded it
@@ -448,7 +448,7 @@ class UnetModel():
                 y0, style = self._run_net(img, augment=augment, tile=tile, 
                                           normalize=normalize,
                                           tile_overlap=tile_overlap, bsize=bsize,
-                                          return_conv=return_conv)
+                                          return_conv=return_conv, to_numpy=to_numpy)
 
                 if j==0:
                     y = y0
@@ -464,7 +464,7 @@ class UnetModel():
     def _run_net(self, imgs, 
                  augment=False, tile=True, normalize=True,
                  tile_overlap=0.1, bsize=224,
-                 return_conv=False):
+                 return_conv=False, to_numpy=True):
         """ run network on image or stack of images
 
         (faster if augment is False)
@@ -534,12 +534,12 @@ class UnetModel():
             y, style = self._run_tiled(imgs, augment=augment, bsize=bsize, 
                                       tile_overlap=tile_overlap, 
                                       normalize=normalize,
-                                      return_conv=return_conv)
+                                      return_conv=return_conv, to_numpy=to_numpy)
         else:
 
             imgs = np.expand_dims(imgs, axis=0)
             # at this point imgs is (B,C,*dims)
-            y, style = self.network(imgs, return_conv=return_conv)
+            y, style = self.network(imgs, return_conv=return_conv, to_numpy=to_numpy)
             y, style = y[0], style[0]
         style /= (style**2).sum()**0.5
 
@@ -547,15 +547,15 @@ class UnetModel():
         y = y[slc]
 
         # transpose so channels axis is last again
-        # Seems really silly to keep doing this, maybe I should just heep channels first everywhere 
+        # Seems really silly to keep doing this, maybe I should just keep channels first everywhere 
         if transpose:
-            y = np.transpose(y, detranspose)
+            y = np.transpose(y, detranspose) if isinstance(y, np.ndarray) else torch.transpose(y, detranspose)
 
         return y, style
     
     def _run_tiled(self, imgi, augment=False, normalize=True, 
                    bsize=224, tile_overlap=0.1,
-                   return_conv=False):
+                   return_conv=False, to_numpy=True):
         """ run network in tiles of size [bsize x bsize]
 
         Image is split into overlapping tiles of size [bsize x bsize].
@@ -602,7 +602,9 @@ class UnetModel():
                 for i in ziterator:
                     yfi, stylei = self._run_tiled(imgi[i], augment=augment, 
                                                   bsize=bsize, normalize=normalize, 
-                                                  tile_overlap=tile_overlap)
+                                                  tile_overlap=tile_overlap, 
+                                                  return_conv=return_conv,
+                                                  to_numpy=to_numpy)
                     yf[i] = yfi
                     styles.append(stylei)
             else:
@@ -618,7 +620,9 @@ class UnetModel():
                                                                         augment=augment,
                                                                         tile_overlap=tile_overlap)
                         IMGa[i*ntiles:(i+1)*ntiles] = np.reshape(IMG, (ny*nx, nchan, ly, lx))
-                    ya, stylea = self.network(IMGa)
+                    ya, stylea = self.network(IMGa,
+                                              return_conv=return_conv,
+                                              to_numpy=to_numpy)
                     for i in range(min(Lz-k*nimgs, nimgs)):
                         y = ya[i*ntiles:(i+1)*ntiles]
                         if augment:
@@ -631,7 +635,8 @@ class UnetModel():
                         stylei = stylea[i*ntiles:(i+1)*ntiles].sum(axis=0)
                         stylei /= (stylei**2).sum()**0.5
                         styles.append(stylei)
-            return yf, np.array(styles)
+                        
+            return yf, np.array(styles) # might want to avoid np.array call on styles if to_numpy is false 
         else:
             IMG, subs, shape, inds = transforms.make_tiles_ND(imgi, bsize=bsize,
                                                               augment=augment,
@@ -645,7 +650,7 @@ class UnetModel():
             y = np.zeros((IMG.shape[0], nout)+tuple(IMG.shape[-self.dim:]))
             for k in range(niter):
                 irange = np.arange(batch_size*k, min(IMG.shape[0], batch_size*k+batch_size))
-                y0, style = self.network(IMG[irange], return_conv=return_conv)
+                y0, style = self.network(IMG[irange], return_conv=return_conv, to_numpy=to_numpy)
                 arg = (len(irange),)+y0.shape[-(self.dim+1):]
                 y[irange] = y0.reshape(arg)
                 if k==0:

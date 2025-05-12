@@ -70,7 +70,7 @@ def enable_buttons(self):
     #     self.StyleButtons[i].setStyleSheet(self.styleUnpressed)
     
     # self.SizeButton.setEnabled(True)
-    # self.SCheckBox.setEnabled(True)
+    # self.PencilCheckBox.setEnabled(True)
     # self.SizeButton.setStyleSheet(self.styleUnpressed)
     # self.newmodel.setEnabled(True)
     self.loadMasks.setEnabled(True)
@@ -381,19 +381,19 @@ def make_buttons(self):
     # self.l0.addWidget(label, b, 0, 1, 1)
 
     # Pen Active Checkbox
-    # self.SCheckBox = QCheckBox()
-    # self.SCheckBox.setStyleSheet(checkstyle(COLORS[0]))
-    # self.SCheckBox.setFont(self.medfont)
-    # self.SCheckBox.setChecked(True)  # Default pen active
-    # self.SCheckBox.toggled.connect(lambda: self.autosave_on())
-    # self.SCheckBox.toggled.connect(lambda: self.update_brush_slider_color())
-    # self.l0.addWidget(self.SCheckBox, b, 1, 1, 1)
+    # self.PencilCheckBox = QCheckBox()
+    # self.PencilCheckBox.setStyleSheet(checkstyle(COLORS[0]))
+    # self.PencilCheckBox.setFont(self.medfont)
+    # self.PencilCheckBox.setChecked(True)  # Default pen active
+    # self.PencilCheckBox.toggled.connect(lambda: self.autosave_on())
+    # self.PencilCheckBox.toggled.connect(lambda: self.update_brush_slider_color())
+    # self.l0.addWidget(self.PencilCheckBox, b, 1, 1, 1)
     
     ### PENCIL 
 # Define the active and inactive icons
 
     # Create the IconToggleButton
-    self.SCheckBox = guiparts.IconToggleButton(
+    self.PencilCheckBox = guiparts.IconToggleButton(
         icon_active_name="mdi.draw",  # Active icon name
         icon_inactive_name="mdi.draw",  # Active icon name
         
@@ -404,14 +404,15 @@ def make_buttons(self):
         parent=self
     )
     
-    self.SCheckBox.setChecked(True)  # Default pen active
-    self.SCheckBox.setEnabled(True)  # Default pen active
+    self.PencilCheckBox.setEnabled(True)  
+    self.PencilCheckBox.setChecked(False) 
     
-    self.SCheckBox.toggled.connect(lambda: self.autosave_on())
-    self.SCheckBox.toggled.connect(lambda: self.draw_change())
+    
+    self.PencilCheckBox.toggled.connect(lambda: self.autosave_on())
+    self.PencilCheckBox.toggled.connect(lambda: self.draw_change())
 
     # Add the button to your layout
-    self.l0.addWidget(self.SCheckBox, b, c, 1, 1)
+    self.l0.addWidget(self.PencilCheckBox, b, c, 1, 1)
     
 
     
@@ -425,7 +426,7 @@ def make_buttons(self):
     self.brush_slider.valueChanged.connect(lambda: self.brush_size_change())
 
 
-    # Set the text color based on self.SCheckBox state
+    # Set the text color based on self.PencilCheckBox state
     # self.update_brush_slider_color()
 
 

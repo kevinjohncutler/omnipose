@@ -1,7 +1,7 @@
 import numpy as np
 from .. import logger
 def autosave_on(self):
-    if self.SCheckBox.isChecked():
+    if self.PencilCheckBox.isChecked():
         self.autosave = True
     else:
         self.autosave = False

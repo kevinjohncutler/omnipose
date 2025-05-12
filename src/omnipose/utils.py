@@ -1122,6 +1122,7 @@ def precompute_valid_mask(shape, steps, device=None):
     valid = valid.unsqueeze(1)
     return valid
 
+
 # @njit 
 # def get_neighbors(coords, steps, dim, shape, edges=None, pad=0):
 #     print('this version actually a lot slower than below ')

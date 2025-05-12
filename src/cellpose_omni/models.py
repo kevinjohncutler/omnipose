@@ -1295,6 +1295,7 @@ class CellposeModel(UnetModel):
                         img = zoom(img,rescale,order=1)
                         
                 # inherited from Unet 
+                # returns numpy arrays by default, not torch tensors
                 yf, style = self._run_nets(img, net_avg=net_avg,
                                            augment=augment, tile=tile,
                                            normalize=normalize, 
@@ -1302,7 +1303,7 @@ class CellposeModel(UnetModel):
                                            bsize=bsize)
                 # unpadding 
                 yf = yf[unpad+(Ellipsis,)]
-                
+                                
                 # resample interpolates the network output to native resolution prior to running Euler integration
                 # this means the masks will have no scaling artifacts. We could *upsample* by some factor to make
                 # the clustering etc. work even better, but that is not implemented yet 

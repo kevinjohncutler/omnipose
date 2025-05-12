@@ -8,7 +8,7 @@ import pyqtgraph as pg
 # cursor highlight, maybe more of an annotation thing 
 def update_highlight(self, pos=None):
 
-    if not self.SCheckBox.isChecked():
+    if not self.PencilCheckBox.isChecked():
         self.highlight_rect.hide()
         return
 
@@ -44,7 +44,7 @@ def update_highlight(self, pos=None):
 
     # pick the kernel if brush mode is on
     px = np.ones((1, 1), dtype=bool)
-    kernel = getattr(self.layer, '_kernel', px) if self.SCheckBox.isChecked() else px
+    kernel = getattr(self.layer, '_kernel', px) if self.PencilCheckBox.isChecked() else px
 
     # Recompute the path if needed
     if not hasattr(self, 'highlight_path'):

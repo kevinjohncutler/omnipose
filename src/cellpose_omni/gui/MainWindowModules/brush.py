@@ -1,6 +1,6 @@
 def update_brush_slider_color(self):
     """Update brush slider text color based on pen active state."""
-    color = 'red' if self.SCheckBox.isChecked() else "gray"
+    color = 'red' if self.PencilCheckBox.isChecked() else "gray"
     # print('color',self.accent)
     self.brush_slider.setStyleSheet(f"color: {color};")
 

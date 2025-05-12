@@ -58,7 +58,7 @@ def keyPressEvent(self, event):
     elif key == QtCore.Qt.Key_G:
         self.flood_fill_enabled = True  # Enable flood fill
     elif key == QtCore.Qt.Key_B:
-        self.SCheckBox.toggle()  # Toggle brush tool
+        self.PencilCheckBox.toggle()  # Toggle brush tool
     elif key == QtCore.Qt.Key_M:
         self.MCheckBox.toggle()  # Toggle masks
     elif key == QtCore.Qt.Key_O:
@@ -104,13 +104,13 @@ def keyPressEvent(self, event):
             else:
                 # If already at the minimum, turn off drawing
                 new_value = self.brush_slider.minimum()
-                self.SCheckBox.setChecked(False)
+                self.PencilCheckBox.setChecked(False)
         else:  # Key_BracketRight
             # Attempt to increase the brush size
-            if not self.SCheckBox.isChecked():
+            if not self.PencilCheckBox.isChecked():
                 # If the checkbox is unchecked, reset to minimum value and enable
                 new_value = self.brush_slider.minimum()
-                self.SCheckBox.setChecked(True)
+                self.PencilCheckBox.setChecked(True)
             else:
                 new_value = min(self.brush_slider.maximum(), current_value + self.brush_slider.singleStep())
 
