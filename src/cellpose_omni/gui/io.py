@@ -39,8 +39,15 @@ def read_image_with_channel_axis(filename):
         meta: The metadata dictionary.
     """
     img = iio.imread(filename)
-    meta = iio.immeta(filename)
+    # meta = iio.immeta(filename)
+    try:
+        meta = iio.immeta(filename)  
+    except Exception as e:
+        print(f"Warning: could not load metadata for {filename}: {e}")
+        meta = {}
     
+    print('image shape', img.shape)
+    # Check if the image is grayscale saved as RGB
 
     if 'axes' in meta:
         axes = meta['axes']
@@ -170,6 +177,7 @@ def _load_image(parent, filename=None, load_seg=True):
         
     # from here, we now will just be loading an image and a mask image file format, not npy 
     try:
+    
         logger.info(f'[_load image] loading image: {filename}')
         image, channel_axis, meta = read_image_with_channel_axis(filename)
         logger.info(f'[_load image] image shape: {image.shape}, channel_axis: {channel_axis}')
@@ -178,7 +186,6 @@ def _load_image(parent, filename=None, load_seg=True):
         # if image.ndim ==3 and image.shape[-1] == 3:
         #     print('Assuming RGB image, converting to CYX')
         #     image = np.transpose(image, (2,0,1))
-            
         _initialize_images(parent, image, channel_axis)
         parent.reset()
         parent.recenter()

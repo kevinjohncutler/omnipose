@@ -375,7 +375,7 @@ def compute_model(self):
     
     ### will either have to put in edge cases for worm etc or just generalize model loading to respect what is there 
     # try:
-    omni_model = 'omni' in self.current_model
+    omni_model = 'omni' in self.current_model or 'affinity' in self.current_model
     bacterial = 'bact' in self.current_model
     if omni_model or bacterial:
         self.NetAvg.setCurrentIndex(1) #one run net
@@ -386,11 +386,11 @@ def compute_model(self):
     # allow omni to be togged manually or forced by model
     if OMNI_INSTALLED:
         if omni_model:
-            logger.info('turning on Omnipose mask recontruction version for Omnipose models (see menu)')
+            logger.info('turning on Omnipose mask reconstruction version for Omnipose models (see menu)')
             if not self.omni.isChecked():
-                print('WARNING: Omnipose models require Omnipose mask recontruction (toggle back on in menu)')
+                print('WARNING: Omnipose models require Omnipose mask reconstruction (toggle back on in menu)')
             if not self.cluster.isChecked():
-                print(('NOTE: clutering algorithm can help with over-segmentation in thin cells.'
+                print(('NOTE: clustering algorithm can help with over-segmentation in thin cells.'
                         'Default is ON with omnipose models (see menu)'))
                 
         elif self.omni.isChecked():

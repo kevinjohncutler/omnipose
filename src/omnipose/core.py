@@ -136,10 +136,13 @@ def get_niter(dists):
         of the distance field relaxation method
     
     """
-    isarray = type(dists) == np.ndarray
-    module = np if isarray else torch
+    # isarray = type(dists) == np.ndarray
+    # module = np if isarray else torch
+    module = utils.get_module(dists)
     c = module.ceil(module.max(dists)*1.16)+1
-    return c.astype(int) if isarray else c.int()
+    return c.astype(int) if module==np else c.int()
+    
+    # deprecated? only called during training flow generation it seems, not inference 
 
     # m = module.max(dists)
     # c = module.ceil(m*1.16)
@@ -1486,7 +1489,11 @@ def compute_masks(dP, dist, affinity_graph=None, bd=None, p=None, coords=None, i
                         affinity_graph = affinity_graph.squeeze().cpu().numpy()
                         # print(affinity_graph.shape,affinity_graph[(Ellipsis,)+tuple(coords)].shape)
                         affinity_graph = affinity_graph[(Ellipsis,)+tuple(coords)]
-                        
+                    
+                    
+                    # despur really not needed anymore, handled by the affinity grpah torch version
+                    
+                    
                     # elif despur:
                         # if it is passed in, we need the neigh_inds to compute masks 
                         # (though eventually we will want this to also be in parallel on GPU...)
