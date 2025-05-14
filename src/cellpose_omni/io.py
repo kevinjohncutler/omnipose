@@ -156,59 +156,59 @@ def imread(filename):
             return None
 
 
-def imwrite(filename, arr, **kwargs):
-    # should transition to imagecodecs instead, faster for webp, probably others too 
-    # cv2 does not support jpeg xl, but imagecodecs does
+# def imwrite(filename, arr, **kwargs):
+#     # should transition to imagecodecs instead, faster for webp, probably others too 
+#     # cv2 does not support jpeg xl, but imagecodecs does
 
-    ext = os.path.splitext(filename)[-1].lower()
-    if ext in ['.tif', '.tiff']:
-        tifffile.imwrite(filename, arr, **kwargs)
-    elif ext == '.npy':
-        np.save(filename, arr, **kwargs)
-    else:
-        if ext == '.png':
-            compression = kwargs.pop('compression', 9)        
-            params = [cv2.IMWRITE_PNG_COMPRESSION, compression]
-        elif ext in ['.jpg', '.jpeg', '.jp2']:
-            quality = kwargs.pop('quality', 95)
-            params = [cv2.IMWRITE_JPEG_QUALITY, quality]
-        elif ext == '.webp':
-            quality = kwargs.pop('quality', 0)
-            # note: webp quality should be >100 for "lossless" compression, though a few pixels still differ 
-            # 0 still looks really really good, though
-            params = [cv2.IMWRITE_WEBP_QUALITY, quality]
-        elif ext == '.jxl':
-            quality = kwargs.pop('quality', 95)
-            effort = kwargs.pop('effort', 7)
-            distance = kwargs.pop('distance', 1.0)
-            decoding_speed = kwargs.pop('decoding_speed', 0)
-            params = [
-                cv2.IMWRITE_JPEGXL_QUALITY, quality,
-                cv2.IMWRITE_JPEGXL_EFFORT, effort,
-                cv2.IMWRITE_JPEGXL_DISTANCE, distance,
-                cv2.IMWRITE_JPEGXL_DECODING_SPEED, decoding_speed
-            ]    
+#     ext = os.path.splitext(filename)[-1].lower()
+#     if ext in ['.tif', '.tiff']:
+#         tifffile.imwrite(filename, arr, **kwargs)
+#     elif ext == '.npy':
+#         np.save(filename, arr, **kwargs)
+#     else:
+#         if ext == '.png':
+#             compression = kwargs.pop('compression', 9)        
+#             params = [cv2.IMWRITE_PNG_COMPRESSION, compression]
+#         elif ext in ['.jpg', '.jpeg', '.jp2']:
+#             quality = kwargs.pop('quality', 95)
+#             params = [cv2.IMWRITE_JPEG_QUALITY, quality]
+#         elif ext == '.webp':
+#             quality = kwargs.pop('quality', 0)
+#             # note: webp quality should be >100 for "lossless" compression, though a few pixels still differ 
+#             # 0 still looks really really good, though
+#             params = [cv2.IMWRITE_WEBP_QUALITY, quality]
+#         elif ext == '.jxl':
+#             quality = kwargs.pop('quality', 95)
+#             effort = kwargs.pop('effort', 7)
+#             distance = kwargs.pop('distance', 1.0)
+#             decoding_speed = kwargs.pop('decoding_speed', 0)
+#             params = [
+#                 cv2.IMWRITE_JPEGXL_QUALITY, quality,
+#                 cv2.IMWRITE_JPEGXL_EFFORT, effort,
+#                 cv2.IMWRITE_JPEGXL_DISTANCE, distance,
+#                 cv2.IMWRITE_JPEGXL_DECODING_SPEED, decoding_speed
+#             ]    
         
-        else:
-            # For any other extension, no special parameters are set.
-            params = []
+#         else:
+#             # For any other extension, no special parameters are set.
+#             params = []
         
-        # Handle color conversion for cv2
-        if len(arr.shape) > 2:
-            if arr.shape[-1] == 3:
-                # If the user provided an image in RGB order, convert it to BGR for OpenCV.
-                arr = cv2.cvtColor(arr, cv2.COLOR_RGB2BGR)
-            elif arr.shape[-1] == 4:
-                # For a 4-channel image, assume it is in RGBA order.
-                # Convert RGBA to BGRA so that the alpha channel is preserved.
-                arr = cv2.cvtColor(arr, cv2.COLOR_RGBA2BGRA)
+#         # Handle color conversion for cv2
+#         if len(arr.shape) > 2:
+#             if arr.shape[-1] == 3:
+#                 # If the user provided an image in RGB order, convert it to BGR for OpenCV.
+#                 arr = cv2.cvtColor(arr, cv2.COLOR_RGB2BGR)
+#             elif arr.shape[-1] == 4:
+#                 # For a 4-channel image, assume it is in RGBA order.
+#                 # Convert RGBA to BGRA so that the alpha channel is preserved.
+#                 arr = cv2.cvtColor(arr, cv2.COLOR_RGBA2BGRA)
         
-        # Append any extra kwargs as key/value pairs.
-        extra_params = []
-        for key, value in kwargs.items():
-            extra_params.extend([key, value])
-        # Write the image with the combined parameters.
-        cv2.imwrite(filename, arr, params + extra_params)
+#         # Append any extra kwargs as key/value pairs.
+#         extra_params = []
+#         for key, value in kwargs.items():
+#             extra_params.extend([key, value])
+#         # Write the image with the combined parameters.
+#         cv2.imwrite(filename, arr, params + extra_params)
         
 
 import os
@@ -242,8 +242,8 @@ def imwrite(filename, arr, **kwargs):
     encoded = None
     if ext == '.png':
         # For PNG, get 'compression'; other kwargs may be passed to the encoder.
-        compression = kwargs.pop('compression', 9)
-        encoded = imagecodecs.png_encode(arr, compression=compression, **kwargs)
+        level = kwargs.pop('level', 9)
+        encoded = imagecodecs.png_encode(arr, level=level, **kwargs)
     elif ext in ['.jpg', '.jpeg', '.jp2']:
         level = kwargs.pop('level', 95)
         encoded = imagecodecs.jpeg_encode(arr, level=level, **kwargs)
