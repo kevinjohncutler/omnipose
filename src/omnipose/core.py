@@ -5,7 +5,8 @@ from scipy.ndimage import affine_transform, binary_dilation, binary_opening, bin
 from skimage.morphology import remove_small_objects
 from skimage.segmentation import find_boundaries
 try:
-    import networkit as nk # for connected components
+    import networkit as nk    # for connected components
+    np.ulong = np.uint64      # restore the old alias
 except:
     pass
 
@@ -3980,9 +3981,12 @@ def affinity_to_masks(affinity_graph,neigh_inds,iscell, coords,
     # print(edge_list[0].shape,edge_list[1].shape)
     # Create a Networkit graph from the edge list
     g = nk.graph.Graph(n=npix, weighted=False)
+    
+    # I benchmarked two methods of adding edges:
+    # addEdges with a tuple of
+    
     # edge_list = (np.array(edge_list[:,0]), np.array(edge_list[:,1]))
     # g.addEdges(edge_list)
-    
     u = np.ascontiguousarray(edge_list[:, 0], dtype=np.uint64)
     v = np.ascontiguousarray(edge_list[:, 1], dtype=np.uint64)
     g.addEdges((u, v))

@@ -489,6 +489,8 @@ def qnorm(Y,
         return r
         
         
+# should add an option for foreground/background to allow upper to refer to foreground 
+# and lower to background
 def normalize99(Y, lower=0.01, upper=99.99, contrast_limits=None, dim=None):
     """ normalize array/tensor so 0.0 is 0.01st percentile and 1.0 is 99.99th percentile 
     Upper and lower percentile ranges configurable. 
