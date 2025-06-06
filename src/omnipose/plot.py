@@ -86,10 +86,10 @@ def setup():
     _Axes.legend = _legend
     
 
-def figure(nrow=None, ncol=None, **kwargs):
+def figure(nrow=None, ncol=None, aspect=1, **kwargs):
     figsize = kwargs.get('figsize', 2)
     if not isinstance(figsize, (list, tuple, np.ndarray)) and figsize is not None:
-        figsize = (figsize, figsize)
+        figsize = (figsize*aspect, figsize)
         
     kwargs['figsize'] = figsize
     fig = Figure(**kwargs)

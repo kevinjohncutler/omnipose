@@ -1724,9 +1724,11 @@ def div_rescale(dP,mask,p=1):
         dP *= div
     return dP
 
+from scipy.special import expit
 def sigmoid(x):
     """The sigmoid function."""
-    return 1 / (1 + np.exp(-x))
+    expit(x) # this is the same as 1 / (1 + np.exp(-x))
+    # return 1 / (1 + np.exp(-x))
 
 # def bd_rescale(dP,mask,bd):
 #     dP = dP.copy()

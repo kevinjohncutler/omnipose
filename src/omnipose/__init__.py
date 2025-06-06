@@ -2,7 +2,9 @@
 import os
 import multiprocessing
 os.environ['NUMEXPR_MAX_THREADS'] = str(multiprocessing.cpu_count())
-
+# apparently there is another function in numexpr that can detect number of cores too 
+# this might be a reason why loading takes so long 
+# "and can increase import times for NumExpr or packages that import it such as Pandas or PyTables."
 
 # controlled import to prevent MIP print statement 
 # import mip

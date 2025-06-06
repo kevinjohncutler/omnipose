@@ -11,6 +11,8 @@ import edt
 import torch
 import fastremap
 
+from ncolor import unique_nonzero
+
 def vector_to_arrow(vectors, flip_y: bool = False):
     """
     Convert one or many 2-D vectors (in y,x order) into Unicode arrow glyphs.
@@ -62,16 +64,7 @@ def vector_to_arrow(vectors, flip_y: bool = False):
 
     glyphs = [arrow_map.get(sig, '?') for sig in signs]
     return glyphs[0] if len(glyphs) == 1 else glyphs
-    
-def unique_nonzero(labels):
-    """
-    Get unique nonzero labels
-    """
-    # return np.sort(np.array(list(set(fastremap.unique(labels))-set((0,)))))
-    if np.any(labels):
-        return fastremap.unique(labels[labels > 0])
-    else:
-        return np.array([0])
+
 
 
 def random_int(N, M=None, seed=None):
