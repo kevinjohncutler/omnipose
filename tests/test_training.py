@@ -33,7 +33,7 @@ def test_training():
 
     assert model_path is not None, "Model checkpoint for epoch 1 not saved"
 
-    model_file = torch.load(model_path)
+    model_file = torch.load(model_path, weights_only=True)
     assert isinstance(model_file, dict), "Loaded model file is not a dictionary"
     assert any(key.startswith('downsample') or key.startswith('output') for key in model_file.keys()), "State dict does not contain weights values"
 

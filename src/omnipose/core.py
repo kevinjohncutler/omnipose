@@ -88,7 +88,6 @@ OMNI_INSTALLED = True
 
 from tqdm import trange 
 import ncolor, scipy
-from scipy.ndimage.filters import maximum_filter1d
 from scipy.ndimage import find_objects, gaussian_filter, generate_binary_structure, label, maximum_filter1d, binary_fill_holes, zoom
 
 # try:
@@ -687,16 +686,35 @@ def get_links(masks,labels,bd,connectivity=1):
 #     # remap
 #     return fastremap.remap(masks,mapdict,preserve_missing_labels=True, in_place=False)
 
+
+
+# this needs to be updaed... now a private jitted function, with a public wrapper below
 @njit(parallel=True)
-def get_link_matrix(links, piece_masks, inds, idx, is_link):
+def _get_link_matrix(links_arr, piece_masks, inds, idx, is_link):
     for k in prange(len(inds)):
         i = inds[k]
         for j in range(len(piece_masks[i])):
             a = piece_masks[i][j]
             b = piece_masks[idx][j]
-            if ((a, b) in links) or ((b, a) in links):
-                is_link[i, j] = True
+            # check each link tuple in the array
+            for l in range(links_arr.shape[0]):
+                if (links_arr[l, 0] == a and links_arr[l, 1] == b) or (links_arr[l, 1] == a and links_arr[l, 0] == b):
+                    is_link[i, j] = True
+                    break
     return is_link
+
+def get_link_matrix(links, piece_masks, inds, idx, is_link):
+    """
+    Public wrapper: convert an iterable of (a,b) link tuples into a 2D array
+    and call the jitted helper.
+    """
+    import numpy as _np
+    # If no links provided, nothing to mark
+    if not links:
+        return is_link
+    # Build an (N,2) int64 array of link pairs
+    links_arr = _np.array(list(links), dtype=_np.int64)
+    return _get_link_matrix(links_arr, piece_masks, inds, idx, is_link)
 
 # @njit() cannot compute fingerprint of empty set
 def masks_to_affinity(masks, coords, steps, inds, idx, fact, sign, dim,
@@ -2501,7 +2519,7 @@ def random_crop_warp(img, Y, tyx, v1, v2, nchan, rescale, scale_range, gamma_ran
                 
             # bit depth augmentation
             if aug_choices[3]:
-                bit_shift = int(np.random.triangular(left=0, mode=8, right=14, size=1))
+                bit_shift = int(np.random.triangular(left=0, mode=8, right=14))
                 im = utils.to_16_bit(imgi[k])
                 # imgi[k] = utils.normalize99(im>>bit_shift)
                 imgi[k] = utils.rescale(im>>bit_shift)

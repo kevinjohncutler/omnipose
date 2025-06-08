@@ -3,9 +3,27 @@
 # import pkg_resources
 # __version__ = pkg_resources.get_distribution("omnipose").version
 
-import pkg_resources
+# import pkg_resources
+# __all__ = ['core', 'models', 'io', 'metrics', 'plot']
+# __version__ = pkg_resources.get_distribution("omnipose").version
+# def __getattr__(name):
+#     if name in __all__:
+#         import importlib
+#         module = importlib.import_module(f".{name}", __name__)
+#         globals()[name] = module
+#         return module
+#     raise AttributeError(f"module 'omnipose' has no attribute '{name}'")
+
+
+from importlib.metadata import version, PackageNotFoundError
+
 __all__ = ['core', 'models', 'io', 'metrics', 'plot']
-__version__ = pkg_resources.get_distribution("omnipose").version
+
+try:
+    __version__ = version("omnipose")
+except PackageNotFoundError:
+    __version__ = "0+unknown"
+
 def __getattr__(name):
     if name in __all__:
         import importlib

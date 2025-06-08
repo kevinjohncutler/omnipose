@@ -19,3 +19,11 @@ omnipose = "omnipose.__main__:main"
 
 # [tool.setuptools_scm]
 # write_to = "src/omnipose/_version.py"
+
+
+[tool.pytest.ini_options]
+testpaths     = ["tests"]
+norecursedirs = ["trash"]
+filterwarnings = [
+  "ignore::DeprecationWarning:networkit.profiling.profiling"
+]
