@@ -64,10 +64,10 @@ def setup():
         'axes.edgecolor': 'gray',
         # Legend defaults – place legend outside axes on the right, no frame
         'legend.loc': 'center left',
-        # 'legend.bbox_to_anchor': (1.02, 0.5),  # Removed per instructions
         'legend.frameon': False,
         'legend.framealpha': 0,
         'legend.borderaxespad': 0.0,
+        'lines.scale_dashes': False 
     }
 
     # Update rcParams
@@ -1455,10 +1455,23 @@ from skimage.segmentation import find_boundaries
 from scipy.interpolate import splprep, splev
 from matplotlib.collections import PatchCollection
 
-def vector_contours(fig,ax,mask, smooth_factor=5, color = 'r', linewidth=1):
-    pad = 1
-    msk = np.pad(mask,pad,mode='constant')
+def vector_contours(fig,ax,mask, crop=None, smooth_factor=5, color = 'r', linewidth=1,
+                    y_offset=0, x_offset=0,
+                    pad=2,
+                    mode='constant'
+                    ):
 
+    msk = np.pad(mask,pad,mode='edge')
+
+    # msk = np.pad(mask,pad,mode=mode)
+    
+    if crop is not None:
+        # Crop the mask to the specified region
+        # msk = msk[crop]
+        y_offset += crop[0].start
+        x_offset += crop[1].start
+        
+    msk = np.pad(msk,1,mode='constant', constant_values=0)
 
     # set up dimensions
     dim = msk.ndim
@@ -1479,19 +1492,32 @@ def vector_contours(fig,ax,mask, smooth_factor=5, color = 'r', linewidth=1):
                                                     affinity_graph,
                                                     coords,
                                                     neighbors,
-                                                    cardinal_only=1)
+                                                    cardinal_only=True)
 
     # List to hold patches
     patches = []
     for contour in contour_list:
         if len(contour) > 1:
-            pts = np.stack([c[contour] for c in coords]).T
+            pts = np.stack([c[contour] for c in coords]).T[:, ::-1]  # YX to XY
+            pts+= np.array([x_offset,y_offset])  # Apply offsets
             tck, u = splprep(pts.T, u=None, s=len(pts)/smooth_factor, per=1) 
             u_new = np.linspace(u.min(), u.max(), len(pts))
             x_new, y_new = splev(u_new, tck, der=0) 
+            
 
             # Define the points of the polygon
-            points = np.column_stack([y_new-pad, x_new-pad])
+            # points = np.column_stack([y_new-pad+y_offset, x_new-pad+x_offset])
+            # points = np.column_stack([ x_new-pad+x_offset,y_new-pad+y_offset])
+            # points = np.column_stack([ x_new-2*pad+x_offset,y_new-2*pad+y_offset])
+            # points = np.column_stack([x_new-pad,y_new-pad])
+            if isinstance(pad,tuple):
+                # If pad is a tuple, apply it to x and y separately
+                points = np.column_stack([x_new-(pad[0][0]+1), y_new-(pad[1][0]+1)])
+            else:
+                points = np.column_stack([x_new-(pad+1),y_new-(pad+1)])
+            
+            
+            
             
             # Create a Path from the points
             path = mpath.Path(points, closed=True)
@@ -1511,8 +1537,8 @@ def vector_contours(fig,ax,mask, smooth_factor=5, color = 'r', linewidth=1):
     # Add the PatchCollection to the axis/axes
     if isinstance(ax,list):
         for a in ax:
-            patch_collection = PatchCollection(patches, match_original=True)
+            patch_collection = PatchCollection(patches, match_original=True, snap=False)
             a.add_collection(patch_collection)
     else:
-        patch_collection = PatchCollection(patches, match_original=True)
+        patch_collection = PatchCollection(patches, match_original=True, snap=False)
         ax.add_collection(patch_collection)

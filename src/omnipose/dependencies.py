@@ -4,7 +4,7 @@ install_deps = ['numba>=0.61.0', # let numba control numpy version
                 'scipy', 
                 'edt',
                 'scikit-image',
-                'ncolor>=1.2.1',
+                'ncolor>=1.4.2',
                 'scikit-learn',
                 'torch>=1.10',
                 'torchvision', # redundant from torchvf 
@@ -23,7 +23,8 @@ install_deps = ['numba>=0.61.0', # let numba control numpy version
                 'fastremap', # not sure how I missed this one 
                 'cmap', 
                 'dbscan', # almost 2x faster than sklearn dbscan!
-                'pyinstrument'
+                'pyinstrument',
+                'imagecodecs'
                 ]
 
 # notes: Numpy 2 is close, networkit might be the last dependency needed to upgrade 
