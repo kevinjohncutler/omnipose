@@ -4,7 +4,7 @@ install_deps = ['numba>=0.61.0', # let numba control numpy version
                 'scipy', 
                 'edt',
                 'scikit-image',
-                'ncolor>=1.4.2',
+                'ncolor>=1.4.3',
                 'scikit-learn',
                 'torch>=1.10',
                 'torchvision', # redundant from torchvf 
