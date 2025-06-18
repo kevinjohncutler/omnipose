@@ -1458,7 +1458,8 @@ from matplotlib.collections import PatchCollection
 def vector_contours(fig,ax,mask, crop=None, smooth_factor=5, color = 'r', linewidth=1,
                     y_offset=0, x_offset=0,
                     pad=2,
-                    mode='constant'
+                    mode='constant',
+                    zorder=1,
                     ):
 
     msk = np.pad(mask,pad,mode='edge')
@@ -1467,9 +1468,7 @@ def vector_contours(fig,ax,mask, crop=None, smooth_factor=5, color = 'r', linewi
     
     if crop is not None:
         # Crop the mask to the specified region
-        # msk = msk[crop]
-        y_offset += crop[0].start
-        x_offset += crop[1].start
+        msk = msk[crop]
         
     msk = np.pad(msk,1,mode='constant', constant_values=0)
 
@@ -1526,6 +1525,7 @@ def vector_contours(fig,ax,mask, crop=None, smooth_factor=5, color = 'r', linewi
             patch = mpatches.PathPatch(path, fill=None, edgecolor=color, 
                                     #    linewidth= fig.dpi/72, 
                                         linewidth=linewidth,
+                                        zorder=zorder,
                                        capstyle='round')
             
             # ax.add_patch(patch)
