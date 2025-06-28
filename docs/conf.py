@@ -12,20 +12,25 @@
 # documentation root, use os.path.abspath to make it absolute, like shown here.
 #
 import sys, os, re
+# Disable Numba JIT during doc builds—avoids compilation errors when
+# Sphinx imports modules that use @njit functions.
+os.environ.setdefault("NUMBA_DISABLE_JIT", "1")
 # sys.path.insert(0, os.path.abspath('.'))
 
 sys.path.insert(0, os.path.abspath('..'))
+sys.path.insert(0, os.path.abspath('../src'))
 
 
 # Add all the modules that can't be installed in the RTD environment
 # autodoc_mock_imports = ["networkit"]
 
-from dependencies import install_deps, gui_deps, distributed_deps
+from omnipose.dependencies import install_deps, gui_deps, distributed_deps
 autodoc_mock_imports = install_deps + gui_deps + distributed_deps
 autodoc_mock_imports += ["cv2", "tqdm", "skimage", "numba", "torch", 
                          "sklearn", #this one in particular is a problem because it registers different than the package name 
                          "torchvision", # may remove from imports 
                          ]
+
 # Function to strip version specifiers from package names
 def strip_versions(dep_list):
     # Updated function to correctly process and strip version specifiers from package names
