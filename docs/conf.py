@@ -22,7 +22,7 @@ sys.path.insert(0, os.path.abspath('..'))
 sys.path.insert(0, os.path.abspath('../src'))
 
 # Add all the modules that can't be installed in the RTD environment
-from omnipose.dependencies import install_deps, gui_deps, distributed_deps
+from dependencies import install_deps, gui_deps, distributed_deps
 autodoc_mock_imports = install_deps + gui_deps + distributed_deps
 autodoc_mock_imports += ["cv2", "tqdm", "skimage", "numba", "torch", 
                          "sklearn", #this one in particular is a problem because it registers different than the package name 
