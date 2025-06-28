@@ -19,7 +19,8 @@ import sys, os, re
 # sys.path.insert(0, os.path.abspath('.'))
 
 sys.path.insert(0, os.path.abspath('..'))
-sys.path.insert(0, os.path.abspath('../src'))
+sys.path.insert(0, os.path.abspath(os.path.join('..', 'src')))
+sys.path.insert(0, os.path.abspath(os.path.join('..', 'src', 'omnipose')))
 
 # Add all the modules that can't be installed in the RTD environment
 from dependencies import install_deps, gui_deps, distributed_deps
