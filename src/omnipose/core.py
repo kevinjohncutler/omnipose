@@ -689,7 +689,7 @@ def get_links(masks,labels,bd,connectivity=1):
 
 
 # this needs to be updaed... now a private jitted function, with a public wrapper below
-@njit(parallel=True, cache=True)
+@njit(parallel=True) # cache not supported with parallel? 
 def _get_link_matrix(links_arr, piece_masks, inds, idx, is_link):
     for k in prange(len(inds)):
         i = inds[k]

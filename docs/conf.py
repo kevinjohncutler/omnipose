@@ -14,39 +14,12 @@
 import sys, os, re
 # Disable Numba JIT during doc builds—avoids compilation errors when
 # Sphinx imports modules that use @njit functions.
-os.environ.setdefault("NUMBA_DISABLE_JIT", "1")
+# os.environ.setdefault("NUMBA_DISABLE_JIT", "1")
+
 # sys.path.insert(0, os.path.abspath('.'))
 
 sys.path.insert(0, os.path.abspath('..'))
 sys.path.insert(0, os.path.abspath('../src'))
-
-
-# ── minimal numba stub for Read-the-Docs ─────────────────────────────
-try:
-    import numba                          # already installed locally?
-except ModuleNotFoundError:
-    import sys, types
-
-    def _identity(*args, **kwargs):
-        def decorator(fn):                # turns @njit into no-op
-            return fn
-        return decorator
-
-    stub = types.ModuleType("numba")
-    stub.njit = stub.jit = _identity      # common decorators
-    stub.vectorize = stub.guvectorize = _identity
-    stub.cuda = types.ModuleType("numba.cuda")      # dummy sub-module
-
-    # omnipose.__init__ does: from numba.core.errors import …
-    sys.modules["numba"] = stub
-    sys.modules["numba.core"] = types.ModuleType("numba.core")
-    err_mod = types.ModuleType("numba.core.errors")
-    err_mod.NumbaPendingDeprecationWarning = type(
-        "NumbaPendingDeprecationWarning", (Warning,), {}
-    )
-    sys.modules["numba.core.errors"] = err_mod
-# ────────────────────────────────────────────────────────────────────
-
 
 # Add all the modules that can't be installed in the RTD environment
 from omnipose.dependencies import install_deps, gui_deps, distributed_deps
@@ -55,6 +28,8 @@ autodoc_mock_imports += ["cv2", "tqdm", "skimage", "numba", "torch",
                          "sklearn", #this one in particular is a problem because it registers different than the package name 
                          "torchvision", # may remove from imports 
                          ]
+
+print("Mocking imports for autodoc:", autodoc_mock_imports)
 
 # Function to strip version specifiers from package names
 def strip_versions(dep_list):
