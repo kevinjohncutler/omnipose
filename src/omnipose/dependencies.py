@@ -29,7 +29,6 @@ install_deps = ['numba>=0.61.0', # let numba control numpy version
 
 # notes: Numpy 2 is close, networkit might be the last dependency needed to upgrade 
 
-
 gui_deps = [
         'pyqtgraph>=0.12.4', 
         'PyQt6.sip', 

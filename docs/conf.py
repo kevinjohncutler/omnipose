@@ -21,9 +21,34 @@ sys.path.insert(0, os.path.abspath('..'))
 sys.path.insert(0, os.path.abspath('../src'))
 
 
-# Add all the modules that can't be installed in the RTD environment
-# autodoc_mock_imports = ["networkit"]
+# ── minimal numba stub for Read-the-Docs ─────────────────────────────
+try:
+    import numba                          # already installed locally?
+except ModuleNotFoundError:
+    import sys, types
 
+    def _identity(*args, **kwargs):
+        def decorator(fn):                # turns @njit into no-op
+            return fn
+        return decorator
+
+    stub = types.ModuleType("numba")
+    stub.njit = stub.jit = _identity      # common decorators
+    stub.vectorize = stub.guvectorize = _identity
+    stub.cuda = types.ModuleType("numba.cuda")      # dummy sub-module
+
+    # omnipose.__init__ does: from numba.core.errors import …
+    sys.modules["numba"] = stub
+    sys.modules["numba.core"] = types.ModuleType("numba.core")
+    err_mod = types.ModuleType("numba.core.errors")
+    err_mod.NumbaPendingDeprecationWarning = type(
+        "NumbaPendingDeprecationWarning", (Warning,), {}
+    )
+    sys.modules["numba.core.errors"] = err_mod
+# ────────────────────────────────────────────────────────────────────
+
+
+# Add all the modules that can't be installed in the RTD environment
 from omnipose.dependencies import install_deps, gui_deps, distributed_deps
 autodoc_mock_imports = install_deps + gui_deps + distributed_deps
 autodoc_mock_imports += ["cv2", "tqdm", "skimage", "numba", "torch", 
