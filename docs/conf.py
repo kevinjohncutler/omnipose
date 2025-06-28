@@ -147,7 +147,8 @@ extensions = [
 
 
 
-autoapi_dirs = ['../omnipose']
+# autoapi_dirs = ['../omnipose']
+autoapi_dirs = [os.path.abspath(os.path.join('..', 'src', 'omnipose'))]
 autosectionlabel_prefix_document = True
 # source_suffix=['.rst','.md']
 
