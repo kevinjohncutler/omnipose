@@ -562,6 +562,7 @@ def normalize99(Y, lower=0.01, upper=99.99, contrast_limits=None, dim=None):
     # Y-lower_val can be less than zero. Likewise for the upward scalimg being slightly >1. 
     return module.clip(safe_divide(Y-lower_val,upper_val-lower_val),0,1)
 
+
 def searchsorted(tensor, value):
     """Find the indices where `value` should be inserted in `tensor` to maintain order."""
     return (tensor < value).sum()

@@ -9,7 +9,7 @@ ARM = 'arm' in platform.processor() # the backend chack for apple silicon does n
 if ARM:
     nt = str(multiprocessing.cpu_count())
     nt = "1" # this helps with gui crashing on subprocess, no hit to performance? 
-    gpu_logger.info(f'On ARM, OMP_NUM_THREADS set to CPU core count = {nt}, PARLAY_NUM_THREADS set to 1.')
+    # gpu_logger.info(f'On ARM, OMP_NUM_THREADS set to CPU core count = {nt}, PARLAY_NUM_THREADS set to 1.')
     os.environ['OMP_NUM_THREADS'] = nt # for "1 leaked semaphore objects" error on macOS during training 
     os.environ["PARLAY_NUM_THREADS"] = "1" # for dbscan to work on ARM; anything above 1 is unstable 
     

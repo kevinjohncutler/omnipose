@@ -44,7 +44,7 @@ See the table below for named models and their corresponding ``nchan``, ``nclass
         - 2
         - 3
         - 3
-    *   - ``bact_phase_omni_2``
+    *   - ``bact_phase_affinity``
         - 1
         - 2
         - 2

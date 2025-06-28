@@ -689,7 +689,7 @@ def get_links(masks,labels,bd,connectivity=1):
 
 
 # this needs to be updaed... now a private jitted function, with a public wrapper below
-@njit(parallel=True)
+@njit(parallel=True, cache=True)
 def _get_link_matrix(links_arr, piece_masks, inds, idx, is_link):
     for k in prange(len(inds)):
         i = inds[k]
@@ -708,12 +708,11 @@ def get_link_matrix(links, piece_masks, inds, idx, is_link):
     Public wrapper: convert an iterable of (a,b) link tuples into a 2D array
     and call the jitted helper.
     """
-    import numpy as _np
     # If no links provided, nothing to mark
     if not links:
         return is_link
     # Build an (N,2) int64 array of link pairs
-    links_arr = _np.array(list(links), dtype=_np.int64)
+    links_arr = np.array(list(links), dtype=np.int64)
     return _get_link_matrix(links_arr, piece_masks, inds, idx, is_link)
 
 # @njit() cannot compute fingerprint of empty set

@@ -123,6 +123,8 @@ def plot_edges(shape,affinity_graph,neighbors,coords,
     from matplotlib.collections import LineCollection
     
     print('adjust this to make edges appear even on edges or when target is 0')
+    
+    
     nstep,npix = affinity_graph.shape 
     coords = tuple(coords)
     indexes, neigh_inds, ind_matrix = get_neigh_inds(tuple(neighbors),coords,shape)
@@ -214,7 +216,133 @@ def plot_edges(shape,affinity_graph,neighbors,coords,
 
     #     # Create a line collection with the clipped segments
     #     line_segments = LineCollection(clipped_segments)
+    
+import numpy as np
+import matplotlib as mpl
+import types
+from matplotlib.collections import LineCollection
+from matplotlib.backend_bases import RendererBase
+from matplotlib.figure import Figure
+from matplotlib.backends.backend_agg import FigureCanvasAgg as FigureCanvas
 
+def plot_edges(
+        shape,
+        affinity_graph,
+        neighbors,
+        coords,
+        figsize=1,
+        fig=None,
+        ax=None,
+        extent=None,
+        slc=None,
+        pic=None,
+        edgecol=[.75]*3 + [.5],
+        linewidth=0.15,
+        step_inds=None,
+        cmap='inferno',
+        origin='lower',
+        bounds=None,
+):
+    """
+    Render an affinity graph as line segments laid over an optional image.
+
+    Boundary pixels (including linear index 0) are handled explicitly, so every
+    valid edge appears—even when its target lies on the image border.
+    """
+    # ——————————————————————————————————————————— imports that take time kept local
+    from .utils import get_neigh_inds
+    from .core import affinity_to_edges  # retained in case callers expect it
+
+    nstep, npix = affinity_graph.shape
+    coords = tuple(coords)
+
+    # build lookup tables for neighbours
+    indexes, neigh_inds, ind_matrix = get_neigh_inds(tuple(neighbors), coords, shape)
+
+    # default to all steps if none supplied
+    if step_inds is None:
+        step_inds = np.arange(nstep)
+
+    px_inds = np.arange(npix)
+
+    # -------------------------------------------------------------------------
+    # Build edge list manually so edges touching the border are never lost
+    # -------------------------------------------------------------------------
+    aff_coords = np.array(coords).T                # (2, N) -> (y, x)
+    segments = []
+
+    for s in step_inds:
+        mask = affinity_graph[s].astype(bool)      # where an edge exists
+        if not mask.any():
+            continue
+
+        src_idx = px_inds[mask]
+        dst_idx = neigh_inds[s, mask]
+
+        valid = dst_idx >= 0                       # drop out-of-bounds neighbours
+        src_idx = src_idx[valid]
+        dst_idx = dst_idx[valid]
+
+        for a, b in zip(src_idx, dst_idx):
+            # flip Y/X order for imshow coords and shift to pixel-centres (+0.5)
+            segments.append(aff_coords[:, ::-1][[a, b]] + 0.5)
+
+    if not segments:
+        raise ValueError("No edges found to plot; check affinity_graph and neighbours.")
+
+    segments = np.stack(segments)
+
+    # -------------------------------------------------------------------------
+    # Figure / axes handling
+    # -------------------------------------------------------------------------
+    RendererBase.new_gc = types.MethodType(custom_new_gc, RendererBase)
+
+    newfig = fig is None and ax is None
+    if newfig:
+        if not isinstance(figsize, (list, tuple)):
+            figsize = (figsize, figsize)
+        fig = Figure(figsize=figsize)
+        ax = fig.add_subplot(111)
+
+    if extent is None:
+        extent = np.array([0, shape[1], 0, shape[0]])
+
+    # -------------------------------------------------------------------------
+    # Background image (affinity heat-map) – create if not supplied
+    # -------------------------------------------------------------------------
+    nopic = pic is None
+    if nopic:
+        summed_affinity = np.zeros(shape, dtype=int)
+        summed_affinity[coords] = np.sum(affinity_graph, axis=0)
+
+        # build a visually pleasing reversed colormap
+        colors = mpl.colormaps.get_cmap(cmap).reversed()(np.linspace(0, 1, 9))
+        colors = np.vstack((np.array([0]*4), colors))  # prepend transparent/black
+        affinity_cmap = mpl.colors.ListedColormap(colors)
+        pic = affinity_cmap(summed_affinity)
+
+    ax.imshow(pic[slc] if slc is not None else pic,
+              extent=extent,
+              origin=origin)
+
+    # -------------------------------------------------------------------------
+    # Draw edges
+    # -------------------------------------------------------------------------
+    line_segments = LineCollection(segments, color=edgecol, linewidths=linewidth)
+    ax.add_collection(line_segments)
+
+    if newfig:
+        ax.set_axis_off()
+        ax.invert_yaxis()
+        canvas = FigureCanvas(fig)
+        canvas.draw()
+
+    # -------------------------------------------------------------------------
+    # Return values mirror original signature
+    # -------------------------------------------------------------------------
+    if nopic:
+        return summed_affinity, affinity_cmap
+    return None, None
 
 
 # @njit
@@ -1013,7 +1141,8 @@ def image_grid(images, column_titles=None, row_titles=None,
                padding=0.05, interset_padding=0.1,
                fontsize=8, fontcolor=[0.5]*3,
                facecolor=None,
-               figsize=6, dpi=300,
+               figsize=6, 
+               dpi=300,
                order='ij',
                reverse_row=False,
                stack_direction='horizontal',
@@ -1048,6 +1177,13 @@ def image_grid(images, column_titles=None, row_titles=None,
 
     n_sets = len(images)
     ij = order == 'ij'
+    
+    # if (not ij and column_titles is not None) or (ij and row_titles is not None):
+    #     row_titles, column_titles = column_titles, row_titles
+
+    # ── swap the title lists when using column-major order ─────────────────
+    if not ij:
+        column_titles, row_titles = row_titles, column_titles
 
     # Initialize lists to hold positions and sizes
     all_left = []
@@ -1060,7 +1196,7 @@ def image_grid(images, column_titles=None, row_titles=None,
     total_offset_y = 0
 
     for set_idx, image_set in enumerate(images):
-        # Determine grid dimensions based on order
+        # ───────────────────── grid dimensions ───────────────────────────
         if ij:
             nrows = len(image_set)
             ncols = max(len(row) for row in image_set)
@@ -1068,41 +1204,58 @@ def image_grid(images, column_titles=None, row_titles=None,
             ncols = len(image_set)
             nrows = max(len(col) for col in image_set)
 
-        grid_dims = [nrows, ncols]
-
-        # Padding between images
-        p = padding
-
-        # Positions and sizes
-        width = 1.0
-        height = 1.0
-
-        # Compute positions
+        # ───────────────────── constant-size axis setup ──────────────────
+        p     = padding          # gap between axes
+        base  = 1.0              # fixed width (ij) or height (!ij)
         positions = []
-        for row_idx, row in enumerate(image_set):
-            if ij:
-                row_len = len(row)  # Number of images in the current row
-                row_offset = (ncols - row_len) * (width + p) if right_justify_rows else 0  # Adjust for right justification
-                for col_idx, _ in enumerate(row):
-                    left = row_offset + (width + p) * col_idx + total_offset_x
-                    bottom = (height + p) * row_idx + total_offset_y
-                    positions.append((left, bottom, width, height))
-            else:
-                raise NotImplementedError("Column-major ordering is not supported for right-justified rows.")
 
-        # Adjust stacking offsets
+        if ij:  # constant widths → variable heights
+            cur_bottom = total_offset_y
+            for r, row in enumerate(image_set):
+                rep   = next((im for im in row if im is not None), None)
+                ratio = (rep.shape[0] / rep.shape[1]) if rep is not None else 1.0
+                h     = ratio * base
+
+                row_offset = ((ncols - len(row)) * (base + p)) if right_justify_rows else 0
+                for c, _ in enumerate(row):
+                    left   = total_offset_x + row_offset + c * (base + p)
+                    bottom = cur_bottom
+                    positions.append((left, bottom, base, h))
+
+                cur_bottom += h + p
+
+            set_span_x = (base + p) * ncols - p
+            set_span_y = cur_bottom - total_offset_y - p
+
+        else:   # constant heights → variable widths
+            cur_left = total_offset_x
+            for c, col in enumerate(image_set):
+                rep    = next((im for im in col if im is not None), None)
+                aspect = (rep.shape[1] / rep.shape[0]) if rep is not None else 1.0
+                w      = aspect * base
+
+                for r, _ in enumerate(col):
+                    left   = cur_left
+                    bottom = total_offset_y + r * (base + p)
+                    positions.append((left, bottom, w, base))
+
+                cur_left += w + p
+
+            set_span_x = cur_left - total_offset_x - p
+            set_span_y = (base + p) * nrows - p
+
+        # ───────────────────── collect positions ─────────────────────────
+        lefts, bottoms, widths, heights = zip(*positions)
+        all_left.extend(lefts);   all_bottom.extend(bottoms)
+        all_width.extend(widths); all_height.extend(heights)
+
+        # ───────────────────── inter-set stacking ────────────────────────
         if multiple_sets and set_idx < n_sets - 1:
             if stack_direction == 'horizontal':
-                total_offset_x += (width + p) * ncols + interset_padding
+                total_offset_x += set_span_x + interset_padding
             elif stack_direction == 'vertical':
-                total_offset_y += (height + p) * nrows + interset_padding
+                total_offset_y += set_span_y + interset_padding
 
-        # Collect positions
-        lefts, bottoms, widths, heights = zip(*positions)
-        all_left.extend(lefts)
-        all_bottom.extend(bottoms)
-        all_width.extend(widths)
-        all_height.extend(heights)
 
     # Normalize positions
     lefts = np.array(all_left)
@@ -1170,16 +1323,30 @@ def image_grid(images, column_titles=None, row_titles=None,
                         if img is None:
                             text.set_color([.5] * 4)
 
-                # Set the column titles
-                if column_titles is not None and row_idx == 0 and col_idx < len(column_titles):
-                    if stack_direction != 'vertical' or set_idx == 0:
-                        ax.text(0.5, 1 + p, column_titles[col_idx], rotation=0, fontsize=fontsize, color=supcolor, 
+                # ── column titles ──────────────────────────────────────────
+                if column_titles is not None:
+                    want_title = (
+                        (ij  and row_idx == 0 and col_idx < len(column_titles)) or
+                        (not ij and col_idx == 0 and row_idx < len(column_titles))
+                    )
+                    if want_title and (stack_direction != 'vertical' or set_idx == 0):
+                        title_idx = col_idx if ij else row_idx
+                        ax.text(0.5, 1 + p,
+                                column_titles[title_idx],
+                                rotation=0, fontsize=fontsize, color=supcolor,
                                 va='bottom', ha='center', transform=ax.transAxes)
 
-                # Set the row titles
-                if row_titles is not None and col_idx == 0 and row_idx < len(row_titles):
-                    if stack_direction != 'horizontal' or set_idx == 0:
-                        ax.text(-p, 0.5, row_titles[row_idx], rotation=0, fontsize=fontsize, color=supcolor, 
+                # ── row titles ─────────────────────────────────────────────
+                if row_titles is not None:
+                    want_title = (
+                        (ij  and col_idx == 0 and row_idx < len(row_titles)) or
+                        (not ij and row_idx == 0 and col_idx < len(row_titles))
+                    )
+                    if want_title and (stack_direction != 'horizontal' or set_idx == 0):
+                        title_idx = row_idx if ij else col_idx
+                        ax.text(-p, 0.5,
+                                row_titles[title_idx],
+                                rotation=0, fontsize=fontsize, color=supcolor,
                                 va='center', ha='right', transform=ax.transAxes)
 
                 # Add outline if needed
@@ -1197,6 +1364,8 @@ def image_grid(images, column_titles=None, row_titles=None,
     else:
         return fig
         
+
+
 
 def color_grid(colors, **kwargs):
     # Convert colors to a numpy array
