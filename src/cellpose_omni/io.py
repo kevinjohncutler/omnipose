@@ -227,7 +227,7 @@ def imwrite(filename, arr, **kwargs):
       - .jxl: uses imagecodecs.jpegxl_encode (accepts 'quality', 'effort', 'distance', 'decoding_speed')
     For other extensions, PNG encoding is used as a fallback.
     
-    Note: Unlike OpenCV, imagecodecs expects RGB/RGBA (not BGR/BGRA) channel ordering.
+    Note: Unlike OpenCV, imagecodecs expects normal RGB/RGBA (not BGR/BGRA) channel ordering.
     """
     ext = os.path.splitext(filename)[-1].lower()
     

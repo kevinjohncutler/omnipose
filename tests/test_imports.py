@@ -36,10 +36,10 @@ def _is_git_tracked(path: Path) -> bool:
     except (subprocess.CalledProcessError, ValueError):
         return False
 
-# Gather all hiprpy submodules for import smoke‑testing
+# Gather all omnipose submodules for import smoke‑testing
 modules = [
     module_name
-    for _, module_name, _ in pkgutil.walk_packages(hiprpy.__path__, hiprpy.__name__ + ".")
+    for _, module_name, _ in pkgutil.walk_packages(omnipose.__path__, omnipose.__name__ + ".")
 ]
 
 @pytest.mark.parametrize("module_name", modules)
@@ -70,7 +70,7 @@ def test_member_access(module_name, member_name):
 @pytest.mark.parametrize("module_name", modules)
 def test_module_source_tracked(module_name):
     """
-    Ensure that every imported hiprpy module's source file is tracked in Git.
+    Ensure that every imported omnipose module's source file is tracked in Git.
     """
     if _REPO_ROOT is None:
         pytest.skip("Not inside a Git repository")
