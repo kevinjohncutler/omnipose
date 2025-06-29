@@ -1616,21 +1616,24 @@ def curve_filter(im,filterWidth=1.5):
     """
     curveFilter : calculates the curvatures of an image.
 
-     INPUT : 
-           im : image to be filtered
-           filterWidth : filter width
-     OUTPUT : 
-           M_ : Mean curvature of the image without negative values
-           G_ : Gaussian curvature of the image without negative values
-           C1_ : Principal curvature 1 of the image without negative values
-           C2_ : Principal curvature 2 of the image without negative values
-           M : Mean curvature of the image
-           G : Gaussian curvature of the image
-           C1 : Principal curvature 1 of the image
-           C2 : Principal curvature 2 of the image
-           im_xx : del^2 x / del x^2
-           im_yy : del^2 x / del y^2
-           im_xy : del^2 x / del x del y
+    INPUT
+    _____
+    im : image to be filtered
+    filterWidth : filter width
+           
+    OUTPUT
+    ------
+    ``M_`` : mean curvature (negatives zeroed)  
+    ``G_`` : Gaussian curvature (negatives zeroed)  
+    ``C1_``: principal curvature 1 (negatives zeroed)  
+    ``C2_``: principal curvature 2 (negatives zeroed)  
+    ``M``  : mean curvature  
+    ``G``  : Gaussian curvature  
+    ``C1`` : principal curvature 1  
+    ``C2`` : principal curvature 2  
+    ``im_xx`` : ∂²x / ∂x²  
+    ``im_yy`` : ∂²x / ∂y²  
+    ``im_xy`` : ∂²x / ∂x∂y
 
     """
     shape = [np.floor(7*filterWidth) //2 *2 +1]*2 # minor modification is to make this odd

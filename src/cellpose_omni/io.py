@@ -73,15 +73,15 @@ def check_dir(path):
 def load_links(filename):
     """
     Read a txt or csv file with label links. 
-    These should look like:
+    These should look like::
         1,2 
         1,3
         4,7
         6,19
-        .
-        .
-        .
-    Returns links as a set of tuples. 
+        ...
+        
+    Returns: 
+        Links as a set of tuples. 
     """
     if filename is not None and os.path.exists(filename):
         links = set()

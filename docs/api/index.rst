@@ -8,6 +8,7 @@
 This page exists to help users navigate the labyrinth of functions and classes that make up Omnipose. 
 
 .. _project-structure:
+
 :header-2:`Project structure`
 -----------------------------
 .. include:: ../../README.rst
