@@ -299,11 +299,14 @@ a[href^="command.html"] {color: var(--sinebow19) !important;}
 a[href^="api/index.html"] {color: var(--sinebow20) !important;}
 a[href^="cli.html"] {color: var(--sinebow21) !important;}
 
+
+/* these may not actually be necessary */
 a[href^="affinity.html"] {color: var(--sinebow22) !important;}
-a[href^="ncolor.html"] {color: var(--sinebow23) !important;}
-a[href^="diameter.html"] {color: var(--sinebow24) !important;}
-a[href^="gamma.html"] {color: var(--sinebow25) !important;}
-a[href^="logo.html"] {color: var(--sinebow26) !important;}
+/* contours */
+a[href^="ncolor.html"] {color: var(--sinebow24) !important;}
+a[href^="diameter.html"] {color: var(--sinebow25) !important;}
+a[href^="gamma.html"] {color: var(--sinebow26) !important;}
+a[href^="logo.html"] {color: var(--sinebow27) !important;}
 
 
 a[href^="index.html"] {color: var(--sinebow10) !important;}
@@ -395,6 +398,8 @@ table.docutils td:not(:first-child) {
 .sinebow24 {color: var(--sinebow24) !important;}
 .sinebow25 {color: var(--sinebow25) !important;}
 .sinebow26 {color: var(--sinebow26) !important;}
+.sinebow27 {color: var(--sinebow27) !important;} 
+/* had to add sinebow27 after adding a sidebar element and extending this list... need to find a better way, sass?*/
 
 
 
