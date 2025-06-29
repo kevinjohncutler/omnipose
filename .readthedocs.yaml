@@ -18,9 +18,9 @@ python:
     - requirements: docs/requirements.txt
 
 build:
-  os: ubuntu-22.04  # specify the operating system here
+  os: ubuntu-24.04  # specify the operating system here
   tools:
-    python: "3.9"  # specify the Python version here
+    python: "3.12"  # specify the Python version here
   commands:
     - pwd
     - echo "Listing files in current directory"
