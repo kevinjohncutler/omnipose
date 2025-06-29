@@ -18,9 +18,11 @@ import sys, os, re
 
 # sys.path.insert(0, os.path.abspath('.'))
 
-sys.path.insert(0, os.path.abspath('..'))
-sys.path.insert(0, os.path.abspath(os.path.join('..', 'src')))
-sys.path.insert(0, os.path.abspath(os.path.join('..', 'src', 'omnipose')))
+# Ensure imports work regardless of working directory by anchoring to conf.py location
+conf_dir = os.path.dirname(__file__)
+sys.path.insert(0, os.path.abspath(os.path.join(conf_dir, '..', 'src', 'omnipose')))
+sys.path.insert(0, os.path.abspath(os.path.join(conf_dir, '..', 'src')))
+sys.path.insert(0, os.path.abspath(os.path.join(conf_dir, '..')))
 
 # Add all the modules that can't be installed in the RTD environment
 from dependencies import install_deps, gui_deps, distributed_deps
@@ -46,43 +48,12 @@ def strip_versions(dep_list):
 autodoc_mock_imports = strip_versions(autodoc_mock_imports)
 
 # pygments
-sys.path.append(os.path.abspath("./_pygments"))
+sys.path.append(os.path.abspath(os.path.join(conf_dir, "_pygments")))
 pygments_style = 'style.CustomStyle'
 pygments_dark_style = 'style.CustomStyle'
 
-
 from sphinx_automodapi import automodsumm
 from sphinx_automodapi.utils import find_mod_objs
-
-# from docutils import nodes
-# from docutils.parsers.rst import roles
-# from pygments import highlight
-# from pygments.lexers import get_lexer_by_name
-# from pygments.formatters import HtmlFormatter
-
-# def code_role(language):
-#     def role(name, rawtext, text, lineno, inliner, options={}, content=[]):
-#         lexer = get_lexer_by_name(language)
-#         formatter = HtmlFormatter(nowrap=True)
-#         code = highlight(text, lexer, formatter)
-#         node = nodes.inline(rawtext, '', nodes.raw('', code, format='html'), **options)
-#         return [node], []
-#     return role
-
-# roles.register_local_role('code', code_role('python'))
-# roles.register_local_role('py', code_role('python'))
-# roles.register_local_role('bash', code_role('bash'))
-
-
-# rst_prolog = """
-# .. role:: py(code)
-#     :language: python
-#     :class: highlight
-
-# .. role:: bash(code)
-#     :language: bash
-#     :class: highlight
-# """
 
 
 def find_mod_objs_patched(*args, **kwargs):

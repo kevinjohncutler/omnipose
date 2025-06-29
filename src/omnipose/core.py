@@ -17,7 +17,7 @@ import os, tifffile
 import time
 import mgen #ND rotation matrix
 from . import utils
-from .profile import pyinstrument_profile
+from .profiling import pyinstrument_profile
 # from ncolor.format_labels import delete_spurs
 # from .plot import rgb_flow
 
