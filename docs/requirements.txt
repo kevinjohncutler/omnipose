@@ -4,8 +4,9 @@ sphinx_design
 sphinx-argparse
 myst_nb
 furo 
-sphinx 
-sphinx_rtd_theme>=0.3.1
+sphinx>=7.3          # first version with official docutils 0.21 support
+sphinx-rtd-theme>=2  # theme release that relaxed the upper docutils bound
+sphinx-autodoc-typehints>=1.25   # extension release that fixes traverse() call
 matplotlib
 
 # Local package installation
