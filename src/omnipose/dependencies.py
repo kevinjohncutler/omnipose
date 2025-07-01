@@ -18,13 +18,14 @@ install_deps = ['numba>=0.61.0', # let numba control numpy version
                 'natsort', 
                 'aicsimageio', # should make this optional, include czi dep
                 'numexpr',
-                'torch_optimizer', # for RADAM, now supported directly in pytorch though 
-                'tifffile', # might be dependency of aicsimageio
-                'fastremap', # not sure how I missed this one 
+                'torch_optimizer', # for RADAM, now supported directly in pytorch though... 
+                'tifffile', # might be dependency of aicsimageio, so not needed explicitly 
+                'fastremap',
                 'cmap', 
+                'colour-science', # called "colour" when importing, but "colour-science" on pypi
                 'dbscan', # almost 2x faster than sklearn dbscan!
                 'pyinstrument',
-                'imagecodecs'
+                'imagecodecs' # should be able to get rid of a lot of cv2 
                 ]
 
 # notes: Numpy 2 is close, networkit might be the last dependency needed to upgrade 

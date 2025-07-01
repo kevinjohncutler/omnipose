@@ -12,7 +12,7 @@ from omnipose.plot import rgb_flow
 # print('need to add acb_mse to deps')
 
 import omnipose
-from omnipose.gpu import use_gpu
+from omnipose.gpu import use_gpu, get_device
 
 # from multiprocessing import Pool, cpu_count
 # from functools import partial
@@ -62,7 +62,7 @@ def parse_model_string(pretrained_model):
     return residual_on, style_on, concatenation
 
 def assign_device(gpu=True, gpu_number=None):
-    device, gpu_available = use_gpu(gpu_number)
+    device, gpu_available = get_device(gpu_number)
     if gpu and gpu_available:
         core_logger.info('Using GPU.')
     elif gpu and not gpu_available:

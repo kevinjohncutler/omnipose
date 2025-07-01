@@ -585,9 +585,9 @@ Minimum number of pixels per mask, can turn off by setting value to -1
         torch_installed = importlib.util.find_spec('torch') is not None
         #if the old version of cellpose <2.0, then use istorch kwarg
         if float(cellpose_ver[0:3]) >= 0.7 and int(cellpose_ver[0])<2:
-            GPU_works = core.use_gpu(istorch=torch_installed)
+            GPU_works = core.get_device(istorch=torch_installed)
         else: #if new version of cellpose, use use_torch kwarg
-            GPU_works = core.use_gpu(use_torch=torch_installed)
+            GPU_works = core.get_device(use_torch=torch_installed)
         if GPU_works:
             message = "GPU appears to be working correctly!"
         else:

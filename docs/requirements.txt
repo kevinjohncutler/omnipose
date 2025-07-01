@@ -1,7 +1,7 @@
 sphinx_copybutton
 sphinx_automodapi
-sphinx_design # not used?
-sphinx-argparse
+sphinx_design 
+sphinx-argparse 
 myst_nb
 furo 
 sphinx>=8          # first version with official docutils 0.21 support

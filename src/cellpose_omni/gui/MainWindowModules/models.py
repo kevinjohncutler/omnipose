@@ -60,7 +60,7 @@ def check_gpu(self, use_torch=True):
     self.torch = use_torch
     self.useGPU.setChecked(False)
     self.useGPU.setEnabled(False)    
-    if self.torch and gpu.use_gpu(use_torch=True)[-1]:
+    if self.torch and gpu.get_device(use_torch=True)[-1]:
         self.useGPU.setEnabled(True)
         self.useGPU.setChecked(True)
     else:

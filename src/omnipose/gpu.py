@@ -43,14 +43,18 @@ except Exception as e:
     empty_cache = torch.cuda.empty_cache
     gpu_logger.info(e)
 
-def use_gpu(gpu_number=0, use_torch=True):
+def get_device(gpu_number=0, use_torch=True):
     """ check if gpu works """
     if use_torch:
-        return _use_gpu_torch(gpu_number)
+        return _get_gpu_torch(gpu_number)
     else:
         raise ValueError('cellpose only runs with pytorch now')
+        
+def use_gpu(gpu_number=0, use_torch=True):
+    """ alias for get_device """
+    return get_device(gpu_number, use_torch)
 
-def _use_gpu_torch(gpu_number=0):
+def _get_gpu_torch(gpu_number=0):
     try:
         if gpu_number is None:
             gpu_number = 0

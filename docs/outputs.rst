@@ -5,7 +5,7 @@
 Omnipose uses a generalized version of the Cellpose U-net to predict several output "images" based on an input image. 
 You can use a Cellpose model with Omnipose (:py:`omni=True`), which just turns on the Omnipose mask reconstruction algorithm to fix the over-segmentation errors that may result form your Cellpose network outputs. 
 
-Cellpose models predict 2 outputs: flows and cell probability (cellprob). 
+Cellpose models predict 2 outputs: flows and cell probability (`cellprob`). 
 The predictions the network makes of cellprob are the inputs to a sigmoid 
 centered at zero (:math:`\sigma(x) = \frac{1}{1 + e^{-x}}`), so they vary from around :math:`-6` to :math:`+6`. 
 The flow field is a vector field and is therefore comprised of :math:`N` distinct outputs in :math:`N` dimensions. 
