@@ -11,6 +11,11 @@ logging.getLogger('xmlschema').setLevel(logging.WARNING)
 logging.getLogger('bfio').setLevel(logging.ERROR) # probably from cv2
 logging.getLogger('OpenGL').setLevel(logging.ERROR) # not sure what uses this
 logging.getLogger('qdarktheme').setLevel(logging.ERROR)
+logging.getLogger('mip').setLevel(logging.WARNING)  # Silence Python-MIP info messages
+
+
+#  mip/model.py                  <module>....()	 line 1633	Using Python-MIP package version 1.15.0
+#>>>>>>>> could use rich package to simplify this and do better
 
 
 # LOGGER_FORMAT = "%(asctime)-20s\t[%(levelname)-5s]\t[%(filename)-10s %(lineno)-5d%(funcName)-18s]\t%(message)s"

@@ -26,6 +26,7 @@ install_deps = ['numba>=0.61.0', # let numba control numpy version
                 'dbscan', # almost 2x faster than sklearn dbscan!
                 'pyinstrument',
                 'imagecodecs' # should be able to get rid of a lot of cv2 
+                'opencv-python-headless', # headless version of opencv, no GUI stuff
                 ]
 
 # notes: Numpy 2 is close, networkit might be the last dependency needed to upgrade 

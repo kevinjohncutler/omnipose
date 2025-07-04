@@ -960,7 +960,7 @@ class UnetModel():
                 
                 
                 # self.criterionS =  omnipose.loss.MSSSIMLoss()
-                # Select weighting for each class if not wanting to use the defualt 1:1 weighting
+                # Select weighting for each class if not wanting to use the default 1:1 weighting
                 # zero_weighting = 1.0
                 # nonzero_weighting = 1.0
 

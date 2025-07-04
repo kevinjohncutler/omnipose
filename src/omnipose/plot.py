@@ -145,7 +145,8 @@ def plot_edges(shape,affinity_graph,neighbors,coords,
     RendererBase.new_gc = types.MethodType(custom_new_gc, RendererBase)
     newfig = fig is None and ax is None
     if newfig:
-        if type(figsize) is not (list or tuple):
+        # if type(figsize) is not (list or tuple):
+        if not isinstance(figsize, (list, tuple)):
             figsize = (figsize,figsize)
         # fig, ax = plt.subplots(figsize=figsize)
         fig, ax = figure(figsize=figsize)
