@@ -42,12 +42,13 @@ gui_deps = [
         'pyqtgraph>=0.12.4', 
         'PyQt6',
         # 'google-cloud-storage',
-        'omnipose-theme',
+        'omnipose-theme', # my fork of pyqtdarktheme
+        # 'pyqtdarktheme',
+        
         'superqt',
         'darkdetect',
         'qtawesome',
         'pyopengl',
-        'pyqtdarktheme',
         'imageio'
         ]
 
