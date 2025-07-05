@@ -483,7 +483,7 @@ def _load_seg(parent, filename=None, image=None, image_file=None, channel_axis=N
                 Ly, Lx = dat['masks'].shape[-2:]
                 
                 for i in range[3]:
-                    parent.flows[i] = cv2.resize(parent.flows[i].squeeze(), (Lx, Ly), interpolation=cv2.INTER_NEAREST)[np.newaxis,...]
+                    parent.flows[i] = cv2.resize(parent.flows[i].squeeze(), (Lx, Ly), interpolation=0)[np.newaxis,...]
 
             if parent.NZ==1:
                 parent.recompute_masks = True

@@ -806,7 +806,7 @@ def compute_masks(dP, cellprob, bd=None, p=None, inds=None, niter=200, mask_thre
             else:
                 recast = False
                 mask = mask.astype(np.uint16)
-            mask = transforms.resize_image(mask, resize[0], resize[1], interpolation=cv2.INTER_NEAREST)
+            mask = transforms.resize_image(mask, resize[0], resize[1], interpolation=0)
             if recast:
                 mask = mask.astype(np.uint32)
             Ly,Lx = mask.shape

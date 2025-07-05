@@ -753,7 +753,7 @@ def reshape_and_normalize_data(train_data, test_data=None, channels=None, channe
 
     return train_data, test_data, True
 
-def resize_image(img0, Ly=None, Lx=None, rsz=None, interpolation=cv2.INTER_LINEAR, no_channels=False):
+def resize_image(img0, Ly=None, Lx=None, rsz=None, interpolation=1, no_channels=False):
     """ resize image for computing flows / unresize for computing dynamics
 
     Parameters
@@ -769,7 +769,7 @@ def resize_image(img0, Ly=None, Lx=None, rsz=None, interpolation=cv2.INTER_LINEA
     rsz: float, optional
         resize coefficient(s) for image; if Ly is None then rsz is used
 
-    interpolation: cv2 interp method (optional, default cv2.INTER_LINEAR)
+    interpolation: cv2 interp method (optional, default 1)
 
     Returns
     --------------
@@ -1081,15 +1081,15 @@ def original_random_rotate_and_resize(X, Y=None, scale_range=1., xy = (224,224),
                     labels[2] = -labels[2]
 
         for k in range(nchan):
-            I = cv2.warpAffine(img[k], M, (xy[1],xy[0]), flags=cv2.INTER_LINEAR)
+            I = cv2.warpAffine(img[k], M, (xy[1],xy[0]), flags=1)
             imgi[n,k] = I
 
         if Y is not None:
             for k in range(nt):
                 if k==0:
-                    lbl[n,k] = cv2.warpAffine(labels[k], M, (xy[1],xy[0]), flags=cv2.INTER_NEAREST)
+                    lbl[n,k] = cv2.warpAffine(labels[k], M, (xy[1],xy[0]), flags=0)
                 else:
-                    lbl[n,k] = cv2.warpAffine(labels[k], M, (xy[1],xy[0]), flags=cv2.INTER_LINEAR)
+                    lbl[n,k] = cv2.warpAffine(labels[k], M, (xy[1],xy[0]), flags=1)
 
             if nt > 1 and not unet:
                 v1 = lbl[n,2].copy()

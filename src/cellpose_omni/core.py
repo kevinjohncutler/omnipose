@@ -310,7 +310,7 @@ class UnetModel():
                 maski = utils.get_masks_unet(y, cell_threshold, boundary_threshold)
                 maski = utils.fill_holes_and_remove_small_masks(maski, min_size=min_size)
                 maski = transforms.resize_image(maski, shape[-3], shape[-2], 
-                                                    interpolation=cv2.INTER_NEAREST)
+                                                    interpolation=0)
                 masks.append(maski)
                 styles.append(style)
         else:

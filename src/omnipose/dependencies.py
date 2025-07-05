@@ -9,7 +9,7 @@ install_deps = ['numba>=0.61.0', # let numba control numpy version
                 'scikit-learn',
                 'torch>=1.10',
                 'torchvision', # redundant from torchvf 
-                'mahotas>=1.4.13',
+                'mahotas>=1.4.13', # not sure I use this anymore
                 'mgen',
                 'matplotlib',
                 'ipywidgets', # technically could factor out to a notebook dep list 
@@ -28,7 +28,7 @@ install_deps = ['numba>=0.61.0', # let numba control numpy version
                 'pyinstrument',
                 'imagecodecs', # should be able to get rid of a lot of cv2 
                 'opencv-python-headless', # headless version of opencv, no GUI stuff
-                'opencv-contrib-python-headless', # headless version of opencv, no GUI stuff
+                # 'opencv-contrib-python-headless', # headless version of opencv, no GUI stuff
                 'opt_einsum', # for faster einsum, not sure if needed long term
                 
                 'dask',
@@ -40,14 +40,15 @@ install_deps = ['numba>=0.61.0', # let numba control numpy version
 
 gui_deps = [
         'pyqtgraph>=0.12.4', 
-        'PyQt6.sip', # why is this separate? 
         'PyQt6',
         # 'google-cloud-storage',
         'omnipose-theme',
         'superqt',
         'darkdetect',
         'qtawesome',
-        'pyopengl'
+        'pyopengl',
+        'pyqtdarktheme',
+        'imageio'
         ]
 
 distributed_deps = [] # moved to main deps

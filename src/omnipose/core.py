@@ -1592,7 +1592,7 @@ def compute_masks(dP, dist, affinity_graph=None, bd=None, p=None, coords=None, i
         if tuple(resize_pad)!=labels.shape:
             if verbose:
                 omnipose_logger.info(f'resizing output with resize = {resize_pad}')
-            # mask = resize_image(mask, resize[0], resize[1], interpolation=cv2.INTER_NEAREST).astype(np.int32) 
+            # mask = resize_image(mask, resize[0], resize[1], interpolation=0).astype(np.int32) 
             ratio = np.array(resize_pad)/np.array(labels.shape)
             masks = zoom(masks, ratio, order=0).astype(np.int32) 
             iscell_pad = masks>0

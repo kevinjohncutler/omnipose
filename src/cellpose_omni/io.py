@@ -475,13 +475,13 @@ def masks_flows_to_seg(images, masks, flows, diams, file_names, channels=None):
     flowi = []
     if flows[0].ndim==3:
         Ly, Lx = masks.shape[-2:]
-        flowi.append(cv2.resize(flows[0], (Lx, Ly), interpolation=cv2.INTER_NEAREST)[np.newaxis,...])
+        flowi.append(cv2.resize(flows[0], (Lx, Ly), interpolation=0)[np.newaxis,...])
     else:
         flowi.append(flows[0])
     
     if flows[0].ndim==3:
         cellprob = (np.clip(transforms.normalize99(flows[2]),0,1) * 255).astype(np.uint8)
-        cellprob = cv2.resize(cellprob, (Lx, Ly), interpolation=cv2.INTER_NEAREST)
+        cellprob = cv2.resize(cellprob, (Lx, Ly), interpolation=0)
         flowi.append(cellprob[np.newaxis,...])
         flowi.append(np.zeros(flows[0].shape, dtype=np.uint8))
         flowi[-1] = flowi[-1][np.newaxis,...]
