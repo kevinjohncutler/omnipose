@@ -60,18 +60,17 @@ from .gpu import torch_GPU, torch_CPU, ARM
 # except:
 #     SKLEARN_ENABLED = False
 
-from sklearn.cluster import DBSCAN
+# from sklearn.cluster import DBSCAN
 from sklearn.neighbors import NearestNeighbors
 SKLEARN_ENABLED = True 
 
-from dbscan import DBSCAN as new_DBSCAN
+from dbscan import DBSCAN as new_DBSCAN # much faster 
 import gc
 
 try:
     from hdbscan import HDBSCAN
     HDBSCAN_ENABLED = True
-
-except:
+except ModuleNotFoundError:
     HDBSCAN_ENABLED = False
 
 import sys

@@ -31,11 +31,11 @@ try:
 except:
     MATPLOTLIB = False
     
-try:
-    from google.cloud import storage
-    SERVER_UPLOAD = True
-except:
-    SERVER_UPLOAD = False
+# try:
+#     from google.cloud import storage
+#     SERVER_UPLOAD = True
+# except:
+SERVER_UPLOAD = False
 
 io_logger = logging.getLogger(__name__)
 

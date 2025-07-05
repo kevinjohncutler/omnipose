@@ -22,11 +22,10 @@ from . import metrics
 import omnipose, ncolor
 OMNI_INSTALLED = True
 
-
 try:
     from skimage.morphology import remove_small_holes
     SKIMAGE_ENABLED = True
-except:
+except ModuleNotFoundError:
     SKIMAGE_ENABLED = False
 
 class TqdmToLogger(io.StringIO):

@@ -7,7 +7,7 @@ try:
     import mxnet as mx
     x = mx.sym.Variable('x')
     MXNET_ENABLED = True 
-except:
+except ModuleNotFoundError:
     MXNET_ENABLED = False
 
 def test_mkl():

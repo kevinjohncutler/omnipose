@@ -1,6 +1,7 @@
 # install_deps = ['numpy>=1.22.4,<=1.26.4', # will need to wait a bit for cythonized packages to catch up to numpy 2.0
 install_deps = ['numba>=0.61.0', # let numba control numpy version 
                 # 'numpy>=1.22.4,<2', # maybe it is safe now? Nope, as of January 2025
+                'numpy', # let numba control numpy version
                 'scipy', 
                 'edt',
                 'scikit-image',
@@ -27,13 +28,19 @@ install_deps = ['numba>=0.61.0', # let numba control numpy version
                 'pyinstrument',
                 'imagecodecs', # should be able to get rid of a lot of cv2 
                 'opencv-python-headless', # headless version of opencv, no GUI stuff
+                'opencv-contrib-python-headless', # headless version of opencv, no GUI stuff
+                'opt_einsum', # for faster einsum, not sure if needed long term
+                
+                'dask',
+                'dask-image',
+                'scikit-learn',
                 ]
 
 # notes: Numpy 2 is close, networkit might be the last dependency needed to upgrade 
 
 gui_deps = [
         'pyqtgraph>=0.12.4', 
-        'PyQt6.sip', 
+        'PyQt6.sip', # why is this separate? 
         'PyQt6',
         # 'google-cloud-storage',
         'omnipose-theme',
@@ -43,9 +50,5 @@ gui_deps = [
         'pyopengl'
         ]
 
-distributed_deps = [
-        'dask',
-        'dask_image',
-        'scikit-learn',
-        ]
+distributed_deps = [] # moved to main deps
 

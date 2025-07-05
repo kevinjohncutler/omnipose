@@ -35,10 +35,9 @@ except Exception as e:
     print('dynamics.py torch import error',e)
 
 try:
-    from skimage import filters
     from skimage.segmentation import find_boundaries
     SKIMAGE_ENABLED = True
-except:
+except ModuleNotFoundError:
     SKIMAGE_ENABLED = False
 
 # @njit('(float64[:], int32[:], int32[:], int32, int32, int32, int32)', nogil=True)
