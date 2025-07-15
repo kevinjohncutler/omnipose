@@ -3,7 +3,7 @@ import numpy as np
 from scipy.ndimage import gaussian_filter
 from . import utils, io, transforms
 from omnipose.utils import rescale
-from omnipose.plot import colorize
+from omnipose.plot import colorize, figure
 
 try:
     import matplotlib
@@ -426,7 +426,9 @@ from omnipose.plot import imshow
 def show_segmentation(fig, img, maski, flowi, bdi=None, channels=None, file_name=None, omni=False, 
                       seg_norm=False, bg_color=None, outline_color=[1,0,0], img_colors=None,
                       channel_axis=-1, 
-                      display=True, interpolation='bilinear'):
+                      figsize=(12, 3), dpi=300,  # figsize and dpi for matplotlib figure
+                      display=True, 
+                      interpolation='bilinear'):
     """ plot segmentation results (like on website)
     
     Can save each panel of figure with file_name option. Use channels option if
@@ -467,6 +469,9 @@ def show_segmentation(fig, img, maski, flowi, bdi=None, channels=None, file_name
         
 
     """
+    
+    if fig is None:
+        fig, ax = figure(figsize=figsize, dpi=dpi)
 
     if channels is None:
         channels = [0,0]
@@ -525,25 +530,29 @@ def show_segmentation(fig, img, maski, flowi, bdi=None, channels=None, file_name
     else:
         overlay = mask_overlay(img0, maski)
 
+        
+    outli = outline_view(img0, maski, boundaries=outlines, color=np.array(outline_color)*255,
+                        channels=channels, channel_axis=channel_axis, skip_formatting=True)
+
+    ax = fig.get_axes()[0]
+    fig = imshow([img0, outli, overlay, flowi], ax=ax, 
+                titles=['original image',
+                        'predicted outlines',
+                        'predicted masks',
+                        'predicted flow field'], 
+            interpolation=interpolation, hold=not display)
+
+    
     if file_name is not None:
         save_path = os.path.splitext(file_name)[0]
         io.imsave(save_path + '_overlay.jpg', overlay)
-        io.imsave(save_path + '_outlines.jpg', imgout)
+        io.imsave(save_path + '_outlines.jpg', outli)
         io.imsave(save_path + '_flows.jpg', flowi)
         
+            
+    if not display:
+        return fig, img1, outlines, overlay 
         
-    if display:
-        outli = outline_view(img0, maski, boundaries=outlines, color=np.array(outline_color)*255,
-                            channels=channels, channel_axis=channel_axis, skip_formatting=True)
-
-        ax = fig.get_axes()[0]
-        imshow([img0, outli, overlay, flowi], ax=ax, titles=['original image',
-                                                                   'predicted outlines',
-                                                                    'predicted masks',
-                                                                   'predicted flow field'])
-    
-    else:
-        return img1, outlines, overlay 
 
 def mask_rgb(masks, colors=None):
     """ masks in random rgb colors

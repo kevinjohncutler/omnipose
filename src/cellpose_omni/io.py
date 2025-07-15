@@ -642,8 +642,9 @@ def save_masks(images, masks, flows, file_names, png=True, tif=False,
         # elif img.shape[0]<8:
         #     np.transpose(img, (1,2,0))
         
-        fig = plt.figure(figsize=(12,3))
-        plot.show_segmentation(fig, img, masks, flows[0], omni=omni, channel_axis=channel_axis)
+        fig = plot.show_segmentation(None, img, masks, flows[0], 
+                                     omni=omni, channel_axis=channel_axis, 
+                                        display=False)[0]
         check_dir(cpdir) 
         fig.savefig(os.path.join(cpdir,basename + '_cp_output' + suffix + '.png'), dpi=300)
         plt.close(fig)
