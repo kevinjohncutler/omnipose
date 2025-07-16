@@ -644,7 +644,7 @@ def save_masks(images, masks, flows, file_names, png=True, tif=False,
         
         fig = plot.show_segmentation(None, img, masks, flows[0], 
                                      omni=omni, channel_axis=channel_axis, 
-                                        display=False)[0]
+                                        hold=True)[0]
         check_dir(cpdir) 
         fig.savefig(os.path.join(cpdir,basename + '_cp_output' + suffix + '.png'), dpi=300)
         plt.close(fig)

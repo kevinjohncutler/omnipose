@@ -3275,13 +3275,6 @@ def _get_affinity_torch(initial, final, flow, dist, iscell, steps, fact, inds, s
     
     
     initial, final, flow, dist, iscell = _ensure_torch(initial, final, flow, dist, iscell, device=device)
-    # print([arr.shape for arr in [initial, final, flow, dist, iscell]])
-    
-    # print([isinstance(arr, np.ndarray) for arr in [initial, final, flow, dist, iscell]])
-    # print([isinstance(arr, torch.Tensor) for arr in [initial, final, flow, dist, iscell]])
-    # print(device)
-    # print([arr.device for arr in [initial, final, flow, dist, iscell]])
-
     
     # compute the displacment vector field; repalcingflow with this does not seem to make a difference now
     # which means we could possibly forgo euler integration altogether 

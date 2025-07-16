@@ -427,7 +427,7 @@ def show_segmentation(fig, img, maski, flowi, bdi=None, channels=None, file_name
                       seg_norm=False, bg_color=None, outline_color=[1,0,0], img_colors=None,
                       channel_axis=-1, 
                       figsize=(12, 3), dpi=300,  # figsize and dpi for matplotlib figure
-                      display=True, 
+                      hold=False, 
                       interpolation='bilinear'):
     """ plot segmentation results (like on website)
     
@@ -499,7 +499,8 @@ def show_segmentation(fig, img, maski, flowi, bdi=None, channels=None, file_name
     
     img0 = (transforms.normalize99(img0,omni=omni)*(2**8-1)).astype(np.uint8)
     
-    if bdi is None:
+
+    if bdi is None or not bdi.shape:
         outlines = utils.masks_to_outlines(maski,omni)
     else:
         outlines = bdi
@@ -540,7 +541,7 @@ def show_segmentation(fig, img, maski, flowi, bdi=None, channels=None, file_name
                         'predicted outlines',
                         'predicted masks',
                         'predicted flow field'], 
-            interpolation=interpolation, hold=not display)
+            interpolation=interpolation, hold=hold)
 
     
     if file_name is not None:
@@ -550,7 +551,7 @@ def show_segmentation(fig, img, maski, flowi, bdi=None, channels=None, file_name
         io.imsave(save_path + '_flows.jpg', flowi)
         
             
-    if not display:
+    if hold:
         return fig, img1, outlines, overlay 
         
 
