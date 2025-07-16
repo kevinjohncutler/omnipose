@@ -3270,11 +3270,11 @@ def _get_affinity_torch(initial, final, flow, dist, iscell, steps, fact, inds, s
 
                         # angle_cutoff=np.pi/4):
     # print('using torch affinity - not equivalent YET, displacement vs flow field')
-    # print([arr.shape for arr in [initial, final, flow, dist, iscell]])
+    # print('shapes',[arr.shape for arr in [initial, final, flow, dist, iscell]])
     # print([isinstance(arr, np.ndarray) for arr in [initial, final, flow, dist, iscell]])
     
-    
-    initial, final, flow, dist, iscell = _ensure_torch(initial, final, flow, dist, iscell, device=device)
+    # adds batch dimension 
+    initial, final, flow, dist, iscell = _ensure_torch(initial, final, flow, dist, iscell, device=device) 
     
     # compute the displacment vector field; repalcingflow with this does not seem to make a difference now
     # which means we could possibly forgo euler integration altogether 
@@ -3448,6 +3448,7 @@ def _get_affinity_torch(initial, final, flow, dist, iscell, steps, fact, inds, s
                                                      connectivity[b][target_slc],
                                                      valid_mask[f][source_slc],
                                                     #  valid_mask[b][target_slc], # no need to check backwards too, reference same point
+                                                    
                                                      ]))
                     
                     
@@ -3530,10 +3531,20 @@ def torch_and(tensors):
     device of the first tensor in *tensors*.
     """
     dev = tensors[0].device if tensors else torch.device('cpu')
+    
+    try:
+        broadcasted = torch.broadcast_tensors(*tensors)
+    except AttributeError:
+        ref_shape = tensors[0].shape
+        broadcasted = [
+            t.expand(ref_shape) if t.shape != ref_shape else t
+            for t in tensors
+        ]
+    
     if dev.type == 'cpu':
-        return torch_and_cpu(tensors)
+        return torch_and_cpu(broadcasted)
     else:
-        return torch_and_gpu(tensors)
+        return torch_and_gpu(broadcasted)
     
 
 

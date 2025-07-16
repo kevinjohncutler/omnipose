@@ -1125,7 +1125,7 @@ class UnetModel():
                       'num_workers': num_workers, 
                       'sampler': sampler,
                       'persistent_workers': True if num_workers>0 else False,
-                      'multiprocessing_context': 'spawn',
+                      'multiprocessing_context': 'spawn', # maybe try forkserver
                       'prefetch_factor': batch_size
                      }
 

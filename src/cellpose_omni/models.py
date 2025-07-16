@@ -758,7 +758,7 @@ class CellposeModel(UnetModel):
                       'num_workers': num_workers, 
                       'sampler': sampler,# iterabledataset does not need this 
                       'persistent_workers': True if num_workers>0 else False,
-                      'multiprocessing_context': 'spawn' if num_workers>0 else None,
+                      'multiprocessing_context': 'spawn' if num_workers>0 else None, # consider 'forkserver'
                       'prefetch_factor': batch_size if num_workers>0 else None
                      }
 
@@ -818,7 +818,7 @@ class CellposeModel(UnetModel):
                 yf = yf[(Ellipsis,)+slc]
                 
                 # rescale and resample
-                if resample and rescale!=1.0:
+                if resample and rescale not in [None, 1.0, 0]:
                     yf = omnipose.data.torch_zoom(yf, 1/rescale)
 
                 # compared to the usual per-image pipeline, this one will not support cellpose or u-net 
@@ -869,7 +869,7 @@ class CellposeModel(UnetModel):
                 #                         n_steps = 8,
                 #                         solver = "euler")[-1] 
 
-                # these are equivalent 
+                # these three are equivalent 
                 coords = torch.nonzero(foreground,as_tuple=True)
                 # coords = custom_nonzero_cuda(foreground.squeeze())
                 # coords = torch.where(foreground.squeeze())
