@@ -206,7 +206,7 @@ def average_tiles_ND(y,subs,shape):
     mask = _taper_mask_ND(y.shape[-len(shape):])
     
     if is_torch:
-        mask = torch.tensor(mask,device=y.device)
+        mask = torch.tensor(mask,**params)
         
     for j,slc in enumerate(subs):
         yf[(Ellipsis,)+slc] += y[j] * mask

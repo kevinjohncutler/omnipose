@@ -25,7 +25,8 @@ def setup():
     import matplotlib.pyplot as plt
     import ipywidgets as widgets
     from IPython.display import display, HTML
-
+    from tqdm.notebook import tqdm # progress bars 
+    
     # Custom CSS to center plots
     display(HTML("""
     <style>

@@ -731,7 +731,8 @@ class UnetModel():
             xsl = imgs.copy().transpose(pm[p])
             # rescale image for flow computation
             shape = xsl.shape
-            xsl = transforms.resize_image(xsl, rsz=rescaling[p])
+            if rescaling[p] is not None and rescaling[p] != 1.0: # quick patch, should put in resize_image
+                xsl = transforms.resize_image(xsl, rsz=rescaling[p])
             # per image
             core_logger.info('running %s: %d planes of size (%d, %d)'%(sstr[p], shape[0], shape[1], shape[2]))
             y, style = self._run_nets(xsl, net_avg=net_avg, augment=augment, tile=tile, 
