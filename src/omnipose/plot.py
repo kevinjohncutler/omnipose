@@ -1047,7 +1047,7 @@ def rgb_flow(dP, transparency=True, mask=None, norm=True, device=None):
     """Meant for stacks of dP, unsqueeze if using on a single plane."""
     
     import torch
-    
+    from .utils import normalize99, qnorm, safe_divide
     if device is None:
         device = torch.device('cpu')
     
@@ -1057,18 +1057,18 @@ def rgb_flow(dP, transparency=True, mask=None, norm=True, device=None):
         dP = torch.from_numpy(dP).to(device)
         
     mag = torch_norm(dP,dim=1)
-    vecs = dP[:,0] + dP[:,1]*1j
-    roots = torch.exp(1j * np.pi * (2  * torch.arange(3, device=device) / 3 +1)) 
-    rgb = (torch.real(vecs.unsqueeze(-1)*roots.view(1, 1, 1, -1) / torch.max(mag)) + 1 ) / 2 
-
-    # f = 1.5
-    # rgb /= f
-    # rgb += (1-1/f)/2
-    
+    dP = safe_divide(dP,mag.unsqueeze(1))  # Normalize the flow vectors
     
     if norm:
-        mag -= torch.min(mag)
-        mag /= torch.max(mag)
+        # mag -= torch.min(mag)
+        # mag /= torch.max(mag)
+        mag = normalize99(mag)
+    
+    vecs = dP[:,0] + dP[:,1]*1j
+    roots = torch.exp(1j * np.pi * (2  * torch.arange(3, device=device) / 3 + 1 ))
+    rgb = (torch.real(vecs.unsqueeze(-1)*roots.view(1, 1, 1, -1)) + 1 ) / 2 
+    
+
     if transparency:
         im = torch.cat((rgb, mag[..., None]), dim=-1)
     else:

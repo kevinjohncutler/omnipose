@@ -126,7 +126,9 @@ class eval_set(torch.utils.data.Dataset):
         
         if self.stack:
             # data is in memory, index it
-            imgs = torch.tensor(self.data[inds].astype(np.float32), device=self.device)
+            # imgs = torch.tensor(self.data[inds].astype(np.float32), device=self.device)
+            imgs = torch.tensor(self.data[inds].astype(np.float32))
+            
             
         elif self.list:   
             
@@ -150,7 +152,9 @@ class eval_set(torch.utils.data.Dataset):
                 else:
                     img = self.data[index]
                     
-                imgs[i] = torch.tensor(img.astype(np.float32),device=self.device)
+                # imgs[i] = torch.tensor(img.astype(np.float32),device=self.device)
+                imgs[i] = torch.tensor(img.astype(np.float32))
+                
                 
             
             # I would like to be able to handle different shapes... perhaps by padding
@@ -172,7 +176,9 @@ class eval_set(torch.utils.data.Dataset):
             slice_dim = kwargs.pop('slice_dim')
             kwargs[slice_dim] = inds 
             imgs = self.data.get_image_data(**kwargs).squeeze().astype(float)
-            imgs = torch.tensor(imgs,device=self.device)
+            # imgs = torch.tensor(imgs,device=self.device)
+            imgs = torch.tensor(imgs)
+            
             
         # print(imgs.shape,torch.tensor(self.data[0].astype(float)).shape,self.data[0].shape,self.stack,self.dim)
         # # add a line here to catch if already a tensor
@@ -249,15 +255,19 @@ class eval_set(torch.utils.data.Dataset):
             # value = 0 # turns out performance on sparse cells much better if padding is zero 
             I = torch.nn.functional.pad(imgs, pads, mode=self.pad_mode, value=None)            
             return I, inds, subs
-            
+    
+    # this could be improved by pooling the tiles together?
+    # depends on how many tiles we can pass at once
     def _run_tiled(self, batch, model, 
                    batch_size=8, augment=False, bsize=224, 
                    normalize=True, 
                    tile_overlap=0.1, return_conv=False):
     
         # need to check that model.net returns a tensor... almost certainly is
-    
-        for imgi in batch:
+        B,*DIMS = batch.shape # here B is loader batch size 
+        YF = torch.zeros((B, model.nclasses, *DIMS[1:]), device=batch.device)
+
+        for b, imgi in enumerate(batch):
             IMG, subs, shape, inds = make_tiles_ND(imgi,
                                                 bsize=bsize,
                                                 augment=augment,
@@ -265,7 +275,7 @@ class eval_set(torch.utils.data.Dataset):
                                                 tile_overlap=tile_overlap) 
             # IMG now always returned in the form (ny*nx, nchan, ly, lx) 
             # for either tiling or augmenting
-            
+                        
             niter = int(np.ceil(IMG.shape[0] / batch_size))
             nout = model.nclasses + 32*return_conv
             y = torch.zeros((IMG.shape[0], nout)+tuple(IMG.shape[-model.dim:]),device=IMG.device)
@@ -280,7 +290,11 @@ class eval_set(torch.utils.data.Dataset):
             yf = average_tiles_ND(y, subs, shape) #<<<
             slc = tuple([slice(s) for s in shape])
             yf = yf[(Ellipsis,)+slc]
-            return yf
+            
+            # return yf
+            YF[b] = yf
+        return YF
+            
 
     
     def collate_fn(self,worker_data):

@@ -547,6 +547,7 @@ class CellposeModel(UnetModel):
              z_axis=None, normalize=True, invert=False, 
              rescale=None, diameter=None, do_3D=False, anisotropy=None, net_avg=True, 
              augment=False, tile=False, tile_overlap=0.1, bsize=224, num_workers=8,
+             loader_batch_size=1, # for torch dataloader
              resample=True, interp=True, cluster=False, hdbscan=False, suppress=None, 
              boundary_seg=False, affinity_seg=False, despur=False,
              flow_threshold=0.4, mask_threshold=0.0, diam_threshold=12., niter=None,
@@ -709,7 +710,7 @@ class CellposeModel(UnetModel):
         
         # allow for a dataset to be passed so that we can do batches 
         # will be defined in omnipose.data.train_set 
-        is_dataset = isinstance(x,torch.utils.data.Dataset)
+        is_dataset = isinstance(x,torch.utils.data.Dataset) # if using eval_set
         if is_dataset:
             correct_shape = True # assume the dataset has the right shape
 
@@ -748,7 +749,7 @@ class CellposeModel(UnetModel):
 
             # the sequential batch sampler gives us a set of indices in sequence, like 0-5, 6-11, etc. 
             sampler = torch.utils.data.sampler.BatchSampler(omnipose.data.sampler(indices),
-                                                            batch_size=batch_size,
+                                                            batch_size=loader_batch_size,
                                                             drop_last=False) 
 
             params = {'batch_size': 1, # this batch size is more like how many worker batches to aggregate 
@@ -758,7 +759,9 @@ class CellposeModel(UnetModel):
                       'num_workers': num_workers, 
                       'sampler': sampler,# iterabledataset does not need this 
                       'persistent_workers': True if num_workers>0 else False,
-                      'multiprocessing_context': 'spawn' if num_workers>0 else None, # consider 'forkserver'
+                    #   'multiprocessing_context': 'spawn' if num_workers>0 else None, # consider 'forkserver'
+                      'multiprocessing_context': 'fork' if num_workers>0 else None, 
+                    
                       'prefetch_factor': batch_size if num_workers>0 else None
                      }
 
@@ -768,12 +771,15 @@ class CellposeModel(UnetModel):
             # I think the loader can at least do all the preprocessing work it will take to figure out
             # padding and stitching and slicing 
             progress_bar = tqdm(total=len(indices),disable=not show_progress) 
-            for batch,inds,subs in loader:                
+            for batch,inds,subs in loader:   
+                batch = batch.to(self.device) # move to GPU
+                         
                 shape = batch.shape
                 nimg = batch.shape[0]
                 nchan = batch.shape[1]
                 shape = batch.shape[-(self.dim+1):] # nclasses, Y, X
                 resize = shape[-self.dim:] if not resample else None 
+                                
                 # define the slice needed to get rid of padding required for net downsamples 
                 slc = [slice(0, s+1) for s in shape]
                 slc[-(self.dim+1)] = slice(0, self.nclasses + 1) 
@@ -799,11 +805,11 @@ class CellposeModel(UnetModel):
                     # actually, self.network should have it now
 
                     if tile:
-                        yf = x._run_tiled(batch,self,
+                        yf = x._run_tiled(batch, self,
                                           batch_size=batch_size,
                                           bsize=bsize,
                                           augment=augment,
-                                          tile_overlap=tile_overlap).unsqueeze(0)
+                                          tile_overlap=tile_overlap)#.unsqueeze(0)
                     else:
                         yf = self.network(batch,to_numpy=False)[0]
                         # yf = self.net(batch)[0] go back to this if error 
