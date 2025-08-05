@@ -63,7 +63,7 @@ def setup():
         'xtick.color': 'gray',
         'ytick.color': 'gray',
         'axes.edgecolor': 'gray',
-        # Legend defaults – place legend outside axes on the right, no frame
+        # Legend defaults - place legend outside axes on the right, no frame
         'legend.loc': 'center left',
         'legend.frameon': False,
         'legend.framealpha': 0,
@@ -310,7 +310,7 @@ def plot_edges(
         extent = np.array([0, shape[1], 0, shape[0]])
 
     # -------------------------------------------------------------------------
-    # Background image (affinity heat-map) – create if not supplied
+    # Background image (affinity heat-map) - create if not supplied
     # -------------------------------------------------------------------------
     nopic = pic is None
     if nopic:

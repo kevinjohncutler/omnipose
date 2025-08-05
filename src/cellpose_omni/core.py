@@ -1,3 +1,4 @@
+from asyncio.log import logger
 import os, sys, time, shutil, tempfile, datetime, pathlib, subprocess
 import logging
 import numpy as np
@@ -754,7 +755,7 @@ class UnetModel():
         else:
             lbl = lbl[:,0]
         lbl = self._to_device(lbl)
-        loss = 8 * 1./self.nclasses * self.criterion(y, lbl)
+        loss = 8 * 1./self.nclasses * self.MSELoss(y, lbl)
         del lbl
         return loss
 
@@ -868,6 +869,24 @@ class UnetModel():
             del lbl, y
             
             loss.backward()
+            # Compute total gradient norm (for debugging only)
+            # total_norm = torch.sqrt(
+            #     sum(p.grad.detach().pow(2).sum()           # ‖grad‖²
+            #         for p in self.net.parameters() 
+            #         if p.grad is not None)                 # skip params with no grad
+            # )
+            # print('Total norm of gradients: ', total_norm.item())
+            
+            # grad_norm = torch.linalg.vector_norm(
+            #             torch.stack([p.grad.detach().norm() for p in self.net.parameters()
+            #                         if p.grad is not None])
+            #         )
+            # print('Total norm of gradients: ', grad_norm.item())
+            
+            # torch.nn.utils.clip_grad_norm_(self.net.parameters(), max_norm=1.0)   # L2-norm clip
+
+            total_norm = torch.nn.utils.clip_grad_norm_(self.net.parameters(), max_norm=1.0)
+            # print(f'pre-clip L2-norm = {total_norm:.2f}')
             self.optimizer.step()
             
         train_loss = raw_loss.detach()*len(x) # added detach, probably redundant but trying to fix memory leak 
@@ -915,64 +934,20 @@ class UnetModel():
             self.optimizer.set_learning_rate(lr)
 
 
-
-
     def _set_criterion(self):
+        # removed self.torch, self.unet if/else; all torch, need to refactor unet 
+        # self.MSELoss  = nn.MSELoss(reduction='mean')
+        # self.BCELoss = nn.BCEWithLogitsLoss(reduction='mean')
         
-        if self.unet:
-            if self.torch:
-                criterion = nn.SoftmaxCrossEntropyLoss(axis=1) # not working anymore?
-            else:
-                criterion = gluon.loss.SoftmaxCrossEntropyLoss(axis=1)
-        else:
-            if self.torch:
-                self.criterion  = nn.MSELoss(reduction='mean')
-                self.criterion2 = nn.BCEWithLogitsLoss(reduction='mean')
-                self.criterion1 = omnipose.loss.SSL_Norm_MSE()
-                self.criterion3 = omnipose.loss.SSL_Norm()
-                self.criterion12 = omnipose.loss.WeightedMSELoss()
-                self.criterion15 = omnipose.loss.NormLoss()
-                self.criterion17 = omnipose.loss.SineSquaredLoss()
-                # self.criterion0 = ivp_loss.IVPLoss(dx=0.2, # consider increasing t0 np.sqrt(2)/5 for diagonals 
-                self.criterion0 = omnipose.loss.EulerLoss(self.device,self.dim)
-                
-                
-                self.AffinityLoss = omnipose.loss.AffinityLoss(self.device,self.dim)
-                self.MeanAdjustedMSELoss = omnipose.loss.MeanAdjustedMSELoss()
-                self.TruncatedMSELoss = omnipose.loss.TruncatedMSELoss(t=10)
-                self.DerivativeLoss = omnipose.loss.DerivativeLoss()
-                # self.gradnorm_loss = omnipose.loss.GradNormLoss(num_losses=7, 
-                #                                                 device=self.device, 
-                #                                                 alpha=.5)
-                
+        self.MSELoss  = omnipose.loss.BatchMeanMSE()
+        self.BCELoss = omnipose.loss.BatchMeanBSE()
+        self.SSNLoss = omnipose.loss.SSL_Norm()
+        self.WeightedMSE = omnipose.loss.WeightedMSELoss()
+        self.AffinityLoss = omnipose.loss.AffinityLoss(self.device,self.dim)
+        self.MeanAdjustedMSELoss = omnipose.loss.MeanAdjustedMSELoss()
+        self.TruncatedMSELoss = omnipose.loss.TruncatedMSELoss(t=10)
+        self.DerivativeLoss = omnipose.loss.DerivativeLoss()
 
-                # grad_norm_parameters = next(self.net.module.downsample.parameters())
-                # from gradnorm_pytorch import GradNormLossWeighter
-                                
-                # self.gradnorm_weighter = GradNormLossWeighter(
-                #                                 num_losses=7,
-                #                                 learning_rate=1e-4,
-                #                                 restoring_force_alpha=0.12,  # Adjust alpha as needed
-                #                                 grad_norm_parameters=grad_norm_parameters
-                #                             )
-                # self.criterionB  = nn.BCELoss(reduction='mean')
-                # self.criterionD = omnipose.loss.DerivativeLoss()
-                # self.criterionC = omnipose.loss.CorrelationLoss()
-                
-                
-                # self.criterionS =  omnipose.loss.MSSSIMLoss()
-                # Select weighting for each class if not wanting to use the default 1:1 weighting
-                # zero_weighting = 1.0
-                # nonzero_weighting = 1.0
-
-                # self.AffinityLossCB = ACBLoss(zero_weighting, nonzero_weighting)
-                # self.ivp_loss =  ivp_loss.IVPLoss(dx=0.25,n_steps=8,device=self)
-                # self.criterion18 = nn.SoftmaxCrossEntropyLoss(axis=1)
-                # self.criterion17 = FocalLoss()
-                
-            else:
-                self.criterion  = gluon.loss.L2Loss()
-                self.criterion2 = gluon.loss.SigmoidBinaryCrossEntropyLoss()
 
     # Restored defaults. Need to make sure rescale is properly turned off and omni turned on when using CLI. 
     # maybe replace individual 
@@ -1099,7 +1074,8 @@ class UnetModel():
                       'nchan': self.nchan,
                       'nclasses': self.nclasses,
                       'device': self.device if not ARM else torch.device('cpu'), # MPS slower than cpu for flow, check this with new version 
-                      'affinity_field': affinity_field
+                      'affinity_field': affinity_field,
+                      'allow_blank_masks': self.allow_blank_masks,
                      }
             # torch.multiprocessing.set_start_method('spawn')
             
@@ -1213,7 +1189,8 @@ class UnetModel():
                                                                            dim=self.dim, 
                                                                            nchan=self.nchan, 
                                                                            nclasses=self.nclasses, 
-                                                                           device=self.device)
+                                                                           device=self.device,
+                                                                           allow_blank_masks=self.allow_blank_masks)
                     
                     
                     t2 = time.time()
@@ -1233,12 +1210,15 @@ class UnetModel():
                     affinity_graph = out[-1]
                     masks,bd,T,mu = [torch.stack([x[(Ellipsis,)+slc] for slc in slices]) for x in X]
                     
+                    
                     # batch labels does alll the final assembling of the prediciton classes
                     # for example, the  distance field has -5 for the background
                     lbl = omnipose.core.batch_labels(masks,bd,T,mu,tyx,
                                                      dim=self.dim,
                                                      nclasses=self.nclasses,
                                                      device=self.device)
+                    
+                    # TODO: use the affinity graph to mahe the weighting image instead of boundary
       
                     dt = time.time()-tic
                     datatime += [dt]
@@ -1247,7 +1227,7 @@ class UnetModel():
                     nbatch = len(imgi) 
                     
                     if self.unet and lbl.shape[1]>1 and rescale:
-                        lbl[:,1] /= diam_batch[:,np.newaxis,np.newaxis]**2
+                        lbl[:,1] /= diam_train[:,np.newaxis,np.newaxis]**2 # was called diam_batch...
 
                     tic = time.time()
                     # train step now expects tensors

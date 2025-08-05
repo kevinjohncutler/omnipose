@@ -28,6 +28,7 @@ from .stacks import shifts_to_slice
 # from typing import Any, Dict, List, Set, Tuple, Union, Callable
 from typing import List
 
+
 # define the lists of unique omnipose models 
 # Some were trained with 2 channel input (C2)
 # some were trained with a boundary field (BD)
@@ -2227,7 +2228,7 @@ def flow_error(maski, dP_net, coords=None, affinity_graph=None, use_gpu=False, d
 # Spacetime segmentation: augmentations need to treat time differently 
 # Need to assume a particular axis is the temporal axis; most convenient is tyx. 
 def random_rotate_and_resize(X, Y=None, scale_range=1., gamma_range=[.75,2.5], tyx = (224,224), 
-                             do_flip=True, rescale=None, inds=None, nchan=1):
+                             do_flip=True, rescale=None, inds=None, nchan=1, allow_blank_masks=False):
     
     """ augmentation by random rotation and resizing
 
@@ -2292,7 +2293,7 @@ def random_rotate_and_resize(X, Y=None, scale_range=1., gamma_range=[.75,2.5], t
         imgi[n], lbl[n], scale[n] = random_crop_warp(img, y, tyx, v1, v2, nchan,
                                                      1 if rescale is None else rescale[n], 
                                                      scale_range, gamma_range, do_flip, 
-                                                     inds is None if inds is None else inds[n])
+                                                     inds is None if inds is None else inds[n], allow_blank_masks=allow_blank_masks)
         
     return imgi, lbl, np.mean(scale) #for size training, must output scalar size (need to check this again)
 
@@ -2300,7 +2301,7 @@ def random_rotate_and_resize(X, Y=None, scale_range=1., gamma_range=[.75,2.5], t
 # Now it is rerun on a per-image basis if a crop fails to capture .1 percent cell pixels (minimum). 
 # scale is just a placeholder, the point to to figure out what the true rescaling facor is
 def random_crop_warp(img, Y, tyx, v1, v2, nchan, rescale, scale_range, gamma_range, do_flip, ind, 
-                     do_labels=True, depth=0, augment=True):
+                     do_labels=True, depth=0, augment=True, allow_blank_masks=False):
     """
     This sub-fuction of `random_rotate_and_resize()` recursively performs random cropping until 
     a minimum number of cell pixels are found, then proceeds with augemntations. 
@@ -2459,12 +2460,13 @@ def random_crop_warp(img, Y, tyx, v1, v2, nchan, rescale, scale_range, gamma_ran
             #     lbl = mode_filter(lbl)
             
     # boundary instead - fast way to check is number of unique labels 
-    if len(fastremap.unique(lbl))<2:# or cellpx==numpx: # had to disable the overdense feature for cyto2
+    if len(fastremap.unique(lbl))<2 and not allow_blank_masks:# or cellpx==numpx: # had to disable the overdense feature for cyto2
                     # may not actually be a problem now anyway
         # skimage.io.imsave('/home/kcutler/DataDrive/debug/img'+str(depth)+'.png',img[0])
         # skimage.io.imsave('/home/kcutler/DataDrive/debug/training'+str(depth)+'.png',lbl[0])
         return random_crop_warp(img, Y, tyx, v1, v2, nchan, rescale, scale_range, 
-                                gamma_range, do_flip, ind, do_labels, depth=depth+1, augment=augment)
+                                gamma_range, do_flip, ind, do_labels, depth=depth+1, 
+                                augment=augment, allow_blank_masks=allow_blank_masks)
         
         
     else:
@@ -2584,6 +2586,12 @@ def scale_to_tenths(x):
     eps = 1e-12  # Small epsilon to prevent log issues
     scale_factor = 10 ** (-torch.floor(torch.log10(torch.abs(x) + eps)) - 1)
     return x * scale_factor
+    
+def scale_to_tenths(x, max_gain=10):
+    eps = 1e-12
+    sf  = 10 ** (-torch.floor(torch.log10(torch.abs(x)+eps)) - 1)
+    sf  = torch.clamp(sf, 1/max_gain, max_gain)   # cap between 0.1× and 10×
+    return x * sf
 
 def loss(self, lbl, y):
     """ Loss function for Omnipose.
@@ -2609,10 +2617,9 @@ def loss(self, lbl, y):
     cellmask = lbl[:,1]>0
     if self.nclasses==1: # semantic segmentation, generalize to logits 
         cm = cellmask.float()
-        flow_mse = self.criterion(y[:,0],cm) #MSE        
-        SSL = self.criterion2(y[:,0],cm) #BCElogits 
-        return flow_mse+SSL/20
-        # return flow_mse
+        flow_mse = self.MSELoss(y[:,0],cm) #MSE        
+        BCE = self.BCELoss(y[:,0],cm) #BCElogits 
+        return flow_mse+BCE/20
         
     
     else:   
@@ -2623,46 +2630,25 @@ def loss(self, lbl, y):
         w =  lbl[:,4].detach()
         # w =  lbl[:,1].detach()
         wt = torch.stack([w]*self.dim,dim=1).detach()
+        
 
         flow = y[:,:self.dim] # 0,1,...self.dim-1
         dt = y[:,self.dim]
-  
-        flow_mse = self.criterion12(flow,veci,wt)  #weighted MSE, seems to still be useful 
-        SSL, norm_loss = self.criterion3(flow,veci,dist,w,boundary) #SineSquaredLoss, norm loss
-        # sinesquaredloss at multiple scales would probably be useful for huge cells 
+        
+        maxF, minF = flow.max(), flow.min()
+        
+        # flow = torch.clamp(flow, -5, 5) # clamp flow to [-5,5] range, this is the range we train on
     
         # experimenting with not having any boundary output 
         if self.nclasses==(self.dim+2):
             bd = y[:,self.dim+1]
-            bd_loss = self.criterion2(bd,boundary) #BCElogits 
+            bd_loss = self.BCELoss(bd,boundary) #BCElogits 
         else:
             bd_loss = torch.tensor(0, device=self.device) 
         
         # placeholder     
-        loss3 = torch.tensor(0, device=self.device)    
-        dist_loss = self.criterion12(dt,dist,w) #weighted MSE on distance field, plain MSE does NOT work 
-        
-        # dist_loss = self.criterion12(dt,dist,w)/25 
-        # dist_loss = self.MeanAdjustedMSELoss(dt,dist) / 10 #- glowier edges at first, might be converging a lot faster on crappy data 
-        # # to make this work, I think I need to make it so that the thresholded distance fields are the same.. eventually was making distance fields really low 
-        #  # co-opt loss 4 for magnitude of distance field
-        # bd_loss = self.criterion2((dist>0).float(), cellmask.float()) #BCElogits
-        # print(', '.join([str(l.item()) for l in [bd_loss,dist_loss]]))       
-        
-        # dist_loss = self.TruncatedMSELoss(dt,dist)  # less glowy edges, /10 maybe not dominant enough.. eventually broke down 
-        bd_loss = self.DerivativeLoss(dt.unsqueeze(1),dist.unsqueeze(1),w.unsqueeze(1),cellmask.unsqueeze(1))
-        
-        
-        # one reason plain MSE might be bad is that I have an extra 1/5 in there that is for the flow...
-        # but it works so I am keeping it 
-        # might want to cosnider doing a fractional MSE, percent change, for distance 
-
-        lossA, lossE, lossB = self.AffinityLoss(flow,dt,veci,dist) # affinity loss, euler loss, boundary loss 
-
-
-        # S1 = self.criterionS(flow,veci)
-        # lossS = self.criterionS(dist,dt) # with 255
-        # lossS = self.criterionS((dist+5)/5,(dt+5)/5) # with 1
+        # loss3 = torch.tensor(0, device=self.device)    
+        dist_loss = self.WeightedMSE(dt,dist,w) #WeightedMSELoss distance field, plain MSE does NOT work 
         
         # the distance field has weird stuff happening, I hope
         # that making its gradient explicitly equal to the GT flow will help
@@ -2670,38 +2656,138 @@ def loss(self, lbl, y):
         
         # dims = [k for k in range(1,self.dim+1)]
         # grad = torch.stack(torch.gradient(dt,dim=dims),axis=1)
+        # cross_loss = torch.mean(torch.sum(torch.square(veci/5.-grad),axis=0))
         
-        # # print('gdgd',veci.shape,grad.shape,dist.shape,dt.shape)
-        # # sel = torch.where(ct)
-        # cross_loss = torch.mean(torch.sum(torch.square(veci/5.-grad),axis=0))/10
+        # affinity loss, euler loss, boundary loss 
+        lossA, lossE, lossB = self.AffinityLoss(flow,dt,veci,dist,
+                                                mode = 'all',
+                                                seed=0,
+                                                
+                                                ) 
+        div = divergence_torch(veci)
+        div_flow = divergence_torch(flow)
+
+        # outer = torch.where(~cellmask)
+        # outerDC = div_flow[outer].square().mean()
+        # outerFL = [flow[:]] # mean flow in each component?
+
+        bd_loss = self.DerivativeLoss(dt.unsqueeze(1),dist.unsqueeze(1),w.unsqueeze(1),cellmask.unsqueeze(1))
+        SSL, norm_loss = self.SSNLoss(flow,veci,dist,w,boundary) #SineSquaredLoss, norm loss
+
+        lossDC = self.MSELoss(div,div_flow) # also tried correlationloss
+
+        # if torch.any(cellmask):
+        # if 1: 
+        if 0:
+
+            inner = torch.where(cellmask) # torch.where(dist>2) alternative 
+            lossDC = self.MSELoss(div[inner],div_flow[inner]) # also tried correlationloss
+
+            # flow_mse = self.WeightedMSE(flow,veci,wt)  #weighted MSE, seems to still be useful 
+
+        
+        # else:
+            # lossDC = torch.tensor(0, device=self.device)
+            # bd_loss = torch.tensor(0, device=self.device)
+            # SSL, norm_loss = torch.tensor(0, device=self.device), torch.tensor(0, device=self.device)
+            # lossA = torch.tensor(0, device=self.device)
+            # lossE = torch.tensor(0, device=self.device)
+            # lossB = torch.tensor(0, device=self.device)
+            # flow_mse = torch.tensor(0, device=self.device)
+
+        flow_mse = self.WeightedMSE(flow,veci,wt)  #weighted MSE, seems to still be useful 
         
 
-        # euler_loss = self.criterion0(flow,veci) / 2
-        div = divergence_torch(veci)
-        # div *= boundary 
-        # div = (div-div.min())/(div.max()-div.min())
-        # divergence_loss = 10*self.criterion12(div, divergence_torch(flow), w)
-        div_flow = divergence_torch(flow)
-        # lossDC = self.criterionC(div[cellmask],div_flow[cellmask])
-        # lossC = self.criterionC(div[cellmask], divergence_torch(grad*5.)[cellmask])
+        # flow_penalty = torch.relu(flow.abs() - 5).pow(2).mean()
+        # flow_penalty = torch.nn.functional.softplus(flow.abs() - 5, beta=5).pow(2).mean()
         
-        # lossDC = self.criterion(div,div_flow)/5
-        # lossC = self.criterion(div, divergence_torch(grad*5.))/5
-        
-        # inner = torch.where(dist>2)
-        inner = torch.where(cellmask)
-        lossDC = self.criterion(div[inner],div_flow[inner])
-    
-        losses = [flow_mse, SSL, bd_loss, norm_loss, dist_loss, lossA, lossE, lossB, lossDC]
+        losses = [flow_mse, SSL, bd_loss, norm_loss, dist_loss, 
+                  lossA, lossE, lossB, # B is particularly instable maybe, need to plot all these 
+                  lossDC,
+                #   flow_penalty
+                # outerDC,
+                
+                  ] 
         raw_loss = sum(losses).detach() / len(losses)
         
         # print(', '.join([str(l.item()) for l in losses]))
+        # print('flow', maxF, minF, veci.max(), veci.min())
+        
         # rescaling dynamically seems to work really well, but I might want to add momentum to it
         # that is, slowly change the weight factors by averaging over the last few batches
-        losses = [scale_to_tenths(l) for l in losses]
+        losses = [scale_to_tenths(l, max_gain=1e12) for l in losses] 
+        # capping gain appears to prevent feedback loop, and might be solving the flow offset issue
         return sum(losses), raw_loss
-       
 
+def bg_flow_corr_penalty(flow, cellmask, eps=1e-6):
+    bg = flow * (~cellmask).unsqueeze(1)          # (B,C,H,W)
+    B, C, H, W = bg.shape
+    f = bg.flatten(2)                             # (B,C,N)
+    μ = f.mean(-1, keepdim=True)
+    f -= μ                                        # zero-centre
+
+    var = (f.pow(2).mean(-1, keepdim=True) + eps) # (B,C,1)
+    std = var.sqrt()
+    f_norm = f / std                              # unit variance
+
+    # Pearson correlation matrix; want off-diagonal ≈ 0
+    corr = f_norm @ f_norm.transpose(-1, -2) / f.shape[-1]  # (B,C,C)
+    off_diag = corr - torch.diag_embed(torch.diagonal(corr, dim1=-2, dim2=-1))
+    return off_diag.pow(2).mean()                 # scalar, ≤1
+     
+import torch
+import torch.fft as fft
+import torch.nn.functional as F
+
+def bg_flow_spectral_penalty(flow_pred, cellmask,
+                             fc=0.10,      # cutoff fraction of Nyquist (0-0.5)
+                             dim=2):       # 2→u,v ; 3→u,v,w
+    """
+    flow_pred : (B, dim, H, W)  predicted flow
+    cellmask  : (B, H,  W)      True on cell pixels
+    fc        : relative cutoff; 0.10 → remove first 10 % of freq band
+    Returns scalar penalty.
+    """
+
+    bgmask = (~cellmask).float()                       # 1 on background
+    B, C, H, W = flow_pred.shape
+    eps = 1e-6
+
+    # zero out foreground so only background contributes
+    flow_bg = flow_pred * bgmask.unsqueeze(1)          # (B,C,H,W)
+
+    # FFT: 2× forward real → complex
+    spec = fft.rfftn(flow_bg, dim=(-2, -1), norm='forward')  # (B,C,H,W//2+1)
+    power = spec.real.pow(2) + spec.imag.pow(2)        # magnitude²
+
+    # radial frequency mask
+    fy = torch.fft.fftfreq(H, d=1./H, device=flow_pred.device)  # (-0.5..0.5)
+    fx = torch.fft.rfftfreq(W, d=1./W, device=flow_pred.device)
+    fy2, fx2 = torch.meshgrid(fy, fx, indexing='ij')
+    f_radius = torch.sqrt(fy2 ** 2 + fx2 ** 2)                 # (H,W//2+1)
+    lowpass = (f_radius < fc).float()                          # 1 inside cutoff
+
+    # energy below cutoff
+    low_energy = (power * lowpass).sum(dim=(-2, -1))           # (B,C)
+    # normalise by #bg pixels to keep scale independent
+    bg_pix = bgmask.sum(dim=(-2, -1)).clamp_min(1.0).unsqueeze(1)
+    penalty = (low_energy / bg_pix).mean()                     # scalar
+    return penalty
+    
+def bg_flow_spec_penalty(flow, cellmask, fc=0.1, eps=1e-6):
+    bg = flow * (~cellmask).unsqueeze(1)          # (B,C,H,W)
+    power = torch.fft.rfftn(bg, dim=(-2, -1), norm='forward').abs().pow(2)
+
+    fy = torch.fft.fftfreq(bg.size(-2), device=bg.device)
+    fx = torch.fft.rfftfreq(bg.size(-1), device=bg.device)
+    fy2, fx2 = torch.meshgrid(fy, fx, indexing='ij')
+    rad = torch.sqrt(fy2**2 + fx2**2)
+
+    lp_mask = (rad < fc).float()
+    low = (power * lp_mask).sum(dim=(-2, -1))
+    total = power.sum(dim=(-2, -1)) + eps
+    frac = low / total                              # (B,C)
+    return frac.mean()                              # scalar in [0,1]
 
 # ## Section IV: Helper functions duplicated from cellpose_omni, plan to find a way to merge them back without import loop
 
@@ -3875,7 +3961,7 @@ def _despur(connect, neigh_inds, indexes, steps, non_self,
             iter_cutoff=100, skeletonize=False):
     """
     Critical cleanup function to get rid of spurious affinities.
-    This drop–in replacement has the same header.
+    This drop-in replacement has the same header.
     
     It uses vectorized operations for most of the bulk updates and calls a njit-accelerated helper
     (candidate_cleanup_idx) for the per-candidate boundary cleanup.
@@ -3893,7 +3979,7 @@ def _despur(connect, neigh_inds, indexes, steps, non_self,
         count += 1
         before = connect.copy()
 
-        #––– Stage 1: Spur removal (bulk update) –––#
+        #--- Stage 1: Spur removal (bulk update) ---#
         csum = np.sum(connect, axis=0)  # total connections per hypervoxel
         internal = (csum == (3**dim - 1))
         csum_cardinal = np.sum(connect[cardinal], axis=0)
@@ -3915,7 +4001,7 @@ def _despur(connect, neigh_inds, indexes, steps, non_self,
                 connect[i, sel_indexes] = connection
                 connect[-(i + 1), target[sel]] = connection
 
-        #––– Stage 2: Boundary cleanup –––#
+        #--- Stage 2: Boundary cleanup ---#
         csum = np.sum(connect, axis=0)
         internal = (csum == (3**dim - 1))
         csum_cardinal = np.sum(connect[cardinal], axis=0)
@@ -3937,7 +4023,7 @@ def _despur(connect, neigh_inds, indexes, steps, non_self,
 
         candidate_indexes = indexes[bad]
 
-        #––– Stage 3: Per-candidate cleanup with njit helper –––#
+        #--- Stage 3: Per-candidate cleanup with njit helper ---#
         if clean_bd_connections:
             for candidate in candidate_indexes:
                 candidate_cleanup_idx(candidate, connect, neigh_inds, cardinal, ordinal, dim, boundary, internal)

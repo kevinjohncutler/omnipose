@@ -36,7 +36,7 @@ def _is_git_tracked(path: Path) -> bool:
     except (subprocess.CalledProcessError, ValueError):
         return False
 
-# Gather all omnipose submodules for import smoke‑testing
+# Gather all omnipose submodules for import smoke-testing
 modules = [
     module_name
     for _, module_name, _ in pkgutil.walk_packages(omnipose.__path__, omnipose.__name__ + ".")
@@ -44,7 +44,7 @@ modules = [
 
 @pytest.mark.parametrize("module_name", modules)
 def test_module_import(module_name):
-    # Smoke‑test: import the submodule
+    # Smoke-test: import the submodule
     importlib.import_module(module_name)
 
 # Collect public functions and classes from submodules that import successfully
@@ -61,7 +61,7 @@ for module_name in modules:
 
 @pytest.mark.parametrize("module_name, member_name", members)
 def test_member_access(module_name, member_name):
-    # Smoke‑test: access each public member
+    # Smoke-test: access each public member
     module = importlib.import_module(module_name)
     getattr(module, member_name)
 
@@ -81,7 +81,7 @@ def test_module_source_tracked(module_name):
         pytest.skip(f"{module_name} has no __file__ attribute")
 
     path = Path(src)
-    # Map cached byte‑code back to its source file
+    # Map cached byte-code back to its source file
     if path.suffix == ".pyc":
         path = path.with_suffix(".py")
 

@@ -12,6 +12,8 @@ from .utils import get_flip, _taper_mask_ND, unaugment_tiles_ND, average_tiles_N
 # import imageio
 from aicsimageio import AICSImage
 
+import multiprocessing as mp
+
 
 import torch.nn.functional as F
 def torch_zoom(img, scale_factor=1.0, dim=2, size=None, mode='bilinear'):
@@ -90,7 +92,7 @@ class eval_set(torch.utils.data.Dataset):
         self.contrast_limits = contrast_limits
         
     def __iter__(self):
-        worker_info = mp.get_worker_info()
+        worker_info = mp.get_worker_info() # is this not even used? mp was not imported for a while...
 
         if worker_info is None:  # For single-process training
             start = 0
@@ -379,14 +381,20 @@ class train_set(torch.utils.data.Dataset):
 
 # class dataset(torch.utils.data.TensorDataset):
 
-    def __init__(self, data, labels, links, timing=False, **kwargs):
+    def __init__(self, data, labels, links,
+                 timing=False, **kwargs):
         
         # make these params into attributes
         self.__dict__.update(kwargs)
+        # self.allow_blank_masks = True
+        # print('need to pass allow_blank_masks') oh this should now be passed
+        
         
         self.data = data
         self.labels = labels
         self.links = links
+
+        
         self.timing = timing
         
         if not hasattr(self,'augment'):
@@ -402,7 +410,9 @@ class train_set(torch.utils.data.Dataset):
             # but it appears that multiple of 8 actually works?
             self.tyx = (L,)*self.dim if self.dim==2 else (8*n,)+(8*n,)*(self.dim-1) #must be divisible by 2**3 = 8
         
-        self.scale_range = max(0, min(2, float(self.scale_range)))
+        self.scale_range = max(0, min(2, float(self.scale_range))) # this should be specified by kwargs? 
+        
+        
         self.do_flip = True
         self.dist_bg = 5
         self.smooth = False # smoothing while iterating, much slower to converge 
@@ -416,7 +426,7 @@ class train_set(torch.utils.data.Dataset):
                 
 
     def __iter__(self):
-        worker_info = mp.get_worker_info()
+        worker_info = mp.get_worker_info() # is this not even used? mp was not imported for a while...
 
         if worker_info is None:  # For single-process training
             start = 0
@@ -494,6 +504,7 @@ class train_set(torch.utils.data.Dataset):
                                                             do_flip=self.do_flip, 
                                                             ind=idx,
                                                             augment=self.augment,
+                                                            allow_blank_masks=self.allow_blank_masks
                                                            )
             # print('hey', self.data[idx].shape,self.labels[idx].shape)
             

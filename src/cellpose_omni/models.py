@@ -398,7 +398,8 @@ class CellposeModel(UnetModel):
                  nchan=1, nclasses=None, dim=2, omni=True, logits=False,
                  nsample=4, # number of up/downsampling layers
                  checkpoint=False, dropout=False, 
-                 kernel_size=2,scale_factor=2,dilation=1):
+                 kernel_size=2,scale_factor=2,dilation=1, 
+                 allow_blank_masks=False):
     
         if not torch:
             if not MXNET_ENABLED:
@@ -424,6 +425,7 @@ class CellposeModel(UnetModel):
         self.kernel_size = kernel_size
         self.dilation = dilation                
         self.scale_factor = scale_factor
+        self.allow_blank_masks = allow_blank_masks
         
         # channel axis might be useful here 
         pretrained_model_string = None
@@ -1343,6 +1345,12 @@ class CellposeModel(UnetModel):
             models_logger.info('network run in %2.2fs'%(net_time))
 
         if compute_masks:
+        
+            # center the field
+            # offset = np.mean(dP, axis=tuple(range(1,self.dim+2)), keepdims=True)
+            # print('aa',dP.shape, offset.shape)
+            # dP  -= offset
+        
             tic = time.time()
             
             # allow user to specify niter
@@ -1493,10 +1501,10 @@ class CellposeModel(UnetModel):
         # else: # original loss function 
         #     veci = 5. * self._to_device(lbl[:,1:])
         #     lbl  = self._to_device(lbl[:,0]>.5)
-        #     loss = self.criterion(y[:,:2] , veci) 
+        #     loss = self.MSELoss(y[:,:2] , veci) 
         #     if self.torch:
         #         loss /= 2.
-        #     loss2 = self.criterion2(y[:,2] , lbl)
+        #     loss2 = self.BCELoss(y[:,2] , lbl)
         #     loss = loss + loss2
         return loss
 

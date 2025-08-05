@@ -13,6 +13,7 @@ import fastremap
 
 from ncolor import unique_nonzero # for backward compatibility, used to have a copy here 
 
+
 def vector_to_arrow(vectors, flip_y: bool = False):
     """
     Convert one or many 2-D vectors (in y,x order) into Unicode arrow glyphs.

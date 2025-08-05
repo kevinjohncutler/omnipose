@@ -633,9 +633,9 @@ def save_masks(images, masks, flows, file_names, png=True, tif=False,
             
             imwrite(os.path.join(maskdir,basename + '_cp_masks' + suffix + ext), masks)
     
-    criterion3 = not (min(images.shape) > 3 and images.ndim >=3)
+    SSNLoss = not (min(images.shape) > 3 and images.ndim >=3)
     
-    if png and MATPLOTLIB and criterion3 and save_plot:
+    if png and MATPLOTLIB and SSNLoss and save_plot:
         img = images.copy()
         # if img.ndim<3:
         #     img = img[:,:,np.newaxis]

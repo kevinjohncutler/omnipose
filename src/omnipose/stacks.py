@@ -17,8 +17,8 @@ def shifts_to_slice(shifts, shape, pad=0):
  
     slices = []
     for dim in range(shifts.shape[1]):
-        max_shift = shifts[:, dim].max()   # most‑positive  (shift to the right / down)
-        min_shift = shifts[:, dim].min()   # most‑negative (shift to the left  / up)
+        max_shift = shifts[:, dim].max()   # most-positive  (shift to the right / down)
+        min_shift = shifts[:, dim].min()   # most-negative (shift to the left  / up)
  
         start = max(0, math.ceil(max_shift - pad))
         stop  = min(shape[dim], math.floor(shape[dim] + min_shift + pad))

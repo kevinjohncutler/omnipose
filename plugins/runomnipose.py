@@ -52,7 +52,7 @@ On the first time loading into CellProfiler, Cellpose will need to download some
 may take some time. If you want to use a GPU to run the model, you'll need a compatible version of PyTorch and a
 supported GPU. Instructions are avaiable at this link: {CUDA_LINK}
 
-Stringer, C., Wang, T., Michaelos, M. et al. Cellpose: a generalist algorithm for cellular segmentation. Nat Methods 18, 100–106 (2021). {Cellpose_link}
+Stringer, C., Wang, T., Michaelos, M. et al. Cellpose: a generalist algorithm for cellular segmentation. Nat Methods 18, 100-106 (2021). {Cellpose_link}
 Kevin J. Cutler, Carsen Stringer, Paul A. Wiggins, Joseph D. Mougous. Omnipose: a high-precision morphology-independent solution for bacterial cell segmentation. bioRxiv 2021.11.03.467199. {Omnipose_link}
 ============ ============ ===============
 Supports 2D? Supports 3D? Respects masks?

@@ -159,9 +159,9 @@ def build_slice_interpolated_wheel(
 
     Returns
     -------
-    wheel  – (N,3) sRGB colours
-    C0     – chosen uniform chroma
-    L(h)   – per-hue lightness path actually used
+    wheel  - (N,3) sRGB colours
+    C0     - chosen uniform chroma
+    L(h)   - per-hue lightness path actually used
     """
     θ      = np.linspace(0, 2*np.pi, N, endpoint=False, dtype=np.float32)
     cθ, sθ = np.cos(θ), np.sin(θ)
@@ -321,10 +321,10 @@ def dx_to_circ(dP, transparency=False, mask=None,
         Multiplies each RGB component to suppress noise
 
     iso_map: str, default "cmocean:phase"
-        When *iso* is ``True``, choose the cyclic constant‑lightness palette.
+        When *iso* is ``True``, choose the cyclic constant-lightness palette.
 
-        • ``"cmocean:phase"`` (default) - built‑in cmocean isoluminant wheel.  
-        • ``"oklch"`` - on‑the‑fly constant‑L OKLCH circle with extra chroma.
+        • ``"cmocean:phase"`` (default) - built-in cmocean isoluminant wheel.  
+        • ``"oklch"`` - on-the-fly constant-L OKLCH circle with extra chroma.
     """
     
     dP = np.array(dP)
@@ -339,8 +339,8 @@ def dx_to_circ(dP, transparency=False, mask=None,
         #     # angles -= 2*np.pi / 4      # rotate so red ≈ +X
         #     angles *= -1
         
-        #     # ── constant‑L OKLCH circle (L≈0.65, C≈0.19) ─────────────────
-        #     t = (angles % (2 * np.pi)) / (2 * np.pi)        # 0‑1
+        #     # ── constant-L OKLCH circle (L≈0.65, C≈0.19) ─────────────────
+        #     t = (angles % (2 * np.pi)) / (2 * np.pi)        # 0-1
         #     # L0 = 0.65                                       # lightness
         #     # C0 = 0.19                                       # chroma safe in sRGB
             
@@ -362,7 +362,7 @@ def dx_to_circ(dP, transparency=False, mask=None,
 
         #     rgb_lin = np.stack([r_lin, g_lin, b_lin], axis=-1)
 
-        #     # linear‑RGB → sRGB (gamma 2.4)
+        #     # linear-RGB → sRGB (gamma 2.4)
         #     a = 0.055
         #     rgb = np.where(
         #         rgb_lin <= 0.0031308,

@@ -21,7 +21,53 @@ class EulerLoss(ivp_loss.IVPLoss):
         
 # one way to implement affinity loss would be to get euler loss going
 
+class BatchMeanMSE(torch.nn.Module):
+    def __init__(self):
+        super().__init__()
+        self.mse = torch.nn.MSELoss(reduction='none')
 
+    def forward(self, pred, target, weight=None):
+        """
+        Compute mean‑squared error averaged per sample, then across batch.
+        Optionally apply element‑wise weighting.
+        """
+        per_elem = self.mse(pred, target)
+        if weight is not None:
+            per_elem = per_elem * weight
+        per_sample = per_elem.view(per_elem.size(0), -1).mean(dim=1)
+        return per_sample.mean()
+
+
+class BatchMeanBSE(torch.nn.Module):
+    """
+    Same idea as BatchMeanMSE but using binary cross‑entropy.
+    Computes BCE loss per element → average over each sample →
+    average those means across the batch.
+    """
+    def __init__(self):
+        super().__init__()
+        # keep element‑wise losses so we can average the way we want
+        self.bce = torch.nn.BCELoss(reduction='none')
+
+    def forward(self, pred, target):
+        per_elem = self.bce(pred, target)              # shape (B, …)
+        per_sample = per_elem.view(per_elem.size(0), -1).mean(dim=1)
+        return per_sample.mean()
+      
+
+class WeightedMSELoss(torch.nn.Module):
+    """
+    Weighted MSE implemented via BatchMeanMSE for consistent reduction.
+    """
+    def __init__(self):
+        super().__init__()
+        self.base = BatchMeanMSE()
+
+    def forward(self, pred, target, weight):
+        return self.base(pred, target, weight)
+
+  
+        
 class AffinityLoss(torch.nn.Module):
 
     def __init__(self,device,dim):
@@ -33,17 +79,60 @@ class AffinityLoss(torch.nn.Module):
         
         super().__init__()
         
-        self.MSE = torch.nn.MSELoss(reduction='mean')
-        self.BCE = torch.nn.BCELoss(reduction='mean')
+        # self.MSE = torch.nn.MSELoss(reduction='mean')
+        # self.BCE = torch.nn.BCELoss(reduction='mean')
+        
+        self.MSE = BatchMeanMSE()
+        self.BCE = BatchMeanBSE()
 
-    def forward(self,flow_pred,dist_pred,flow_gt,dist_gt): # y is GT, x is predicted 
-    
-        # torch.autograd.set_detect_anomaly(True) # this is a problem on MPS
+    def forward(self, flow_pred, dist_pred, flow_gt, dist_gt,
+                mode='foreground', 
+                mask_threshold=0,  # zero defines background vs foreground
+                random_frac=0.5, 
+                seed=None):
+        """
+        Compute affinity, Euler, and boundary losses between predicted and ground-truth
+        flow / distance fields.
 
-        mask_threshold = 0
-        # foreground must be union of x and y foregrounds             
-        foreground = torch.logical_or(dist_pred >= mask_threshold, dist_gt >= mask_threshold)
-    
+        Parameters
+        ----------
+        flow_pred : torch.Tensor
+            Predicted flow field, shape (B, C, H, W).
+        dist_pred : torch.Tensor
+            Predicted distance field.
+        flow_gt   : torch.Tensor
+            Ground-truth flow field.
+        dist_gt   : torch.Tensor
+            Ground-truth distance field.
+        mode : str, optional
+            Pixel-selection mode:
+                'foreground' (default) - use foreground derived from distance fields.
+                'all'                   - ignore distance fields; integrate over every pixel.
+                'random'                - use foreground plus a random subset of background
+                                          pixels. Fraction controlled by `random_frac`.
+        random_frac : float, optional
+            Fraction of total pixels to sample when `mode == 'random'`. Range 0-1.
+        seed : int or None, optional
+            Seed for torch's RNG when sampling random pixels.
+        """
+
+
+        if mode == 'all':
+            foreground = torch.ones_like(dist_pred, dtype=torch.bool)
+        else:
+            # baseline foreground from distance maps
+            
+            foreground = torch.logical_or(dist_pred >= mask_threshold,
+                                          dist_gt   >= mask_threshold)
+
+            if mode == 'random' and random_frac > 0.0:
+                # reproducible random sampling if seed provided
+                if seed is not None:
+                    torch.manual_seed(seed)
+                rand_mask = torch.rand_like(dist_pred) < random_frac
+                foreground = torch.logical_or(foreground, rand_mask)
+
+
         # vf = interp_vf(flow_pred/5., mode = "nearest_batched")
         # initial_points = init_values_semantic(foreground, device=self.device)
         
@@ -77,10 +166,19 @@ class AffinityLoss(torch.nn.Module):
             vf = interp_vf(f, mode = "nearest_batched")
             final_points = ivp_solver(vf,
                                       initial_points, 
-                                        dx = np.sqrt(self.dim)/5,
+                                        dx = np.sqrt(self.dim)/5, # maybe divide by percentile of flow magnitude instead 
                                         n_steps = 2,
                                         solver = "euler")[-1] 
-            
+
+            # # ------------------------------------------------------------------
+            # # Keep traced points inside the valid spatial domain to avoid
+            # # out-of-bounds indices (which trigger CUDA scatter/gather asserts)
+            # # ------------------------------------------------------------------
+            # for ax, L in enumerate(dims):
+            #     # `final_points` has coordinate dimension first (z/y/x …),
+            #     # so we clamp each axis independently.
+            #     final_points[ax] = final_points[ax].clamp(0, L - 1)
+
             fps.append(final_points)
             affinity_graph = _get_affinity_torch(initial_points, 
                                                 final_points, 
@@ -102,18 +200,10 @@ class AffinityLoss(torch.nn.Module):
         lossA = self.MSE(*ags)
         lossE = self.MSE(*fps)
         lossB = self.BCE(*bds) # zero?
+        
         # print(lossA,lossE,lossB)
         return lossA, lossE, lossB
             
-
-
-class WeightedMSELoss(torch.nn.Module):
-    def __init__(self):
-        super().__init__()
-
-    def forward(self,y,Y,w):
-        return torch.mean(torch.square(y-Y)*w)
-
 
 class SineSquaredLoss(torch.nn.Module):
     def __init__(self):
@@ -148,6 +238,8 @@ class NormLoss(torch.nn.Module):
 class SSL_Norm(torch.nn.Module):
     def __init__(self):
         super().__init__()
+        self.MSE = BatchMeanMSE()
+        self.WMSE = WeightedMSELoss()
         
     def forward(self,x,y,dist,w,bd): # y is GT, x is predicted 
         eps = 1e-12
@@ -207,13 +299,10 @@ class SSL_Norm(torch.nn.Module):
         
         # weighting the normloss above high makes things 1 everywhere, not good
         # NL = torch.mean(torch.square(magX/5-(magX>0).float())) + 
-        NL = torch.mean(torch.square(magX-magY))
-        
-                
-        SSL = torch.mean((1-cossq)*w) 
+        NL = self.MSE(magX, magY)                           # unweighted magnitude error
+        SSL = self.WMSE(cossq, torch.ones_like(cossq), w)   # weighted orientation error
         # sel = torch.where(bd)
         # SSL = torch.mean((1-cossq[sel]))
-        
         
         
         # see if SSL should be weighted instead of purely masked by bd 
@@ -289,22 +378,60 @@ class SSL_Norm_MSE(torch.nn.Module):
         
         
 
+# class DerivativeLoss(torch.nn.Module):
+#     def __init__(self):
+#         super().__init__()
+
+#     def forward(self,y,Y,w,mask):
+#         # y is awlays nbatch x dim x shape, shape is Ly x Lx, Lt x Ly x Lx, or Lz x Ly x Lx. 
+#         # so y[0] grabs one example
+#         # axes = [k for k in range(len(y[0]))]     
+#         # print('shape',y.shape,y[0].shape)
+#         dim = y.shape[1]
+#         dims = [k for k in range(-dim,0)]
+#         # print('dims',dim,dims)
+#         dy = torch.stack(torch.gradient(y,dim=dims))
+#         dY = torch.stack(torch.gradient(Y,dim=dims))
+#         sel = torch.where(mask) # read that masked selection could be causing this 
+#         return torch.mean(torch.sum(torch.square((dy-dY)/5.),axis=0)[sel]*w[sel])    
+
+
+
 class DerivativeLoss(torch.nn.Module):
+    """
+    Gradient‑domain loss rewritten to use the BatchMean/Weighted MSE
+    infrastructure for consistent per‑sample reduction.
+
+    Computes the mean‑squared error between spatial gradients of the
+    prediction `y` and ground‑truth `Y`.  Results are averaged per‑sample,
+    then across the batch via `WeightedMSELoss`, with optional pixel‑wise
+    weights `w` and a binary mask `mask` defining valid regions.
+
+    Mathematically equivalent to the original implementation:
+
+        mean( ((∇y − ∇Y)/5)² * w )[mask]
+    """
     def __init__(self):
         super().__init__()
+        self.WMSE = WeightedMSELoss()
 
-    def forward(self,y,Y,w,mask):
-        # y is awlays nbatch x dim x shape, shape is Ly x Lx, Lt x Ly x Lx, or Lz x Ly x Lx. 
-        # so y[0] grabs one example
-        # axes = [k for k in range(len(y[0]))]     
-        # print('shape',y.shape,y[0].shape)
+    def forward(self, y, Y, w, mask):
+        # Number of spatial dimensions inferred the same way as before
         dim = y.shape[1]
-        dims = [k for k in range(-dim,0)]
-        # print('dims',dim,dims)
-        dy = torch.stack(torch.gradient(y,dim=dims))
-        dY = torch.stack(torch.gradient(Y,dim=dims))
-        sel = torch.where(mask) # read that masked selection could be causing this 
-        return torch.mean(torch.sum(torch.square((dy-dY)/5.),axis=0)[sel]*w[sel])    
+        spatial_axes = [k for k in range(-dim, 0)]
+
+        # Gradients along each spatial axis → stack then bring batch dim first
+        dy = torch.stack(torch.gradient(y, dim=spatial_axes)).transpose(0, 1)
+        dY = torch.stack(torch.gradient(Y, dim=spatial_axes)).transpose(0, 1)
+
+        # Combine weights with mask; broadcast to gradient tensor shape
+        weight = w * mask                          # (B,1,…)
+        while weight.ndim < dy.ndim:
+            weight = weight.unsqueeze(1)           # prepend dims
+        weight = weight.expand_as(dy)              # (B,dim,C,…)
+
+        # Weighted MSE, scaled by 1/25 to match (⋅/5)² factor
+        return self.WMSE(dy, dY, weight) / 25
     
 
 # it will probably be better just to do the gradient for the whole image....
@@ -347,7 +474,7 @@ class CorrelationLoss(torch.nn.Module):
         return -torch.mean(cost) 
         
         
-
+# dist_loss = self.TruncatedMSELoss(dt,dist)  # less glowy edges, /10 maybe not dominant enough.. eventually broke down 
 class TruncatedMSELoss(torch.nn.Module):
     def __init__(self, t=5.0):
         super().__init__()

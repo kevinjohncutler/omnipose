@@ -251,8 +251,9 @@ def main(args):
                 nchan=args.nchan,
                 dim=args.dim,
                 omni=args.omni,
-                net_avg=False
+                net_avg=False,
             )
+            
 
         # handle diameter
         if args.diameter == 0:
@@ -410,8 +411,10 @@ def main(args):
                 dropout=args.dropout,
                 kernel_size=args.kernel_size,
                 dilation=args.dilation,
-                scale_factor=args.scale_factor
+                scale_factor=args.scale_factor,
+                allow_blank_masks=args.allow_blank_masks
             )
+            
 
         # TRAIN segmentation model
         if args.RAdam:

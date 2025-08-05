@@ -854,7 +854,7 @@ def pad_image_ND(img0, div=16, extra=1, dim=2):
 
 def random_rotate_and_resize(X, Y=None, scale_range=1., gamma_range=[.5,4], tyx=None, 
                              do_flip=True, rescale=None, unet=False,
-                             inds=None, omni=False, dim=2, nchan=1, nclasses=3, device=None):
+                             inds=None, omni=False, dim=2, nchan=1, nclasses=3, device=None, allow_blank_masks=False):
     """ augmentation by random rotation and resizing
 
         X and Y are lists or arrays of length nimg, with dims channels x Ly x Lx (channels optional)
@@ -908,7 +908,7 @@ def random_rotate_and_resize(X, Y=None, scale_range=1., gamma_range=[.5,4], tyx=
     
     return omnipose.core.random_rotate_and_resize(X, Y=Y, scale_range=scale_range, gamma_range=gamma_range,
                                                     tyx=tyx, do_flip=do_flip, rescale=rescale, inds=inds, 
-                                                    nchan=nchan)
+                                                    nchan=nchan, allow_blank_masks=allow_blank_masks)
 
     # if omni and OMNI_INSTALLED:
     #     return omnipose.core.random_rotate_and_resize(X, Y=Y, scale_range=scale_range, gamma_range=gamma_range,
