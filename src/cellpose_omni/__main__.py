@@ -364,14 +364,15 @@ def main(args):
         from .io import load_train_test_data
         output = load_train_test_data(
             args.dir, 
-            test_dir,
-            args.img_filter,
-            args.mask_filter,
-            args.unet,
-            args.look_one_level_down,
-            args.omni,
-            args.links
+            test_dir=test_dir,
+            image_filter=args.img_filter,
+            mask_filter=args.mask_filter,
+            unet=args.unet,
+            look_one_level_down=args.look_one_level_down,
+            omni=args.omni,
+            do_links=args.links
         )
+        # assign output to variables
         (images, labels, links, image_names,
          test_images, test_labels, test_links, image_names_test) = output
 

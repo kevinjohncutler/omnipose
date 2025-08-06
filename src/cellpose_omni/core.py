@@ -869,27 +869,12 @@ class UnetModel():
             del lbl, y
             
             loss.backward()
-            # Compute total gradient norm (for debugging only)
-            # total_norm = torch.sqrt(
-            #     sum(p.grad.detach().pow(2).sum()           # ‖grad‖²
-            #         for p in self.net.parameters() 
-            #         if p.grad is not None)                 # skip params with no grad
-            # )
-            # print('Total norm of gradients: ', total_norm.item())
-            
-            # grad_norm = torch.linalg.vector_norm(
-            #             torch.stack([p.grad.detach().norm() for p in self.net.parameters()
-            #                         if p.grad is not None])
-            #         )
-            # print('Total norm of gradients: ', grad_norm.item())
-            
-            # torch.nn.utils.clip_grad_norm_(self.net.parameters(), max_norm=1.0)   # L2-norm clip
-
+            # clipping the norm of the gradients helps stabilize training with background images
             total_norm = torch.nn.utils.clip_grad_norm_(self.net.parameters(), max_norm=1.0)
             # print(f'pre-clip L2-norm = {total_norm:.2f}')
             self.optimizer.step()
             
-        train_loss = raw_loss.detach()*len(x) # added detach, probably redundant but trying to fix memory leak 
+        train_loss = raw_loss.detach() #* len(x) # added detach, probably redundant but trying to fix memory leak 
 
         # gc.collect()
         return train_loss
@@ -944,9 +929,9 @@ class UnetModel():
         self.SSNLoss = omnipose.loss.SSL_Norm()
         self.WeightedMSE = omnipose.loss.WeightedMSELoss()
         self.AffinityLoss = omnipose.loss.AffinityLoss(self.device,self.dim)
-        self.MeanAdjustedMSELoss = omnipose.loss.MeanAdjustedMSELoss()
-        self.TruncatedMSELoss = omnipose.loss.TruncatedMSELoss(t=10)
         self.DerivativeLoss = omnipose.loss.DerivativeLoss()
+        # self.MeanAdjustedMSELoss = omnipose.loss.MeanAdjustedMSELoss()
+        # self.TruncatedMSELoss = omnipose.loss.TruncatedMSELoss(t=10)
 
 
     # Restored defaults. Need to make sure rescale is properly turned off and omni turned on when using CLI. 
@@ -990,14 +975,25 @@ class UnetModel():
         
         nimg = len(train_data)
         
-        # Set crop size; should probably generalize to fix sizes that don't fit requirements  
+        # Set crop size; should probably generalize to fix sizes that don't fit requirements
         n = 16
         base = 2
-        L = max(round(224/(base**4)),1)*(base**4) # rounds 224 up to the right multiple to work for base 
-        # not sure if 4 downsampling or 3, but the "multiple of 16" elsewhere makes me think it must be 4, 
-        # but it appears that multiple of 8 actually works? maybe the n=16 above conflates my experiments in 3D
-        if tyx is None:
-            tyx = (L,)*self.dim if self.dim==2 else (8*n,)+(8*n,)*(self.dim-1) #must be divisible by 2**3 = 8
+        L = max(round(224/(base**4)),1) * (base**4)
+
+        # Validate provided tyx: ensure each element divisible by 8
+        if tyx is not None:
+            if not isinstance(tyx, tuple) or not all(isinstance(v, int) for v in tyx):
+                raise ValueError(f'tyx must be a tuple of ints, got {tyx}')
+            if any(v % 8 != 0 for v in tyx):
+                old_tyx = tyx
+                tyx = tuple(((v + 7) // 8) * 8 for v in tyx)
+                core_logger.warning(f'Rounded up tyx from {old_tyx} to {tyx} to ensure divisibility by 8')
+        else:
+            # Default tyx assignment: divisible by 8
+            if self.dim == 2:
+                tyx = (L, L)
+            else:
+                tyx = (8 * n,) * self.dim
         
         # compute average cell diameter
         if rescale:
@@ -1073,44 +1069,46 @@ class UnetModel():
                       'dim': self.dim,
                       'nchan': self.nchan,
                       'nclasses': self.nclasses,
-                      'device': self.device if not ARM else torch.device('cpu'), # MPS slower than cpu for flow, check this with new version 
+                    #   'device': self.device if not ARM else torch.device('cpu'), # MPS slower than cpu for flow, check this with new version 
+                      'device':torch.device('cpu') if num_workers>0 else self.device, # cannot use CUDA on fork  
                       'affinity_field': affinity_field,
                       'allow_blank_masks': self.allow_blank_masks,
+                      'timing': timing,
                      }
-            # torch.multiprocessing.set_start_method('spawn')
             
+            torch.multiprocessing.set_start_method('fork', force=True) 
             training_set = omnipose.data.train_set(train_data, train_labels, train_links, **kwargs)       
 
             # reproducible batches 
             torch.manual_seed(42)
             
-            sampler = torch.utils.data.sampler.BatchSampler(torch.utils.data.sampler.RandomSampler(training_set),
-                                                            batch_size=batch_size,
-                                                            drop_last=False) 
-            
-            # consider making drop_last true... it might still be a lot faster
-            # or maybe find a way to make the last several bathces a bit smaller but still large to balance load 
-
-            # print('num_workers',num_workers,'batch_size', batch_size)
-            
-            # params = {'batch_size': batch_size,
-            params = {'batch_size': 1, # this batch size means something like how many worker batches to aggregate 
-                      'shuffle': False, # use sampler instead
-                      'collate_fn': training_set.collate_fn,
-                      'worker_init_fn': training_set.worker_init_fn,
-                      'pin_memory': False, # only useful for CPU tensors
-                      'num_workers': num_workers, 
-                      'sampler': sampler,
-                      'persistent_workers': True if num_workers>0 else False,
-                      'multiprocessing_context': 'spawn', # maybe try forkserver
-                      'prefetch_factor': batch_size
-                     }
-
             core_logger.info((">>>> Using torch dataloader. "
                               "Can take a couple min to initialize. "
                               "Using {} workers.").format(num_workers))
             
+            
+           
+            gen = torch.Generator().manual_seed(42)   # reproducible global seed
+
+            batch_sampler = omnipose.data.CyclingRandomBatchSampler(
+                training_set,
+                batch_size=batch_size,                # the REAL batch size seen by the net
+                generator=gen
+            )
+            params = dict(
+                batch_sampler=batch_sampler,            
+                collate_fn=training_set.collate_fn,
+                num_workers=num_workers,
+                pin_memory=True,
+                persistent_workers=True,
+                prefetch_factor=8,
+            )
+            
             train_loader = torch.utils.data.DataLoader(training_set, **params)
+
+            steps_per_epoch = len(batch_sampler)     
+            loader_iter = iter(train_loader)
+        
             
             if test_data is not None:
                 print('will need to fix sampler')
@@ -1122,8 +1120,8 @@ class UnetModel():
         formatted_time = current_time.strftime('%H:%M:%S')
         core_logger.info('>>>> Start time: {}'.format(formatted_time))
         
-        de = 2 # epoch print interval
-        iepoch0 = 0
+        de = 1 # epoch print interval
+        epoch0 = 0
         epochtime = np.zeros(self.n_epochs)
 
         # for weighting function
@@ -1132,41 +1130,60 @@ class UnetModel():
         # edge handling requires distance field for cutoffs
         # do this with batch?, turn off gradient return 
         # dist = train_labels
+ 
         
-        for iepoch in range(self.n_epochs):    
-            self.iepoch = iepoch
+        for epoch in range(self.n_epochs):    
+            self.epoch = epoch
             if SGD:
-                self._set_learning_rate(self.learning_rate[iepoch])
+                self._set_learning_rate(self.learning_rate[epoch])
             
-            np.random.seed(iepoch)
             datatime = []
             steptime = []
+            
+            # reproducible batches
+            np.random.seed(epoch)
+            # sampler.reshuffle(seed=epoch)            # any deterministic function of epoch
+
+            inds = []
             if dataloader:
                 # for batch_data, batch_labels, batch_idx in train_loader:
-                for batch_idx, (batch_data, batch_labels, batch_inds) in enumerate(train_loader):
-                # for batch_inds in train_loader.batch_sampler:
-                #     batch_data, batch_labels = train_loader(batch_inds)
-                    # shape = batch_data.shape
+                # for batch_idx, (batch_data, batch_labels, batch_inds) in enumerate(train_loader):
+                
+                for _ in range(steps_per_epoch):
+                    batch_data, batch_labels, batch_inds = next(loader_iter)
+                    inds += batch_inds
 
-                    tic = time.time()
-
+                    # log 
                     nbatch = len(batch_data)
+                    tic = time.time()
                     dt = tic-toc
+                    toc = tic
                     datatime += [dt]
                     if timing:
                         print('\t Dataloading time  (dataloader): {:.2f}'.format(dt))
+                    
+                    # to device - has to be done after the batch is created
+                    batch_data = batch_data.to(self.device, non_blocking=True) 
+                    batch_labels = batch_labels.to(self.device, non_blocking=True)
+                    
+                    # update 
                     train_loss = self._train_step(batch_data, batch_labels)
                     
+                    # log
                     dt = time.time()-tic
                     steptime += [dt] 
                     if timing:
                         print('\t Step time: {:.2f}, batch size {}'.format(dt,nbatch))
+                        print('batch inds', batch_inds)
 
                     lsum += train_loss
-                    nsum += nbatch 
+                    nsum += 1 
+                
+                # could look back at prefetching maybe for gpu stream  
+                
 
             else:
-                rperm = inds_all[iepoch*nimg_per_epoch:(iepoch+1)*nimg_per_epoch]
+                rperm = inds_all[epoch*nimg_per_epoch:(epoch+1)*nimg_per_epoch]
                 for ibatch in range(0,nimg_per_epoch,batch_size):
                     tic = time.time() 
                     inds = rperm[ibatch:ibatch+batch_size]
@@ -1218,7 +1235,8 @@ class UnetModel():
                                                      nclasses=self.nclasses,
                                                      device=self.device)
                     
-                    # TODO: use the affinity graph to mahe the weighting image instead of boundary
+                    # TODO: use the affinity graph to make the weighting image instead of boundary
+                    # probably far more efficient 
       
                     dt = time.time()-tic
                     datatime += [dt]
@@ -1231,10 +1249,7 @@ class UnetModel():
 
                     tic = time.time()
                     # train step now expects tensors
-                    # train_loss = self._train_step( self._to_device(imgi),  self._to_device(lbl))
-                    # train_loss = self._train_step( torch.stack(imgi).to(self.device), torch.stack(lbl).to(self.device))
-                    # train_loss = self._train_step( self._to_device(np.stack(imgi)),  self._to_device(np.stack(lbl)))
-                    train_loss = self._train_step(self._to_device(np.stack(imgi)),lbl)
+                    train_loss = self._train_step(self._to_device(np.stack(imgi)),lbl) 
 
                     # print('yoyo debug',self._to_device(np.stack(imgi)).shape,lbl.shape)
 
@@ -1244,50 +1259,12 @@ class UnetModel():
                         print('\t Step time: {:.2f}, batch size {}'.format(dt,len(imgi)))
 
                     lsum += train_loss
-                    nsum += nbatch
+                    nsum += 1
 
-#                 tic = time.time()
-#                 if iepoch%de==0 or iepoch==5:
-#                     lavg = lavg / nsum
-#                     if test_data is not None:
-#                         lavgt, nsum = 0., 0
-#                         np.random.seed(42)
-#                         rperm = np.arange(0, len(test_data), 1, int)
-#                         for ibatch in range(0,len(test_data),batch_size):
-#                             inds = rperm[ibatch:ibatch+batch_size]
-#                             rsc = diam_test[inds] / self.diam_mean if rescale else np.ones(len(inds), np.float32)
-#                             imgi, lbl, scale = transforms.random_rotate_and_resize([test_data[i] for i in inds], 
-#                                                                                    Y=[test_labels[i] for i in inds], 
-#                                                                                    links=[test_links[i] for i in inds],
-#                                                                                    rescale=rsc, 
-#                                                                                    scale_range=0., 
-#                                                                                    unet=self.unet, 
-#                                                                                    tyx=tyx, 
-#                                                                                    inds=inds,
-#                                                                                    omni=self.omni, 
-#                                                                                    dim=self.dim, 
-#                                                                                    nchan=self.nchan, 
-#                                                                                    nclasses=self.nclasses,
-#                                                                                    device=self.device)
-#                             if self.unet and lbl.shape[1]>1 and rescale:
-#                                 lbl[:,1] *= scale[0]**2
-
-#                             test_loss = self._test_eval(imgi, lbl)
-#                             lavgt += test_loss
-#                             nsum += len(imgi)
-
-#                         core_logger.info('Epoch %d, Time %4.1fmin, Loss %2.4f, Loss Test %2.4f, LR %2.4f, Time per Epoch %3.1fs'%
-#                                 (iepoch, (tic-t0) / 60 , lavg, lavgt/nsum, self.learning_rate[iepoch], (tic-toc) / de))
-#                     else:
-#                         core_logger.info('Epoch %d, Time %4.1fmin, Loss %2.4f, LR %2.4f, Time per Epoch %3.1fs, Avg batch loading time: %3.1fs'%
-#                                 (iepoch, (tic-t0) / 60 , lavg, self.learning_rate[iepoch], (tic-toc) / de, np.mean(datatime)))
-
-#                     toc = time.time() # end of batch 
-#                     lavg, nsum = 0, 0
-
+            # print('inds',sorted(inds), np.unique(np.diff(np.array(sorted(inds)))))
             tic = time.time()
-            epochtime[iepoch] = tic
-            if iepoch % de == 0:
+            epochtime[epoch] = tic
+            if epoch % de == 0:
                 core_logger.info(
                     ("Train epoch: {} | "
                     "Time: {:.2f}min | "
@@ -1295,36 +1272,36 @@ class UnetModel():
                      # "batch size: {} | "
                     "<sec/epoch>: {:.2f}s | "
                     "<sec/batch>: {:.2f}s | "
-                    "<Batch Loss>: {:.6f} | "
+                    "<Last batch Loss>: {:.6f} | "
                     "<Epoch Loss>: {:.6f}").
                     strip().
-                    format(iepoch, # epoch index 
+                    format(epoch, # epoch index 
                            (tic-t0) / 60, # absolute time spent in minutes 
-                           0 if iepoch==iepoch0 else (tic-toc) / (iepoch-iepoch0), # time spent in this epoch 
+                           0 if epoch==epoch0 else (tic-toc) / (epoch-epoch0), # time spent in this epoch 
                            # nbatch,
-                           # (tic-t0) / (iepoch+1), # average time per epoch 
-                           0 if iepoch==iepoch0 else np.mean(np.diff(epochtime[max(0,iepoch-3):max(1,iepoch)])),
+                           # (tic-t0) / (epoch+1), # average time per epoch 
+                           0 if epoch==epoch0 else np.mean(np.diff(epochtime[max(0,epoch-3):max(1,epoch)])),
                            np.mean(datatime[-3:]), # average time spent loading fata for last 3 epochs 
-                           train_loss/nbatch, # average loss over this batch 
+                           train_loss, #/batch_size, # average loss over this batch 
                            lsum/nsum) # average loss over this epoch 
                 )
-            iepoch0 = iepoch
+            epoch0 = epoch
             toc = time.time() # end of batch 
             lsum, nsum = 0, 0
 
             if save_path is not None:
-                in_final = (self.n_epochs-iepoch)<10
+                in_final = (self.n_epochs-epoch)<10
                 if netstr is None:
                     netstr =  '{}_{}_{}'.format(self.net_type, file_label,
                                                    d.strftime("%Y_%m_%d_%H_%M_%S.%f"))
                     
                 base = netstr+'{}'
-                if iepoch==self.n_epochs-1 or iepoch%save_every==0 or in_final:
+                if epoch==self.n_epochs-1 or epoch%save_every==0 or in_final:
                                             
                     suffixes = ['']
                     if save_each or in_final:
                         # I will want to add a toggle for this 
-                        suffixes+=['_epoch_'+str(iepoch)]
+                        suffixes+=['_epoch_'+str(epoch)]
                     
                     for s in suffixes:
                         file_name = base.format(s)

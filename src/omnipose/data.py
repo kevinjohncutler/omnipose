@@ -477,6 +477,9 @@ class train_set(torch.utils.data.Dataset):
 
     
     def __getitem__(self, inds):
+        if isinstance(inds, int):
+            inds = [inds]
+    
         # this is called with a batchsampler, so always has a list of inds, not one index
         if self.timing:
             tic = time.time()
@@ -488,7 +491,7 @@ class train_set(torch.utils.data.Dataset):
         imgi = np.zeros((nimg, self.nchan)+self.tyx, np.float32)
         labels = np.zeros((nimg,)+self.tyx, np.float32)
         scale = np.zeros((nimg,self.dim), np.float32)
-        links = [self.links[idx] for idx in inds]
+        links = [self.links[idx] for idx in inds]        
         
 
         for i,idx in enumerate(inds):
@@ -507,19 +510,30 @@ class train_set(torch.utils.data.Dataset):
                                                             allow_blank_masks=self.allow_blank_masks
                                                            )
             # print('hey', self.data[idx].shape,self.labels[idx].shape)
-            
-            
+        if self.timing:
+                
+            toc = time.time()
+            print('image augmentation time: {:.2f}'.format(toc-tic))
+            tic = toc
+        
         out = masks_to_flows_batch(labels, links,
                                    device=self.device,
                                    omni=self.omni,
                                    dim=self.dim,
                                    affinity_field=self.affinity_field
                                   )
+        # print('done flows', links[:4])
+        if self.timing:
+        
+            toc = time.time()
+            print('flow time: {:.2f}'.format(toc-tic))
+            tic = toc
 
         X = out[:-4]
         slices = out[-4]
         affinity_graph = out[-1]
         masks,bd,T,mu = [torch.stack([x[(Ellipsis,)+slc] for slc in slices]) for x in X]
+        
         lbl = batch_labels(masks,
                            bd,
                            T,
@@ -529,6 +543,10 @@ class train_set(torch.utils.data.Dataset):
                            nclasses=self.nclasses,
                            device=self.device
                           )
+        if self.timing:
+            toc = time.time()
+            print('batching time: {:.2f}'.format(toc-tic))
+            tic = toc
         
         # mucat = torch.concatenate(tuple(lbl[:,-self.dim:]),dim=-1)
         # rgb = rgb_flow(mucat.swapaxes(0,1)[:,-2:]).cpu().numpy()
@@ -538,11 +556,93 @@ class train_set(torch.utils.data.Dataset):
         # tifffile.imwrite('/home/kcutler/DataDrive/teresa_high_frame_rate/crops/edited/testflowaug{}.tif'.format(inds),rgb)
              
         
-        imgi = torch.tensor(imgi,device=self.device)
+        imgi = torch.tensor(imgi,device=self.device)        
+        
         # imgi = torch.tensor(imgi).to(self.device,non_blocking=True) # slower
         if self.timing:
-            print('single image augmentation time: {:.2f}, Device: {}'.format(time.time()-tic,self.device))
-        
+            print('inds', len(inds))
    
         return imgi, lbl, inds
 
+class DataPrefetcher:
+    def __init__(self, loader, device):
+        self.loader = iter(loader)
+        self.device = device
+        self.stream = torch.cuda.Stream()
+        self._preload()
+
+    def _preload(self):
+        try:
+            # fetch next batch (data, labels, [inds])
+            batch = next(self.loader)
+            self.next_data   = batch[0]
+            self.next_labels = batch[1]
+            # handle optional third output
+            if len(batch) > 2:
+                self.next_inds = batch[2]
+            else:
+                self.next_inds = None
+        except StopIteration:
+            # no more data
+            self.next_data = None
+            self.next_labels = None
+            self.next_inds = None
+            return
+        # asynchronously copy tensors to GPU
+        with torch.cuda.stream(self.stream):
+            self.next_data   = self.next_data.cuda(self.device,   non_blocking=True)
+            self.next_labels = self.next_labels.cuda(self.device, non_blocking=True)
+
+    def next(self):
+        # wait for copy to finish
+        torch.cuda.current_stream().wait_stream(self.stream)
+        data   = self.next_data
+        labels = self.next_labels
+        inds   = self.next_inds
+        # kick off loading next batch
+        self._preload()
+        # return all three outputs
+        return data, labels, inds
+   
+import torch
+from torch.utils.data import BatchSampler
+
+class CyclingRandomBatchSampler(BatchSampler):
+    """
+    Infinite stream of shuffled, *non-overlapping* indices.
+
+    Every epoch (one full pass through the dataset) we:
+      • yield the last, ragged batch (if any) as-is
+      • immediately reshuffle for the next epoch
+    """
+
+    def __init__(self, data_source, batch_size, generator=None):
+        self.data_source = data_source
+        self.batch_size  = batch_size
+        self.generator   = generator or torch.Generator()
+        self.N           = len(data_source)
+
+        self._perm = torch.randperm(self.N, generator=self.generator).tolist()
+        self._pos  = 0
+        self.epoch = 0                                # public
+
+    def __iter__(self):
+        while True:                                   # endless stream
+            start, end = self._pos, self._pos + self.batch_size
+            if end < self.N:                          # normal full batch
+                yield self._perm[start:end]
+                self._pos = end
+            else:                                     # hit dataset boundary
+                yield self._perm[start:self.N]        # ragged tail (maybe len==batch_size)
+                self.epoch += 1                       # ---------- NEW EPOCH ----------
+                # fresh permutation for next epoch
+                self._perm = torch.randperm(self.N, generator=self.generator).tolist()
+                self._pos  = 0
+                spill = end - self.N                  # how many more we still need
+                if spill:                             # grab spill-over from new perm
+                    yield self._perm[0:spill]
+                    self._pos = spill
+
+    def __len__(self):
+        # Mandatory, but never actually used with an infinite stream.
+        return (self.N + self.batch_size - 1) // self.batch_size

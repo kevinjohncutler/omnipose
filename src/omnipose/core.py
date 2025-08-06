@@ -689,18 +689,57 @@ def get_links(masks,labels,bd,connectivity=1):
 
 
 # this needs to be updaed... now a private jitted function, with a public wrapper below
-@njit(parallel=True) # cache not supported with parallel? 
+# @njit(parallel=True) # cache not supported with parallel? 
+# @njit(cache=True) # 2x as slow as paralle, but wirks in multiprocessing for training 
+# def _get_link_matrix(links_arr, piece_masks, inds, idx, is_link):
+#     for k in prange(len(inds)):
+#         i = inds[k]
+#         for j in range(len(piece_masks[i])):
+#             a = piece_masks[i][j]
+#             b = piece_masks[idx][j]
+#             # check each link tuple in the array
+#             for l in range(links_arr.shape[0]):
+#                 if (links_arr[l, 0] == a and links_arr[l, 1] == b) or (links_arr[l, 1] == a and links_arr[l, 0] == b):
+#                     is_link[i, j] = True
+#                     break
+#     return is_link
+    
+from numba import njit, prange, int64
+import numpy as np
+
+@njit(cache=True, fastmath=True)
 def _get_link_matrix(links_arr, piece_masks, inds, idx, is_link):
+    """
+    Mark (i,j) as linked if (a,b) or (b,a) is found in links_arr.
+
+    links_arr : (L,2) int64
+    piece_masks : (S,N) int64   (S = 3**dim neighbours, N = #foreground px)
+    inds : 1-D int64 indices of the neighbour planes you care about
+    idx : int   index of the centre plane (inds[0] in your code)
+    is_link : bool array to be filled in-place  (same shape as piece_masks)
+    """
+    # ---------- build an O(1) lookup table ----------
+    max_label = links_arr.max() + 1          # for packing into one int
+    link_set = set()                         # numba typed set[int64]
+    for r in range(links_arr.shape[0]):
+        a = links_arr[r, 0]
+        b = links_arr[r, 1]
+        if a > b:             # store unordered pair (min,max)
+            a, b = b, a
+        link_set.add(a * max_label + b)
+
+    # ---------- mark links ----------
     for k in prange(len(inds)):
         i = inds[k]
-        for j in range(len(piece_masks[i])):
-            a = piece_masks[i][j]
-            b = piece_masks[idx][j]
-            # check each link tuple in the array
-            for l in range(links_arr.shape[0]):
-                if (links_arr[l, 0] == a and links_arr[l, 1] == b) or (links_arr[l, 1] == a and links_arr[l, 0] == b):
-                    is_link[i, j] = True
-                    break
+        for j in range(piece_masks.shape[1]):
+            a = piece_masks[i, j]
+            b = piece_masks[idx, j]
+            if a == b:                    # skip identical labels fast
+                continue
+            if a > b:
+                a, b = b, a
+            if a * max_label + b in link_set:
+                is_link[i, j] = True
     return is_link
 
 def get_link_matrix(links, piece_masks, inds, idx, is_link):

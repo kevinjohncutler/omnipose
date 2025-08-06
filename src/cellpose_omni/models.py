@@ -1919,7 +1919,7 @@ class SizeModel():
         styles = np.zeros((n_epochs*nimg, 256), np.float32)
         diams = np.zeros((n_epochs*nimg,), np.float32)
         tic = time.time()
-        for iepoch in range(n_epochs):
+        for epoch in range(n_epochs):
             iall = np.arange(0,nimg,1,int)
             for ibatch in range(0,nimg,batch_size):
                 inds = iall[ibatch:ibatch+batch_size]
@@ -1930,11 +1930,11 @@ class SizeModel():
                                                                               scale_range=1, xy=(512,512)) 
 
                 feat = self.cp.network(imgi)[1]
-                styles[inds+nimg*iepoch] = feat
-                diams[inds+nimg*iepoch] = np.log(diam_train[inds]) - np.log(self.diam_mean) + np.log(scale)
+                styles[inds+nimg*epoch] = feat
+                diams[inds+nimg*epoch] = np.log(diam_train[inds]) - np.log(self.diam_mean) + np.log(scale)
             del feat
-            if (iepoch+1)%2==0:
-                models_logger.info('ran %d epochs in %0.3f sec'%(iepoch+1, time.time()-tic))
+            if (epoch+1)%2==0:
+                models_logger.info('ran %d epochs in %0.3f sec'%(epoch+1, time.time()-tic))
 
         # create model
         smean = styles.mean(axis=0)
