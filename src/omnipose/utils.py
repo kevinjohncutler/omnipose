@@ -283,11 +283,11 @@ def make_tiles_ND(imgi, bsize=224, augment=False, tile_overlap=0.1,
         if return_tiles:
             IMG = module.stack([imgi[(Ellipsis,)+slc] for slc in subs])
             if normalize:
-                omnipose_logger.info('Now normalizing each tile separately.')
+                omnipose_logger.info('[Tile] Now normalizing each tile separately.')
                 IMG = normalize99(IMG,dim=0)
             else:
-                omnipose_logger.info('rescaling stack as a whole')
-                IMG = rescale(IMG)
+                omnipose_logger.info('[Tile] Rescaling stack as a whole.')
+                IMG = rescale(IMG) # why not use percentile?
         else:
             IMG = None
                 

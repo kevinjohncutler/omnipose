@@ -704,9 +704,6 @@ def get_links(masks,labels,bd,connectivity=1):
 #                     break
 #     return is_link
     
-from numba import njit, prange, int64
-import numpy as np
-
 @njit(cache=True, fastmath=True)
 def _get_link_matrix(links_arr, piece_masks, inds, idx, is_link):
     """

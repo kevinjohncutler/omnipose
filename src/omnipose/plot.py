@@ -882,7 +882,6 @@ def imshow(imgs, figsize=2, ax=None, hold=False, titles=None, title_size=8, spac
     around each image if outline_color is not None and outline_width > 0.
     Otherwise, axes ticks etc. remain off, as before.
     """
-    
 
     # -------------------------------------------------------------
     # If imgs is a list, we display multiple images side by side
@@ -897,6 +896,7 @@ def imshow(imgs, figsize=2, ax=None, hold=False, titles=None, title_size=8, spac
         fig, axes = figure(
             nrow=1, ncol=len(imgs),
             figsize=(figsize * len(imgs), figsize),
+            dpi=dpi,
             frameon=False,
             facecolor=[0, 0, 0, 0]
         )

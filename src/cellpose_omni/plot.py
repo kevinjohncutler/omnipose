@@ -541,7 +541,8 @@ def show_segmentation(fig, img, maski, flowi, bdi=None, channels=None, file_name
                         'predicted outlines',
                         'predicted masks',
                         'predicted flow field'], 
-            interpolation=interpolation, hold=hold)
+            interpolation=interpolation, hold=hold, 
+            figsize=figsize, dpi=dpi)
 
     
     if file_name is not None:
