@@ -85,7 +85,40 @@ def setup():
         kwargs.setdefault('borderaxespad', 0.0)
         return _orig_legend(self, *args, **kwargs)
     _Axes.legend = _legend
-    
+
+
+def _get_sinebow():
+    """Get sinebow function lazily."""
+    if 'sinebow' not in globals():
+        from .color import sinebow
+        globals()['sinebow'] = sinebow
+    return globals()['sinebow']
+
+def _get_rescale():
+    """Get rescale function lazily."""
+    if 'rescale' not in globals():
+        from .utils import rescale
+        globals()['rescale'] = rescale
+    return globals()['rescale']
+
+def _get_torch_norm():
+    """Get torch_norm function lazily."""
+    if 'torch_norm' not in globals():
+        from .utils import torch_norm
+        globals()['torch_norm'] = torch_norm
+    return globals()['torch_norm']
+
+# Make functions available at module level for backward compatibility
+def __getattr__(name):
+    """Handle lazy loading of commonly used functions."""
+    if name == 'sinebow':
+        return _get_sinebow()
+    elif name == 'rescale':
+        return _get_rescale()
+    elif name == 'torch_norm':
+        return _get_torch_norm()
+    raise AttributeError(f"module 'omnipose.plot' has no attribute '{name}'")
+
 
 def figure(nrow=None, ncol=None, aspect=1, **kwargs):
     figsize = kwargs.get('figsize', 2)
