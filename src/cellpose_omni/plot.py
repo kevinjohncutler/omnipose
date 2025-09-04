@@ -535,7 +535,10 @@ def show_segmentation(fig, img, maski, flowi, bdi=None, channels=None, file_name
     outli = outline_view(img0, maski, boundaries=outlines, color=np.array(outline_color)*255,
                         channels=channels, channel_axis=channel_axis, skip_formatting=True)
 
-    ax = fig.get_axes()[0]
+    if fig.get_axes():
+        ax = fig.get_axes()[0]
+    else:
+        ax = fig.add_subplot(111)
     fig = imshow([img0, outli, overlay, flowi], ax=ax, 
                 titles=['original image',
                         'predicted outlines',
