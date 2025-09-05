@@ -111,7 +111,7 @@ def _add_model(parent, filename=None, load_model=True):
         if model_string == fname:
             _remove_model(parent, ind=ind+1, verbose=False)
 
-    parent.ModelChoose.setCurrentIndex(len(parent.model_strings))
+    parent.ModelChoose.setCurrentIndex(len(parent.model_strings)-1)
     if load_model:
         # parent.model_choose(len(parent.model_strings))
         parent.model_choose()
