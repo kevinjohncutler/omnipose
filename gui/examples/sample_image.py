@@ -2,12 +2,12 @@
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
+from typing import Optional
 
 import numpy as np
 from imageio import v2 as imageio
-
-from cellpose_omni.gui import PRELOAD_IMAGE
 
 ArrayLike = np.ndarray
 
@@ -29,15 +29,48 @@ INSTANCE_COLOR_TABLE = np.array(
 
 DEFAULT_BRUSH_RADIUS = 6
 
+DEFAULT_HOME_SAMPLE = Path.home() / ".omnipose" / "test_files" / "e1t1_crop.tif"
+REPO_FALLBACK_SAMPLE = (
+    Path(__file__).resolve().parents[2] / "docs" / "_static" / "ecoli_phase_GT.png"
+)
 
-def get_preload_image_path() -> Path:
-    """Return the path to the default Omnipose sample image."""
-    return Path(PRELOAD_IMAGE)
+
+def get_preload_image_path() -> Optional[Path]:
+    """Return the preferred sample image path if available."""
+    env = os.environ.get("OMNIPOSE_SAMPLE_IMAGE")
+    if env:
+        path = Path(env).expanduser()
+        if path.is_file():
+            return path
+    if DEFAULT_HOME_SAMPLE.is_file():
+        return DEFAULT_HOME_SAMPLE
+    if REPO_FALLBACK_SAMPLE.is_file():
+        return REPO_FALLBACK_SAMPLE
+    return None
 
 
 def _load_raw() -> ArrayLike:
     path = get_preload_image_path()
-    return imageio.imread(path)
+    if path is not None:
+        try:
+            return imageio.imread(path)
+        except FileNotFoundError:
+            pass
+    return _generate_fallback_image()
+
+
+def _generate_fallback_image() -> ArrayLike:
+    grid_x, grid_y = np.meshgrid(
+        np.linspace(-1.0, 1.0, 256, dtype=np.float32),
+        np.linspace(-1.0, 1.0, 256, dtype=np.float32),
+        indexing="xy",
+    )
+    radius = np.sqrt(grid_x**2 + grid_y**2)
+    rings = np.sin(8 * radius) * np.exp(-radius**2)
+    blobs = np.exp(-((grid_x + 0.4) ** 2 + (grid_y - 0.3) ** 2) * 6.5)
+    gradient = np.clip((rings + blobs + 1.0) * 0.5, 0.0, 1.0)
+    texture = (gradient * 255.0).astype(np.uint8)
+    return texture
 
 
 def _ensure_spatial_last(array: ArrayLike) -> ArrayLike:
