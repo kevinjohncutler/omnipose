@@ -52,8 +52,8 @@ HTML_TEMPLATE = Template(
 <title>Omnipose PyWebView Viewer</title>
 <style>
 html, body { margin: 0; height: 100%; background: #111; color: #eee; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; }
-#app { display: flex; height: 100vh; width: 100vw; }
-#viewer { flex: 1; position: relative; background: #111; overflow: hidden; }
+#app { position: relative; width: 100vw; height: 100vh; overflow: hidden; }
+#viewer { position: absolute; inset: 0; background: #111; overflow: hidden; }
 #brushPreview { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; background: transparent; }
 #loadingOverlay { position: absolute; inset: 0; background: rgba(17, 17, 17, 0.94); color: #c5ccd4; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; font-size: 0.95rem; letter-spacing: 0.04em; z-index: 10; transition: opacity 180ms ease-out; }
 #loadingOverlay.hidden { opacity: 0; pointer-events: none; }
@@ -61,20 +61,30 @@ html, body { margin: 0; height: 100%; background: #111; color: #eee; font-family
 #loadingOverlay .message { text-transform: uppercase; font-size: 0.72rem; color: #8fa1b5; letter-spacing: 0.24em; }
 #loadingOverlay.error { background: rgba(46, 18, 18, 0.94); color: #ff9d9d; }
 #loadingOverlay.error .message { color: #ff9d9d; }
-#sidebar { width: 260px; padding: 20px; background: #181818; box-sizing: border-box; border-left: 1px solid #2a2a2a; display: flex; flex-direction: column; gap: 14px; }
-.control { display: flex; flex-direction: column; gap: 6px; }
+#sidebar { position: absolute; top: 0; right: 0; width: 260px; height: 100%; padding: 20px; background: rgba(24, 24, 24, 0.55); box-sizing: border-box; border-left: 1px solid rgba(255, 255, 255, 0.1); display: flex; flex-direction: column; gap: 14px; backdrop-filter: blur(18px); -webkit-backdrop-filter: blur(18px); color: var(--panel-text-color); }
+.control { display: flex; flex-direction: column; gap: 6px; color: currentColor; }
 .slider-row { display: flex; align-items: center; gap: 8px; }
+.slider-row input[type="range"] { flex: 1; }
+#gammaInput, #brushSizeInput { width: 64px; background: rgba(0, 0, 0, 0.3); border: 1px solid rgba(255, 255, 255, 0.2); color: currentColor; padding: 4px 6px; border-radius: 4px; }
 #gamma, #brushSizeSlider { width: 100%; }
-#brushSizeInput { width: 64px; background: #111; border: 1px solid #333; color: #eee; padding: 4px 6px; border-radius: 4px; }
-button { background: #2a6af2; border: none; color: #fff; padding: 10px 12px; border-radius: 6px; font-size: 0.95rem; cursor: pointer; transition: background 0.2s ease; }
-button:disabled { opacity: 0.5; cursor: default; }
-button:not(:disabled):hover { background: #3c7bff; }
-.status { font-size: 0.8rem; color: #9aa; min-height: 1.2rem; }
+canvas.histogram { width: 100%; height: 80px; background: rgba(0, 0, 0, 0.4); border: 1px solid rgba(255, 255, 255, 0.15); border-radius: 6px; cursor: crosshair; touch-action: none; }
+button { background: rgba(42, 106, 242, 0.85); border: none; color: #fff; padding: 10px 12px; border-radius: 6px; font-size: 0.95rem; cursor: pointer; transition: background 0.2s ease, transform 0.1s ease; }
+button:disabled { opacity: 0.45; cursor: default; }
+button:not(:disabled):hover { background: rgba(60, 123, 255, 0.95); transform: translateY(-1px); }
+.status { font-size: 0.8rem; color: currentColor; min-height: 1.2rem; opacity: 0.8; }
 canvas { width: 100%; height: 100%; touch-action: none; cursor: grab; }
 #canvas { background: #111; }
-canvas.painting { cursor: crosshair; }
 .hint { margin-top: auto; font-size: 0.8rem; color: #aaa; line-height: 1.35; }
 @keyframes spin { to { transform: rotate(360deg); } }
+:root { --panel-text-color: #f4f4f4; }
+@media (prefers-color-scheme: light) {
+  :root { --panel-text-color: #1a1a1a; }
+  #sidebar { background: rgba(255, 255, 255, 0.55); border-left: 1px solid rgba(0, 0, 0, 0.08); }
+  canvas.histogram { background: rgba(255, 255, 255, 0.6); border: 1px solid rgba(0, 0, 0, 0.1); }
+  button { background: rgba(42, 106, 242, 0.9); color: #fff; }
+  #gammaInput, #brushSizeInput { background: rgba(255, 255, 255, 0.65); border: 1px solid rgba(0, 0, 0, 0.15); }
+  .hint { color: rgba(0, 0, 0, 0.55); }
+}
 </style>
 </head>
 <body>
@@ -90,9 +100,21 @@ canvas.painting { cursor: crosshair; }
   <div id=\"sidebar\">
     <h2 style=\"margin:0;\">PyWebView</h2>
     <div class=\"control\">
+      <label>Intensity Window</label>
+      <canvas id=\"histogram\" class=\"histogram\" width=\"220\" height=\"80\"></canvas>
+      <div id=\"histRange\" class=\"status\">Window: [0, 255]</div>
+    </div>
+    <div class=\"control\">
       <label for=\"gamma\">Gamma</label>
-      <input type=\"range\" id=\"gamma\" min=\"10\" max=\"300\" value=\"100\" />
+      <div class=\"slider-row\">
+        <input type=\"range\" id=\"gamma\" min=\"10\" max=\"600\" value=\"100\" />
+        <input type=\"number\" id=\"gammaInput\" min=\"0.10\" max=\"6.00\" step=\"0.05\" value=\"1.00\" />
+      </div>
       <div id=\"gammaValue\">Gamma: 1.00</div>
+    </div>
+    <div class=\"control\">
+      <button id=\"segmentButton\">Segment (Omnipose)</button>
+      <div id=\"segmentStatus\" class=\"status\"></div>
     </div>
     <div class=\"control\">
       <label for=\"brushSizeSlider\">Brush Diameter</label>
@@ -102,12 +124,17 @@ canvas.painting { cursor: crosshair; }
       </div>
     </div>
     <div class=\"control\">
-      <button id=\"segmentButton\">Segment (Omnipose)</button>
-      <div id=\"segmentStatus\" class=\"status\"></div>
+      <label for=\"maskOpacity\">Mask Opacity</label>
+      <div class=\"slider-row\">
+        <input type=\"range\" id=\"maskOpacity\" min=\"0\" max=\"100\" value=\"80\" />
+        <div id=\"maskOpacityValue\">80%</div>
+      </div>
     </div>
+    <div id=\"colorMode\">Mask Colors: Palette (toggle with 'N')</div>
     <div id=\"maskLabel\">Mask Label: 1</div>
     <div id=\"toolInfo\">Tool: Brush (B=Brush, G=Fill, I=Picker)</div>
     <div id=\"maskVisibility\">Mask Layer: On (toggle with 'M')</div>
+    <div id=\"hoverInfo\" class=\"status\">Y: --, X: --, Val: --</div>
     <div class=\"hint\">Use B/G/I to switch tools, [ ] to resize brush, digits 0-9 set label. Hold Space to pan, scroll to zoom.</div>
   </div>
 </div>
@@ -117,6 +144,8 @@ const imgHeight = $height;
 const imageDataUrl = "data:image/png;base64,$image_data";
 const colorTable = $color_table;
 const initialBrushRadius = $brush_radius;
+const defaultPalette = generateSinebowPalette(Math.max(colorTable.length || 0, 256), 0.0);
+const nColorPalette = generateSinebowPalette(Math.max(colorTable.length || 0, 256), 0.35);
 
 const canvas = document.getElementById('canvas');
 const ctx = canvas.getContext('2d');
@@ -310,6 +339,13 @@ const maskVisibility = document.getElementById('maskVisibility');
 const toolInfo = document.getElementById('toolInfo');
 const segmentButton = document.getElementById('segmentButton');
 const segmentStatus = document.getElementById('segmentStatus');
+const colorMode = document.getElementById('colorMode');
+const gammaInput = document.getElementById('gammaInput');
+const histogramCanvas = document.getElementById('histogram');
+const histRangeLabel = document.getElementById('histRange');
+const hoverInfo = document.getElementById('hoverInfo');
+const maskOpacitySlider = document.getElementById('maskOpacity');
+const maskOpacityValue = document.getElementById('maskOpacityValue');
 
 const HISTORY_LIMIT = 200;
 const undoStack = [];
@@ -330,6 +366,21 @@ let hoverPoint = null;
 let eraseActive = false;
 let erasePreviousLabel = null;
 let isSegmenting = false;
+let useNColor = false;
+let histogramData = null;
+let windowLow = 0;
+let windowHigh = 255;
+let currentGamma = 1.0;
+let histDragTarget = null;
+let histDragOffset = 0;
+let cursorInsideCanvas = false;
+let cursorInsideImage = false;
+let maskOpacity = 0.8;
+
+const MIN_GAMMA = 0.1;
+const MAX_GAMMA = 6.0;
+const DEFAULT_GAMMA = 1.0;
+const HIST_HANDLE_THRESHOLD = 8;
 
 function resizePreviewCanvas() {
   previewCanvas.width = canvas.width;
@@ -370,8 +421,10 @@ function drawBrushPreview(point) {
 function updateCursor() {
   if (spacePan || isPanning) {
     canvas.style.cursor = isPanning ? 'grabbing' : 'grab';
+  } else if (tool === 'brush' && cursorInsideImage) {
+    canvas.style.cursor = 'none';
   } else {
-    canvas.style.cursor = 'crosshair';
+    canvas.style.cursor = 'default';
   }
 }
 
@@ -436,6 +489,7 @@ function setTool(nextTool) {
   }
   tool = nextTool;
   updateToolInfo();
+  updateCursor();
 }
 
 function updateBrushControls() {
@@ -645,9 +699,10 @@ function pickColor(point) {
 
 function redrawMaskCanvas() {
   const data = maskData.data;
+  const palette = useNColor ? nColorPalette : defaultPalette;
   for (let i = 0; i < maskValues.length; i += 1) {
     const label = maskValues[i];
-    const color = colorTable[label] || colorTable[label % colorTable.length];
+    const color = getColorForLabel(palette, label);
     const p = i * 4;
     data[p] = color[0];
     data[p + 1] = color[1];
@@ -746,22 +801,390 @@ function recenterView() {
   log('recenter to ' + viewState.offsetX.toFixed(1) + ',' + viewState.offsetY.toFixed(1));
 }
 
+function clampGammaValue(value) {
+  if (Number.isNaN(value)) {
+    return currentGamma;
+  }
+  return Math.min(MAX_GAMMA, Math.max(MIN_GAMMA, value));
+}
+
+function updateGammaLabel() {
+  if (gammaValue) {
+    gammaValue.textContent = 'Gamma: ' + currentGamma.toFixed(2);
+  }
+}
+
+function syncGammaControls() {
+  if (gammaSlider) {
+    const sliderValue = Math.round(currentGamma * 100);
+    gammaSlider.value = String(Math.min(600, Math.max(10, sliderValue)));
+  }
+  if (gammaInput) {
+    gammaInput.value = currentGamma.toFixed(2);
+  }
+  updateGammaLabel();
+}
+
+function setGamma(gamma, { emit = true } = {}) {
+  currentGamma = clampGammaValue(gamma);
+  syncGammaControls();
+  if (emit) {
+    applyImageAdjustments();
+  } else {
+    renderHistogram();
+  }
+}
+
 function applyGamma(gamma) {
+  setGamma(gamma, { emit: true });
+}
+
+function sinebowColor(t) {
+  const angle = 2 * Math.PI * (t - Math.floor(t));
+  const r = Math.sin(angle) * 0.5 + 0.5;
+  const g = Math.sin(angle + (2 * Math.PI) / 3) * 0.5 + 0.5;
+  const b = Math.sin(angle + (4 * Math.PI) / 3) * 0.5 + 0.5;
+  return [Math.round(r * 255), Math.round(g * 255), Math.round(b * 255), 200];
+}
+
+function generateSinebowPalette(size, offset = 0) {
+  const count = Math.max(size, 2);
+  const palette = new Array(count);
+  palette[0] = [0, 0, 0, 0];
+  const golden = 0.61803398875;
+  for (let i = 1; i < count; i += 1) {
+    const t = (offset + i * golden) % 1;
+    palette[i] = sinebowColor(t);
+  }
+  return palette;
+}
+
+function applyImageAdjustments() {
   if (!originalImageData) {
     return;
   }
   const source = originalImageData.data;
   const img = offCtx.createImageData(imgWidth, imgHeight);
   const target = img.data;
+  const low = windowLow / 255;
+  const high = windowHigh / 255;
+  const range = Math.max(high - low, 1 / 255);
   for (let i = 0; i < source.length; i += 4) {
-    const value = Math.pow(source[i] / 255, gamma) * 255;
-    const v = Math.min(255, Math.max(0, Math.round(value)));
+    let value = source[i] / 255;
+    value = Math.min(Math.max((value - low) / range, 0), 1);
+    value = Math.pow(value, currentGamma);
+    const v = Math.round(value * 255);
     target[i] = v;
     target[i + 1] = v;
     target[i + 2] = v;
     target[i + 3] = source[i + 3];
   }
   offCtx.putImageData(img, 0, 0);
+  draw();
+  renderHistogram();
+}
+
+function computeHistogram() {
+  if (!originalImageData) {
+    histogramData = null;
+    return;
+  }
+  histogramData = new Uint32Array(256);
+  const data = originalImageData.data;
+  for (let i = 0; i < data.length; i += 4) {
+    histogramData[data[i]] += 1;
+  }
+}
+
+function renderHistogram() {
+  if (!histogramCanvas || !histogramData) {
+    return;
+  }
+  const ctx = histogramCanvas.getContext('2d');
+  if (!ctx) {
+    return;
+  }
+  const width = histogramCanvas.width;
+  const height = histogramCanvas.height;
+  ctx.clearRect(0, 0, width, height);
+  ctx.fillStyle = '#161616';
+  ctx.fillRect(0, 0, width, height);
+  const maxCount = Math.max(...histogramData);
+  if (maxCount > 0) {
+    ctx.fillStyle = '#4c8dff';
+    const binWidth = Math.max(width / 256, 1);
+    for (let i = 0; i < 256; i += 1) {
+      const value = histogramData[i] / maxCount;
+      const barHeight = Math.max(1, Math.round(value * (height - 4)));
+      const x = Math.floor(i * binWidth);
+      ctx.fillRect(x, height - barHeight, Math.ceil(binWidth), barHeight);
+    }
+  }
+  const lowX = (windowLow / 255) * width;
+  const highX = (windowHigh / 255) * width;
+  ctx.fillStyle = 'rgba(255, 255, 255, 0.08)';
+  ctx.fillRect(lowX, 0, Math.max(highX - lowX, 1), height);
+  ctx.strokeStyle = '#ffffff';
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.moveTo(lowX, 0);
+  ctx.lineTo(lowX, height);
+  ctx.moveTo(highX, 0);
+  ctx.lineTo(highX, height);
+  ctx.stroke();
+  if (windowHigh > windowLow) {
+    ctx.strokeStyle = '#ffcf33';
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    const startX = Math.max(0, Math.floor(lowX));
+    const endX = Math.min(width, Math.ceil(highX));
+    for (let x = startX; x <= endX; x += 1) {
+      const intensity = (x / width) * 255;
+      const y = gammaCurveY(intensity, width, height);
+      if (x === startX) {
+        ctx.moveTo(x, y);
+      } else {
+        ctx.lineTo(x, y);
+      }
+    }
+    ctx.stroke();
+    const midIntensity = windowLow + (windowHigh - windowLow) * 0.5;
+    const handleX = (midIntensity / 255) * width;
+    const handleY = gammaCurveY(midIntensity, width, height);
+    ctx.fillStyle = '#ffcf33';
+    ctx.beginPath();
+    ctx.arc(handleX, handleY, 4, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  updateHistogramCursor();
+}
+
+function updateHistogramUI() {
+  if (histRangeLabel) {
+    histRangeLabel.textContent = 'Window: [' + windowLow + ', ' + windowHigh + ']';
+  }
+  renderHistogram();
+}
+
+function histogramValueFromEvent(evt) {
+  const rect = histogramCanvas.getBoundingClientRect();
+  const x = Math.min(Math.max(evt.clientX - rect.left, 0), rect.width);
+  return Math.round((x / rect.width) * 255);
+}
+
+function gammaCurveY(intensity, width, height) {
+  if (windowHigh <= windowLow) {
+    return height - 2;
+  }
+  const clampedIntensity = Math.min(Math.max(intensity, windowLow), windowHigh);
+  let t = (clampedIntensity - windowLow) / (windowHigh - windowLow);
+  t = Math.min(Math.max(t, 0.0001), 0.9999);
+  const mapped = Math.pow(t, 1 / currentGamma);
+  const y = height - (mapped * (height - 4)) - 2;
+  return Math.min(height - 2, Math.max(2, y));
+}
+
+function updateHistogramCursor(evt) {
+  if (!histogramCanvas) {
+    return;
+  }
+  if (histDragTarget) {
+    histogramCanvas.style.cursor = (histDragTarget === 'range' || histDragTarget === 'gamma') ? 'grabbing' : 'ew-resize';
+    return;
+  }
+  const rect = histogramCanvas.getBoundingClientRect();
+  const x = evt ? evt.clientX - rect.left : NaN;
+  const width = rect.width;
+  const height = rect.height;
+  const lowX = (windowLow / 255) * width;
+  const highX = (windowHigh / 255) * width;
+  const threshold = HIST_HANDLE_THRESHOLD;
+  let cursor = 'crosshair';
+  if (!Number.isNaN(x)) {
+    if (Math.abs(x - lowX) < threshold || Math.abs(x - highX) < threshold) {
+      cursor = 'ew-resize';
+    } else if (x > lowX && x < highX) {
+      cursor = 'grab';
+      if (evt && windowHigh > windowLow) {
+        const intensity = histogramValueFromEvent(evt);
+        const y = evt.clientY - rect.top;
+        const curveY = gammaCurveY(intensity, width, height);
+        if (Math.abs(y - curveY) < threshold) {
+          cursor = 'grab';
+        }
+      }
+    }
+  }
+  histogramCanvas.style.cursor = cursor;
+}
+
+function setWindowBounds(low, high, { emit = true } = {}) {
+  let clampedLow = Math.round(low);
+  let clampedHigh = Math.round(high);
+  if (Number.isNaN(clampedLow)) clampedLow = windowLow;
+  if (Number.isNaN(clampedHigh)) clampedHigh = windowHigh;
+  clampedLow = Math.max(0, Math.min(255, clampedLow));
+  clampedHigh = Math.max(0, Math.min(255, clampedHigh));
+  if (clampedHigh <= clampedLow) {
+    if (histDragTarget === 'low') {
+      clampedLow = Math.max(0, Math.min(254, clampedHigh - 1));
+    } else if (histDragTarget === 'high') {
+      clampedHigh = Math.min(255, Math.max(1, clampedLow + 1));
+    } else {
+      clampedHigh = Math.min(255, Math.max(1, clampedLow + 1));
+    }
+  }
+  windowLow = clampedLow;
+  windowHigh = clampedHigh;
+  updateHistogramUI();
+  if (emit) {
+    applyImageAdjustments();
+  }
+}
+
+function handleHistogramPointerDown(evt) {
+  if (!histogramCanvas) {
+    return;
+  }
+  evt.preventDefault();
+  histogramCanvas.setPointerCapture(evt.pointerId);
+  const rect = histogramCanvas.getBoundingClientRect();
+  const width = rect.width;
+  const height = rect.height;
+  const x = Math.min(Math.max(evt.clientX - rect.left, 0), width);
+  const y = Math.min(Math.max(evt.clientY - rect.top, 0), height);
+  const intensity = (x / width) * 255;
+  const lowX = (windowLow / 255) * width;
+  const highX = (windowHigh / 255) * width;
+  const threshold = HIST_HANDLE_THRESHOLD;
+  histDragTarget = null;
+  if (windowHigh > windowLow) {
+    const curveY = gammaCurveY(intensity, width, height);
+    if (intensity >= windowLow && intensity <= windowHigh && Math.abs(y - curveY) <= threshold) {
+      histDragTarget = 'gamma';
+    }
+  }
+  if (!histDragTarget && Math.abs(x - lowX) <= threshold) {
+    histDragTarget = 'low';
+  } else if (!histDragTarget && Math.abs(x - highX) <= threshold) {
+    histDragTarget = 'high';
+  } else if (!histDragTarget && x > lowX && x < highX) {
+    histDragTarget = 'range';
+    histDragOffset = histogramValueFromEvent(evt) - windowLow;
+  } else if (!histDragTarget) {
+    histDragTarget = Math.abs(x - lowX) < Math.abs(x - highX) ? 'low' : 'high';
+  }
+  if (histDragTarget !== 'range') {
+    histDragOffset = 0;
+  }
+  updateHistogramCursor(evt);
+  handleHistogramPointerMove(evt);
+}
+
+function handleHistogramPointerMove(evt) {
+  if (!histogramCanvas) {
+    return;
+  }
+  if (!histDragTarget) {
+    updateHistogramCursor(evt);
+    return;
+  }
+  evt.preventDefault();
+  const value = histogramValueFromEvent(evt);
+  if (histDragTarget === 'low') {
+    setWindowBounds(Math.min(value, windowHigh - 1), windowHigh);
+  } else if (histDragTarget === 'high') {
+    setWindowBounds(windowLow, Math.max(value, windowLow + 1));
+  } else if (histDragTarget === 'range') {
+    const span = windowHigh - windowLow;
+    let newLow = value - histDragOffset;
+    newLow = Math.max(0, Math.min(255 - span, newLow));
+    setWindowBounds(newLow, newLow + span);
+  } else if (histDragTarget === 'gamma') {
+    if (windowHigh > windowLow) {
+      const rect = histogramCanvas.getBoundingClientRect();
+      const height = rect.height;
+      const width = rect.width;
+      const clampedValue = Math.min(Math.max(value, windowLow + 0.5), windowHigh - 0.5);
+      let t = (clampedValue - windowLow) / (windowHigh - windowLow);
+      t = Math.min(Math.max(t, 0.0001), 0.9999);
+      const yRatio = 1 - Math.min(Math.max((evt.clientY - rect.top) / height, 0.0001), 0.9999);
+      let newGamma = Math.log(t) / Math.log(yRatio);
+      if (!Number.isFinite(newGamma) || newGamma <= 0) {
+        newGamma = currentGamma;
+      }
+      setGamma(newGamma);
+    }
+  }
+  updateHistogramCursor(evt);
+}
+
+function handleHistogramPointerUp(evt) {
+  if (!histogramCanvas) {
+    return;
+  }
+  evt.preventDefault();
+  histogramCanvas.releasePointerCapture(evt.pointerId);
+  histDragTarget = null;
+  histDragOffset = 0;
+  updateHistogramCursor(evt);
+}
+
+function updateHoverInfo(point) {
+  if (!hoverInfo) {
+    cursorInsideImage = false;
+    updateCursor();
+    return;
+  }
+  if (!point || !originalImageData) {
+    cursorInsideImage = false;
+    hoverInfo.textContent = 'Y: --, X: --, Val: --';
+    updateCursor();
+    return;
+  }
+  const x = Math.round(point.x);
+  const y = Math.round(point.y);
+  if (x < 0 || y < 0 || x >= imgWidth || y >= imgHeight) {
+    cursorInsideImage = false;
+    hoverInfo.textContent = 'Y: --, X: --, Val: --';
+    updateCursor();
+    return;
+  }
+  const idx = (y * imgWidth + x) * 4;
+  const value = originalImageData.data[idx];
+  cursorInsideImage = true;
+  hoverInfo.textContent = 'Y: ' + y + ', X: ' + x + ', Val: ' + value;
+  updateCursor();
+}
+
+function getColorForLabel(palette, label) {
+  if (label <= 0) {
+    return [0, 0, 0, 0];
+  }
+  if (palette[label]) {
+    const base = palette[label];
+    return [base[0], base[1], base[2], Math.round(base[3] * maskOpacity)];
+  }
+  if (palette.length > 1) {
+    const idx = ((label - 1) % (palette.length - 1)) + 1;
+    const base = palette[idx];
+    return [base[0], base[1], base[2], Math.round(base[3] * maskOpacity)];
+  }
+  return palette[0] || [0, 0, 0, 0];
+}
+
+function updateColorModeLabel() {
+  if (!colorMode) {
+    return;
+  }
+  const mode = useNColor ? 'N-Color' : 'Palette';
+  colorMode.textContent = 'Mask Colors: ' + mode + " (toggle with 'N')";
+}
+
+function toggleColorMode() {
+  useNColor = !useNColor;
+  updateColorModeLabel();
+  redrawMaskCanvas();
   draw();
 }
 
@@ -845,6 +1268,7 @@ canvas.addEventListener('pointerdown', (evt) => {
   const pointer = getPointerPosition(evt);
   lastPoint = pointer;
   const world = screenToImage(pointer);
+  updateHoverInfo(world);
   if (evt.button === 0) {
     if (spacePan) {
       isPanning = true;
@@ -852,6 +1276,7 @@ canvas.addEventListener('pointerdown', (evt) => {
       canvas.setPointerCapture(evt.pointerId);
       hoverPoint = null;
       drawBrushPreview(null);
+      updateHoverInfo(null);
       return;
     }
     if (tool === 'fill') {
@@ -871,6 +1296,7 @@ canvas.addEventListener('pointerdown', (evt) => {
     paintStroke(world);
     hoverPoint = screenToImage(pointer);
     drawBrushPreview(hoverPoint);
+    updateHoverInfo(hoverPoint);
     return;
   }
   isPanning = true;
@@ -878,23 +1304,28 @@ canvas.addEventListener('pointerdown', (evt) => {
   canvas.setPointerCapture(evt.pointerId);
   hoverPoint = null;
   drawBrushPreview(null);
+  updateHoverInfo(null);
 });
 
 canvas.addEventListener('pointermove', (evt) => {
   const pointer = getPointerPosition(evt);
+  const world = screenToImage(pointer);
   if (isPainting) {
-    const world = screenToImage(pointer);
     paintStroke(world);
     hoverPoint = world;
     drawBrushPreview(hoverPoint);
+    updateHoverInfo(world);
     return;
   }
-  if (!isPanning && !spacePan && tool === 'brush') {
-    hoverPoint = screenToImage(pointer);
-    drawBrushPreview(hoverPoint);
-  } else if (!isPanning) {
-    hoverPoint = null;
-    drawBrushPreview(null);
+  if (!isPanning && !spacePan) {
+    if (tool === 'brush') {
+      hoverPoint = world;
+      drawBrushPreview(hoverPoint);
+    } else {
+      hoverPoint = null;
+      drawBrushPreview(null);
+    }
+    updateHoverInfo(world);
   }
   if (!isPanning) {
     return;
@@ -905,6 +1336,7 @@ canvas.addEventListener('pointermove', (evt) => {
   viewState.offsetY += dy;
   lastPoint = pointer;
   draw();
+  updateHoverInfo(screenToImage(pointer));
 });
 
 function stopInteraction(evt) {
@@ -922,6 +1354,7 @@ function stopInteraction(evt) {
   } else {
     drawBrushPreview(null);
   }
+  updateHoverInfo(hoverPoint);
   if (evt && evt.pointerId !== undefined) {
     try {
       canvas.releasePointerCapture(evt.pointerId);
@@ -934,6 +1367,15 @@ function stopInteraction(evt) {
 canvas.addEventListener('pointerup', stopInteraction);
 canvas.addEventListener('pointerleave', stopInteraction);
 canvas.addEventListener('pointercancel', stopInteraction);
+canvas.addEventListener('mouseenter', () => {
+  cursorInsideCanvas = true;
+  updateCursor();
+});
+canvas.addEventListener('mouseleave', () => {
+  cursorInsideCanvas = false;
+  cursorInsideImage = false;
+  updateCursor();
+});
 
 window.addEventListener('keydown', (evt) => {
   const tag = evt.target && evt.target.tagName ? evt.target.tagName.toLowerCase() : '';
@@ -1000,6 +1442,11 @@ window.addEventListener('keydown', (evt) => {
     evt.preventDefault();
     return;
   }
+  if (!modifier && !evt.altKey && key === 'n') {
+    toggleColorMode();
+    evt.preventDefault();
+    return;
+  }
   if (!modifier && key >= '0' && key <= '9') {
     const nextLabel = parseInt(key, 10);
     if (eraseActive) {
@@ -1029,6 +1476,13 @@ function initialize() {
     log('image loaded: ' + imgWidth + 'x' + imgHeight);
     offCtx.drawImage(img, 0, 0);
     originalImageData = offCtx.getImageData(0, 0, imgWidth, imgHeight);
+    windowLow = 0;
+    windowHigh = 255;
+    currentGamma = DEFAULT_GAMMA;
+    computeHistogram();
+    setGamma(currentGamma, { emit: false });
+    updateHistogramUI();
+    applyImageAdjustments();
     redrawMaskCanvas();
     resizeCanvas();
     updateBrushControls();
@@ -1043,12 +1497,24 @@ function initialize() {
 }
 
 window.addEventListener('resize', resizeCanvas);
-gammaSlider.addEventListener('input', (evt) => {
-  const value = Math.max(parseInt(evt.target.value, 10), 1);
-  const gamma = value / 100.0;
-  gammaValue.textContent = 'Gamma: ' + gamma.toFixed(2);
-  applyGamma(gamma);
-});
+if (gammaSlider) {
+  gammaSlider.addEventListener('input', (evt) => {
+    const value = parseInt(evt.target.value, 10);
+    const gamma = Number.isNaN(value) ? currentGamma : value / 100.0;
+    setGamma(gamma);
+  });
+}
+
+if (gammaInput) {
+  gammaInput.addEventListener('change', () => {
+    const value = parseFloat(gammaInput.value);
+    if (Number.isNaN(value)) {
+      gammaInput.value = currentGamma.toFixed(2);
+      return;
+    }
+    setGamma(value);
+  });
+}
 
 brushSizeSlider.addEventListener('input', (evt) => {
   const idx = parseInt(evt.target.value, 10);
@@ -1076,10 +1542,40 @@ updateMaskLabel();
 updateMaskVisibilityLabel();
 updateToolInfo();
 updateBrushControls();
+updateColorModeLabel();
+updateHoverInfo(null);
 if (segmentButton) {
   segmentButton.addEventListener('click', () => {
     runSegmentation();
   });
+}
+if (histogramCanvas) {
+  histogramCanvas.addEventListener('pointerdown', handleHistogramPointerDown);
+  histogramCanvas.addEventListener('pointermove', handleHistogramPointerMove);
+  histogramCanvas.addEventListener('pointerup', handleHistogramPointerUp);
+  histogramCanvas.addEventListener('pointercancel', handleHistogramPointerUp);
+  histogramCanvas.addEventListener('pointerleave', (evt) => {
+    if (!histDragTarget) {
+      updateHistogramCursor(evt);
+    }
+  });
+  updateHistogramCursor();
+}
+if (maskOpacitySlider) {
+  maskOpacitySlider.addEventListener('input', (evt) => {
+    const value = parseInt(evt.target.value, 10);
+    const fraction = Number.isNaN(value) ? maskOpacity : Math.min(1, Math.max(0, value / 100));
+    maskOpacity = fraction;
+    if (maskOpacityValue) {
+      maskOpacityValue.textContent = Math.round(maskOpacity * 100) + '%';
+    }
+    redrawMaskCanvas();
+    draw();
+  });
+  maskOpacitySlider.value = String(Math.round(maskOpacity * 100));
+  if (maskOpacityValue) {
+    maskOpacityValue.textContent = Math.round(maskOpacity * 100) + '%';
+  }
 }
 
 let bootstrapped = false;
@@ -1184,7 +1680,7 @@ class Segmenter:
             return np.zeros_like(mask, dtype=np.uint8)
         max_label = int(labels.max())
         mapping = np.zeros(max_label + 1, dtype=np.uint16)
-        new_vals = ((np.arange(len(labels)) % 254) + 1).astype(np.uint16)
+        new_vals = ((np.arange(len(labels)) % 9) + 1).astype(np.uint16)
         mapping[labels.astype(np.int64)] = new_vals
         remapped = mapping[mask]
         return remapped.astype(np.uint8)
