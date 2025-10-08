@@ -424,12 +424,10 @@ function closeDropdown(entry) {
     return;
   }
   entry.root.dataset.open = 'false';
-  if (entry.portal) {
-    entry.portal.dataset.open = 'false';
-    entry.portal.style.display = 'none';
-    entry.portal.style.pointerEvents = 'none';
-  }
   entry.button.setAttribute('aria-expanded', 'false');
+  if (entry.menu) {
+    entry.menu.setAttribute('aria-hidden', 'true');
+  }
   dropdownOpenId = null;
 }
 
@@ -442,12 +440,10 @@ function openDropdown(entry) {
   }
   entry.root.dataset.open = 'true';
   positionDropdown(entry);
-  if (entry.portal) {
-    entry.portal.dataset.open = 'true';
-    entry.portal.style.display = 'block';
-    entry.portal.style.pointerEvents = 'auto';
-  }
   entry.button.setAttribute('aria-expanded', 'true');
+  if (entry.menu) {
+    entry.menu.setAttribute('aria-hidden', 'false');
+  }
   dropdownOpenId = entry.id;
 }
 
@@ -464,17 +460,10 @@ function toggleDropdown(entry) {
 }
 
 function positionDropdown(entry) {
-  if (!entry || !entry.portal) {
+  if (!entry || !entry.menu) {
     return;
   }
-  const rect = entry.button.getBoundingClientRect();
-  const left = Math.round(rect.left - 12);
-  const width = Math.round(rect.width + 24);
-  const top = Math.round(rect.bottom + 10);
-  entry.portal.style.left = `${left}px`;
-  entry.portal.style.top = `${top}px`;
-  entry.portal.style.width = `${width}px`;
-  entry.menu.style.width = '100%';
+  entry.menu.style.minWidth = '100%';
 }
 
 function registerDropdown(root) {
@@ -484,6 +473,7 @@ function registerDropdown(root) {
   }
   const id = root.dataset.dropdownId || select.id || `dropdown-${dropdownRegistry.size}`;
   root.dataset.dropdownId = id;
+  root.dataset.open = root.dataset.open || 'false';
 
   const originalOptions = Array.from(select.options).map((opt) => ({
     value: opt.value,
@@ -500,23 +490,20 @@ function registerDropdown(root) {
   button.className = 'dropdown-toggle';
   button.setAttribute('aria-haspopup', 'listbox');
   button.setAttribute('aria-expanded', 'false');
-  root.appendChild(button);
-
-  const portal = document.createElement('div');
-  portal.className = 'dropdown-portal';
-  portal.dataset.open = 'false';
   const menu = document.createElement('div');
   menu.className = 'dropdown-menu';
   menu.setAttribute('role', 'listbox');
-  portal.appendChild(menu);
-  document.body.appendChild(portal);
+  menu.setAttribute('aria-hidden', 'true');
+  menu.id = `${id}-menu`;
+  button.setAttribute('aria-controls', menu.id);
+  root.appendChild(button);
+  root.appendChild(menu);
 
   const entry = {
     id,
     root,
     select,
     button,
-    portal,
     menu,
     options: originalOptions,
   };
@@ -568,6 +555,7 @@ function registerDropdown(root) {
   buildMenu();
   entry.applySelection = applySelection;
   entry.buildMenu = buildMenu;
+  positionDropdown(entry);
   dropdownRegistry.set(id, entry);
 }
 
@@ -580,7 +568,7 @@ document.addEventListener('pointerdown', (evt) => {
     dropdownOpenId = null;
     return;
   }
-  if (!entry.root.contains(evt.target) && (!entry.portal || !entry.portal.contains(evt.target))) {
+  if (!entry.root.contains(evt.target)) {
     closeDropdown(entry);
   }
 });
