@@ -128,28 +128,6 @@ canvas {
   transform: translateY(-50%);
 }
 
-#gammaInput,
-#brushSizeInput {
-  width: 72px;
-  background: var(--control-input-surface);
-  backdrop-filter: blur(var(--control-blur));
-  -webkit-backdrop-filter: blur(var(--control-blur));
-  border: none;
-  color: currentColor;
-  padding: 6px 10px;
-  border-radius: 8px;
-  box-shadow: none;
-}
-
-#gammaInput:focus,
-#brushSizeInput:focus {
-  outline: none;
-  background: var(--control-input-hover-surface);
-  color: var(--panel-text-color);
-  box-shadow:
-    0 0 0 2px rgba(216, 162, 0, 0.25);
-}
-
 .slider-track {
   width: 100%;
   background: rgba(0, 0, 0, 0.35);
@@ -212,20 +190,21 @@ canvas {
   backdrop-filter: blur(var(--control-blur));
   -webkit-backdrop-filter: blur(var(--control-blur));
   color: var(--panel-text-color);
-  border: none;
+  border: 1px solid var(--control-border);
   text-align: left;
   font-size: 0.9rem;
   display: flex;
   align-items: center;
   justify-content: space-between;
   cursor: pointer;
-  transition: background 0.14s ease, color 0.14s ease;
+  transition: background 0.14s ease, color 0.14s ease, border-color 0.14s ease;
 }
 
 .dropdown[data-open='true'] .dropdown-toggle,
 .dropdown-toggle:hover {
   background: var(--control-input-hover-surface);
   color: var(--panel-text-color);
+  border-color: var(--accent-color);
 }
 
 .dropdown-toggle::after {
@@ -259,7 +238,7 @@ canvas {
   background: var(--control-input-surface);
   backdrop-filter: blur(var(--control-blur));
   -webkit-backdrop-filter: blur(var(--control-blur));
-  border: none;
+  border: 1px solid var(--control-border);
   border-radius: 14px;
   box-shadow: 0 18px 36px rgba(0, 0, 0, 0.55);
   padding: 10px 12px 8px 12px;
@@ -300,9 +279,10 @@ canvas {
   background: var(--control-input-surface);
   backdrop-filter: blur(var(--control-blur));
   -webkit-backdrop-filter: blur(var(--control-blur));
-  border: none;
+  border: 1px solid var(--control-border);
   box-shadow: none;
   padding: 0;
+  transition: background 0.14s ease, border-color 0.14s ease, box-shadow 0.14s ease;
 }
 
 .histogram-surface {
@@ -310,6 +290,7 @@ canvas {
   backdrop-filter: blur(var(--control-blur));
   -webkit-backdrop-filter: blur(var(--control-blur));
   border-radius: 8px;
+  border: 1px solid var(--control-border);
   padding: 10px;
 }
 
@@ -318,11 +299,13 @@ canvas {
   height: 100%;
   background: transparent;
   border: none;
-  color: var(--panel-text-color);
+  color: currentColor;
   padding: 0 10px;
   font-size: 0.9rem;
   font-family: inherit;
   outline: none;
+  box-shadow: none;
+  border-radius: inherit;
 }
 
 .number-field input[type='number']::-webkit-outer-spin-button,
@@ -336,8 +319,9 @@ canvas {
 }
 
 .number-field:focus-within {
-  border-color: rgba(160, 200, 255, 0.28);
+  border-color: var(--accent-color);
   background: var(--control-hover-surface);
+  box-shadow: 0 0 0 2px rgba(216, 162, 0, 0.25);
 }
 
 #gamma,

@@ -106,6 +106,8 @@ class Segmenter:
         self._model = None
         self._model_lock = threading.Lock()
         self._eval_lock = threading.Lock()
+        self._preload_thread: threading.Thread | None = None
+        self._modules_preloaded = False
 
     def _ensure_model(self) -> None:
         if self._model is None:
@@ -117,6 +119,28 @@ class Segmenter:
                         gpu=False,
                         model_type="bact_phase_affinity",
                     )
+
+    def preload_modules_async(self, delay: float = 0.0) -> None:
+        if self._modules_preloaded:
+            return
+        if self._preload_thread is not None and self._preload_thread.is_alive():
+            return
+
+        def _target() -> None:
+            if delay > 0:
+                time.sleep(delay)
+            try:
+                import cellpose_omni.models  # noqa: F401  (import for side effects)
+                import omnipose.utils  # noqa: F401
+                self._modules_preloaded = True
+                print("[pywebview] segmenter module preload completed", flush=True)
+            except Exception as exc:  # pragma: no cover - diagnostics only
+                print(f"[pywebview] segmenter module preload failed: {exc}", flush=True)
+            finally:
+                self._preload_thread = None
+
+        self._preload_thread = threading.Thread(target=_target, name="SegmenterModulePreload", daemon=True)
+        self._preload_thread.start()
 
     def segment(self, image: np.ndarray) -> np.ndarray:
         from omnipose.utils import normalize99
@@ -275,6 +299,7 @@ def run_desktop() -> None:
 
     def on_window_loaded() -> None:
         log_timing("window loaded")
+        _SEGMENTER.preload_modules_async(delay=0.1)
 
     def on_window_shown() -> None:
         log_timing("window shown")
@@ -336,6 +361,10 @@ def create_app() -> "FastAPI":
             return JSONResponse(run_segmentation())
         except Exception as exc:  # pragma: no cover - propagate error to client
             return JSONResponse({"error": str(exc)}, status_code=500)
+
+    @app.on_event("startup")
+    async def preload_modules() -> None:
+        _SEGMENTER.preload_modules_async(delay=0.0)
 
     return app
 
