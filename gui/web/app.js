@@ -15,6 +15,9 @@ const rootStyle = window.getComputedStyle(document.documentElement);
 const sidebarWidthRaw = rootStyle.getPropertyValue('--sidebar-width');
 const sidebarWidthValue = Number.parseFloat(sidebarWidthRaw || '');
 const sidebarWidth = Number.isFinite(sidebarWidthValue) ? Math.max(0, sidebarWidthValue) : 260;
+const accentColor = (rootStyle.getPropertyValue('--accent-color') || '#d8a200').trim();
+const histogramWindowColor = (rootStyle.getPropertyValue('--histogram-window-color') || 'rgba(140, 140, 140, 0.35)').trim();
+const panelTextColor = (rootStyle.getPropertyValue('--panel-text-color') || '#f4f4f4').trim();
 
 const offscreen = document.createElement('canvas');
 offscreen.width = imgWidth;
@@ -1473,7 +1476,7 @@ function renderHistogram() {
   ctx.clearRect(0, 0, width, height);
   const maxCount = Math.max(...histogramData);
   if (maxCount > 0) {
-    ctx.fillStyle = '#4c8dff';
+    ctx.fillStyle = accentColor;
     const binWidth = Math.max(width / 256, 1);
     for (let i = 0; i < 256; i += 1) {
       const value = histogramData[i] / maxCount;
@@ -1484,7 +1487,7 @@ function renderHistogram() {
   }
   const lowX = (windowLow / 255) * width;
   const highX = (windowHigh / 255) * width;
-  ctx.fillStyle = 'rgba(88, 138, 255, 0.12)';
+  ctx.fillStyle = histogramWindowColor;
   ctx.fillRect(lowX, 0, Math.max(highX - lowX, 1), height);
   ctx.strokeStyle = '#ffffff';
   ctx.lineWidth = 1;
@@ -1494,8 +1497,9 @@ function renderHistogram() {
   ctx.moveTo(highX, 0);
   ctx.lineTo(highX, height);
   ctx.stroke();
+  const gammaCurveColor = panelTextColor || accentColor;
   if (windowHigh > windowLow) {
-    ctx.strokeStyle = 'rgba(200, 200, 200, 0.85)';
+    ctx.strokeStyle = gammaCurveColor;
     ctx.lineWidth = 1.25;
     ctx.beginPath();
     const startX = Math.max(0, Math.floor(lowX));
