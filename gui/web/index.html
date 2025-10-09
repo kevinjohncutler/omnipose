@@ -60,10 +60,13 @@
           <label for="maskOpacity">Mask Opacity</label>
           <div class="slider-row">
             <div class="slider" data-slider-id="maskOpacity" data-slider-type="single">
-              <input type="range" id="maskOpacity" min="0" max="100" value="80" />
+              <input type="range" id="maskOpacity" min="0" max="1" step="0.01" value="0.8" />
             </div>
-            <div id="maskOpacityValue">80%</div>
+            <div class="number-field" data-number-id="maskOpacityInput">
+              <input type="number" id="maskOpacityInput" min="0" max="1" step="0.01" value="0.80" />
+            </div>
           </div>
+          <div id="maskOpacityValue">Mask Opacity: 0.80</div>
         </div>
         <div id="colorMode">Mask Colors: Palette (toggle with 'N')</div>
         <div id="maskLabel">Mask Label: 1</div>

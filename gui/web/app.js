@@ -7,6 +7,126 @@ const initialBrushRadius = CONFIG.brushRadius ?? 6;
 let defaultPalette = [];
 let nColorPalette = [];
 
+// Centralized input policy so stylus, touch, and mouse behavior can be tuned per platform.
+const POINTER_OPTIONS = {
+  stylus: {
+    allowSimultaneousTouchGestures: false,
+    barrelButtonPan: true,
+  },
+  touch: {
+    enablePan: true,
+    enablePinchZoom: true,
+    enableRotate: true,
+    rotationDeadzoneDegrees: 0.1,
+  },
+  mouse: {
+    primaryDraw: true,
+    secondaryPan: true,
+  },
+};
+
+const RAD_TO_DEG = 180 / Math.PI;
+
+function createPointerState(options = {}) {
+  const merged = {
+    stylus: {
+      allowSimultaneousTouchGestures: false,
+      barrelButtonPan: true,
+      ...(options.stylus || {}),
+    },
+    touch: {
+      enablePan: true,
+      enablePinchZoom: true,
+      enableRotate: true,
+      rotationDeadzoneDegrees: 0.1,
+      ...(options.touch || {}),
+    },
+    mouse: {
+      primaryDraw: true,
+      secondaryPan: true,
+      ...(options.mouse || {}),
+    },
+  };
+  let activePenId = null;
+  let penButtons = 0;
+  let penBarrelPan = false;
+
+  function isStylusPointer(evt) {
+    if (!evt) {
+      return false;
+    }
+    if (evt.pointerType === 'pen') {
+      return true;
+    }
+    if (evt.pointerType === 'touch' && typeof evt.touchType === 'string') {
+      return evt.touchType.toLowerCase() === 'stylus';
+    }
+    return false;
+  }
+
+  function registerPenButtons(evt) {
+    penButtons = typeof evt.buttons === 'number' ? evt.buttons : 0;
+    penBarrelPan = merged.stylus.barrelButtonPan && (penButtons & ~1) !== 0;
+  }
+
+  return {
+    options: merged,
+    isStylusPointer,
+    registerPointerDown(evt) {
+      if (isStylusPointer(evt)) {
+        activePenId = evt.pointerId;
+        registerPenButtons(evt);
+      }
+    },
+    registerPointerMove(evt) {
+      if (isStylusPointer(evt) && evt.pointerId === activePenId) {
+        registerPenButtons(evt);
+      }
+    },
+    registerPointerUp(evt) {
+      if (isStylusPointer(evt) && evt.pointerId === activePenId) {
+        registerPenButtons(evt);
+        activePenId = null;
+        penBarrelPan = false;
+        penButtons = 0;
+      }
+    },
+    isActivePen(pointerId) {
+      return activePenId !== null && pointerId === activePenId;
+    },
+    hasActivePen() {
+      return activePenId !== null;
+    },
+    isBarrelPanActive() {
+      return penBarrelPan;
+    },
+    shouldIgnoreTouch(evt) {
+      if (!evt || evt.pointerType !== 'touch') {
+        return false;
+      }
+      if (!merged.stylus.allowSimultaneousTouchGestures && activePenId !== null) {
+        return true;
+      }
+      return false;
+    },
+    resetPen() {
+      activePenId = null;
+      penButtons = 0;
+      penBarrelPan = false;
+    },
+  };
+}
+
+const supportsGestureEvents = typeof window !== 'undefined'
+  && (typeof window.GestureEvent === 'function' || 'ongesturestart' in window);
+const pointerOptionsOverride = CONFIG.pointerOptions || {};
+const pointerState = createPointerState({
+  stylus: { ...POINTER_OPTIONS.stylus, ...(pointerOptionsOverride.stylus || {}) },
+  touch: { ...POINTER_OPTIONS.touch, ...(pointerOptionsOverride.touch || {}) },
+  mouse: { ...POINTER_OPTIONS.mouse, ...(pointerOptionsOverride.mouse || {}) },
+});
+const debugTouchOverlay = CONFIG.debugTouchOverlay ?? false;
+
 const canvas = document.getElementById('canvas');
 const ctx = canvas.getContext('2d');
 const viewer = document.getElementById('viewer');
@@ -427,6 +547,7 @@ function closeDropdown(entry) {
   entry.button.setAttribute('aria-expanded', 'false');
   if (entry.menu) {
     entry.menu.setAttribute('aria-hidden', 'true');
+    entry.menu.scrollTop = 0;
   }
   dropdownOpenId = null;
 }
@@ -497,7 +618,10 @@ function registerDropdown(root) {
   menu.id = `${id}-menu`;
   button.setAttribute('aria-controls', menu.id);
   root.appendChild(button);
-  root.appendChild(menu);
+  const menuWrapper = document.createElement('div');
+  menuWrapper.className = 'dropdown-menu-wrap';
+  menuWrapper.appendChild(menu);
+  root.appendChild(menuWrapper);
 
   const entry = {
     id,
@@ -505,6 +629,7 @@ function registerDropdown(root) {
     select,
     button,
     menu,
+    menuWrapper,
     options: originalOptions,
   };
 
@@ -584,6 +709,10 @@ window.addEventListener('blur', () => {
   touchPointers.clear();
   pinchState = null;
   panPointerId = null;
+  pointerState.resetPen();
+  stylusToolOverride = null;
+  gestureState = null;
+  wheelRotationBuffer = 0;
   clearHoverPreview();
   if (dropdownOpenId) {
     closeDropdown(dropdownRegistry.get(dropdownOpenId));
@@ -609,6 +738,7 @@ function beginPinchGesture() {
   const dx = points[0].x - points[1].x;
   const dy = points[0].y - points[1].y;
   const distance = Math.hypot(dx, dy) || 1;
+  const angle = Math.atan2(dy, dx);
   const midpoint = {
     x: (points[0].x + points[1].x) / 2,
     y: (points[0].y + points[1].y) / 2,
@@ -622,8 +752,13 @@ function beginPinchGesture() {
     pointers: [points[0].id, points[1].id],
     startDistance: distance,
     startScale: viewState.scale,
+    startAngle: angle,
+    startRotation: normalizeAngle(viewState.rotation),
     imageMid,
+    lastLoggedRotation: 0,
   };
+  log('pinch gesture start distance=' + distance.toFixed(2) + ' angle=' + (angle * RAD_TO_DEG).toFixed(2) + ' deg');
+  wheelRotationBuffer = 0;
   isPanning = false;
   isPainting = false;
   hoverPoint = null;
@@ -631,13 +766,25 @@ function beginPinchGesture() {
 }
 
 function handleTouchPointerDown(evt, pointer) {
+  if (pointerState.shouldIgnoreTouch(evt)) {
+    evt.preventDefault();
+    return;
+  }
   evt.preventDefault();
   touchPointers.set(evt.pointerId, { x: evt.clientX, y: evt.clientY });
+  try {
+    canvas.setPointerCapture(evt.pointerId);
+  } catch (_) {
+    /* ignore */
+  }
   if (pinchState) {
     // already in pinch gesture, ignore additional touches
     return;
   }
   if (touchPointers.size >= 2) {
+    if (!pointerState.options.touch.enablePinchZoom && !pointerState.options.touch.enableRotate) {
+      return;
+    }
     if (panPointerId !== null) {
       try {
         canvas.releasePointerCapture(panPointerId);
@@ -650,6 +797,9 @@ function handleTouchPointerDown(evt, pointer) {
     return;
   }
   // single finger: treat as pan gesture
+  if (!pointerState.options.touch.enablePan) {
+    return;
+  }
   isPainting = false;
   strokeChanges = null;
   isPanning = true;
@@ -664,6 +814,71 @@ function handleTouchPointerDown(evt, pointer) {
   updateHoverInfo(null);
   lastPoint = pointer;
   updateCursor();
+  drawBrushPreview(hoverPoint);
+}
+
+function handleGestureStart(evt) {
+  if (!pointerState.options.touch.enableRotate && !pointerState.options.touch.enablePinchZoom) {
+    return;
+  }
+  if (!canvas) {
+    return;
+  }
+  evt.preventDefault();
+  const origin = resolveGestureOrigin(evt);
+  const imagePoint = screenToImage(origin);
+  gestureState = {
+    startScale: viewState.scale,
+    startRotation: normalizeAngle(viewState.rotation),
+    origin,
+    imagePoint,
+  };
+  wheelRotationBuffer = 0;
+  hoverPoint = null;
+  drawBrushPreview(null);
+  isPanning = false;
+  spacePan = false;
+}
+
+function handleGestureChange(evt) {
+  if (!gestureState) {
+    return;
+  }
+  evt.preventDefault();
+  const currentOrigin = resolveGestureOrigin(evt);
+  gestureState.origin = currentOrigin;
+  gestureState.imagePoint = screenToImage(currentOrigin);
+  if (pointerState.options.touch.enablePinchZoom) {
+    const nextScale = gestureState.startScale * evt.scale;
+    if (Number.isFinite(nextScale) && nextScale > 0) {
+      viewState.scale = Math.min(Math.max(nextScale, 0.1), 40);
+    }
+  }
+  if (pointerState.options.touch.enableRotate) {
+    const deadzone = Math.max(pointerState.options.touch.rotationDeadzoneDegrees || 0, 0);
+    const rotationDegrees = Number.isFinite(evt.rotation) ? evt.rotation : 0;
+    if (Math.abs(rotationDegrees) >= deadzone) {
+      viewState.rotation = normalizeAngle(gestureState.startRotation + (rotationDegrees * Math.PI / 180));
+    } else {
+      viewState.rotation = gestureState.startRotation;
+    }
+  }
+  setOffsetForImagePoint(gestureState.imagePoint, gestureState.origin);
+  userAdjustedScale = true;
+  autoFitPending = false;
+  draw();
+  drawBrushPreview(null);
+}
+
+function handleGestureEnd(evt) {
+  if (!gestureState) {
+    return;
+  }
+  if (evt && typeof evt.preventDefault === 'function') {
+    evt.preventDefault();
+  }
+  gestureState = null;
+  drawBrushPreview(hoverPoint);
 }
 
 const MIN_BRUSH_DIAMETER = 1;
@@ -731,6 +946,7 @@ const histogramCanvas = document.getElementById('histogram');
 const histRangeLabel = document.getElementById('histRange');
 const hoverInfo = document.getElementById('hoverInfo');
 const maskOpacitySlider = document.getElementById('maskOpacity');
+const maskOpacityInput = document.getElementById('maskOpacityInput');
 const maskOpacityValue = document.getElementById('maskOpacityValue');
 
 attachNumberInputStepper(brushSizeInput, (delta) => {
@@ -744,7 +960,7 @@ attachNumberInputStepper(gammaInput, (delta) => {
 const HISTORY_LIMIT = 200;
 const undoStack = [];
 const redoStack = [];
-const viewState = { scale: 1.0, offsetX: 0.0, offsetY: 0.0 };
+const viewState = { scale: 1.0, offsetX: 0.0, offsetY: 0.0, rotation: 0.0 };
 let maskVisible = true;
 let currentLabel = 1;
 let originalImageData = null;
@@ -755,6 +971,7 @@ let lastPaintPoint = null;
 let strokeChanges = null;
 let tool = 'brush';
 let spacePan = false;
+let stylusToolOverride = null;
 
 let hoverPoint = null;
 let eraseActive = false;
@@ -774,6 +991,9 @@ let userAdjustedScale = false;
 const touchPointers = new Map();
 let pinchState = null;
 let panPointerId = null;
+let activePointerId = null;
+let gestureState = null;
+let wheelRotationBuffer = 0;
 
 const MIN_GAMMA = 0.1;
 const MAX_GAMMA = 6.0;
@@ -787,46 +1007,77 @@ function resizePreviewCanvas() {
 }
 
 function clearPreview() {
+  previewCtx.setTransform(1, 0, 0, 1, 0, 0);
   previewCtx.clearRect(0, 0, previewCanvas.width, previewCanvas.height);
 }
 
-function drawBrushPreview(point) {
-  if (!point) {
-    clearPreview();
+function drawTouchOverlay() {
+  if (!debugTouchOverlay) {
     return;
   }
-  clearPreview();
-  const pixels = enumerateBrushPixels(point.x, point.y);
-  if (!pixels.length) {
-    return;
-  }
-  const center = getBrushKernelCenter(point.x, point.y);
+  const rect = canvas.getBoundingClientRect();
   previewCtx.save();
-  previewCtx.scale(dpr, dpr);
-  previewCtx.translate(viewState.offsetX, viewState.offsetY);
-  previewCtx.scale(viewState.scale, viewState.scale);
-  previewCtx.imageSmoothingEnabled = false;
-  previewCtx.fillStyle = 'rgba(255, 255, 255, 0.24)';
-  const size = 1;
-  for (const pixel of pixels) {
-    previewCtx.fillRect(pixel.x, pixel.y, size, size);
-  }
-  const radius = (brushDiameter - 1) / 2;
-  if (radius >= 0) {
-    previewCtx.lineWidth = 1 / Math.max(viewState.scale, 1);
-    previewCtx.strokeStyle = 'rgba(255, 255, 255, 0.9)';
+  previewCtx.setTransform(1, 0, 0, 1, 0, 0);
+  previewCtx.lineWidth = 2;
+  previewCtx.strokeStyle = 'rgba(0, 200, 255, 0.9)';
+  previewCtx.fillStyle = 'rgba(0, 200, 255, 0.2)';
+  let rendered = false;
+  touchPointers.forEach((data) => {
+    const x = data.x - rect.left;
+    const y = data.y - rect.top;
+    if (!Number.isFinite(x) || !Number.isFinite(y)) {
+      return;
+    }
+    rendered = true;
     previewCtx.beginPath();
-    const centerX = center.x + 0.5;
-    const centerY = center.y + 0.5;
-    previewCtx.arc(centerX, centerY, radius + 0.5, 0, Math.PI * 2);
+    previewCtx.arc(x, y, 16, 0, Math.PI * 2);
+    previewCtx.fill();
+    previewCtx.stroke();
+  });
+  if (!rendered && gestureState && gestureState.origin) {
+    // Optional debug marker for gesture origin when no raw touch pointers exist.
+    previewCtx.beginPath();
+    previewCtx.arc(gestureState.origin.x, gestureState.origin.y, 18, 0, Math.PI * 2);
+    previewCtx.strokeStyle = 'rgba(255, 180, 0, 0.6)';
+    previewCtx.setLineDash([6, 6]);
     previewCtx.stroke();
   }
   previewCtx.restore();
 }
 
+function drawBrushPreview(point) {
+  clearPreview();
+  if (point) {
+    const pixels = enumerateBrushPixels(point.x, point.y);
+    if (pixels.length) {
+      const center = getBrushKernelCenter(point.x, point.y);
+      previewCtx.save();
+      applyViewTransform(previewCtx, { includeDpr: true });
+      previewCtx.imageSmoothingEnabled = false;
+      previewCtx.fillStyle = 'rgba(255, 255, 255, 0.24)';
+      const size = 1;
+      for (const pixel of pixels) {
+        previewCtx.fillRect(pixel.x, pixel.y, size, size);
+      }
+      const radius = (brushDiameter - 1) / 2;
+      if (radius >= 0) {
+        previewCtx.lineWidth = 1 / Math.max(viewState.scale * dpr, 1);
+        previewCtx.strokeStyle = 'rgba(255, 255, 255, 0.9)';
+        previewCtx.beginPath();
+        const centerX = center.x + 0.5;
+        const centerY = center.y + 0.5;
+        previewCtx.arc(centerX, centerY, radius + 0.5, 0, Math.PI * 2);
+        previewCtx.stroke();
+      }
+      previewCtx.restore();
+    }
+  }
+  drawTouchOverlay();
+}
+
 function updateCursor() {
   if (spacePan || isPanning) {
-    canvas.style.cursor = isPanning ? 'grabbing' : 'grab';
+    canvas.style.cursor = 'move';
   } else if (tool === 'brush' && cursorInsideImage) {
     canvas.style.cursor = 'none';
   } else {
@@ -840,6 +1091,12 @@ function updateMaskLabel() {
 
 function updateMaskVisibilityLabel() {
   maskVisibility.textContent = 'Mask Layer: ' + (maskVisible ? 'On' : 'Off') + " (toggle with 'M')";
+}
+
+function updateMaskOpacityLabel() {
+  if (maskOpacityValue) {
+    maskOpacityValue.textContent = 'Mask Opacity: ' + maskOpacity.toFixed(2);
+  }
 }
 
 function updateToolInfo() {
@@ -910,6 +1167,36 @@ function setBrushDiameter(nextDiameter, fromUser = false) {
   }
   refreshSlider('brushSizeSlider');
   drawBrushPreview(hoverPoint);
+}
+
+function syncMaskOpacityControls() {
+  if (maskOpacitySlider) {
+    maskOpacitySlider.value = maskOpacity.toFixed(2);
+    refreshSlider('maskOpacity');
+  }
+  if (maskOpacityInput && document.activeElement !== maskOpacityInput) {
+    maskOpacityInput.value = maskOpacity.toFixed(2);
+  }
+  updateMaskOpacityLabel();
+}
+
+function setMaskOpacity(value, { silent = false } = {}) {
+  const numeric = typeof value === 'number' ? value : parseFloat(value);
+  if (Number.isNaN(numeric)) {
+    syncMaskOpacityControls();
+    return;
+  }
+  const clamped = clamp(numeric, 0, 1);
+  if (maskOpacity === clamped && !silent) {
+    syncMaskOpacityControls();
+    return;
+  }
+  maskOpacity = clamped;
+  syncMaskOpacityControls();
+  if (!silent) {
+    redrawMaskCanvas();
+    draw();
+  }
 }
 
 function pushHistory(indices, before, after) {
@@ -1228,6 +1515,75 @@ function shouldLogDraw() {
   return drawLogCount % 50 === 0;
 }
 
+function applyViewTransform(context, { includeDpr = false } = {}) {
+  const cos = Math.cos(viewState.rotation);
+  const sin = Math.sin(viewState.rotation);
+  const scaleFactor = viewState.scale * (includeDpr ? dpr : 1);
+  const tx = viewState.offsetX * (includeDpr ? dpr : 1);
+  const ty = viewState.offsetY * (includeDpr ? dpr : 1);
+  context.setTransform(
+    scaleFactor * cos,
+    scaleFactor * sin,
+    -scaleFactor * sin,
+    scaleFactor * cos,
+    tx,
+    ty,
+  );
+}
+
+function setOffsetForImagePoint(imagePoint, canvasPoint) {
+  const cos = Math.cos(viewState.rotation);
+  const sin = Math.sin(viewState.rotation);
+  const scaledX = imagePoint.x * viewState.scale;
+  const scaledY = imagePoint.y * viewState.scale;
+  const rotatedX = scaledX * cos - scaledY * sin;
+  const rotatedY = scaledX * sin + scaledY * cos;
+  viewState.offsetX = canvasPoint.x - rotatedX;
+  viewState.offsetY = canvasPoint.y - rotatedY;
+}
+
+function normalizeAngleDelta(delta) {
+  if (!Number.isFinite(delta)) {
+    return 0;
+  }
+  return Math.atan2(Math.sin(delta), Math.cos(delta));
+}
+
+function normalizeAngle(angle) {
+  if (!Number.isFinite(angle)) {
+    return 0;
+  }
+  return Math.atan2(Math.sin(angle), Math.cos(angle));
+}
+
+function rotateView(deltaRadians) {
+  if (!Number.isFinite(deltaRadians) || deltaRadians === 0) {
+    return;
+  }
+  if (!canvas) {
+    return;
+  }
+  if (!Number.isFinite(imgWidth) || !Number.isFinite(imgHeight) || imgWidth <= 0 || imgHeight <= 0) {
+    return;
+  }
+  const rect = canvas.getBoundingClientRect();
+  if (!rect || rect.width <= 0 || rect.height <= 0) {
+    return;
+  }
+  const imageCenter = {
+    x: imgWidth / 2,
+    y: imgHeight / 2,
+  };
+  const anchorScreen = imageToScreen(imageCenter);
+  viewState.rotation = normalizeAngle(viewState.rotation + deltaRadians);
+  log('rotate view delta=' + (deltaRadians * RAD_TO_DEG).toFixed(1) + ' deg, now ' + (viewState.rotation * RAD_TO_DEG).toFixed(1) + ' deg');
+  setOffsetForImagePoint(imageCenter, anchorScreen);
+  userAdjustedScale = true;
+  autoFitPending = false;
+  draw();
+  drawBrushPreview(hoverPoint);
+}
+
 function draw() {
   if (shuttingDown) {
     return;
@@ -1238,8 +1594,9 @@ function draw() {
   ctx.save();
   ctx.setTransform(1, 0, 0, 1, 0, 0);
   ctx.clearRect(0, 0, canvas.width, canvas.height);
-  ctx.translate(viewState.offsetX * dpr, viewState.offsetY * dpr);
-  ctx.scale(viewState.scale * dpr, viewState.scale * dpr);
+  ctx.restore();
+  ctx.save();
+  applyViewTransform(ctx, { includeDpr: true });
   const smooth = viewState.scale < 1;
   ctx.imageSmoothingEnabled = smooth;
   ctx.imageSmoothingQuality = smooth ? 'high' : 'low';
@@ -1273,10 +1630,47 @@ function getPointerPosition(evt) {
 }
 
 function screenToImage(point) {
+  const cos = Math.cos(viewState.rotation);
+  const sin = Math.sin(viewState.rotation);
+  const dx = point.x - viewState.offsetX;
+  const dy = point.y - viewState.offsetY;
+  const localX = (dx * cos + dy * sin) / viewState.scale;
+  const localY = (-dx * sin + dy * cos) / viewState.scale;
   return {
-    x: (point.x - viewState.offsetX) / viewState.scale,
-    y: (point.y - viewState.offsetY) / viewState.scale,
+    x: localX,
+    y: localY,
   };
+}
+
+function imageToScreen(point) {
+  const cos = Math.cos(viewState.rotation);
+  const sin = Math.sin(viewState.rotation);
+  const scaledX = point.x * viewState.scale;
+  const scaledY = point.y * viewState.scale;
+  const rotatedX = scaledX * cos - scaledY * sin;
+  const rotatedY = scaledX * sin + scaledY * cos;
+  return {
+    x: rotatedX + viewState.offsetX,
+    y: rotatedY + viewState.offsetY,
+  };
+}
+
+function resolveGestureOrigin(evt) {
+  if (!canvas) {
+    return { x: 0, y: 0 };
+  }
+  const rect = canvas.getBoundingClientRect();
+  let x = typeof evt.clientX === 'number'
+    ? evt.clientX - rect.left
+    : Number.NaN;
+  let y = typeof evt.clientY === 'number'
+    ? evt.clientY - rect.top
+    : Number.NaN;
+  if (!Number.isFinite(x) || !Number.isFinite(y)) {
+    x = rect.width / 2;
+    y = rect.height / 2;
+  }
+  return { x, y };
 }
 
 function resizeCanvas() {
@@ -1308,8 +1702,12 @@ function recenterView(bounds) {
   const width = rect ? rect.width : 0;
   const height = rect ? rect.height : 0;
   const usableWidth = Math.max(0, width - sidebarWidth);
-  viewState.offsetX = (usableWidth - imgWidth * viewState.scale) / 2;
-  viewState.offsetY = (height - imgHeight * viewState.scale) / 2;
+  const imageCenter = { x: imgWidth / 2, y: imgHeight / 2 };
+  const target = {
+    x: usableWidth / 2,
+    y: height / 2,
+  };
+  setOffsetForImagePoint(imageCenter, target);
   log('recenter to ' + viewState.offsetX.toFixed(1) + ',' + viewState.offsetY.toFixed(1));
 }
 
@@ -1332,6 +1730,7 @@ function fitViewToWindow(bounds) {
     return false;
   }
   viewState.scale = nextScale;
+  viewState.rotation = 0;
   autoFitPending = false;
   recenterView(rect);
   return true;
@@ -1341,7 +1740,9 @@ function resetView() {
   const rect = viewer ? viewer.getBoundingClientRect() : null;
   autoFitPending = true;
   userAdjustedScale = false;
+  viewState.rotation = 0;
   if (!fitViewToWindow(rect)) {
+    viewState.rotation = 0;
     recenterView(rect);
   }
   draw();
@@ -1801,35 +2202,135 @@ async function runSegmentation() {
 canvas.addEventListener('wheel', (evt) => {
   evt.preventDefault();
   const pointer = getPointerPosition(evt);
-  const imageX = (pointer.x - viewState.offsetX) / viewState.scale;
-  const imageY = (pointer.y - viewState.offsetY) / viewState.scale;
-  const factor = evt.deltaY < 0 ? 1.1 : 0.9;
-  const newScale = Math.min(Math.max(viewState.scale * factor, 0.1), 40);
-  viewState.scale = newScale;
-  viewState.offsetX = pointer.x - imageX * viewState.scale;
-  viewState.offsetY = pointer.y - imageY * viewState.scale;
-  userAdjustedScale = true;
-  autoFitPending = false;
-  draw();
+  const imagePoint = screenToImage(pointer);
+  const deltaY = Number.isFinite(evt.deltaY) ? evt.deltaY : 0;
+  const deltaZ = Number.isFinite(evt.deltaZ) ? evt.deltaZ : 0;
+
+  let scaleChanged = false;
+  if (deltaY !== 0) {
+    const factor = deltaY < 0 ? 1.1 : 0.9;
+    const nextScale = Math.min(Math.max(viewState.scale * factor, 0.1), 40);
+    if (nextScale !== viewState.scale) {
+      viewState.scale = nextScale;
+      scaleChanged = true;
+    }
+  }
+
+  let rotationApplied = false;
+  if (pointerState.options.touch.enableRotate && deltaZ !== 0) {
+    wheelRotationBuffer += deltaZ;
+    log('wheel gesture deltaY=' + deltaY.toFixed(2) + ' deltaZ=' + deltaZ.toFixed(2) + ' buffer=' + wheelRotationBuffer.toFixed(2));
+    const threshold = Math.max(pointerState.options.touch.rotationDeadzoneDegrees || 0, 0);
+    if (Math.abs(wheelRotationBuffer) >= threshold) {
+      const appliedDegrees = wheelRotationBuffer;
+      viewState.rotation = normalizeAngle(viewState.rotation + (appliedDegrees * Math.PI / 180));
+      wheelRotationBuffer = 0;
+      log('wheel rotation applied ' + appliedDegrees.toFixed(2) + ' deg');
+      rotationApplied = true;
+    }
+  } else if (deltaZ === 0) {
+    wheelRotationBuffer = 0;
+  }
+
+  if (scaleChanged || rotationApplied) {
+    setOffsetForImagePoint(imagePoint, pointer);
+    userAdjustedScale = true;
+    autoFitPending = false;
+    draw();
+  }
 }, { passive: false });
 
+function startPointerPan(evt) {
+  isPainting = false;
+  strokeChanges = null;
+  isPanning = true;
+  updateCursor();
+  lastPoint = getPointerPosition(evt);
+  wheelRotationBuffer = 0;
+  try {
+    canvas.setPointerCapture(evt.pointerId);
+    activePointerId = evt.pointerId;
+  } catch (_) {
+    /* ignore */
+  }
+  hoverPoint = null;
+  drawBrushPreview(null);
+  updateHoverInfo(null);
+}
+
+function beginBrushStroke(evt, worldPoint) {
+  strokeChanges = new Map();
+  isPainting = true;
+  canvas.classList.add('painting');
+  updateCursor();
+  try {
+    canvas.setPointerCapture(evt.pointerId);
+    activePointerId = evt.pointerId;
+  } catch (_) {
+    /* ignore */
+  }
+  lastPaintPoint = null;
+  paintStroke(worldPoint);
+  hoverPoint = worldPoint ? { x: worldPoint.x, y: worldPoint.y } : null;
+  drawBrushPreview(hoverPoint);
+  updateHoverInfo(hoverPoint);
+}
+
 canvas.addEventListener('pointerdown', (evt) => {
+  gestureState = null;
+  pointerState.registerPointerDown(evt);
   const pointer = getPointerPosition(evt);
   lastPoint = pointer;
   const world = screenToImage(pointer);
   updateHoverInfo(world);
+  const isStylus = pointerState.isStylusPointer(evt);
+  if (isStylus) {
+    if (!pointerState.options.stylus.allowSimultaneousTouchGestures) {
+      if (panPointerId !== null) {
+        try {
+          canvas.releasePointerCapture(panPointerId);
+        } catch (_) {
+          /* ignore */
+        }
+      }
+      panPointerId = null;
+      touchPointers.clear();
+      pinchState = null;
+      isPanning = false;
+      spacePan = false;
+    }
+    if (pointerState.isBarrelPanActive()) {
+      startPointerPan(evt);
+      return;
+    }
+    if (stylusToolOverride === null && tool !== 'brush') {
+      stylusToolOverride = tool;
+      setTool('brush');
+    }
+    beginBrushStroke(evt, world);
+    return;
+  }
   if (evt.pointerType === 'touch') {
     handleTouchPointerDown(evt, pointer);
     return;
   }
+  const isSecondaryButton = evt.button === 2
+    || (evt.buttons & 2) !== 0
+    || (evt.ctrlKey && evt.button === 0);
+  if (isSecondaryButton && pointerState.options.mouse.secondaryPan) {
+    if (typeof evt.preventDefault === 'function') {
+      evt.preventDefault();
+    }
+    startPointerPan(evt);
+    return;
+  }
   if (evt.button === 0) {
     if (spacePan) {
-      isPanning = true;
-      updateCursor();
-      canvas.setPointerCapture(evt.pointerId);
-      hoverPoint = null;
-      drawBrushPreview(null);
-      updateHoverInfo(null);
+      startPointerPan(evt);
+      return;
+    }
+    if (!pointerState.options.mouse.primaryDraw) {
+      startPointerPan(evt);
       return;
     }
     if (tool === 'fill') {
@@ -1840,30 +2341,32 @@ canvas.addEventListener('pointerdown', (evt) => {
       pickColor(world);
       return;
     }
-    strokeChanges = new Map();
-    isPainting = true;
-    canvas.classList.add('painting');
-    updateCursor();
-    canvas.setPointerCapture(evt.pointerId);
-    lastPaintPoint = null;
-    paintStroke(world);
-    hoverPoint = screenToImage(pointer);
-    drawBrushPreview(hoverPoint);
-    updateHoverInfo(hoverPoint);
+    beginBrushStroke(evt, world);
     return;
   }
-  isPanning = true;
-  updateCursor();
-  canvas.setPointerCapture(evt.pointerId);
-  hoverPoint = null;
-  drawBrushPreview(null);
-  updateHoverInfo(null);
+  startPointerPan(evt);
 });
 
 canvas.addEventListener('pointermove', (evt) => {
+  pointerState.registerPointerMove(evt);
   const pointer = getPointerPosition(evt);
   const world = screenToImage(pointer);
+  if (!isPanning && !isPainting && pointerState.isStylusPointer(evt) && pointerState.isBarrelPanActive()) {
+    startPointerPan(evt);
+    return;
+  }
+  if (!isPanning && evt.pointerType !== 'touch' && (evt.buttons & 2) !== 0) {
+    if (typeof evt.preventDefault === 'function') {
+      evt.preventDefault();
+    }
+    startPointerPan(evt);
+    return;
+  }
   if (evt.pointerType === 'touch') {
+    if (pointerState.shouldIgnoreTouch(evt)) {
+      evt.preventDefault();
+      return;
+    }
     if (touchPointers.has(evt.pointerId)) {
       touchPointers.set(evt.pointerId, { x: evt.clientX, y: evt.clientY });
     }
@@ -1877,8 +2380,31 @@ canvas.addEventListener('pointermove', (evt) => {
         const dy = ptA.y - ptB.y;
         const distance = Math.hypot(dx, dy);
         if (distance > 0.0 && pinchState.startDistance > 0.0) {
-          const ratio = distance / pinchState.startDistance;
-          const newScale = Math.min(Math.max(pinchState.startScale * ratio, 0.1), 40);
+          let nextScale = viewState.scale;
+          if (pointerState.options.touch.enablePinchZoom) {
+            const ratio = distance / pinchState.startDistance;
+            nextScale = Math.min(Math.max(pinchState.startScale * ratio, 0.1), 40);
+          } else {
+            nextScale = pinchState.startScale;
+          }
+          viewState.scale = nextScale;
+          if (pointerState.options.touch.enableRotate) {
+            const angle = Math.atan2(dy, dx);
+            const delta = normalizeAngleDelta(angle - pinchState.startAngle);
+            const rotationDegrees = delta * RAD_TO_DEG;
+            const deadzone = Math.max(pointerState.options.touch.rotationDeadzoneDegrees || 0, 0);
+            if (pinchState.lastLoggedRotation === undefined || Math.abs(rotationDegrees - pinchState.lastLoggedRotation) >= Math.max(1, deadzone * 2)) {
+              log('pinch rotation raw=' + rotationDegrees.toFixed(2) + ' deg');
+              pinchState.lastLoggedRotation = rotationDegrees;
+            }
+            const applyRotation = Math.abs(rotationDegrees) >= deadzone;
+            viewState.rotation = applyRotation
+              ? normalizeAngle(pinchState.startRotation + delta)
+              : pinchState.startRotation;
+            if (applyRotation) {
+              log('pinch rotation applied delta=' + rotationDegrees.toFixed(2) + ' deg total=' + (viewState.rotation * RAD_TO_DEG).toFixed(2));
+            }
+          }
           const midpoint = {
             x: (ptA.x + ptB.x) / 2,
             y: (ptA.y + ptB.y) / 2,
@@ -1887,9 +2413,7 @@ canvas.addEventListener('pointermove', (evt) => {
             x: midpoint.x - rect.left,
             y: midpoint.y - rect.top,
           };
-          viewState.scale = newScale;
-          viewState.offsetX = midCanvas.x - pinchState.imageMid.x * viewState.scale;
-          viewState.offsetY = midCanvas.y - pinchState.imageMid.y * viewState.scale;
+          setOffsetForImagePoint(pinchState.imageMid, midCanvas);
           userAdjustedScale = true;
           autoFitPending = false;
           draw();
@@ -1947,7 +2471,26 @@ canvas.addEventListener('dblclick', (evt) => {
   }
 });
 
+if (supportsGestureEvents && canvas) {
+  canvas.addEventListener('gesturestart', handleGestureStart, { passive: false });
+  canvas.addEventListener('gesturechange', handleGestureChange, { passive: false });
+  canvas.addEventListener('gestureend', handleGestureEnd, { passive: false });
+}
+if (supportsGestureEvents && viewer && viewer !== canvas) {
+  viewer.addEventListener('gesturestart', handleGestureStart, { passive: false });
+  viewer.addEventListener('gesturechange', handleGestureChange, { passive: false });
+  viewer.addEventListener('gestureend', handleGestureEnd, { passive: false });
+}
+
 function stopInteraction(evt) {
+  const stylusEvent = evt ? pointerState.isStylusPointer(evt) : false;
+  const penShouldFinalize = stylusEvent && evt && (evt.type === 'pointerup' || evt.type === 'pointercancel');
+  if (evt && (evt.type === 'pointerup' || evt.type === 'pointercancel')) {
+    pointerState.registerPointerUp(evt);
+  }
+  if (evt && evt.button === 2 && typeof evt.preventDefault === 'function') {
+    evt.preventDefault();
+  }
   if (evt && evt.pointerType === 'touch') {
     touchPointers.delete(evt.pointerId);
     if (pinchState && pinchState.pointers.includes(evt.pointerId)) {
@@ -1980,7 +2523,43 @@ function stopInteraction(evt) {
     } catch (_) {
       /* ignore */
     }
+  } else if (activePointerId !== null) {
+    try {
+      canvas.releasePointerCapture(activePointerId);
+    } catch (_) {
+      /* ignore */
+    }
   }
+  activePointerId = null;
+  if (penShouldFinalize && stylusToolOverride !== null) {
+    const previousTool = stylusToolOverride;
+    stylusToolOverride = null;
+    if (previousTool !== tool) {
+      setTool(previousTool);
+    }
+  }
+  wheelRotationBuffer = 0;
+}
+
+function handleContextMenuEvent(evt) {
+  if (evt && typeof evt.preventDefault === 'function') {
+    evt.preventDefault();
+  }
+  if (activePointerId !== null) {
+    try {
+      canvas.releasePointerCapture(activePointerId);
+    } catch (_) {
+      /* ignore */
+    }
+    activePointerId = null;
+  }
+  if (isPainting) {
+    finalizeStroke();
+  }
+  isPainting = false;
+  isPanning = false;
+  spacePan = false;
+  updateCursor();
 }
 
 canvas.addEventListener('pointerup', stopInteraction);
@@ -1995,6 +2574,10 @@ canvas.addEventListener('mouseleave', () => {
   cursorInsideImage = false;
   updateCursor();
 });
+canvas.addEventListener('contextmenu', handleContextMenuEvent);
+if (viewer) {
+  viewer.addEventListener('contextmenu', handleContextMenuEvent);
+}
 
 window.addEventListener('keydown', (evt) => {
   const tag = evt.target && evt.target.tagName ? evt.target.tagName.toLowerCase() : '';
@@ -2044,6 +2627,12 @@ window.addEventListener('keydown', (evt) => {
     }
     if (key === 'i') {
       setTool('picker');
+      evt.preventDefault();
+      return;
+    }
+    if (key === 'r') {
+      const direction = evt.shiftKey ? -1 : 1;
+      rotateView(direction * (Math.PI / 4));
       evt.preventDefault();
       return;
     }
@@ -2196,22 +2785,27 @@ if (histogramCanvas) {
 }
 if (maskOpacitySlider) {
   maskOpacitySlider.addEventListener('input', (evt) => {
-    const value = parseInt(evt.target.value, 10);
-    const fraction = Number.isNaN(value) ? maskOpacity : Math.min(1, Math.max(0, value / 100));
-    maskOpacity = fraction;
-    if (maskOpacityValue) {
-      maskOpacityValue.textContent = Math.round(maskOpacity * 100) + '%';
-    }
-    redrawMaskCanvas();
-    draw();
-    refreshSlider('maskOpacity');
+    setMaskOpacity(evt.target.value);
   });
-  maskOpacitySlider.value = String(Math.round(maskOpacity * 100));
-  if (maskOpacityValue) {
-    maskOpacityValue.textContent = Math.round(maskOpacity * 100) + '%';
-  }
-  refreshSlider('maskOpacity');
+  maskOpacitySlider.addEventListener('change', (evt) => {
+    setMaskOpacity(evt.target.value);
+  });
 }
+if (maskOpacityInput) {
+  maskOpacityInput.addEventListener('input', (evt) => {
+    if (evt.target.value === '') {
+      return;
+    }
+    setMaskOpacity(evt.target.value);
+  });
+  maskOpacityInput.addEventListener('change', (evt) => {
+    setMaskOpacity(evt.target.value);
+  });
+  attachNumberInputStepper(maskOpacityInput, (delta) => {
+    setMaskOpacity(maskOpacity + delta);
+  });
+}
+syncMaskOpacityControls();
 
 let bootstrapped = false;
 function boot() {
