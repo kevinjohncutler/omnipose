@@ -107,6 +107,35 @@ canvas {
   color: currentColor;
 }
 
+.control.slider-inline {
+  flex-direction: row;
+  align-items: center;
+  gap: 10px;
+}
+
+.control.slider-inline label {
+  margin: 0;
+  min-width: 52px;
+  font-weight: 500;
+}
+
+.control.slider-inline .slider-row {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+.control.slider-inline .slider {
+  flex: 1;
+  min-width: 0;
+}
+
+.control.slider-inline .number-field {
+  flex: 0 0 auto;
+}
+
 .slider-row {
   display: flex;
   align-items: center;
@@ -386,8 +415,98 @@ canvas {
 
 #gamma,
 #brushSizeSlider,
-#maskOpacity {
+#maskOpacity,
+#maskThresholdSlider,
+#flowThresholdSlider {
   width: 100%;
+}
+
+.slider-inline {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: nowrap;
+}
+
+.slider-inline label {
+  min-width: 52px;
+  font-weight: 500;
+}
+
+.slider-inline .slider-row {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+.slider-inline .slider-row .slider {
+  flex: 1;
+  min-width: 0;
+}
+
+.slider-inline .slider-row .number-field {
+  flex: 0 0 auto;
+}
+
+.toggle-group {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.toggle {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  cursor: pointer;
+  user-select: none;
+  font-size: 0.9rem;
+}
+
+.toggle input {
+  position: absolute;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.toggle-switch {
+  position: relative;
+  width: 42px;
+  height: 22px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.15);
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  transition: background 0.18s ease;
+}
+
+.toggle-switch::after {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 4px;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: #f5f5f5;
+  transform: translate(0, -50%);
+  transition: transform 0.18s ease, background 0.18s ease;
+}
+
+.toggle input:checked + .toggle-switch {
+  background: rgba(216, 162, 0, 0.65);
+  border-color: rgba(216, 162, 0, 0.75);
+}
+
+.toggle input:checked + .toggle-switch::after {
+  transform: translate(18px, -50%);
+  background: #111;
+}
+
+.toggle-label {
+  flex: 1;
 }
 
 input[type='range'] {
@@ -578,5 +697,18 @@ button:not(:disabled):hover {
 
   .number-field input[type='number'] {
     color: var(--panel-text-color);
+  }
+  .toggle-switch {
+    background: rgba(0, 0, 0, 0.12);
+    border-color: rgba(0, 0, 0, 0.2);
+  }
+
+  .toggle input:checked + .toggle-switch {
+    background: var(--accent-color);
+    border-color: var(--accent-color);
+  }
+
+  .toggle input:checked + .toggle-switch::after {
+    background: #1a1a1a;
   }
 }

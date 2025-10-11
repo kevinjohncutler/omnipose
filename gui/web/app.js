@@ -149,7 +149,13 @@ maskCanvas.width = imgWidth;
 maskCanvas.height = imgHeight;
 const maskCtx = maskCanvas.getContext('2d');
 const maskData = maskCtx.createImageData(imgWidth, imgHeight);
-const maskValues = new Uint8Array(imgWidth * imgHeight);
+const maskValues = new Uint32Array(imgWidth * imgHeight);
+const maskOutlineCanvas = document.createElement('canvas');
+maskOutlineCanvas.width = imgWidth;
+maskOutlineCanvas.height = imgHeight;
+const maskOutlineCtx = maskOutlineCanvas.getContext('2d');
+const maskOutlineData = maskOutlineCtx.createImageData(imgWidth, imgHeight);
+let outlineDirty = true;
 const previewCanvas = document.getElementById('brushPreview');
 const previewCtx = previewCanvas.getContext('2d');
 previewCanvas.width = canvas.width;
@@ -168,6 +174,16 @@ let pywebviewReady = false;
 let loggedPixelSample = false;
 let drawLogCount = 0;
 let logFlushTimer = null;
+const SEGMENTATION_UPDATE_DELAY = 180;
+let segmentationUpdateTimer = null;
+let pendingMaskRebuild = false;
+let canRebuildMask = false;
+let flowOverlayImage = null;
+let flowOverlaySource = null;
+let distanceOverlayImage = null;
+let distanceOverlaySource = null;
+let showFlowOverlay = false;
+let showDistanceOverlay = false;
 const startTime = (typeof performance !== 'undefined' && performance.now)
   ? performance.now()
   : Date.now();
@@ -947,7 +963,16 @@ const histRangeLabel = document.getElementById('histRange');
 const hoverInfo = document.getElementById('hoverInfo');
 const maskOpacitySlider = document.getElementById('maskOpacity');
 const maskOpacityInput = document.getElementById('maskOpacityInput');
-const maskOpacityValue = document.getElementById('maskOpacityValue');
+const maskThresholdSlider = document.getElementById('maskThresholdSlider');
+const maskThresholdInput = document.getElementById('maskThresholdInput');
+const flowThresholdSlider = document.getElementById('flowThresholdSlider');
+const flowThresholdInput = document.getElementById('flowThresholdInput');
+const clusterToggle = document.getElementById('clusterToggle');
+const affinityToggle = document.getElementById('affinityToggle');
+const flowOverlayToggle = document.getElementById('flowOverlayToggle');
+const distanceOverlayToggle = document.getElementById('distanceOverlayToggle');
+const imageVisibilityToggle = document.getElementById('imageVisibilityToggle');
+const maskVisibilityToggle = document.getElementById('maskVisibilityToggle');
 
 attachNumberInputStepper(brushSizeInput, (delta) => {
   setBrushDiameter(brushDiameter + delta, true);
@@ -962,6 +987,7 @@ const undoStack = [];
 const redoStack = [];
 const viewState = { scale: 1.0, offsetX: 0.0, offsetY: 0.0, rotation: 0.0 };
 let maskVisible = true;
+let imageVisible = true;
 let currentLabel = 1;
 let originalImageData = null;
 let isPanning = false;
@@ -977,7 +1003,6 @@ let hoverPoint = null;
 let eraseActive = false;
 let erasePreviousLabel = null;
 let isSegmenting = false;
-let useNColor = false;
 let histogramData = null;
 let windowLow = 0;
 let windowHigh = 255;
@@ -987,6 +1012,22 @@ let histDragOffset = 0;
 let cursorInsideCanvas = false;
 let cursorInsideImage = false;
 let maskOpacity = CONFIG.maskOpacity ?? 0.8;
+const MASK_THRESHOLD_MIN = -5;
+const MASK_THRESHOLD_MAX = 5;
+const FLOW_THRESHOLD_MIN = 0;
+const FLOW_THRESHOLD_MAX = 5;
+let maskThreshold = clamp(
+  typeof CONFIG.maskThreshold === 'number' ? CONFIG.maskThreshold : -2,
+  MASK_THRESHOLD_MIN,
+  MASK_THRESHOLD_MAX,
+);
+let flowThreshold = clamp(
+  typeof CONFIG.flowThreshold === 'number' ? CONFIG.flowThreshold : 0,
+  FLOW_THRESHOLD_MIN,
+  FLOW_THRESHOLD_MAX,
+);
+let clusterEnabled = typeof CONFIG.cluster === 'boolean' ? CONFIG.cluster : true;
+let affinitySegEnabled = typeof CONFIG.affinitySeg === 'boolean' ? CONFIG.affinitySeg : true;
 let userAdjustedScale = false;
 const touchPointers = new Map();
 let pinchState = null;
@@ -1094,9 +1135,6 @@ function updateMaskVisibilityLabel() {
 }
 
 function updateMaskOpacityLabel() {
-  if (maskOpacityValue) {
-    maskOpacityValue.textContent = 'Mask Opacity: ' + maskOpacity.toFixed(2);
-  }
 }
 
 function updateToolInfo() {
@@ -1199,6 +1237,115 @@ function setMaskOpacity(value, { silent = false } = {}) {
   }
 }
 
+function updateMaskThresholdLabel() {
+}
+
+function syncMaskThresholdControls() {
+  if (maskThresholdSlider) {
+    maskThresholdSlider.value = maskThreshold.toFixed(1);
+    refreshSlider('maskThreshold');
+  }
+  if (maskThresholdInput && document.activeElement !== maskThresholdInput) {
+    maskThresholdInput.value = maskThreshold.toFixed(1);
+  }
+  updateMaskThresholdLabel();
+}
+
+function setMaskThreshold(value, { silent = false } = {}) {
+  const numeric = typeof value === 'number' ? value : parseFloat(value);
+  if (Number.isNaN(numeric)) {
+    syncMaskThresholdControls();
+    return;
+  }
+  const clamped = clamp(numeric, MASK_THRESHOLD_MIN, MASK_THRESHOLD_MAX);
+  if (maskThreshold === clamped && !silent) {
+    syncMaskThresholdControls();
+    return;
+  }
+  maskThreshold = clamped;
+  syncMaskThresholdControls();
+  if (!silent) {
+    scheduleMaskRebuild({ interactive: true });
+  }
+}
+
+function updateFlowThresholdLabel() {
+}
+
+function syncFlowThresholdControls() {
+  if (flowThresholdSlider) {
+    flowThresholdSlider.value = flowThreshold.toFixed(1);
+    refreshSlider('flowThreshold');
+  }
+  if (flowThresholdInput && document.activeElement !== flowThresholdInput) {
+    flowThresholdInput.value = flowThreshold.toFixed(1);
+  }
+  updateFlowThresholdLabel();
+}
+
+function setFlowThreshold(value, { silent = false } = {}) {
+  const numeric = typeof value === 'number' ? value : parseFloat(value);
+  if (Number.isNaN(numeric)) {
+    syncFlowThresholdControls();
+    return;
+  }
+  const clamped = clamp(numeric, FLOW_THRESHOLD_MIN, FLOW_THRESHOLD_MAX);
+  if (flowThreshold === clamped && !silent) {
+    syncFlowThresholdControls();
+    return;
+  }
+  flowThreshold = clamped;
+  syncFlowThresholdControls();
+  if (!silent) {
+    scheduleMaskRebuild({ interactive: true });
+  }
+}
+
+function setClusterEnabled(value, { silent = false } = {}) {
+  const next = Boolean(value);
+  if (clusterEnabled === next && !silent) {
+    return;
+  }
+  clusterEnabled = next;
+  if (clusterToggle) {
+    clusterToggle.checked = clusterEnabled;
+  }
+  if (!silent) {
+    scheduleMaskRebuild();
+  }
+}
+
+function setAffinitySegEnabled(value, { silent = false } = {}) {
+  const next = Boolean(value);
+  if (affinitySegEnabled === next && !silent) {
+    return;
+  }
+  affinitySegEnabled = next;
+  if (affinityToggle) {
+    affinityToggle.checked = affinitySegEnabled;
+  }
+  if (!silent) {
+    scheduleMaskRebuild();
+  }
+}
+
+function setImageVisible(value, { silent = false } = {}) {
+  const next = Boolean(value);
+  if (imageVisible === next) {
+    if (!silent) {
+      draw();
+    }
+    return;
+  }
+  imageVisible = next;
+  if (imageVisibilityToggle) {
+    imageVisibilityToggle.checked = imageVisible;
+  }
+  if (!silent) {
+    draw();
+  }
+}
+
 function pushHistory(indices, before, after) {
   undoStack.push({ indices, before, after });
   if (undoStack.length > HISTORY_LIMIT) {
@@ -1222,6 +1369,14 @@ function undo() {
   const entry = undoStack.pop();
   applyHistoryEntry(entry, false);
   redoStack.push(entry);
+  nColorValues = null;
+  resetNColorAssignments();
+  if (nColorActive) {
+    nColorActive = false;
+    updateColorModeLabel();
+    console.warn('N-color disabled after undo; toggle N to rebuild when ready.');
+  }
+  clearColorCaches();
   redrawMaskCanvas();
   draw();
 }
@@ -1233,6 +1388,14 @@ function redo() {
   const entry = redoStack.pop();
   applyHistoryEntry(entry, true);
   undoStack.push(entry);
+  nColorValues = null;
+  resetNColorAssignments();
+  if (nColorActive) {
+    nColorActive = false;
+    updateColorModeLabel();
+    console.warn('N-color disabled after redo; toggle N to rebuild when ready.');
+  }
+  clearColorCaches();
   redrawMaskCanvas();
   draw();
 }
@@ -1387,23 +1550,46 @@ function paintStroke(point) {
     const py = start.y + dy * t;
     collectBrushIndices(local, px, py);
   }
+  const canApplyNColor = nColorActive
+    && nColorValues
+    && nColorValues.length === maskValues.length;
+  const paintLabel = canApplyNColor ? resolveCanonicalLabel(currentLabel) : currentLabel;
   let changed = false;
   local.forEach((idx) => {
     if (!strokeChanges.has(idx)) {
       const original = maskValues[idx];
-      if (original === currentLabel) {
+      if (original === paintLabel) {
         return;
       }
       strokeChanges.set(idx, original);
     }
-    if (maskValues[idx] !== currentLabel) {
-      maskValues[idx] = currentLabel;
+    if (maskValues[idx] !== paintLabel) {
+      maskValues[idx] = paintLabel;
+      if (canApplyNColor) {
+        setNColorValueAt(idx, paintLabel);
+      }
       changed = true;
     }
   });
   if (changed) {
+    if (!canApplyNColor) {
+      if (nColorActive) {
+        nColorActive = false;
+        updateColorModeLabel();
+        console.warn('N-color disabled after manual edit; toggle N to rebuild when ready.');
+      }
+      if (nColorValues) {
+        nColorValues = null;
+        resetNColorAssignments();
+      }
+    }
+    clearColorCaches();
     redrawMaskCanvas();
     draw();
+    if (currentLabel !== paintLabel) {
+      currentLabel = paintLabel;
+      updateMaskLabel();
+    }
   }
   lastPaintPoint = { x: point.x, y: point.y };
 }
@@ -1416,8 +1602,8 @@ function finalizeStroke() {
   const keys = Array.from(strokeChanges.keys()).sort((a, b) => a - b);
   const count = keys.length;
   const indices = new Uint32Array(count);
-  const before = new Uint8Array(count);
-  const after = new Uint8Array(count);
+  const before = new Uint32Array(count);
+  const after = new Uint32Array(count);
   for (let i = 0; i < count; i += 1) {
     const idx = keys[i];
     indices[i] = idx;
@@ -1436,7 +1622,11 @@ function floodFill(point) {
   }
   const startIdx = sy * imgWidth + sx;
   const targetLabel = maskValues[startIdx];
-  if (targetLabel === currentLabel) {
+  const canApplyNColor = nColorActive
+    && nColorValues
+    && nColorValues.length === maskValues.length;
+  const paintLabel = canApplyNColor ? resolveCanonicalLabel(currentLabel) : currentLabel;
+  if (targetLabel === paintLabel) {
     return;
   }
   const visited = new Uint8Array(maskValues.length);
@@ -1465,18 +1655,37 @@ function floodFill(point) {
   const sorted = Array.from(new Set(indices)).sort((a, b) => a - b);
   const count = sorted.length;
   const idxArr = new Uint32Array(count);
-  const before = new Uint8Array(count);
-  const after = new Uint8Array(count);
+  const before = new Uint32Array(count);
+  const after = new Uint32Array(count);
   for (let i = 0; i < count; i += 1) {
     const idx = sorted[i];
     idxArr[i] = idx;
     before[i] = maskValues[idx];
-    after[i] = currentLabel;
-    maskValues[idx] = currentLabel;
+    after[i] = paintLabel;
+    maskValues[idx] = paintLabel;
+    if (canApplyNColor) {
+      setNColorValueAt(idx, paintLabel);
+    }
   }
   pushHistory(idxArr, before, after);
+  if (!canApplyNColor) {
+    if (nColorActive) {
+      nColorActive = false;
+      updateColorModeLabel();
+      console.warn('N-color disabled after manual edit; toggle N to rebuild when ready.');
+    }
+    if (nColorValues) {
+      nColorValues = null;
+      resetNColorAssignments();
+    }
+  }
+  clearColorCaches();
   redrawMaskCanvas();
   draw();
+  if (currentLabel !== paintLabel) {
+    currentLabel = paintLabel;
+    updateMaskLabel();
+  }
 }
 
 function pickColor(point) {
@@ -1486,24 +1695,94 @@ function pickColor(point) {
     return;
   }
   const idx = sy * imgWidth + sx;
-  currentLabel = maskValues[idx];
+  let label = maskValues[idx];
+  if (nColorActive && nColorValues && nColorValues.length === maskValues.length) {
+    label = resolveCanonicalLabel(label);
+  }
+  currentLabel = label;
   updateMaskLabel();
   log('picker set label ' + currentLabel);
 }
 
 function redrawMaskCanvas() {
   const data = maskData.data;
-  const palette = useNColor ? nColorPalette : defaultPalette;
   for (let i = 0; i < maskValues.length; i += 1) {
     const label = maskValues[i];
-    const color = getColorForLabel(palette, label);
     const p = i * 4;
-    data[p] = color[0];
-    data[p + 1] = color[1];
-    data[p + 2] = color[2];
-    data[p + 3] = color[3];
+    if (label <= 0) {
+      data[p] = 0;
+      data[p + 1] = 0;
+      data[p + 2] = 0;
+      data[p + 3] = 0;
+      continue;
+    }
+    const rgb = getDisplayColor(i);
+    if (!rgb) {
+      data[p] = 0;
+      data[p + 1] = 0;
+      data[p + 2] = 0;
+      data[p + 3] = 0;
+      continue;
+    }
+    const alpha = Math.round(Math.max(0, Math.min(1, maskOpacity)) * 128);
+    data[p] = rgb[0];
+    data[p + 1] = rgb[1];
+    data[p + 2] = rgb[2];
+    data[p + 3] = alpha;
   }
   maskCtx.putImageData(maskData, 0, 0);
+  outlineDirty = true;
+}
+
+function isOutlinePixel(index, label) {
+  const x = index % imgWidth;
+  const y = (index / imgWidth) | 0;
+  if (x === 0 || labelsDifferForOutline(label, maskValues[index - 1])) {
+    return true;
+  }
+  if (x === imgWidth - 1 || labelsDifferForOutline(label, maskValues[index + 1])) {
+    return true;
+  }
+  if (y === 0 || labelsDifferForOutline(label, maskValues[index - imgWidth])) {
+    return true;
+  }
+  if (y === imgHeight - 1 || labelsDifferForOutline(label, maskValues[index + imgWidth])) {
+    return true;
+  }
+  return false;
+}
+
+function generateMaskOutline() {
+  if (!outlineDirty) {
+    return;
+  }
+  outlineDirty = false;
+  const data = maskOutlineData.data;
+  for (let i = 0; i < maskValues.length; i += 1) {
+    const label = maskValues[i];
+    const p = i * 4;
+    data[p] = 0;
+    data[p + 1] = 0;
+    data[p + 2] = 0;
+    data[p + 3] = 0;
+    if (label <= 0 || !isOutlinePixel(i, label)) {
+      continue;
+    }
+    const rgb = getDisplayColor(i);
+    const alpha = Math.round(Math.max(0, Math.min(1, maskOpacity)) * 255);
+    if (rgb) {
+      data[p] = rgb[0];
+      data[p + 1] = rgb[1];
+      data[p + 2] = rgb[2];
+      data[p + 3] = alpha;
+    } else {
+      data[p] = alpha;
+      data[p + 1] = alpha;
+      data[p + 2] = alpha;
+      data[p + 3] = alpha;
+    }
+  }
+  maskOutlineCtx.putImageData(maskOutlineData, 0, 0);
 }
 
 function shouldLogDraw() {
@@ -1600,10 +1879,30 @@ function draw() {
   const smooth = viewState.scale < 1;
   ctx.imageSmoothingEnabled = smooth;
   ctx.imageSmoothingQuality = smooth ? 'high' : 'low';
-  ctx.drawImage(offscreen, 0, 0);
+  if (imageVisible) {
+    ctx.drawImage(offscreen, 0, 0);
+  }
   if (maskVisible) {
     ctx.imageSmoothingEnabled = false;
+    if (outlineDirty) {
+      generateMaskOutline();
+    }
     ctx.drawImage(maskCanvas, 0, 0);
+    ctx.drawImage(maskOutlineCanvas, 0, 0);
+  }
+  if (showFlowOverlay && flowOverlayImage && flowOverlayImage.complete) {
+    ctx.save();
+    ctx.globalAlpha = 0.7;
+    ctx.imageSmoothingEnabled = false;
+    ctx.drawImage(flowOverlayImage, 0, 0);
+    ctx.restore();
+  }
+  if (showDistanceOverlay && distanceOverlayImage && distanceOverlayImage.complete) {
+    ctx.save();
+    ctx.globalAlpha = 0.6;
+    ctx.imageSmoothingEnabled = false;
+    ctx.drawImage(distanceOverlayImage, 0, 0);
+    ctx.restore();
   }
   ctx.restore();
   drawBrushPreview(hoverPoint);
@@ -1813,7 +2112,290 @@ function generateSinebowPalette(size, offset = 0) {
 }
 
 defaultPalette = generateSinebowPalette(Math.max(colorTable.length || 0, 256), 0.0);
-nColorPalette = generateSinebowPalette(Math.max(colorTable.length || 0, 256), 0.35);
+nColorPalette = generateSinebowPalette(Math.max(colorTable.length || 0, 1024), 0.35);
+
+function hashColorForLabel(label) {
+  const golden = 0.61803398875;
+  const t = ((label * golden) % 1 + 1) % 1;
+  const base = sinebowColor(t);
+  return [base[0], base[1], base[2]];
+}
+
+function clearColorCaches() {
+  rawColorMap.clear();
+  nColorColorMap.clear();
+}
+
+function getColorFromMap(label, map) {
+  if (label <= 0) {
+    return null;
+  }
+  let rgb = map.get(label);
+  if (!rgb) {
+    rgb = hashColorForLabel(label);
+    map.set(label, rgb);
+  }
+  return rgb;
+}
+
+function getDisplayColor(index) {
+  const rawLabel = maskValues[index];
+  if (rawLabel <= 0) {
+    return null;
+  }
+  if (nColorActive && nColorValues && nColorValues.length === maskValues.length) {
+    const ncLabel = nColorValues[index];
+    if (ncLabel > 0) {
+      return getColorFromMap(ncLabel, nColorColorMap);
+    }
+  }
+  return getColorFromMap(rawLabel, rawColorMap);
+}
+
+function collectLabelsFromMask(sourceMask) {
+  const seen = new Set();
+  for (let i = 0; i < sourceMask.length; i += 1) {
+    const value = sourceMask[i];
+    if (value > 0) {
+      seen.add(value);
+    }
+  }
+  return Array.from(seen).sort((a, b) => a - b);
+}
+
+function expandMaskLabels(radius = 1) {
+  const width = imgWidth;
+  const height = imgHeight;
+  const expanded = new Uint32Array(maskValues);
+  const offsets = [];
+  for (let dy = -1; dy <= 1; dy += 1) {
+    for (let dx = -1; dx <= 1; dx += 1) {
+      if (dx === 0 && dy === 0) {
+        continue;
+      }
+      offsets.push({ dx, dy });
+    }
+  }
+  for (let step = 0; step < radius; step += 1) {
+    let changed = false;
+    for (let y = 0; y < height; y += 1) {
+      const rowIndex = y * width;
+      for (let x = 0; x < width; x += 1) {
+        const idx = rowIndex + x;
+        if (expanded[idx] > 0) {
+          continue;
+        }
+        for (const { dx, dy } of offsets) {
+          const nx = x + dx;
+          const ny = y + dy;
+          if (nx < 0 || nx >= width || ny < 0 || ny >= height) {
+            continue;
+          }
+          const neighbor = expanded[ny * width + nx];
+          if (neighbor > 0) {
+            expanded[idx] = neighbor;
+            changed = true;
+            break;
+          }
+        }
+      }
+    }
+    if (!changed) {
+      break;
+    }
+  }
+  return expanded;
+}
+
+function buildAdjacencyFromMask(sourceMask) {
+  const width = imgWidth;
+  const height = imgHeight;
+  const adjacency = new Map();
+  for (let y = 0; y < height; y += 1) {
+    const rowIndex = y * width;
+    for (let x = 0; x < width; x += 1) {
+      const idx = rowIndex + x;
+      const label = sourceMask[idx];
+      if (label <= 0) {
+        continue;
+      }
+      if (!adjacency.has(label)) {
+        adjacency.set(label, new Set());
+      }
+      for (let dy = -1; dy <= 1; dy += 1) {
+        for (let dx = -1; dx <= 1; dx += 1) {
+          if (dx === 0 && dy === 0) {
+            continue;
+          }
+          const nx = x + dx;
+          const ny = y + dy;
+          if (nx < 0 || nx >= width || ny < 0 || ny >= height) {
+            continue;
+          }
+          const neighbor = sourceMask[ny * width + nx];
+          if (neighbor > 0 && neighbor !== label) {
+            if (!adjacency.has(neighbor)) {
+              adjacency.set(neighbor, new Set());
+            }
+            adjacency.get(label).add(neighbor);
+            adjacency.get(neighbor).add(label);
+          }
+        }
+      }
+    }
+  }
+  return adjacency;
+}
+
+function generateLocalNColorMask() {
+  if (!maskValues || maskValues.length === 0) {
+    return null;
+  }
+  const expanded = expandMaskLabels(1);
+  const labels = collectLabelsFromMask(expanded);
+  if (!labels.length) {
+    return null;
+  }
+  const adjacency = buildAdjacencyFromMask(expanded);
+  const assignments = new Map();
+  const ordered = labels.slice().sort((a, b) => {
+    const degA = adjacency.get(a)?.size ?? 0;
+    const degB = adjacency.get(b)?.size ?? 0;
+    return degB - degA;
+  });
+  for (const label of ordered) {
+    const neighbors = adjacency.get(label) || new Set();
+    const used = new Set();
+    neighbors.forEach((neighbor) => {
+      const assigned = assignments.get(neighbor);
+      if (typeof assigned === 'number') {
+        used.add(assigned);
+      }
+    });
+    let colorId = 1;
+    while (used.has(colorId)) {
+      colorId += 1;
+    }
+    assignments.set(label, colorId);
+  }
+  const values = new Uint32Array(expanded.length);
+  for (let i = 0; i < expanded.length; i += 1) {
+    const label = expanded[i];
+    if (label > 0) {
+      values[i] = assignments.get(label) || 1;
+    } else {
+      values[i] = 0;
+    }
+  }
+  return values;
+}
+
+function refreshLocalNColorMask() {
+  const local = generateLocalNColorMask();
+  if (local && local.length === maskValues.length) {
+    nColorValues = local;
+    rebuildNColorAssignmentsFromArrays();
+    return true;
+  }
+  nColorValues = null;
+  resetNColorAssignments();
+  return false;
+}
+
+function resetNColorAssignments() {
+  nColorAssignments.clear();
+  nColorColorToLabel.clear();
+  nColorMaxColorId = 0;
+}
+
+function rebuildNColorAssignmentsFromArrays() {
+  resetNColorAssignments();
+  if (!nColorValues || nColorValues.length !== maskValues.length) {
+    return;
+  }
+  for (let i = 0; i < maskValues.length; i += 1) {
+    const label = maskValues[i];
+    const colorId = nColorValues[i];
+    if (label > 0 && colorId > 0 && !nColorAssignments.has(label)) {
+      nColorAssignments.set(label, colorId);
+      const existing = nColorColorToLabel.get(colorId);
+      if (typeof existing !== 'number' || label < existing) {
+        nColorColorToLabel.set(colorId, label);
+      }
+      if (colorId > nColorMaxColorId) {
+        nColorMaxColorId = colorId;
+      }
+    }
+  }
+}
+
+function ensureNColorAssignment(label) {
+  if (label <= 0) {
+    return 0;
+  }
+  let assignment = nColorAssignments.get(label);
+  if (!assignment) {
+    nColorMaxColorId += 1;
+    assignment = nColorMaxColorId;
+    nColorAssignments.set(label, assignment);
+    const existing = nColorColorToLabel.get(assignment);
+    if (typeof existing !== 'number' || label < existing) {
+      nColorColorToLabel.set(assignment, label);
+    }
+  } else {
+    const existing = nColorColorToLabel.get(assignment);
+    if (typeof existing !== 'number' || label < existing) {
+      nColorColorToLabel.set(assignment, label);
+    }
+  }
+  return assignment;
+}
+
+function setNColorValueAt(index, label) {
+  if (!nColorValues || nColorValues.length !== maskValues.length) {
+    return;
+  }
+  if (label <= 0) {
+    nColorValues[index] = 0;
+    return;
+  }
+  const assignment = ensureNColorAssignment(label);
+  const existing = nColorColorToLabel.get(assignment);
+  if (typeof existing !== 'number' || label < existing) {
+    nColorColorToLabel.set(assignment, label);
+  }
+  nColorValues[index] = assignment > 0 ? assignment : 0;
+}
+
+function resolveCanonicalLabel(label) {
+  if (label <= 0) {
+    return label;
+  }
+  const colorId = nColorAssignments.get(label);
+  if (!colorId) {
+    return label;
+  }
+  const canonical = nColorColorToLabel.get(colorId);
+  if (typeof canonical === 'number') {
+    return canonical;
+  }
+  nColorColorToLabel.set(colorId, label);
+  return label;
+}
+
+function normalizeLabelForComparison(label) {
+  if (!nColorActive || !nColorValues || nColorValues.length !== maskValues.length) {
+    return label;
+  }
+  return resolveCanonicalLabel(label);
+}
+
+function labelsDifferForOutline(a, b) {
+  if (a <= 0 || b <= 0) {
+    return a !== b;
+  }
+  return normalizeLabelForComparison(a) !== normalizeLabelForComparison(b);
+}
 
 function applyImageAdjustments() {
   if (!originalImageData) {
@@ -2105,35 +2687,252 @@ function updateHoverInfo(point) {
   updateCursor();
 }
 
-function getColorForLabel(palette, label) {
-  if (label <= 0) {
-    return [0, 0, 0, 0];
-  }
-  if (palette[label]) {
-    const base = palette[label];
-    return [base[0], base[1], base[2], Math.round(base[3] * maskOpacity)];
-  }
-  if (palette.length > 1) {
-    const idx = ((label - 1) % (palette.length - 1)) + 1;
-    const base = palette[idx];
-    return [base[0], base[1], base[2], Math.round(base[3] * maskOpacity)];
-  }
-  return palette[0] || [0, 0, 0, 0];
-}
-
 function updateColorModeLabel() {
   if (!colorMode) {
     return;
   }
-  const mode = useNColor ? 'N-Color' : 'Palette';
+  const mode = nColorActive ? 'N-Color' : 'Palette';
   colorMode.textContent = 'Mask Colors: ' + mode + " (toggle with 'N')";
 }
 
 function toggleColorMode() {
-  useNColor = !useNColor;
+  if (!nColorActive) {
+    if (!nColorValues || nColorValues.length !== maskValues.length) {
+      if (!refreshLocalNColorMask()) {
+        console.warn('N-color mapping unavailable; run segmentation to enable.');
+        updateColorModeLabel();
+        return;
+      }
+    }
+    nColorActive = true;
+    const canonical = resolveCanonicalLabel(currentLabel);
+    if (currentLabel !== canonical) {
+      currentLabel = canonical;
+      updateMaskLabel();
+    }
+  } else {
+    nColorActive = false;
+  }
+  clearColorCaches();
   updateColorModeLabel();
   redrawMaskCanvas();
   draw();
+}
+
+function getSegmentationSettingsPayload() {
+  return {
+    mask_threshold: Number(maskThreshold.toFixed(2)),
+    flow_threshold: Number(flowThreshold.toFixed(2)),
+    cluster: Boolean(clusterEnabled),
+    affinity_seg: Boolean(affinitySegEnabled),
+  };
+}
+
+const overlayUpdateThrottleMs = 140;
+let lastRebuildTime = 0;
+let INTERACTIVE_REBUILD_INTERVAL = 120;
+let lastRebuildDuration = 120;
+let nColorActive = false;
+let nColorValues = null;
+const rawColorMap = new Map();
+const nColorColorMap = new Map();
+const nColorAssignments = new Map();
+const nColorColorToLabel = new Map();
+let nColorMaxColorId = 0;
+
+function scheduleMaskRebuild({ interactive = false } = {}) {
+  if (!canRebuildMask) {
+    if (!isSegmenting) {
+      runSegmentation();
+    }
+    return;
+  }
+  const now = Date.now();
+  if (interactive && !isSegmenting && (now - lastRebuildTime) >= INTERACTIVE_REBUILD_INTERVAL) {
+    pendingMaskRebuild = false;
+    triggerMaskRebuild(true);
+    return;
+  }
+  pendingMaskRebuild = true;
+  if (segmentationUpdateTimer !== null) {
+    clearTimeout(segmentationUpdateTimer);
+  }
+  let delay = SEGMENTATION_UPDATE_DELAY;
+  if (interactive) {
+    const elapsed = now - lastRebuildTime;
+    const remaining = Math.max(10, INTERACTIVE_REBUILD_INTERVAL - elapsed);
+    delay = Math.min(Math.max(10, remaining), SEGMENTATION_UPDATE_DELAY);
+  }
+  segmentationUpdateTimer = setTimeout(() => {
+    segmentationUpdateTimer = null;
+    if (isSegmenting) {
+      return;
+    }
+    pendingMaskRebuild = false;
+    triggerMaskRebuild(interactive);
+  }, delay);
+}
+
+async function requestMaskRebuild() {
+  const payload = getSegmentationSettingsPayload();
+  payload.mode = 'recompute';
+  if (window.pywebview && window.pywebview.api) {
+    const api = window.pywebview.api;
+    if (typeof api.resegment === 'function') {
+      return api.resegment(payload);
+    }
+    if (typeof api.segment === 'function') {
+      return api.segment(payload);
+    }
+  }
+  const requestInit = {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  };
+  let response = await fetch('/api/resegment', requestInit);
+  if (!response.ok) {
+    if (response.status === 404) {
+      response = await fetch('/api/segment', requestInit);
+    }
+    if (!response.ok) {
+      throw new Error('HTTP ' + response.status);
+    }
+  }
+  return response.json();
+}
+
+async function triggerMaskRebuild(interactive = false) {
+  if (!canRebuildMask) {
+    return;
+  }
+  if (isSegmenting) {
+    pendingMaskRebuild = true;
+    return;
+  }
+  pendingMaskRebuild = false;
+  isSegmenting = true;
+  const startTime = Date.now();
+  setSegmentStatus('Updating mask…');
+  try {
+    const raw = await requestMaskRebuild();
+    const payload = typeof raw === 'string' ? JSON.parse(raw) : raw;
+    if (payload && payload.error) {
+      throw new Error(payload.error);
+    }
+    applySegmentationMask(payload);
+    setSegmentStatus('Masks updated.');
+    const endTime = Date.now();
+    lastRebuildTime = endTime;
+    const duration = Math.max(1, endTime - startTime);
+    lastRebuildDuration = duration;
+    if (interactive) {
+      INTERACTIVE_REBUILD_INTERVAL = Math.max(10, Math.min(200, duration));
+    } else {
+      INTERACTIVE_REBUILD_INTERVAL = Math.max(20, Math.min(300, duration));
+    }
+  } catch (err) {
+    const message = err && err.message ? err.message : err;
+    setSegmentStatus('Mask update failed: ' + message, true);
+    if (typeof message === 'string' && message.toLowerCase().includes('no cached segmentation data available')) {
+      canRebuildMask = false;
+    }
+  } finally {
+    isSegmenting = false;
+    if (pendingMaskRebuild && segmentationUpdateTimer === null) {
+      const shouldRetry = pendingMaskRebuild;
+      pendingMaskRebuild = false;
+      if (shouldRetry) {
+        scheduleMaskRebuild();
+      }
+    }
+  }
+}
+
+function updateOverlayImages(payload) {
+  if (!payload) {
+    return;
+  }
+  if (Object.prototype.hasOwnProperty.call(payload, 'flowOverlay')) {
+    setOverlayImage('flow', payload.flowOverlay);
+  }
+  if (Object.prototype.hasOwnProperty.call(payload, 'distanceOverlay')) {
+    setOverlayImage('distance', payload.distanceOverlay);
+  }
+}
+
+function setOverlayImage(kind, dataUrl) {
+  const isFlow = kind === 'flow';
+  const toggle = isFlow ? flowOverlayToggle : distanceOverlayToggle;
+  const currentSource = isFlow ? flowOverlaySource : distanceOverlaySource;
+  const currentImage = isFlow ? flowOverlayImage : distanceOverlayImage;
+  if (!toggle) {
+    return;
+  }
+  if (!dataUrl) {
+    toggle.checked = false;
+    toggle.disabled = true;
+    if (isFlow) {
+      flowOverlayImage = null;
+      flowOverlaySource = null;
+      showFlowOverlay = false;
+    } else {
+      distanceOverlayImage = null;
+      distanceOverlaySource = null;
+      showDistanceOverlay = false;
+    }
+    draw();
+    return;
+  }
+  const url = typeof dataUrl === 'string' && dataUrl.startsWith('data:')
+    ? dataUrl
+    : 'data:image/png;base64,' + dataUrl;
+  if (url === currentSource && currentImage && currentImage.complete) {
+    toggle.disabled = false;
+    if (toggle.checked) {
+      if (isFlow) {
+        showFlowOverlay = true;
+      } else {
+        showDistanceOverlay = true;
+      }
+      draw();
+    }
+    return;
+  }
+  const image = new Image();
+  image.onload = () => {
+    if (isFlow) {
+      flowOverlayImage = image;
+      flowOverlaySource = url;
+      if (toggle.checked) {
+        showFlowOverlay = true;
+      }
+    } else {
+      distanceOverlayImage = image;
+      distanceOverlaySource = url;
+      if (toggle.checked) {
+        showDistanceOverlay = true;
+      }
+    }
+    toggle.disabled = false;
+    draw();
+  };
+  image.onerror = () => {
+    if (isFlow) {
+      flowOverlayImage = null;
+      flowOverlaySource = null;
+      showFlowOverlay = false;
+    } else {
+      distanceOverlayImage = null;
+      distanceOverlaySource = null;
+      showDistanceOverlay = false;
+    }
+    toggle.checked = false;
+    toggle.disabled = true;
+    draw();
+  };
+  toggle.disabled = true;
+  image.src = url;
 }
 
 function setSegmentStatus(message, isError = false) {
@@ -2148,25 +2947,101 @@ function applySegmentationMask(payload) {
   if (!payload || !payload.mask) {
     throw new Error('segment payload missing mask');
   }
+  if (payload && Object.prototype.hasOwnProperty.call(payload, 'canRebuild')) {
+    canRebuildMask = Boolean(payload.canRebuild);
+  } else if (!canRebuildMask) {
+    canRebuildMask = true;
+  }
   const binary = atob(payload.mask);
-  if (binary.length !== maskValues.length) {
-    throw new Error('mask size mismatch (' + binary.length + ' vs ' + maskValues.length + ')');
+  const byteLength = binary.length;
+  const expectedBytes = maskValues.length * 4;
+  let changed = false;
+  if (byteLength === expectedBytes) {
+    const buffer = new ArrayBuffer(byteLength);
+    const bytes = new Uint8Array(buffer);
+    for (let i = 0; i < byteLength; i += 1) {
+      bytes[i] = binary.charCodeAt(i);
+    }
+    const labels = new Uint32Array(buffer);
+    for (let i = 0; i < labels.length; i += 1) {
+      const value = labels[i];
+      if (maskValues[i] !== value) {
+        changed = true;
+      }
+      maskValues[i] = value;
+    }
+  } else if (byteLength === maskValues.length) {
+    for (let i = 0; i < byteLength; i += 1) {
+      const value = binary.charCodeAt(i);
+      if (maskValues[i] !== value) {
+        changed = true;
+      }
+      maskValues[i] = value;
+    }
+  } else {
+    throw new Error('mask size mismatch (' + byteLength + ' bytes vs expected ' + expectedBytes + ')');
   }
-  for (let i = 0; i < binary.length; i += 1) {
-    maskValues[i] = binary.charCodeAt(i);
+  nColorValues = null;
+  resetNColorAssignments();
+  if (payload.nColorMask) {
+    try {
+      const encoded = payload.nColorMask;
+      const binaryN = atob(encoded);
+      if (binaryN.length === expectedBytes) {
+        const buffer = new ArrayBuffer(expectedBytes);
+        const bytes = new Uint8Array(buffer);
+        for (let i = 0; i < expectedBytes; i += 1) {
+          bytes[i] = binaryN.charCodeAt(i);
+        }
+        nColorValues = new Uint32Array(buffer);
+      }
+    } catch (err) {
+      console.warn('failed to decode nColorMask', err);
+      nColorValues = null;
+    }
+  } else {
+    nColorValues = null;
   }
+  if (nColorValues && nColorValues.length !== maskValues.length) {
+    nColorValues = null;
+  }
+  if (nColorValues) {
+    rebuildNColorAssignmentsFromArrays();
+  } else if (!refreshLocalNColorMask()) {
+    resetNColorAssignments();
+  }
+  if (!nColorValues && nColorActive) {
+    nColorActive = false;
+    updateColorModeLabel();
+  }
+  clearColorCaches();
   redrawMaskCanvas();
+  updateOverlayImages(payload);
   draw();
+  if (nColorActive && nColorValues && nColorValues.length === maskValues.length) {
+    const canonical = resolveCanonicalLabel(currentLabel);
+    if (currentLabel !== canonical) {
+      currentLabel = canonical;
+    }
+  }
   updateMaskLabel();
+  if (!nColorActive) {
+    updateColorModeLabel();
+  }
+  if (!changed) {
+    log('mask update returned identical data');
+  }
 }
 
 async function requestSegmentation() {
+  const settings = getSegmentationSettingsPayload();
   if (window.pywebview && window.pywebview.api && window.pywebview.api.segment) {
-    return window.pywebview.api.segment();
+    return window.pywebview.api.segment(settings);
   }
   const response = await fetch('/api/segment', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(settings),
   });
   if (!response.ok) {
     throw new Error('HTTP ' + response.status);
@@ -2196,6 +3071,11 @@ async function runSegmentation() {
   } finally {
     isSegmenting = false;
     segmentButton.disabled = false;
+    if (pendingMaskRebuild && segmentationUpdateTimer === null && canRebuildMask) {
+      triggerMaskRebuild().catch((error) => {
+        console.error(error);
+      });
+    }
   }
 }
 
@@ -2656,6 +3536,9 @@ window.addEventListener('keydown', (evt) => {
   if (key === 'm') {
     maskVisible = !maskVisible;
     updateMaskVisibilityLabel();
+    if (maskVisibilityToggle) {
+      maskVisibilityToggle.checked = maskVisible;
+    }
     draw();
     evt.preventDefault();
     return;
@@ -2670,7 +3553,11 @@ window.addEventListener('keydown', (evt) => {
     if (eraseActive) {
       erasePreviousLabel = nextLabel;
     } else {
-      currentLabel = nextLabel;
+      let label = nextLabel;
+      if (nColorActive && nColorValues && nColorValues.length === maskValues.length) {
+        label = resolveCanonicalLabel(label);
+      }
+      currentLabel = label;
       updateMaskLabel();
     }
     evt.preventDefault();
@@ -2783,6 +3670,102 @@ if (histogramCanvas) {
   });
   updateHistogramCursor();
 }
+if (maskThresholdSlider) {
+  maskThresholdSlider.addEventListener('input', (evt) => {
+    setMaskThreshold(evt.target.value);
+  });
+  maskThresholdSlider.addEventListener('change', (evt) => {
+    setMaskThreshold(evt.target.value);
+  });
+}
+if (maskThresholdInput) {
+  maskThresholdInput.addEventListener('input', (evt) => {
+    if (evt.target.value === '') {
+      return;
+    }
+    setMaskThreshold(evt.target.value);
+  });
+  maskThresholdInput.addEventListener('change', (evt) => {
+    setMaskThreshold(evt.target.value);
+  });
+  attachNumberInputStepper(maskThresholdInput, (delta) => {
+    setMaskThreshold(maskThreshold + delta);
+  });
+}
+if (flowThresholdSlider) {
+  flowThresholdSlider.addEventListener('input', (evt) => {
+    setFlowThreshold(evt.target.value);
+  });
+  flowThresholdSlider.addEventListener('change', (evt) => {
+    setFlowThreshold(evt.target.value);
+  });
+}
+if (flowThresholdInput) {
+  flowThresholdInput.addEventListener('input', (evt) => {
+    if (evt.target.value === '') {
+      return;
+    }
+    setFlowThreshold(evt.target.value);
+  });
+  flowThresholdInput.addEventListener('change', (evt) => {
+    setFlowThreshold(evt.target.value);
+  });
+  attachNumberInputStepper(flowThresholdInput, (delta) => {
+    setFlowThreshold(flowThreshold + delta);
+  });
+}
+if (clusterToggle) {
+  clusterToggle.addEventListener('change', (evt) => {
+    setClusterEnabled(evt.target.checked);
+  });
+}
+if (affinityToggle) {
+  affinityToggle.addEventListener('change', (evt) => {
+    setAffinitySegEnabled(evt.target.checked);
+  });
+}
+if (flowOverlayToggle) {
+  flowOverlayToggle.addEventListener('change', (evt) => {
+    if (!flowOverlayImage || !flowOverlayImage.complete) {
+      flowOverlayToggle.checked = false;
+      showFlowOverlay = false;
+      return;
+    }
+    showFlowOverlay = evt.target.checked;
+    draw();
+  });
+}
+if (distanceOverlayToggle) {
+  distanceOverlayToggle.addEventListener('change', (evt) => {
+    if (!distanceOverlayImage || !distanceOverlayImage.complete) {
+      distanceOverlayToggle.checked = false;
+      showDistanceOverlay = false;
+      return;
+    }
+    showDistanceOverlay = evt.target.checked;
+    draw();
+  });
+}
+if (imageVisibilityToggle) {
+  imageVisibilityToggle.addEventListener('change', (evt) => {
+    const visible = Boolean(evt.target.checked);
+    if (visible === imageVisible) {
+      return;
+    }
+    setImageVisible(visible);
+  });
+}
+if (maskVisibilityToggle) {
+  maskVisibilityToggle.addEventListener('change', (evt) => {
+    const visible = Boolean(evt.target.checked);
+    if (visible === maskVisible) {
+      return;
+    }
+    maskVisible = visible;
+    updateMaskVisibilityLabel();
+    draw();
+  });
+}
 if (maskOpacitySlider) {
   maskOpacitySlider.addEventListener('input', (evt) => {
     setMaskOpacity(evt.target.value);
@@ -2804,6 +3787,17 @@ if (maskOpacityInput) {
   attachNumberInputStepper(maskOpacityInput, (delta) => {
     setMaskOpacity(maskOpacity + delta);
   });
+}
+syncMaskThresholdControls();
+syncFlowThresholdControls();
+setClusterEnabled(clusterEnabled, { silent: true });
+setAffinitySegEnabled(affinitySegEnabled, { silent: true });
+if (maskVisibilityToggle) {
+  maskVisibilityToggle.checked = maskVisible;
+}
+setImageVisible(imageVisible, { silent: true });
+if (imageVisibilityToggle) {
+  imageVisibilityToggle.checked = imageVisible;
 }
 syncMaskOpacityControls();
 
