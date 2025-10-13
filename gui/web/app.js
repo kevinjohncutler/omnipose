@@ -134,10 +134,75 @@ const dpr = window.devicePixelRatio || 1;
 const rootStyle = window.getComputedStyle(document.documentElement);
 const sidebarWidthRaw = rootStyle.getPropertyValue('--sidebar-width');
 const sidebarWidthValue = Number.parseFloat(sidebarWidthRaw || '');
-const sidebarWidth = Number.isFinite(sidebarWidthValue) ? Math.max(0, sidebarWidthValue) : 260;
+const sidebarWidthDefault = Number.isFinite(sidebarWidthValue) ? Math.max(0, sidebarWidthValue) : 260;
+function getSidebarWidthPx() {
+  const el = document.getElementById('sidebar');
+  if (!el) return sidebarWidthDefault;
+  const r = el.getBoundingClientRect();
+  const w = Math.max(0, Math.round(r.width));
+  return Number.isFinite(w) && w > 0 ? w : sidebarWidthDefault;
+}
+
+function getViewportSize() {
+  // Use the true viewport size to avoid layout effects from scrolling sidebar
+  const w = Math.max(1, Math.floor(window.innerWidth || document.documentElement.clientWidth || 1));
+  const h = Math.max(1, Math.floor(window.innerHeight || document.documentElement.clientHeight || 1));
+  return { width: w, height: h };
+}
 const accentColor = (rootStyle.getPropertyValue('--accent-color') || '#d8a200').trim();
 const histogramWindowColor = (rootStyle.getPropertyValue('--histogram-window-color') || 'rgba(140, 140, 140, 0.35)').trim();
 const panelTextColor = (rootStyle.getPropertyValue('--panel-text-color') || '#f4f4f4').trim();
+// Custom cursor assets and override control
+let cursorOverride = null;
+let cursorOverrideTimer = null;
+function svgCursorUrl(svg) {
+  return 'url("data:image/svg+xml;utf8,' + encodeURIComponent(svg) + '") 16 16, auto';
+}
+function buildDotCursorCss(size = 16, rgba = [128, 128, 128, 0.5]) {
+  const [r, g, b, a] = rgba;
+  const radius = Math.max(2, Math.floor(size / 4));
+  const cx = Math.floor(size / 2);
+  const cy = Math.floor(size / 2);
+  const svg = `<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}" viewBox="0 0 ${size} ${size}">
+  <circle cx="${cx}" cy="${cy}" r="${radius}" fill="rgb(${r},${g},${b})" fill-opacity="${a}" />
+</svg>`;
+  // hotspot at center
+  return 'url("data:image/svg+xml;utf8,' + encodeURIComponent(svg) + '") ' + cx + ' ' + cy + ', auto';
+}
+// 3x larger dot cursor (48px box, ~12px radius)
+const dotCursorCss = buildDotCursorCss(48, [128, 128, 128, 0.5]);
+function setCursorTemporary(style, durationMs = 400) {
+  cursorOverride = style;
+  updateCursor();
+  if (cursorOverrideTimer) {
+    clearTimeout(cursorOverrideTimer);
+  }
+  if (style) {
+    cursorOverrideTimer = setTimeout(() => {
+      if (cursorOverride === style) {
+        cursorOverride = null;
+        updateCursor();
+      }
+    }, Math.max(50, durationMs | 0));
+  }
+}
+function setCursorHold(style) {
+  if (cursorOverrideTimer) {
+    clearTimeout(cursorOverrideTimer);
+    cursorOverrideTimer = null;
+  }
+  cursorOverride = style;
+  updateCursor();
+}
+function clearCursorOverride() {
+  if (cursorOverrideTimer) {
+    clearTimeout(cursorOverrideTimer);
+    cursorOverrideTimer = null;
+  }
+  cursorOverride = null;
+  updateCursor();
+}
 
 const offscreen = document.createElement('canvas');
 offscreen.width = imgWidth;
@@ -150,16 +215,68 @@ maskCanvas.height = imgHeight;
 const maskCtx = maskCanvas.getContext('2d');
 const maskData = maskCtx.createImageData(imgWidth, imgHeight);
 const maskValues = new Uint32Array(imgWidth * imgHeight);
-const maskOutlineCanvas = document.createElement('canvas');
-maskOutlineCanvas.width = imgWidth;
-maskOutlineCanvas.height = imgHeight;
-const maskOutlineCtx = maskOutlineCanvas.getContext('2d');
-const maskOutlineData = maskOutlineCtx.createImageData(imgWidth, imgHeight);
-let outlineDirty = true;
+// Outline state bitmap (1 = boundary), used to modulate per-pixel alpha in mask rendering
+const outlineState = new Uint8Array(maskValues.length);
+let outlinesVisible = true; // future UI toggle can control this
+const DEFAULT_AFFINITY_STEPS = [
+  [-1, -1],
+  [-1, 0],
+  [-1, 1],
+  [0, -1],
+  [0, 1],
+  [1, -1],
+  [1, 0],
+  [1, 1],
+];
+// Overlay color: use pure white for all affinity segments
+const AFFINITY_LINE_ALPHA = 1.0;
+const AFFINITY_OVERLAY_COLOR = 'rgba(255, 255, 255, 1)';
+// Enable WebGL overlay for affinity graph rendering
+const USE_WEBGL_OVERLAY = true;
+// Live WebGL overlay updates during painting (toggle visibility of edges)
+const LIVE_AFFINITY_OVERLAY_UPDATES = true;
+// Batch GPU uploads to once per frame
+const BATCH_LIVE_OVERLAY_UPDATES = true;
+// If live updates are enabled, do not defer
+const DEFER_AFFINITY_OVERLAY_DURING_PAINT = !LIVE_AFFINITY_OVERLAY_UPDATES;
+
+// Use coalesced pointer events for denser brush sampling on fast motion
+const USE_COALESCED_EVENTS = true;
+// Throttle mask redraw + draw() to once per animation frame during paint
+const THROTTLE_DRAW_DURING_PAINT = true;
+let paintingFrameScheduled = false;
+let needsMaskRedraw = false;
+
+function requestPaintFrame() {
+  if (!THROTTLE_DRAW_DURING_PAINT) {
+    if (needsMaskRedraw) {
+      redrawMaskCanvas();
+      needsMaskRedraw = false;
+    }
+    draw();
+    return;
+  }
+  if (paintingFrameScheduled) {
+    return;
+  }
+  paintingFrameScheduled = true;
+  requestAnimationFrame(() => {
+    paintingFrameScheduled = false;
+    if (needsMaskRedraw) {
+      redrawMaskCanvas();
+      needsMaskRedraw = false;
+    }
+    draw();
+  });
+}
+let affinityOppositeSteps = [];
+let webglOverlay = null;
 const previewCanvas = document.getElementById('brushPreview');
 const previewCtx = previewCanvas.getContext('2d');
 previewCanvas.width = canvas.width;
 previewCanvas.height = canvas.height;
+  // Ensure brush preview is above WebGL overlay for visibility
+  try { previewCanvas.style.zIndex = '2'; } catch (_) { /* ignore */ }
 
 const loadingOverlay = null;
 const loadingOverlayMessage = null;
@@ -184,6 +301,13 @@ let distanceOverlayImage = null;
 let distanceOverlaySource = null;
 let showFlowOverlay = false;
 let showDistanceOverlay = false;
+// Queue for segmentation payloads that arrive while painting; applied after stroke completes
+let pendingSegmentationPayload = null;
+let showAffinityGraph = false;
+let affinityGraphInfo = null;
+let affinityGraphNeedsLocalRebuild = false;
+let affinityGraphSource = 'none';
+let affinitySteps = DEFAULT_AFFINITY_STEPS.map((step) => step.slice());
 const startTime = (typeof performance !== 'undefined' && performance.now)
   ? performance.now()
   : Date.now();
@@ -854,6 +978,10 @@ function handleGestureStart(evt) {
   drawBrushPreview(null);
   isPanning = false;
   spacePan = false;
+  // Set a helpful cursor at gesture start
+  setCursorHold(dotCursorCss);
+  // Show simple dot cursor during gesture
+  setCursorHold(dotCursorCss);
 }
 
 function handleGestureChange(evt) {
@@ -864,6 +992,8 @@ function handleGestureChange(evt) {
   const currentOrigin = resolveGestureOrigin(evt);
   gestureState.origin = currentOrigin;
   gestureState.imagePoint = screenToImage(currentOrigin);
+  // keep cursor visible during gesture
+  setCursorHold(dotCursorCss);
   if (pointerState.options.touch.enablePinchZoom) {
     const nextScale = gestureState.startScale * evt.scale;
     if (Number.isFinite(nextScale) && nextScale > 0) {
@@ -875,6 +1005,7 @@ function handleGestureChange(evt) {
     const rotationDegrees = Number.isFinite(evt.rotation) ? evt.rotation : 0;
     if (Math.abs(rotationDegrees) >= deadzone) {
       viewState.rotation = normalizeAngle(gestureState.startRotation + (rotationDegrees * Math.PI / 180));
+      setCursorHold(dotCursorCss);
     } else {
       viewState.rotation = gestureState.startRotation;
     }
@@ -895,6 +1026,8 @@ function handleGestureEnd(evt) {
   }
   gestureState = null;
   drawBrushPreview(hoverPoint);
+  clearCursorOverride();
+  clearCursorOverride();
 }
 
 const MIN_BRUSH_DIAMETER = 1;
@@ -969,6 +1102,7 @@ const flowThresholdSlider = document.getElementById('flowThresholdSlider');
 const flowThresholdInput = document.getElementById('flowThresholdInput');
 const clusterToggle = document.getElementById('clusterToggle');
 const affinityToggle = document.getElementById('affinityToggle');
+const affinityGraphToggle = document.getElementById('affinityGraphToggle');
 const flowOverlayToggle = document.getElementById('flowOverlayToggle');
 const distanceOverlayToggle = document.getElementById('distanceOverlayToggle');
 const imageVisibilityToggle = document.getElementById('imageVisibilityToggle');
@@ -1036,6 +1170,8 @@ let activePointerId = null;
 let gestureState = null;
 let wheelRotationBuffer = 0;
 
+// Interaction dot overlay removed; dot is now the cursor itself
+
 const MIN_GAMMA = 0.1;
 const MAX_GAMMA = 6.0;
 const DEFAULT_GAMMA = 1.0;
@@ -1075,16 +1211,10 @@ function drawTouchOverlay() {
     previewCtx.fill();
     previewCtx.stroke();
   });
-  if (!rendered && gestureState && gestureState.origin) {
-    // Optional debug marker for gesture origin when no raw touch pointers exist.
-    previewCtx.beginPath();
-    previewCtx.arc(gestureState.origin.x, gestureState.origin.y, 18, 0, Math.PI * 2);
-    previewCtx.strokeStyle = 'rgba(255, 180, 0, 0.6)';
-    previewCtx.setLineDash([6, 6]);
-    previewCtx.stroke();
-  }
   previewCtx.restore();
 }
+
+// Interaction dot overlay removed
 
 function drawBrushPreview(point) {
   clearPreview();
@@ -1117,8 +1247,13 @@ function drawBrushPreview(point) {
 }
 
 function updateCursor() {
-  if (spacePan || isPanning) {
-    canvas.style.cursor = 'move';
+  if (cursorOverride) {
+    canvas.style.cursor = cursorOverride;
+    return;
+  }
+  // Prefer dot cursor during any interaction
+  if (isPanning || spacePan || gestureState) {
+    canvas.style.cursor = dotCursorCss;
   } else if (tool === 'brush' && cursorInsideImage) {
     canvas.style.cursor = 'none';
   } else {
@@ -1127,7 +1262,9 @@ function updateCursor() {
 }
 
 function updateMaskLabel() {
-  maskLabel.textContent = 'Mask Label: ' + currentLabel;
+  if (!maskLabel) return;
+  const prefix = nColorActive ? 'Mask Group' : 'Mask Label';
+  maskLabel.textContent = prefix + ': ' + currentLabel;
 }
 
 function updateMaskVisibilityLabel() {
@@ -1369,13 +1506,8 @@ function undo() {
   const entry = undoStack.pop();
   applyHistoryEntry(entry, false);
   redoStack.push(entry);
-  nColorValues = null;
-  resetNColorAssignments();
-  if (nColorActive) {
-    nColorActive = false;
-    updateColorModeLabel();
-    console.warn('N-color disabled after undo; toggle N to rebuild when ready.');
-  }
+  // Update affinity graph incrementally for the edited indices
+  try { updateAffinityGraphForIndices(entry.indices); } catch (_) {}
   clearColorCaches();
   redrawMaskCanvas();
   draw();
@@ -1388,13 +1520,8 @@ function redo() {
   const entry = redoStack.pop();
   applyHistoryEntry(entry, true);
   undoStack.push(entry);
-  nColorValues = null;
-  resetNColorAssignments();
-  if (nColorActive) {
-    nColorActive = false;
-    updateColorModeLabel();
-    console.warn('N-color disabled after redo; toggle N to rebuild when ready.');
-  }
+  // Update affinity graph incrementally for the edited indices
+  try { updateAffinityGraphForIndices(entry.indices); } catch (_) {}
   clearColorCaches();
   redrawMaskCanvas();
   draw();
@@ -1539,6 +1666,7 @@ function paintStroke(point) {
   }
   const start = lastPaintPoint ? { x: lastPaintPoint.x, y: lastPaintPoint.y } : { x: point.x, y: point.y };
   const local = new Set();
+  // Sample along the segment at scale-adjusted spacing to balance smoothness and performance
   const dx = point.x - start.x;
   const dy = point.y - start.y;
   const dist = Math.hypot(dx, dy);
@@ -1550,11 +1678,19 @@ function paintStroke(point) {
     const py = start.y + dy * t;
     collectBrushIndices(local, px, py);
   }
-  const canApplyNColor = nColorActive
-    && nColorValues
-    && nColorValues.length === maskValues.length;
-  const paintLabel = canApplyNColor ? resolveCanonicalLabel(currentLabel) : currentLabel;
+  // Single-buffer model: paint the current label value (instance or group ID depending on mode)
+  const paintLabel = currentLabel;
+  try {
+    if (hasNColor && nColorActive) {
+      window.__lastPaintRawLabel = paintLabel | 0;
+      window.__lastPaintGroupId = (currentLabel | 0);
+    } else {
+      window.__lastPaintRawLabel = paintLabel | 0;
+      window.__lastPaintGroupId = 0;
+    }
+  } catch (_) { /* noop */ }
   let changed = false;
+  const changedIndices = [];
   local.forEach((idx) => {
     if (!strokeChanges.has(idx)) {
       const original = maskValues[idx];
@@ -1565,31 +1701,18 @@ function paintStroke(point) {
     }
     if (maskValues[idx] !== paintLabel) {
       maskValues[idx] = paintLabel;
-      if (canApplyNColor) {
-        setNColorValueAt(idx, paintLabel);
-      }
+      changedIndices.push(idx);
       changed = true;
     }
   });
   if (changed) {
-    if (!canApplyNColor) {
-      if (nColorActive) {
-        nColorActive = false;
-        updateColorModeLabel();
-        console.warn('N-color disabled after manual edit; toggle N to rebuild when ready.');
-      }
-      if (nColorValues) {
-        nColorValues = null;
-        resetNColorAssignments();
-      }
+    if (changedIndices.length) {
+      updateAffinityGraphForIndices(changedIndices);
     }
     clearColorCaches();
-    redrawMaskCanvas();
-    draw();
-    if (currentLabel !== paintLabel) {
-      currentLabel = paintLabel;
-      updateMaskLabel();
-    }
+    needsMaskRedraw = true;
+    requestPaintFrame();
+    // Keep currentLabel unchanged; maskValues already reflects the selected mode's label space.
   }
   lastPaintPoint = { x: point.x, y: point.y };
 }
@@ -1611,7 +1734,22 @@ function finalizeStroke() {
     after[i] = currentLabel;
   }
   pushHistory(indices, before, after);
+  try { window.__pendingRelabelSelection = indices; } catch (_) { /* noop */ }
   strokeChanges = null;
+  updateAffinityGraphForIndices(indices);
+  if (webglOverlay && webglOverlay.enabled) {
+    webglOverlay.needsGeometryRebuild = true;
+  }
+  draw();
+  // Apply any queued segmentation result that arrived during the stroke, otherwise run any pending rebuild
+  if (pendingSegmentationPayload) {
+    const queued = pendingSegmentationPayload;
+    pendingSegmentationPayload = null;
+    applySegmentationMask(queued);
+    pendingMaskRebuild = false;
+  } else if (pendingMaskRebuild && segmentationUpdateTimer === null && canRebuildMask) {
+    triggerMaskRebuild();
+  }
 }
 
 function floodFill(point) {
@@ -1622,10 +1760,8 @@ function floodFill(point) {
   }
   const startIdx = sy * imgWidth + sx;
   const targetLabel = maskValues[startIdx];
-  const canApplyNColor = nColorActive
-    && nColorValues
-    && nColorValues.length === maskValues.length;
-  const paintLabel = canApplyNColor ? resolveCanonicalLabel(currentLabel) : currentLabel;
+  // Single-buffer model: paint current label (instance/group depending on mode)
+  const paintLabel = currentLabel;
   if (targetLabel === paintLabel) {
     return;
   }
@@ -1663,29 +1799,14 @@ function floodFill(point) {
     before[i] = maskValues[idx];
     after[i] = paintLabel;
     maskValues[idx] = paintLabel;
-    if (canApplyNColor) {
-      setNColorValueAt(idx, paintLabel);
-    }
   }
   pushHistory(idxArr, before, after);
-  if (!canApplyNColor) {
-    if (nColorActive) {
-      nColorActive = false;
-      updateColorModeLabel();
-      console.warn('N-color disabled after manual edit; toggle N to rebuild when ready.');
-    }
-    if (nColorValues) {
-      nColorValues = null;
-      resetNColorAssignments();
-    }
-  }
+    // Keep N-color mapping and mode as-is; update mapping incrementally when present
+  updateAffinityGraphForIndices(idxArr);
   clearColorCaches();
-  redrawMaskCanvas();
-  draw();
-  if (currentLabel !== paintLabel) {
-    currentLabel = paintLabel;
-    updateMaskLabel();
-  }
+  needsMaskRedraw = true;
+  requestPaintFrame();
+  // Do not change currentLabel here; display coloring comes from nColor.
 }
 
 function pickColor(point) {
@@ -1695,13 +1816,20 @@ function pickColor(point) {
     return;
   }
   const idx = sy * imgWidth + sx;
-  let label = maskValues[idx];
-  if (nColorActive && nColorValues && nColorValues.length === maskValues.length) {
-    label = resolveCanonicalLabel(label);
-  }
-  currentLabel = label;
+  // Single-buffer model: pick the current pixel's label (group ID or instance label)
+  currentLabel = maskValues[idx] | 0;
   updateMaskLabel();
-  log('picker set label ' + currentLabel);
+  log('picker set ' + (nColorActive ? 'color group ' : 'raw label ') + currentLabel);
+}
+
+function labelAtPoint(point) {
+  if (!point) return 0;
+  const x = Math.round(point.x);
+  const y = Math.round(point.y);
+  if (x < 0 || y < 0 || x >= imgWidth || y >= imgHeight) {
+    return 0;
+  }
+  return maskValues[y * imgWidth + x] | 0;
 }
 
 function redrawMaskCanvas() {
@@ -1724,65 +1852,974 @@ function redrawMaskCanvas() {
       data[p + 3] = 0;
       continue;
     }
-    const alpha = Math.round(Math.max(0, Math.min(1, maskOpacity)) * 128);
+    // Alpha policy:
+    // - If outlinesVisible: outline pixels use max alpha; interior uses half alpha
+    // - Else: uniform alpha for all mask pixels
+    const maxAlpha = Math.round(Math.max(0, Math.min(1, maskOpacity)) * 255);
+    let alpha = maxAlpha;
+    if (outlinesVisible) {
+      alpha = outlineState[i] ? maxAlpha : Math.max(0, Math.min(255, (maxAlpha >> 1))); // half alpha for interior
+    }
     data[p] = rgb[0];
     data[p + 1] = rgb[1];
     data[p + 2] = rgb[2];
     data[p + 3] = alpha;
   }
   maskCtx.putImageData(maskData, 0, 0);
-  outlineDirty = true;
 }
 
-function isOutlinePixel(index, label) {
-  const x = index % imgWidth;
-  const y = (index / imgWidth) | 0;
-  if (x === 0 || labelsDifferForOutline(label, maskValues[index - 1])) {
-    return true;
+function decodeBase64ToUint8(encoded) {
+  if (!encoded) {
+    return new Uint8Array(0);
   }
-  if (x === imgWidth - 1 || labelsDifferForOutline(label, maskValues[index + 1])) {
-    return true;
+  const binary = atob(encoded);
+  const len = binary.length;
+  const bytes = new Uint8Array(len);
+  for (let i = 0; i < len; i += 1) {
+    bytes[i] = binary.charCodeAt(i);
   }
-  if (y === 0 || labelsDifferForOutline(label, maskValues[index - imgWidth])) {
-    return true;
-  }
-  if (y === imgHeight - 1 || labelsDifferForOutline(label, maskValues[index + imgWidth])) {
-    return true;
-  }
-  return false;
+  return bytes;
 }
 
-function generateMaskOutline() {
-  if (!outlineDirty) {
+function refreshOppositeStepMapping() {
+  affinityOppositeSteps = affinitySteps.map((step) => {
+    const targetY = -step[0];
+    const targetX = -step[1];
+    for (let i = 0; i < affinitySteps.length; i += 1) {
+      const candidate = affinitySteps[i];
+      if ((candidate[0] | 0) === (targetY | 0) && (candidate[1] | 0) === (targetX | 0)) {
+        return i;
+      }
+    }
+    return -1;
+  });
+}
+
+function ensureWebglOverlayReady() {
+  if (!USE_WEBGL_OVERLAY) {
+    return false;
+  }
+  if (webglOverlay && webglOverlay.enabled) {
+    return true;
+  }
+  if (webglOverlay && webglOverlay.failed) {
+    return false;
+  }
+  return initializeWebglOverlay();
+}
+
+function initializeWebglOverlay() {
+  if (!viewer || typeof WebGLRenderingContext === 'undefined') {
+    webglOverlay = { enabled: false, failed: true };
+    return false;
+  }
+  if (!viewer.style.position) {
+    viewer.style.position = 'relative';
+  }
+  const canvasEl = document.createElement('canvas');
+  canvasEl.id = 'affinityWebgl';
+  canvasEl.style.position = 'absolute';
+  // Fill the viewer like the brush preview overlay to ensure alignment
+  canvasEl.style.inset = '0';
+  canvasEl.style.pointerEvents = 'none';
+  // Place beneath the brush preview overlay so previews remain visible
+  canvasEl.style.zIndex = '0';
+  viewer.appendChild(canvasEl);
+  const gl = canvasEl.getContext('webgl', { premultipliedAlpha: true, antialias: true });
+  if (!gl) {
+    viewer.removeChild(canvasEl);
+    webglOverlay = { enabled: false, failed: true };
+    return false;
+  }
+  const vertexSource = `
+attribute vec2 a_position;
+attribute vec4 a_color;
+
+uniform mat3 u_matrix;
+uniform float u_alphaScale;
+varying vec4 v_color;
+
+void main() {
+  vec3 pos = u_matrix * vec3(a_position, 1.0);
+  gl_Position = vec4(pos.xy, 0.0, 1.0);
+  // Pass color with alpha pre-multiplied by the scale-dependent factor
+  v_color = vec4(a_color.rgb, a_color.a * u_alphaScale);
+}
+`;
+  const fragmentSource = `
+precision mediump float;
+varying vec4 v_color;
+
+void main() {
+  gl_FragColor = v_color;
+}
+`;
+  const program = createWebglProgram(gl, vertexSource, fragmentSource);
+  if (!program) {
+    viewer.removeChild(canvasEl);
+    webglOverlay = { enabled: false, failed: true };
+    return false;
+  }
+  const positionBuffer = gl.createBuffer();
+  const colorBuffer = gl.createBuffer();
+  gl.useProgram(program);
+  gl.clearColor(0, 0, 0, 0);
+  gl.lineWidth(1);
+  const attribs = {
+    position: gl.getAttribLocation(program, 'a_position'),
+    color: gl.getAttribLocation(program, 'a_color'),
+  };
+  const uniforms = {
+    matrix: gl.getUniformLocation(program, 'u_matrix'),
+    alphaScale: gl.getUniformLocation(program, 'u_alphaScale'),
+  };
+  webglOverlay = {
+    enabled: true,
+    failed: false,
+    canvas: canvasEl,
+    gl,
+    program,
+    attribs,
+    uniforms,
+    positionBuffer,
+    colorBuffer,
+    positionsArray: null,
+    colorsArray: null,
+    edgeCount: 0,
+    vertexCount: 0,
+    width: 0,
+    height: 0,
+    matrixCache: new Float32Array(9),
+    needsGeometryRebuild: true,
+    capacityEdges: 0,
+    nextSlot: 0,
+    maxUsedSlotIndex: -1,
+    freeSlots: [],
+    dirtyPosSlots: new Set(),
+    dirtyColSlots: new Set(),
+  };
+  resizeWebglOverlay();
+  return true;
+}
+
+function overlayEnsureCapacity(requiredEdges) {
+  if (!webglOverlay || !webglOverlay.enabled) return;
+  const { gl } = webglOverlay;
+  let cap = webglOverlay.capacityEdges | 0;
+  // If buffers are missing, force allocation even if requiredEdges <= cap
+  const missingBuffers = !webglOverlay.positionsArray || !webglOverlay.colorsArray;
+  if (!missingBuffers && requiredEdges <= cap) {
     return;
   }
-  outlineDirty = false;
-  const data = maskOutlineData.data;
-  for (let i = 0; i < maskValues.length; i += 1) {
-    const label = maskValues[i];
-    const p = i * 4;
-    data[p] = 0;
-    data[p + 1] = 0;
-    data[p + 2] = 0;
-    data[p + 3] = 0;
-    if (label <= 0 || !isOutlinePixel(i, label)) {
-      continue;
+  let newCap = cap > 0 ? cap : 1;
+  while (newCap < requiredEdges) newCap = newCap * 2;
+  const newPositions = new Float32Array(newCap * 4);
+  const newColors = new Float32Array(newCap * 8);
+  if (webglOverlay.positionsArray) {
+    newPositions.set(webglOverlay.positionsArray);
+  }
+  if (webglOverlay.colorsArray) {
+    newColors.set(webglOverlay.colorsArray);
+  }
+  webglOverlay.positionsArray = newPositions;
+  webglOverlay.colorsArray = newColors;
+  webglOverlay.capacityEdges = newCap;
+  webglOverlay.vertexCount = newCap * 2;
+  gl.bindBuffer(gl.ARRAY_BUFFER, webglOverlay.positionBuffer);
+  gl.bufferData(gl.ARRAY_BUFFER, newPositions, gl.DYNAMIC_DRAW);
+  gl.bindBuffer(gl.ARRAY_BUFFER, webglOverlay.colorBuffer);
+  gl.bufferData(gl.ARRAY_BUFFER, newColors, gl.DYNAMIC_DRAW);
+}
+
+function overlayAllocSlot() {
+  if (!webglOverlay || !webglOverlay.enabled) return -1;
+  let slot = -1;
+  if (webglOverlay.freeSlots && webglOverlay.freeSlots.length) {
+    slot = webglOverlay.freeSlots.pop();
+  } else {
+    slot = webglOverlay.nextSlot | 0;
+    overlayEnsureCapacity(slot + 1);
+    webglOverlay.nextSlot = slot + 1;
+  }
+  if (slot > (webglOverlay.maxUsedSlotIndex | 0)) {
+    webglOverlay.maxUsedSlotIndex = slot;
+  }
+  return slot;
+}
+
+function overlayWriteSlotPosition(slot, coords) {
+  if (!webglOverlay || !webglOverlay.enabled || slot < 0) return;
+  const basePos = slot * 4;
+  webglOverlay.positionsArray[basePos] = coords[0];
+  webglOverlay.positionsArray[basePos + 1] = coords[1];
+  webglOverlay.positionsArray[basePos + 2] = coords[2];
+  webglOverlay.positionsArray[basePos + 3] = coords[3];
+  if (BATCH_LIVE_OVERLAY_UPDATES) {
+    webglOverlay.dirtyPosSlots.add(slot);
+  } else {
+    const { gl } = webglOverlay;
+    gl.bindBuffer(gl.ARRAY_BUFFER, webglOverlay.positionBuffer);
+    gl.bufferSubData(gl.ARRAY_BUFFER, basePos * 4, webglOverlay.positionsArray.subarray(basePos, basePos + 4));
+  }
+}
+
+function overlaySetSlotVisibility(slot, rgba, visible) {
+  if (!webglOverlay || !webglOverlay.enabled || slot < 0) return;
+  const baseCol = slot * 8;
+  const a = visible ? (rgba && rgba.length ? rgba[3] : AFFINITY_LINE_ALPHA) : 0.0;
+  const r = rgba && rgba.length ? rgba[0] : 1.0;
+  const g = rgba && rgba.length ? rgba[1] : 1.0;
+  const b = rgba && rgba.length ? rgba[2] : 1.0;
+  // Two vertices per edge
+  webglOverlay.colorsArray[baseCol] = r;
+  webglOverlay.colorsArray[baseCol + 1] = g;
+  webglOverlay.colorsArray[baseCol + 2] = b;
+  webglOverlay.colorsArray[baseCol + 3] = a;
+  webglOverlay.colorsArray[baseCol + 4] = r;
+  webglOverlay.colorsArray[baseCol + 5] = g;
+  webglOverlay.colorsArray[baseCol + 6] = b;
+  webglOverlay.colorsArray[baseCol + 7] = a;
+  if (BATCH_LIVE_OVERLAY_UPDATES) {
+    webglOverlay.dirtyColSlots.add(slot);
+  } else {
+    const { gl } = webglOverlay;
+    gl.bindBuffer(gl.ARRAY_BUFFER, webglOverlay.colorBuffer);
+    gl.bufferSubData(gl.ARRAY_BUFFER, baseCol * 4, webglOverlay.colorsArray.subarray(baseCol, baseCol + 8));
+  }
+}
+
+function getSegmentRgba(segments, s) {
+  const seg = segments[s];
+  if (!seg) return [1, 1, 1, AFFINITY_LINE_ALPHA];
+  if (!seg.rgba) {
+    seg.rgba = parseCssColorToRgba(seg.color, AFFINITY_LINE_ALPHA);
+  }
+  return seg.rgba;
+}
+
+function createWebglProgram(gl, vertexSource, fragmentSource) {
+  const vertexShader = compileWebglShader(gl, gl.VERTEX_SHADER, vertexSource);
+  const fragmentShader = compileWebglShader(gl, gl.FRAGMENT_SHADER, fragmentSource);
+  if (!vertexShader || !fragmentShader) {
+    return null;
+  }
+  const program = gl.createProgram();
+  gl.attachShader(program, vertexShader);
+  gl.attachShader(program, fragmentShader);
+  gl.linkProgram(program);
+  if (!gl.getProgramParameter(program, gl.LINK_STATUS)) {
+    console.warn('WebGL program link failed:', gl.getProgramInfoLog(program));
+    gl.deleteShader(vertexShader);
+    gl.deleteShader(fragmentShader);
+    gl.deleteProgram(program);
+    return null;
+  }
+  gl.detachShader(program, vertexShader);
+  gl.detachShader(program, fragmentShader);
+  gl.deleteShader(vertexShader);
+  gl.deleteShader(fragmentShader);
+  return program;
+}
+
+function compileWebglShader(gl, type, source) {
+  const shader = gl.createShader(type);
+  gl.shaderSource(shader, source);
+  gl.compileShader(shader);
+  if (!gl.getShaderParameter(shader, gl.COMPILE_STATUS)) {
+    console.warn('WebGL shader compile failed:', gl.getShaderInfoLog(shader));
+    gl.deleteShader(shader);
+    return null;
+  }
+  return shader;
+}
+
+function resizeWebglOverlay() {
+  if (!webglOverlay || !webglOverlay.enabled) {
+    return;
+  }
+  const { canvas: glCanvas } = webglOverlay;
+  glCanvas.width = canvas.width;
+  glCanvas.height = canvas.height;
+  glCanvas.style.width = canvas.style.width;
+  glCanvas.style.height = canvas.style.height;
+}
+
+// Overlay fills the viewer; no additional positioning function needed
+
+// Minimal CSS color parser to rgba floats
+function parseCssColorToRgba(color, fallbackAlpha = AFFINITY_LINE_ALPHA) {
+  if (typeof color !== 'string') {
+    return [1, 1, 1, fallbackAlpha];
+  }
+  const s = color.trim().toLowerCase();
+  // rgba(r,g,b,a) or rgb(r,g,b)
+  let m = s.match(/^rgba?\(([^)]+)\)$/i);
+  if (m) {
+    const parts = m[1].split(',').map((x) => x.trim());
+    const r = Math.max(0, Math.min(255, parseFloat(parts[0])));
+    const g = Math.max(0, Math.min(255, parseFloat(parts[1])));
+    const b = Math.max(0, Math.min(255, parseFloat(parts[2])));
+    const a = parts[3] !== undefined ? Math.max(0, Math.min(1, parseFloat(parts[3]))) : fallbackAlpha;
+    return [r / 255, g / 255, b / 255, a];
+  }
+  // #rgb, #rrggbb
+  if (s[0] === '#') {
+    const hex = s.slice(1);
+    if (hex.length === 3) {
+      const r = parseInt(hex[0] + hex[0], 16);
+      const g = parseInt(hex[1] + hex[1], 16);
+      const b = parseInt(hex[2] + hex[2], 16);
+      return [r / 255, g / 255, b / 255, fallbackAlpha];
     }
-    const rgb = getDisplayColor(i);
-    const alpha = Math.round(Math.max(0, Math.min(1, maskOpacity)) * 255);
-    if (rgb) {
-      data[p] = rgb[0];
-      data[p + 1] = rgb[1];
-      data[p + 2] = rgb[2];
-      data[p + 3] = alpha;
-    } else {
-      data[p] = alpha;
-      data[p + 1] = alpha;
-      data[p + 2] = alpha;
-      data[p + 3] = alpha;
+    if (hex.length === 6) {
+      const r = parseInt(hex.slice(0, 2), 16);
+      const g = parseInt(hex.slice(2, 4), 16);
+      const b = parseInt(hex.slice(4, 6), 16);
+      return [r / 255, g / 255, b / 255, fallbackAlpha];
     }
   }
-  maskOutlineCtx.putImageData(maskOutlineData, 0, 0);
+  return [1, 1, 1, fallbackAlpha];
+}
+
+// Rebuild geometry to include only active edges from segments to avoid huge buffers
+function ensureWebglGeometry(width, height) {
+  if (!webglOverlay || !webglOverlay.enabled) {
+    return;
+  }
+  const info = affinityGraphInfo;
+  const segments = info && info.segments ? info.segments : null;
+  if (!segments) {
+    // Clear buffers
+    const { gl, positionBuffer, colorBuffer } = webglOverlay;
+    gl.bindBuffer(gl.ARRAY_BUFFER, positionBuffer);
+    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(), gl.STATIC_DRAW);
+    gl.bindBuffer(gl.ARRAY_BUFFER, colorBuffer);
+    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(), gl.DYNAMIC_DRAW);
+    webglOverlay.positionsArray = null;
+    webglOverlay.colorsArray = null;
+    webglOverlay.edgeCount = 0;
+    webglOverlay.vertexCount = 0;
+    webglOverlay.width = width | 0;
+    webglOverlay.height = height | 0;
+    webglOverlay.needsGeometryRebuild = false;
+    return;
+  }
+  // Build slot-based geometry and establish slot mapping per segment for live updates
+  let totalEdges = 0;
+  for (let s = 0; s < segments.length; s += 1) {
+    const seg = segments[s];
+    if (seg && seg.map && seg.map.size) {
+      totalEdges += seg.map.size;
+    }
+  }
+  const { gl } = webglOverlay;
+  overlayEnsureCapacity(totalEdges);
+  webglOverlay.width = width | 0;
+  webglOverlay.height = height | 0;
+  webglOverlay.nextSlot = 0;
+  webglOverlay.maxUsedSlotIndex = -1;
+  webglOverlay.freeSlots.length = 0;
+  // Reset segment slot maps
+  for (let s = 0; s < segments.length; s += 1) {
+    const seg = segments[s];
+    if (seg) {
+      seg.slots = new Map();
+      seg.rgba = parseCssColorToRgba(seg.color, AFFINITY_LINE_ALPHA);
+    }
+  }
+  let cursor = 0;
+  for (let s = 0; s < segments.length; s += 1) {
+    const seg = segments[s];
+    if (!seg || !seg.map || seg.map.size === 0) continue;
+    const rgba = seg.rgba || parseCssColorToRgba(seg.color, AFFINITY_LINE_ALPHA);
+    seg.map.forEach((coords, index) => {
+      const slot = cursor;
+      // write positions
+      const basePos = slot * 4;
+      webglOverlay.positionsArray[basePos] = coords[0];
+      webglOverlay.positionsArray[basePos + 1] = coords[1];
+      webglOverlay.positionsArray[basePos + 2] = coords[2];
+      webglOverlay.positionsArray[basePos + 3] = coords[3];
+      // write colors
+      const baseCol = slot * 8;
+      webglOverlay.colorsArray[baseCol] = rgba[0];
+      webglOverlay.colorsArray[baseCol + 1] = rgba[1];
+      webglOverlay.colorsArray[baseCol + 2] = rgba[2];
+      webglOverlay.colorsArray[baseCol + 3] = rgba[3];
+      webglOverlay.colorsArray[baseCol + 4] = rgba[0];
+      webglOverlay.colorsArray[baseCol + 5] = rgba[1];
+      webglOverlay.colorsArray[baseCol + 6] = rgba[2];
+      webglOverlay.colorsArray[baseCol + 7] = rgba[3];
+      seg.slots.set(index, slot);
+      cursor += 1;
+    });
+  }
+  // Upload full buffers
+  gl.bindBuffer(gl.ARRAY_BUFFER, webglOverlay.positionBuffer);
+  gl.bufferData(gl.ARRAY_BUFFER, webglOverlay.positionsArray, gl.DYNAMIC_DRAW);
+  gl.bindBuffer(gl.ARRAY_BUFFER, webglOverlay.colorBuffer);
+  gl.bufferData(gl.ARRAY_BUFFER, webglOverlay.colorsArray, gl.DYNAMIC_DRAW);
+  webglOverlay.edgeCount = totalEdges;
+  webglOverlay.vertexCount = webglOverlay.capacityEdges * 2; // capacity vertices; invisible lines have alpha 0
+  webglOverlay.nextSlot = totalEdges;
+  webglOverlay.maxUsedSlotIndex = totalEdges - 1;
+  webglOverlay.needsGeometryRebuild = false;
+}
+
+function syncWebglColors() {
+  // Geometry now includes only active edges, with fixed per-segment colors.
+  // Color sync is implicit in ensureWebglGeometry/rebuild.
+  if (!webglOverlay || !webglOverlay.enabled || !affinityGraphInfo) {
+    return;
+  }
+  ensureWebglGeometry(affinityGraphInfo.width, affinityGraphInfo.height);
+}
+
+// No color delta uploads are needed; colors are baked into geometry buffers
+
+function computeWebglMatrix(out, width, height) {
+  // Compose clip transform with the exact view transform (scale, rotate, translate) in device pixels.
+  // Image -> Device: M = [ a c e; b d f; 0 0 1 ] where
+  // a = s*cos, b = s*sin, c = -s*sin, d = s*cos, e = offsetX*dpr, f = offsetY*dpr
+  const cosR = Math.cos(viewState.rotation);
+  const sinR = Math.sin(viewState.rotation);
+  const s = viewState.scale * (dpr || 1);
+  const a = s * cosR;
+  const b = s * sinR;
+  const c = -s * sinR;
+  const d = s * cosR;
+  const e = viewState.offsetX * (dpr || 1);
+  const f = viewState.offsetY * (dpr || 1);
+  // Device -> NDC clip transform C (row-major):
+  // [ 2/W  0  -1 ]
+  // [ 0  -2/H  1 ]
+  // [ 0    0   1 ]
+  // U = C * M. We output column-major for WebGL.
+  const invW2 = 2 / (width || 1);
+  const invH2 = 2 / (height || 1);
+  const U00 = invW2 * a;
+  const U01 = invW2 * c;
+  const U02 = invW2 * e - 1;
+  const U10 = -invH2 * b;
+  const U11 = -invH2 * d;
+  const U12 = -invH2 * f + 1;
+  const U20 = 0;
+  const U21 = 0;
+  const U22 = 1;
+  // Column-major order
+  out[0] = U00; out[1] = U10; out[2] = U20;
+  out[3] = U01; out[4] = U11; out[5] = U21;
+  out[6] = U02; out[7] = U12; out[8] = U22;
+  return out;
+}
+
+function drawAffinityGraphWebgl() {
+  if (!ensureWebglOverlayReady() || !webglOverlay || !webglOverlay.enabled) {
+    return false;
+  }
+  const { gl, canvas: glCanvas, program, attribs, uniforms, matrixCache } = webglOverlay;
+  gl.viewport(0, 0, glCanvas.width, glCanvas.height);
+  gl.clear(gl.COLOR_BUFFER_BIT);
+  if (!showAffinityGraph) {
+    return true;
+  }
+  if (!affinityGraphInfo || !affinityGraphInfo.values) {
+    return true;
+  }
+  // Build geometry if marked dirty, or if buffers are empty/mismatched
+  let mustBuild = Boolean(webglOverlay.needsGeometryRebuild)
+    || !webglOverlay.positionsArray
+    || !Number.isFinite(webglOverlay.vertexCount) || webglOverlay.vertexCount === 0
+    || webglOverlay.width !== (affinityGraphInfo.width | 0)
+    || webglOverlay.height !== (affinityGraphInfo.height | 0);
+  if (mustBuild) {
+    const shouldDefer = DEFER_AFFINITY_OVERLAY_DURING_PAINT && isPainting;
+    if (!shouldDefer) {
+      ensureWebglGeometry(affinityGraphInfo.width, affinityGraphInfo.height);
+    }
+  }
+  gl.useProgram(program);
+  const matrix = computeWebglMatrix(matrixCache, glCanvas.width, glCanvas.height);
+  gl.uniformMatrix3fv(uniforms.matrix, false, matrix);
+  // Apply a smooth alpha falloff based on zoom level (sigmoid over scale)
+  const s = Math.max(0.0001, Number(viewState && viewState.scale ? viewState.scale : 1.0));
+  // Match desktop GUI defaults: threshold ~10.0, steepness ~ 1/sqrt(2)
+  const threshold = 10.0;
+  const steepness = 1 / Math.SQRT2;
+  const alphaScale = 1.0 / (1.0 + Math.exp(-steepness * (s - threshold)));
+  gl.uniform1f(uniforms.alphaScale, alphaScale);
+  // Flush any batched slot updates
+  if (BATCH_LIVE_OVERLAY_UPDATES) {
+    if (webglOverlay.dirtyPosSlots && webglOverlay.dirtyPosSlots.size) {
+      gl.bindBuffer(gl.ARRAY_BUFFER, webglOverlay.positionBuffer);
+      for (const slot of webglOverlay.dirtyPosSlots) {
+        const basePos = slot * 4;
+        gl.bufferSubData(gl.ARRAY_BUFFER, basePos * 4, webglOverlay.positionsArray.subarray(basePos, basePos + 4));
+      }
+      webglOverlay.dirtyPosSlots.clear();
+    }
+    if (webglOverlay.dirtyColSlots && webglOverlay.dirtyColSlots.size) {
+      gl.bindBuffer(gl.ARRAY_BUFFER, webglOverlay.colorBuffer);
+      for (const slot of webglOverlay.dirtyColSlots) {
+        const baseCol = slot * 8;
+        gl.bufferSubData(gl.ARRAY_BUFFER, baseCol * 4, webglOverlay.colorsArray.subarray(baseCol, baseCol + 8));
+      }
+      webglOverlay.dirtyColSlots.clear();
+    }
+  }
+  gl.bindBuffer(gl.ARRAY_BUFFER, webglOverlay.positionBuffer);
+  gl.enableVertexAttribArray(attribs.position);
+  gl.vertexAttribPointer(attribs.position, 2, gl.FLOAT, false, 0, 0);
+  gl.bindBuffer(gl.ARRAY_BUFFER, webglOverlay.colorBuffer);
+  gl.enableVertexAttribArray(attribs.color);
+  gl.vertexAttribPointer(attribs.color, 4, gl.FLOAT, false, 0, 0);
+  gl.enable(gl.BLEND);
+  gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
+  const edgesToDraw = Math.max(webglOverlay.edgeCount | 0, (webglOverlay.maxUsedSlotIndex | 0) + 1);
+  gl.drawArrays(gl.LINES, 0, Math.max(0, edgesToDraw) * 2);
+  gl.disableVertexAttribArray(attribs.position);
+  gl.disableVertexAttribArray(attribs.color);
+  return true;
+}
+
+// Affinity graph rendering is handled exclusively by WebGL.
+
+function clearAffinityGraphData() {
+  affinityGraphInfo = null;
+  affinityGraphNeedsLocalRebuild = true;
+  affinityGraphSource = 'none';
+  affinitySteps = DEFAULT_AFFINITY_STEPS.map((step) => step.slice());
+  refreshOppositeStepMapping();
+  clearOutline();
+  if (webglOverlay && webglOverlay.enabled) {
+    const { gl, positionBuffer, colorBuffer, canvas: glCanvas } = webglOverlay;
+    gl.bindBuffer(gl.ARRAY_BUFFER, positionBuffer);
+    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(), gl.STATIC_DRAW);
+    gl.bindBuffer(gl.ARRAY_BUFFER, colorBuffer);
+    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(), gl.DYNAMIC_DRAW);
+    webglOverlay.positionsArray = null;
+    webglOverlay.colorsArray = null;
+    webglOverlay.edgeCount = 0;
+    webglOverlay.vertexCount = 0;
+    webglOverlay.capacityEdges = 0;
+    webglOverlay.nextSlot = 0;
+    webglOverlay.maxUsedSlotIndex = -1;
+    if (webglOverlay.freeSlots) webglOverlay.freeSlots.length = 0;
+    gl.viewport(0, 0, glCanvas.width, glCanvas.height);
+    gl.clear(gl.COLOR_BUFFER_BIT);
+    webglOverlay.needsGeometryRebuild = true;
+  }
+}
+
+function applyAffinityGraphPayload(payload) {
+  // If the backend did not provide an affinity graph, rebuild locally from the current mask
+  // so that outlines and (optionally) the overlay remain consistent after parameter changes.
+  if (!payload || !payload.encoded || !payload.steps || !payload.steps.length) {
+    // Reset to defaults and clear previous buffers
+    clearAffinityGraphData();
+    // Rebuild a local graph from maskValues to keep outlines up-to-date
+    rebuildLocalAffinityGraph();
+    if (webglOverlay && webglOverlay.enabled) {
+      webglOverlay.needsGeometryRebuild = true;
+    }
+    // Build segments for overlay if the user toggle is on
+    if (showAffinityGraph && affinityGraphInfo && affinityGraphInfo.values) {
+      buildAffinityGraphSegments();
+    }
+    // Always refresh outlines from the (local) graph
+    if (affinityGraphInfo && affinityGraphInfo.values) {
+      rebuildOutlineFromAffinity();
+    }
+    return;
+  }
+  const width = Number(payload.width) || imgWidth;
+  const height = Number(payload.height) || imgHeight;
+  const stepsInput = Array.isArray(payload.steps) ? payload.steps : [];
+  if (!stepsInput.length) {
+    clearAffinityGraphData();
+    if (showAffinityGraph) {
+      affinityGraphNeedsLocalRebuild = true;
+    }
+    return;
+  }
+  affinitySteps = stepsInput.map((pair) => {
+    if (!Array.isArray(pair) || pair.length < 2) {
+      return [0, 0];
+    }
+    return [pair[0] | 0, pair[1] | 0];
+  });
+  refreshOppositeStepMapping();
+  if (ensureWebglOverlayReady()) {
+    resizeWebglOverlay();
+    if (webglOverlay) {
+      webglOverlay.needsGeometryRebuild = true;
+    }
+  }
+  const values = decodeBase64ToUint8(payload.encoded);
+  const planeStride = width * height;
+  const expectedLength = affinitySteps.length * planeStride;
+  if (values.length !== expectedLength) {
+    console.warn('affinityGraph payload length mismatch', values.length, expectedLength);
+    clearAffinityGraphData();
+    if (showAffinityGraph) {
+      affinityGraphNeedsLocalRebuild = true;
+    }
+    return;
+  }
+  affinityGraphInfo = {
+    width,
+    height,
+    values,
+    stepCount: affinitySteps.length,
+    segments: null,
+  };
+  if (webglOverlay && webglOverlay.enabled) {
+    webglOverlay.needsGeometryRebuild = true;
+  }
+  buildAffinityGraphSegments();
+  rebuildOutlineFromAffinity();
+  affinityGraphNeedsLocalRebuild = false;
+  affinityGraphSource = 'remote';
+}
+
+function rebuildLocalAffinityGraph() {
+  refreshOppositeStepMapping();
+  if (!maskValues || maskValues.length === 0) {
+    clearAffinityGraphData();
+    affinityGraphSource = 'local';
+    affinityGraphNeedsLocalRebuild = false;
+    return;
+  }
+  const width = imgWidth;
+  const height = imgHeight;
+  const stepCount = affinitySteps.length;
+  const planeStride = width * height;
+  if (stepCount === 0) {
+    affinityGraphInfo = null;
+    affinityGraphNeedsLocalRebuild = false;
+    affinityGraphSource = 'local';
+    return;
+  }
+  const values = new Uint8Array(stepCount * planeStride);
+  // Always compute affinity based on raw instance labels (mode-invariant)
+  for (let index = 0; index < planeStride; index += 1) {
+    const rawLabel = (maskValues[index] | 0);
+    if (rawLabel <= 0) {
+      continue;
+    }
+    const x = index % width;
+    const y = (index / width) | 0;
+    for (let s = 0; s < stepCount; s += 1) {
+      const [dyRaw, dxRaw] = affinitySteps[s];
+      const dx = dxRaw | 0;
+      const dy = dyRaw | 0;
+      const nx = x + dx;
+      const ny = y + dy;
+      const planeOffset = s * planeStride + index;
+      let value = 0;
+      if (nx >= 0 && nx < width && ny >= 0 && ny < height) {
+        const neighborIndex = ny * width + nx;
+        const neighborRaw = (maskValues[neighborIndex] | 0);
+        if (neighborRaw > 0 && neighborRaw === rawLabel) {
+          value = 1;
+        }
+        const oppIdx = affinityOppositeSteps[s];
+        if (value && oppIdx >= 0) {
+          values[oppIdx * planeStride + neighborIndex] = 1;
+        }
+      }
+      values[planeOffset] = value;
+    }
+  }
+  affinityGraphInfo = {
+    width,
+    height,
+    values,
+    stepCount,
+    segments: null,
+  };
+  buildAffinityGraphSegments();
+  rebuildOutlineFromAffinity();
+  if (webglOverlay && webglOverlay.enabled) {
+    webglOverlay.needsGeometryRebuild = true;
+  }
+  affinityGraphNeedsLocalRebuild = false;
+  affinityGraphSource = 'local';
+}
+
+function buildAffinityGraphSegments() {
+  if (!affinityGraphInfo) {
+    return;
+  }
+  const { width, height, values, stepCount } = affinityGraphInfo;
+  if (!values || values.length === 0 || stepCount === 0) {
+    affinityGraphInfo.segments = null;
+    return;
+  }
+  const planeStride = width * height;
+  const segments = new Array(stepCount);
+  for (let s = 0; s < stepCount; s += 1) {
+    const [dyRaw, dxRaw] = affinitySteps[s];
+    const dy = dyRaw | 0;
+    const dx = dxRaw | 0;
+    const planeOffset = s * planeStride;
+    const map = new Map();
+    for (let idx = 0; idx < planeStride; idx += 1) {
+      if (!values[planeOffset + idx]) {
+        continue;
+      }
+      const x = idx % width;
+      const y = (idx / width) | 0;
+      const nx = x + dx;
+      const ny = y + dy;
+      if (nx < 0 || nx >= width || ny < 0 || ny >= height) {
+        continue;
+      }
+      map.set(idx, new Float32Array([x + 0.5, y + 0.5, nx + 0.5, ny + 0.5]));
+    }
+    segments[s] = {
+      color: AFFINITY_OVERLAY_COLOR,
+      map,
+    };
+  }
+  affinityGraphInfo.segments = segments;
+}
+
+function clearOutline() {
+  outlineState.fill(0);
+}
+
+function setOutlinePixel(index, isBoundary) {
+  outlineState[index] = isBoundary ? 1 : 0;
+}
+
+function updateOutlineForIndex(index) {
+  // Outline from affinity graph with off-screen continuation:
+  // If the pixel's label continues off the image edge, treat that step as connected.
+  if (!affinityGraphInfo || !affinityGraphInfo.values || !affinityGraphInfo.stepCount) {
+    setOutlinePixel(index, false);
+    return;
+  }
+  const { values, width, height, stepCount } = affinityGraphInfo;
+  if (index < 0 || index >= (width * height)) {
+    setOutlinePixel(index, false);
+    return;
+  }
+  // Determine outline presence using raw label connectivity from affinity values.
+  const label = (maskValues[index] | 0);
+  if (label <= 0) {
+    setOutlinePixel(index, false);
+    return;
+  }
+  const x = index % width;
+  const y = (index / width) | 0;
+  const planeStride = width * height;
+  let connected = 0;
+  for (let s = 0; s < stepCount; s += 1) {
+    const [dyRaw, dxRaw] = affinitySteps[s];
+    const dx = dxRaw | 0;
+    const dy = dyRaw | 0;
+    const nx = x + dx;
+    const ny = y + dy;
+    if (nx < 0 || nx >= width || ny < 0 || ny >= height) {
+      // Off-image: assume continuation for foreground labels
+      connected += 1;
+      continue;
+    }
+    if (values[s * planeStride + index]) {
+      connected += 1;
+    }
+  }
+  const isBoundary = connected > 0 && connected < stepCount;
+  setOutlinePixel(index, isBoundary);
+}
+
+function updateOutlineForIndices(indicesSet) {
+  if (!indicesSet || !indicesSet.size) {
+    return;
+  }
+  indicesSet.forEach((idx) => {
+    updateOutlineForIndex(idx);
+  });
+  // Refresh mask rendering to apply per-pixel alpha changes
+  redrawMaskCanvas();
+}
+
+function rebuildOutlineFromAffinity() {
+  clearOutline();
+  if (!affinityGraphInfo || !affinityGraphInfo.values) {
+    return;
+  }
+  for (let i = 0; i < maskValues.length; i += 1) {
+    updateOutlineForIndex(i);
+  }
+  // After rebuilding outline bitmap, refresh mask rendering
+  redrawMaskCanvas();
+}
+
+function updateAffinityGraphForIndices(indices) {
+  if (!indices || !indices.length) {
+    return;
+  }
+  if (!affinityGraphInfo || !affinityGraphInfo.values || !affinityGraphInfo.stepCount) {
+    // Initialize the local affinity graph from the current mask so we can incrementally update it
+    rebuildLocalAffinityGraph();
+    if (!affinityGraphInfo || !affinityGraphInfo.values || !affinityGraphInfo.stepCount) {
+      return;
+    }
+  }
+  const info = affinityGraphInfo;
+  if (!info.segments) {
+    buildAffinityGraphSegments();
+    if (!info.segments) {
+      return;
+    }
+  }
+  const width = info.width;
+  const height = info.height;
+  const stepCount = info.stepCount;
+  if (width <= 0 || height <= 0 || stepCount <= 0) {
+    return;
+  }
+  ensureWebglOverlayReady();
+  const planeStride = width * height;
+  const affected = new Set();
+  for (const value of indices) {
+    const index = Number(value) | 0;
+    if (index < 0 || index >= planeStride) continue;
+    affected.add(index);
+    const x = index % width;
+    const y = (index / width) | 0;
+    for (let s = 0; s < stepCount; s += 1) {
+      const [dyRaw, dxRaw] = affinitySteps[s];
+      const dx = dxRaw | 0;
+      const dy = dyRaw | 0;
+      const nx = x + dx;
+      const ny = y + dy;
+      if (nx >= 0 && nx < width && ny >= 0 && ny < height) {
+        affected.add(ny * width + nx);
+      }
+      const px = x - dx;
+      const py = y - dy;
+      if (px >= 0 && px < width && py >= 0 && py < height) {
+        affected.add(py * width + px);
+      }
+    }
+  }
+  if (!affected.size) return;
+  const { values, segments } = info;
+  const outlineUpdateSet = new Set(affected);
+  for (const index of affected) {
+    const label = (maskValues[index] | 0);
+    const x = index % width;
+    const y = (index / width) | 0;
+    for (let s = 0; s < stepCount; s += 1) {
+      const [dyRaw, dxRaw] = affinitySteps[s];
+      const dx = dxRaw | 0;
+      const dy = dyRaw | 0;
+      const nx = x + dx;
+      const ny = y + dy;
+      const planeOffset = s * planeStride + index;
+      let value = 0;
+      let neighborIndex = -1;
+      if (nx >= 0 && nx < width && ny >= 0 && ny < height) {
+        neighborIndex = ny * width + nx;
+        const neighborRaw = (maskValues[neighborIndex] | 0);
+        if (label > 0 && neighborRaw > 0 && neighborRaw === label) {
+          value = 1;
+        }
+        outlineUpdateSet.add(neighborIndex);
+      }
+      values[planeOffset] = value;
+      // Maintain symmetric edge in the opposite step direction
+      if (neighborIndex >= 0) {
+        const oppIdx = affinityOppositeSteps[s] | 0;
+        if (oppIdx >= 0) {
+          values[oppIdx * planeStride + neighborIndex] = value;
+        }
+      }
+      const segment = segments[s];
+      if (segment) {
+        if (!segment.rgba) segment.rgba = parseCssColorToRgba(segment.color, AFFINITY_LINE_ALPHA);
+        if (!segment.map) segment.map = new Map();
+        if (neighborIndex >= 0) {
+          const cx1 = x + 0.5;
+          const cy1 = y + 0.5;
+          const cx2 = (x + (dx | 0)) + 0.5;
+          const cy2 = (y + (dy | 0)) + 0.5;
+          if (value) {
+            let coords = segment.map.get(index);
+            if (coords) {
+              coords[0] = cx1; coords[1] = cy1; coords[2] = cx2; coords[3] = cy2;
+            } else {
+              segment.map.set(index, new Float32Array([cx1, cy1, cx2, cy2]));
+            }
+          } else {
+            segment.map.delete(index);
+          }
+          if (webglOverlay && webglOverlay.enabled && LIVE_AFFINITY_OVERLAY_UPDATES) {
+            if (!segment.slots) segment.slots = new Map();
+            let slot = segment.slots.get(index);
+            if (value) {
+              if (slot === undefined) {
+                slot = overlayAllocSlot();
+                segment.slots.set(index, slot);
+              }
+              overlayWriteSlotPosition(slot, [cx1, cy1, cx2, cy2]);
+              overlaySetSlotVisibility(slot, segment.rgba, true);
+            } else if (slot !== undefined) {
+              overlaySetSlotVisibility(slot, segment.rgba, false);
+            }
+          }
+        }
+      }
+      // Mirror segment for the opposite step direction
+      const oppIdx = affinityOppositeSteps[s] | 0;
+      if (neighborIndex >= 0 && oppIdx >= 0) {
+        const oppSegment = segments[oppIdx];
+        if (oppSegment) {
+          if (!oppSegment.rgba) oppSegment.rgba = parseCssColorToRgba(oppSegment.color, AFFINITY_LINE_ALPHA);
+          if (!oppSegment.map) oppSegment.map = new Map();
+          const cx1o = (x + (dx | 0)) + 0.5;
+          const cy1o = (y + (dy | 0)) + 0.5;
+          const cx2o = x + 0.5;
+          const cy2o = y + 0.5;
+          if (value) {
+            let coords2 = oppSegment.map.get(neighborIndex);
+            if (coords2) {
+              coords2[0] = cx1o; coords2[1] = cy1o; coords2[2] = cx2o; coords2[3] = cy2o;
+            } else {
+              oppSegment.map.set(neighborIndex, new Float32Array([cx1o, cy1o, cx2o, cy2o]));
+            }
+          } else {
+            oppSegment.map.delete(neighborIndex);
+          }
+          if (webglOverlay && webglOverlay.enabled && LIVE_AFFINITY_OVERLAY_UPDATES) {
+            if (!oppSegment.slots) oppSegment.slots = new Map();
+            let slot2 = oppSegment.slots.get(neighborIndex);
+            if (value) {
+              if (slot2 === undefined) {
+                slot2 = overlayAllocSlot();
+                oppSegment.slots.set(neighborIndex, slot2);
+              }
+              overlayWriteSlotPosition(slot2, [cx1o, cy1o, cx2o, cy2o]);
+              overlaySetSlotVisibility(slot2, oppSegment.rgba, true);
+            } else if (slot2 !== undefined) {
+              overlaySetSlotVisibility(slot2, oppSegment.rgba, false);
+            }
+          }
+        }
+      }
+    }
+  }
+  affinityGraphNeedsLocalRebuild = false;
+  updateOutlineForIndices(outlineUpdateSet);
+}
+
+function markAffinityGraphStale() {
+  affinityGraphInfo = null;
+  affinityGraphNeedsLocalRebuild = true;
+  affinityGraphSource = 'local';
 }
 
 function shouldLogDraw() {
@@ -1861,6 +2898,10 @@ function rotateView(deltaRadians) {
   autoFitPending = false;
   draw();
   drawBrushPreview(hoverPoint);
+  // Briefly show dot cursor for keyboard rotation
+  setCursorTemporary(dotCursorCss, 700);
+  // Show a simple dot cursor briefly
+  setCursorTemporary(dotCursorCss, 600);
 }
 
 function draw() {
@@ -1870,6 +2911,7 @@ function draw() {
   if (shouldLogDraw()) {
     log('draw start scale=' + viewState.scale.toFixed(3) + ' offset=' + viewState.offsetX.toFixed(1) + ',' + viewState.offsetY.toFixed(1));
   }
+  // Do not rebuild affinity graph locally; graph remains fixed
   ctx.save();
   ctx.setTransform(1, 0, 0, 1, 0, 0);
   ctx.clearRect(0, 0, canvas.width, canvas.height);
@@ -1883,12 +2925,10 @@ function draw() {
     ctx.drawImage(offscreen, 0, 0);
   }
   if (maskVisible) {
+    // Always render mask overlay with nearest-neighbor for crisp pixel edges
     ctx.imageSmoothingEnabled = false;
-    if (outlineDirty) {
-      generateMaskOutline();
-    }
     ctx.drawImage(maskCanvas, 0, 0);
-    ctx.drawImage(maskOutlineCanvas, 0, 0);
+    // Outline is integrated via per-pixel alpha; no separate overlay draw
   }
   if (showFlowOverlay && flowOverlayImage && flowOverlayImage.complete) {
     ctx.save();
@@ -1905,6 +2945,7 @@ function draw() {
     ctx.restore();
   }
   ctx.restore();
+  drawAffinityGraphOverlay();
   drawBrushPreview(hoverPoint);
   if (!loggedPixelSample && canvas.width > 0 && canvas.height > 0) {
     try {
@@ -1918,6 +2959,131 @@ function draw() {
     loggedPixelSample = true;
     hideLoadingOverlay();
   }
+}
+
+function base64FromUint8(bytes) {
+  let binary = '';
+  const chunk = 0x8000;
+  for (let i = 0; i < bytes.length; i += chunk) {
+    const sub = bytes.subarray(i, i + chunk);
+    binary += String.fromCharCode.apply(null, sub);
+  }
+  return btoa(binary);
+}
+
+// Recompute N-color mapping from the CURRENT client mask and overwrite labels with group IDs.
+function recomputeNColorFromCurrentMask(forceActive = false) {
+  return new Promise((resolve) => {
+    try {
+      if (!nColorActive && !forceActive) { resolve(false); return; }
+      const buf = maskValues.buffer.slice(maskValues.byteOffset, maskValues.byteOffset + maskValues.byteLength);
+      const bytes = new Uint8Array(buf);
+      const b64 = base64FromUint8(bytes);
+      const payload = { mask: b64, width: imgWidth, height: imgHeight };
+      const applyMapping = (obj) => {
+        try {
+          if (!obj || !obj.nColorMask) { resolve(false); return; }
+          const bin = atob(obj.nColorMask);
+          if (bin.length !== maskValues.length * 4) { resolve(false); return; }
+          const buffer = new ArrayBuffer(bin.length);
+          const arr = new Uint8Array(buffer);
+          for (let i = 0; i < bin.length; i += 1) arr[i] = bin.charCodeAt(i);
+          const groups = new Uint32Array(buffer);
+          // Overwrite maskValues with group IDs; no separate overlay state
+          for (let i = 0; i < groups.length; i += 1) {
+            maskValues[i] = groups[i];
+          }
+          nColorValues = null;
+          nColorActive = true;
+          clearColorCaches();
+          redrawMaskCanvas();
+          // Do not modify the affinity graph when toggling N-color
+          draw();
+          resolve(true);
+        } catch (e) { resolve(false); }
+      };
+      if (window.pywebview && window.pywebview.api && typeof window.pywebview.api.ncolor_from_mask === 'function') {
+        window.pywebview.api.ncolor_from_mask(payload).then(applyMapping).catch(() => resolve(false));
+        return;
+      }
+      if (typeof fetch === 'function') {
+        fetch('/api/ncolor_from_mask', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) })
+          .then((res) => (res.ok ? res.json() : Promise.reject(new Error('HTTP ' + res.status))))
+          .then(applyMapping)
+          .catch(() => resolve(false));
+        return;
+      }
+      resolve(false);
+    } catch (_) {
+      resolve(false);
+    }
+  });
+}
+
+async function relabelFromAffinity() {
+  const hasPywebview = Boolean(window.pywebview && window.pywebview.api && (window.pywebview.api.relabel_from_affinity));
+  const canHttp = typeof fetch === 'function';
+  if (!hasPywebview && !canHttp) return false;
+  try {
+    const buf = maskValues.buffer.slice(maskValues.byteOffset, maskValues.byteOffset + maskValues.byteLength);
+    const bytes = new Uint8Array(buf);
+    const b64 = base64FromUint8(bytes);
+    // Attach current affinity graph (required); do not rebuild locally
+    if (!affinityGraphInfo || !affinityGraphInfo.values || !affinityGraphInfo.stepCount) {
+      console.warn('No affinity graph available for relabel_from_affinity');
+      return false;
+    }
+    const enc = base64FromUint8(affinityGraphInfo.values);
+    const affinityGraph = {
+      width: affinityGraphInfo.width,
+      height: affinityGraphInfo.height,
+      steps: affinitySteps.map((p) => [p[0] | 0, p[1] | 0]),
+      encoded: enc,
+    };
+    const payload = { mask: b64, width: imgWidth, height: imgHeight, affinityGraph };
+    if (hasPywebview) {
+      const result = await window.pywebview.api.relabel_from_affinity(payload);
+      if (result && !result.error && result.mask) {
+        applySegmentationMask(result);
+        log('Applied relabel_from_affinity from backend (pywebview).');
+        return true;
+      }
+    }
+    if (canHttp) {
+      const res = await fetch('/api/relabel_from_affinity', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+      if (res.ok) {
+        const result = await res.json();
+        if (result && !result.error && result.mask) {
+          applySegmentationMask(result);
+          log('Applied relabel_from_affinity from backend (HTTP).');
+          return true;
+        }
+      }
+    }
+  } catch (err) {
+    console.warn('relabel_from_affinity call failed', err);
+  }
+  return false;
+}
+
+function drawAffinityGraphOverlay() {
+  // Do not rebuild affinity graph locally here
+  if (webglOverlay && webglOverlay.enabled) {
+    // No explicit alignment needed; overlay fills viewer
+  }
+  if (!showAffinityGraph) {
+    if (webglOverlay && webglOverlay.enabled) {
+      const { gl, canvas: glCanvas } = webglOverlay;
+      gl.viewport(0, 0, glCanvas.width, glCanvas.height);
+      gl.clear(gl.COLOR_BUFFER_BIT);
+    }
+    return;
+  }
+  drawAffinityGraphWebgl();
 }
 
 function getPointerPosition(evt) {
@@ -1976,36 +3142,34 @@ function resizeCanvas() {
   if (shuttingDown) {
     return;
   }
-  const rect = viewer.getBoundingClientRect();
-  if (rect.width <= 0 || rect.height <= 0) {
+  const v = getViewportSize();
+  if (v.width <= 0 || v.height <= 0) {
     log('resize skipped: viewer size ' + rect.width.toFixed(1) + 'x' + rect.height.toFixed(1));
     if (!shuttingDown) {
       requestAnimationFrame(resizeCanvas);
     }
     return;
   }
-  canvas.width = Math.max(1, Math.round(rect.width * dpr));
-  canvas.height = Math.max(1, Math.round(rect.height * dpr));
-  canvas.style.width = rect.width + 'px';
-  canvas.style.height = rect.height + 'px';
+  canvas.width = Math.max(1, Math.round(v.width * dpr));
+  canvas.height = Math.max(1, Math.round(v.height * dpr));
+  canvas.style.width = v.width + 'px';
+  canvas.style.height = v.height + 'px';
+  resizeWebglOverlay();
   resizePreviewCanvas();
-  if (!fitViewToWindow(rect)) {
-    recenterView(rect);
+  if (!fitViewToWindow(v)) {
+    recenterView(v);
   }
   draw();
   drawBrushPreview(hoverPoint);
 }
 
 function recenterView(bounds) {
-  const rect = bounds || viewer.getBoundingClientRect();
-  const width = rect ? rect.width : 0;
-  const height = rect ? rect.height : 0;
-  const usableWidth = Math.max(0, width - sidebarWidth);
+  const rectLike = bounds || getViewportSize();
+  const width = rectLike ? rectLike.width : 0;
+  const height = rectLike ? rectLike.height : 0;
   const imageCenter = { x: imgWidth / 2, y: imgHeight / 2 };
-  const target = {
-    x: usableWidth / 2,
-    y: height / 2,
-  };
+  // Center relative to the full browser viewport, ignoring the control panel
+  const target = { x: width / 2, y: height / 2 };
   setOffsetForImagePoint(imageCenter, target);
   log('recenter to ' + viewState.offsetX.toFixed(1) + ',' + viewState.offsetY.toFixed(1));
 }
@@ -2017,21 +3181,22 @@ function fitViewToWindow(bounds) {
   if (userAdjustedScale && !autoFitPending) {
     return false;
   }
-  const rect = bounds || viewer.getBoundingClientRect();
-  if (!rect || rect.width <= 0 || rect.height <= 0 || imgWidth === 0 || imgHeight === 0) {
+  const rectLike = bounds || getViewportSize();
+  if (!rectLike || rectLike.width <= 0 || rectLike.height <= 0 || imgWidth === 0 || imgHeight === 0) {
     return false;
   }
-  const usableWidth = Math.max(1, rect.width - sidebarWidth);
-  const scaleX = usableWidth / imgWidth;
-  const scaleY = rect.height / imgHeight;
-  const nextScale = Math.min(scaleX, scaleY);
+  const marginPx = 2; // ensure fully visible by a small pixel margin
+  // Fit based on full viewport width, ignoring the control panel
+  const scaleX = Math.max(0.0001, (rectLike.width - marginPx) / imgWidth);
+  const scaleY = Math.max(0.0001, (rectLike.height - marginPx) / imgHeight);
+  const nextScale = Math.max(0.0001, Math.min(scaleX, scaleY));
   if (!Number.isFinite(nextScale) || nextScale <= 0) {
     return false;
   }
   viewState.scale = nextScale;
   viewState.rotation = 0;
   autoFitPending = false;
-  recenterView(rect);
+  recenterView(rectLike);
   return true;
 }
 
@@ -2112,6 +3277,7 @@ function generateSinebowPalette(size, offset = 0) {
 }
 
 defaultPalette = generateSinebowPalette(Math.max(colorTable.length || 0, 256), 0.0);
+// N-color palette is large enough; groups come from backend ncolor.label
 nColorPalette = generateSinebowPalette(Math.max(colorTable.length || 0, 1024), 0.35);
 
 function hashColorForLabel(label) {
@@ -2139,15 +3305,11 @@ function getColorFromMap(label, map) {
 }
 
 function getDisplayColor(index) {
-  const rawLabel = maskValues[index];
-  if (rawLabel <= 0) {
-    return null;
-  }
+  const rawLabel = maskValues[index] | 0;
+  if (rawLabel <= 0) return null;
   if (nColorActive && nColorValues && nColorValues.length === maskValues.length) {
-    const ncLabel = nColorValues[index];
-    if (ncLabel > 0) {
-      return getColorFromMap(ncLabel, nColorColorMap);
-    }
+    const groupId = nColorValues[index] | 0;
+    if (groupId > 0) return getColorFromMap(groupId, nColorColorMap);
   }
   return getColorFromMap(rawLabel, rawColorMap);
 }
@@ -2163,144 +3325,6 @@ function collectLabelsFromMask(sourceMask) {
   return Array.from(seen).sort((a, b) => a - b);
 }
 
-function expandMaskLabels(radius = 1) {
-  const width = imgWidth;
-  const height = imgHeight;
-  const expanded = new Uint32Array(maskValues);
-  const offsets = [];
-  for (let dy = -1; dy <= 1; dy += 1) {
-    for (let dx = -1; dx <= 1; dx += 1) {
-      if (dx === 0 && dy === 0) {
-        continue;
-      }
-      offsets.push({ dx, dy });
-    }
-  }
-  for (let step = 0; step < radius; step += 1) {
-    let changed = false;
-    for (let y = 0; y < height; y += 1) {
-      const rowIndex = y * width;
-      for (let x = 0; x < width; x += 1) {
-        const idx = rowIndex + x;
-        if (expanded[idx] > 0) {
-          continue;
-        }
-        for (const { dx, dy } of offsets) {
-          const nx = x + dx;
-          const ny = y + dy;
-          if (nx < 0 || nx >= width || ny < 0 || ny >= height) {
-            continue;
-          }
-          const neighbor = expanded[ny * width + nx];
-          if (neighbor > 0) {
-            expanded[idx] = neighbor;
-            changed = true;
-            break;
-          }
-        }
-      }
-    }
-    if (!changed) {
-      break;
-    }
-  }
-  return expanded;
-}
-
-function buildAdjacencyFromMask(sourceMask) {
-  const width = imgWidth;
-  const height = imgHeight;
-  const adjacency = new Map();
-  for (let y = 0; y < height; y += 1) {
-    const rowIndex = y * width;
-    for (let x = 0; x < width; x += 1) {
-      const idx = rowIndex + x;
-      const label = sourceMask[idx];
-      if (label <= 0) {
-        continue;
-      }
-      if (!adjacency.has(label)) {
-        adjacency.set(label, new Set());
-      }
-      for (let dy = -1; dy <= 1; dy += 1) {
-        for (let dx = -1; dx <= 1; dx += 1) {
-          if (dx === 0 && dy === 0) {
-            continue;
-          }
-          const nx = x + dx;
-          const ny = y + dy;
-          if (nx < 0 || nx >= width || ny < 0 || ny >= height) {
-            continue;
-          }
-          const neighbor = sourceMask[ny * width + nx];
-          if (neighbor > 0 && neighbor !== label) {
-            if (!adjacency.has(neighbor)) {
-              adjacency.set(neighbor, new Set());
-            }
-            adjacency.get(label).add(neighbor);
-            adjacency.get(neighbor).add(label);
-          }
-        }
-      }
-    }
-  }
-  return adjacency;
-}
-
-function generateLocalNColorMask() {
-  if (!maskValues || maskValues.length === 0) {
-    return null;
-  }
-  const expanded = expandMaskLabels(1);
-  const labels = collectLabelsFromMask(expanded);
-  if (!labels.length) {
-    return null;
-  }
-  const adjacency = buildAdjacencyFromMask(expanded);
-  const assignments = new Map();
-  const ordered = labels.slice().sort((a, b) => {
-    const degA = adjacency.get(a)?.size ?? 0;
-    const degB = adjacency.get(b)?.size ?? 0;
-    return degB - degA;
-  });
-  for (const label of ordered) {
-    const neighbors = adjacency.get(label) || new Set();
-    const used = new Set();
-    neighbors.forEach((neighbor) => {
-      const assigned = assignments.get(neighbor);
-      if (typeof assigned === 'number') {
-        used.add(assigned);
-      }
-    });
-    let colorId = 1;
-    while (used.has(colorId)) {
-      colorId += 1;
-    }
-    assignments.set(label, colorId);
-  }
-  const values = new Uint32Array(expanded.length);
-  for (let i = 0; i < expanded.length; i += 1) {
-    const label = expanded[i];
-    if (label > 0) {
-      values[i] = assignments.get(label) || 1;
-    } else {
-      values[i] = 0;
-    }
-  }
-  return values;
-}
-
-function refreshLocalNColorMask() {
-  const local = generateLocalNColorMask();
-  if (local && local.length === maskValues.length) {
-    nColorValues = local;
-    rebuildNColorAssignmentsFromArrays();
-    return true;
-  }
-  nColorValues = null;
-  resetNColorAssignments();
-  return false;
-}
 
 function resetNColorAssignments() {
   nColorAssignments.clear();
@@ -2308,94 +3332,7 @@ function resetNColorAssignments() {
   nColorMaxColorId = 0;
 }
 
-function rebuildNColorAssignmentsFromArrays() {
-  resetNColorAssignments();
-  if (!nColorValues || nColorValues.length !== maskValues.length) {
-    return;
-  }
-  for (let i = 0; i < maskValues.length; i += 1) {
-    const label = maskValues[i];
-    const colorId = nColorValues[i];
-    if (label > 0 && colorId > 0 && !nColorAssignments.has(label)) {
-      nColorAssignments.set(label, colorId);
-      const existing = nColorColorToLabel.get(colorId);
-      if (typeof existing !== 'number' || label < existing) {
-        nColorColorToLabel.set(colorId, label);
-      }
-      if (colorId > nColorMaxColorId) {
-        nColorMaxColorId = colorId;
-      }
-    }
-  }
-}
-
-function ensureNColorAssignment(label) {
-  if (label <= 0) {
-    return 0;
-  }
-  let assignment = nColorAssignments.get(label);
-  if (!assignment) {
-    nColorMaxColorId += 1;
-    assignment = nColorMaxColorId;
-    nColorAssignments.set(label, assignment);
-    const existing = nColorColorToLabel.get(assignment);
-    if (typeof existing !== 'number' || label < existing) {
-      nColorColorToLabel.set(assignment, label);
-    }
-  } else {
-    const existing = nColorColorToLabel.get(assignment);
-    if (typeof existing !== 'number' || label < existing) {
-      nColorColorToLabel.set(assignment, label);
-    }
-  }
-  return assignment;
-}
-
-function setNColorValueAt(index, label) {
-  if (!nColorValues || nColorValues.length !== maskValues.length) {
-    return;
-  }
-  if (label <= 0) {
-    nColorValues[index] = 0;
-    return;
-  }
-  const assignment = ensureNColorAssignment(label);
-  const existing = nColorColorToLabel.get(assignment);
-  if (typeof existing !== 'number' || label < existing) {
-    nColorColorToLabel.set(assignment, label);
-  }
-  nColorValues[index] = assignment > 0 ? assignment : 0;
-}
-
-function resolveCanonicalLabel(label) {
-  if (label <= 0) {
-    return label;
-  }
-  const colorId = nColorAssignments.get(label);
-  if (!colorId) {
-    return label;
-  }
-  const canonical = nColorColorToLabel.get(colorId);
-  if (typeof canonical === 'number') {
-    return canonical;
-  }
-  nColorColorToLabel.set(colorId, label);
-  return label;
-}
-
-function normalizeLabelForComparison(label) {
-  if (!nColorActive || !nColorValues || nColorValues.length !== maskValues.length) {
-    return label;
-  }
-  return resolveCanonicalLabel(label);
-}
-
-function labelsDifferForOutline(a, b) {
-  if (a <= 0 || b <= 0) {
-    return a !== b;
-  }
-  return normalizeLabelForComparison(a) !== normalizeLabelForComparison(b);
-}
+// Legacy N-color mapping helpers removed under single-buffer model
 
 function applyImageAdjustments() {
   if (!originalImageData) {
@@ -2697,27 +3634,68 @@ function updateColorModeLabel() {
 
 function toggleColorMode() {
   if (!nColorActive) {
-    if (!nColorValues || nColorValues.length !== maskValues.length) {
-      if (!refreshLocalNColorMask()) {
-        console.warn('N-color mapping unavailable; run segmentation to enable.');
-        updateColorModeLabel();
-        return;
-      }
-    }
-    nColorActive = true;
-    const canonical = resolveCanonicalLabel(currentLabel);
-    if (currentLabel !== canonical) {
-      currentLabel = canonical;
+    // ON: compute groups from current mask and write into maskValues.
+    lastLabelBeforeNColor = currentLabel;
+    const prevLabel = currentLabel | 0;
+    recomputeNColorFromCurrentMask(true).then((ok) => {
+      if (!ok) console.warn('N-color mapping failed');
+      // Repaint outlines with new palette without changing the graph
+      rebuildOutlineFromAffinity();
+      // Preserve currentLabel if valid in group space; otherwise default to 1
+      try {
+        let maxGroup = 0;
+        for (let i = 0, n = maskValues.length; i < n; i += Math.max(1, Math.floor(n / 2048))) {
+          const g = maskValues[i] | 0; if (g > maxGroup) maxGroup = g;
+        }
+        // Fallback full scan if sample returned 0
+        if (maxGroup === 0) {
+          for (let i = 0; i < maskValues.length; i += 1) { const g = maskValues[i] | 0; if (g > maxGroup) maxGroup = g; }
+        }
+        if (!(prevLabel >= 1 && prevLabel <= maxGroup)) {
+          currentLabel = maxGroup >= 1 ? 1 : 0;
+        }
+      } catch (_) { currentLabel = 1; }
       updateMaskLabel();
-    }
-  } else {
-    nColorActive = false;
+      updateColorModeLabel();
+      draw();
+    });
+    return;
   }
-  clearColorCaches();
-  updateColorModeLabel();
-  redrawMaskCanvas();
-  draw();
+  // OFF: relabel by affinity using current groups; result is instance labels
+  try { window.__pendingRelabelSelection = null; } catch (_) {}
+  const prevLabel = currentLabel | 0;
+  relabelFromAffinity()
+    .then((ok) => {
+      if (!ok) console.warn('relabel_from_affinity failed during N-color OFF');
+      nColorActive = false;
+      clearColorCaches();
+      redrawMaskCanvas();
+      // Do not modify the affinity graph when toggling OFF
+      // Preserve currentLabel if still present; else default to 1
+      try {
+        let found = false;
+        if (prevLabel > 0) {
+          for (let i = 0; i < maskValues.length; i += Math.max(1, Math.floor(maskValues.length / 2048))) {
+            if ((maskValues[i] | 0) === prevLabel) { found = true; break; }
+          }
+          if (!found) {
+            for (let i = 0; i < maskValues.length; i += 1) { if ((maskValues[i] | 0) === prevLabel) { found = true; break; } }
+          }
+        }
+        if (!found) {
+          currentLabel = 1;
+        }
+      } catch (_) { currentLabel = 1; }
+      updateMaskLabel();
+      updateColorModeLabel();
+      draw();
+    })
+    .catch((err) => {
+      console.warn('N-color OFF relabel failed', err);
+    });
 }
+
+// buildLinksFromCurrentGraph removed: we keep a single connectivity source based on raw labels only
 
 function getSegmentationSettingsPayload() {
   return {
@@ -2733,14 +3711,25 @@ let lastRebuildTime = 0;
 let INTERACTIVE_REBUILD_INTERVAL = 120;
 let lastRebuildDuration = 120;
 let nColorActive = false;
-let nColorValues = null;
+let nColorValues = null; // per-pixel group IDs for N-color display only
+// Single authoritative mask buffer: maskValues always holds instance labels.
 const rawColorMap = new Map();
 const nColorColorMap = new Map();
+// Legacy assignment structures retained but unused with single-buffer model
 const nColorAssignments = new Map();
 const nColorColorToLabel = new Map();
 let nColorMaxColorId = 0;
+let lastLabelBeforeNColor = null;
+
+// Incremental painting pipeline
+// immediate redraw path (no incremental mask pipeline)
 
 function scheduleMaskRebuild({ interactive = false } = {}) {
+  // Avoid kicking off expensive recomputes while the user is painting.
+  if (isPainting) {
+    pendingMaskRebuild = true;
+    return;
+  }
   if (!canRebuildMask) {
     if (!isSegmenting) {
       runSegmentation();
@@ -2803,6 +3792,12 @@ async function requestMaskRebuild() {
 }
 
 async function triggerMaskRebuild(interactive = false) {
+  // Defer rebuilds during paint to keep interactions smooth and to avoid
+  // overwriting in-progress edits with async responses.
+  if (isPainting) {
+    pendingMaskRebuild = true;
+    return;
+  }
   if (!canRebuildMask) {
     return;
   }
@@ -2944,6 +3939,11 @@ function setSegmentStatus(message, isError = false) {
 }
 
 function applySegmentationMask(payload) {
+  // If a segmentation update comes in while painting, apply it after the stroke
+  if (isPainting) {
+    pendingSegmentationPayload = payload;
+    return;
+  }
   if (!payload || !payload.mask) {
     throw new Error('segment payload missing mask');
   }
@@ -2981,49 +3981,34 @@ function applySegmentationMask(payload) {
   } else {
     throw new Error('mask size mismatch (' + byteLength + ' bytes vs expected ' + expectedBytes + ')');
   }
-  nColorValues = null;
+  // Switching to a new mask implicitly leaves current color mode as-is; caller controls nColorActive.
   resetNColorAssignments();
-  if (payload.nColorMask) {
-    try {
-      const encoded = payload.nColorMask;
-      const binaryN = atob(encoded);
-      if (binaryN.length === expectedBytes) {
-        const buffer = new ArrayBuffer(expectedBytes);
-        const bytes = new Uint8Array(buffer);
-        for (let i = 0; i < expectedBytes; i += 1) {
-          bytes[i] = binaryN.charCodeAt(i);
-        }
-        nColorValues = new Uint32Array(buffer);
-      }
-    } catch (err) {
-      console.warn('failed to decode nColorMask', err);
-      nColorValues = null;
-    }
-  } else {
-    nColorValues = null;
-  }
-  if (nColorValues && nColorValues.length !== maskValues.length) {
-    nColorValues = null;
-  }
-  if (nColorValues) {
-    rebuildNColorAssignmentsFromArrays();
-  } else if (!refreshLocalNColorMask()) {
-    resetNColorAssignments();
-  }
-  if (!nColorValues && nColorActive) {
-    nColorActive = false;
-    updateColorModeLabel();
-  }
   clearColorCaches();
   redrawMaskCanvas();
   updateOverlayImages(payload);
+  applyAffinityGraphPayload(payload.affinityGraph);
   draw();
-  if (nColorActive && nColorValues && nColorValues.length === maskValues.length) {
-    const canonical = resolveCanonicalLabel(currentLabel);
-    if (currentLabel !== canonical) {
-      currentLabel = canonical;
+  // If a relabel was requested from a stroke, set currentLabel to the mode over the edited indices
+  // If a relabel was requested from a stroke, set currentLabel to the mode over the edited indices
+  try {
+    const pending = window.__pendingRelabelSelection;
+    if (pending && pending.length) {
+      const counts = new Map();
+      for (let i = 0; i < pending.length; i += 1) {
+        const idx = pending[i] | 0;
+        if (idx < 0 || idx >= maskValues.length) continue;
+        const v = maskValues[idx] | 0;
+        if (v > 0) counts.set(v, (counts.get(v) || 0) + 1);
+      }
+      let best = 0; let bestC = -1;
+      counts.forEach((c, v) => { if (c > bestC) { bestC = c; best = v; } });
+      if (best > 0) {
+        currentLabel = best;
+      }
+      window.__pendingRelabelSelection = null;
     }
-  }
+  } catch (_) { /* ignore */ }
+  // In single-buffer mode, currentLabel remains valid across updates.
   updateMaskLabel();
   if (!nColorActive) {
     updateColorModeLabel();
@@ -3107,6 +4092,7 @@ canvas.addEventListener('wheel', (evt) => {
       wheelRotationBuffer = 0;
       log('wheel rotation applied ' + appliedDegrees.toFixed(2) + ' deg');
       rotationApplied = true;
+      setCursorTemporary(dotCursorCss, 500);
     }
   } else if (deltaZ === 0) {
     wheelRotationBuffer = 0;
@@ -3118,14 +4104,19 @@ canvas.addEventListener('wheel', (evt) => {
     autoFitPending = false;
     draw();
   }
+  if (!rotationApplied && deltaY !== 0) {
+    setCursorTemporary(dotCursorCss, 350);
+  }
+  // Show simple dot cursor during wheel interactions
+  setCursorTemporary(dotCursorCss, 350);
 }, { passive: false });
 
 function startPointerPan(evt) {
   isPainting = false;
   strokeChanges = null;
   isPanning = true;
-  updateCursor();
   lastPoint = getPointerPosition(evt);
+  setCursorHold(dotCursorCss);
   wheelRotationBuffer = 0;
   try {
     canvas.setPointerCapture(evt.pointerId);
@@ -3312,10 +4303,28 @@ canvas.addEventListener('pointermove', (evt) => {
       draw();
       updateHoverInfo(null);
       evt.preventDefault();
+      setCursorHold(dotCursorCss);
       return;
     }
   }
   if (isPainting) {
+    if (USE_COALESCED_EVENTS && typeof evt.getCoalescedEvents === 'function') {
+      const events = evt.getCoalescedEvents();
+      if (events && events.length) {
+        for (let i = 0; i < events.length; i += 1) {
+          const e = events[i];
+          const p = { x: e.clientX, y: e.clientY };
+          const rect = canvas.getBoundingClientRect();
+          const local = { x: p.x - rect.left, y: p.y - rect.top };
+          const w = screenToImage(local);
+          paintStroke(w);
+        }
+        hoverPoint = world;
+        drawBrushPreview(hoverPoint);
+        updateHoverInfo(world);
+        return;
+      }
+    }
     paintStroke(world);
     hoverPoint = world;
     drawBrushPreview(hoverPoint);
@@ -3342,6 +4351,9 @@ canvas.addEventListener('pointermove', (evt) => {
   lastPoint = pointer;
   draw();
   updateHoverInfo(screenToImage(pointer));
+  if (isPanning) {
+    setCursorHold(dotCursorCss);
+  }
 });
 
 canvas.addEventListener('dblclick', (evt) => {
@@ -3380,11 +4392,15 @@ function stopInteraction(evt) {
       panPointerId = null;
     }
   }
-  if (isPainting) {
+  const wasPainting = isPainting;
+  if (wasPainting) {
     canvas.classList.remove('painting');
+  }
+  // Mark painting complete before finalize so deferred overlay rebuild can run
+  isPainting = false;
+  if (wasPainting) {
     finalizeStroke();
   }
-  isPainting = false;
   isPanning = false;
   spacePan = false;
   updateCursor();
@@ -3419,6 +4435,7 @@ function stopInteraction(evt) {
     }
   }
   wheelRotationBuffer = 0;
+  clearCursorOverride();
 }
 
 function handleContextMenuEvent(evt) {
@@ -3549,15 +4566,12 @@ window.addEventListener('keydown', (evt) => {
     return;
   }
   if (!modifier && key >= '0' && key <= '9') {
-    const nextLabel = parseInt(key, 10);
+    const next = parseInt(key, 10);
     if (eraseActive) {
-      erasePreviousLabel = nextLabel;
+      erasePreviousLabel = next;
     } else {
-      let label = nextLabel;
-      if (nColorActive && nColorValues && nColorValues.length === maskValues.length) {
-        label = resolveCanonicalLabel(label);
-      }
-      currentLabel = label;
+      // Digits set the current paint value directly (group ID in N-color mode, instance label otherwise)
+      currentLabel = next;
       updateMaskLabel();
     }
     evt.preventDefault();
@@ -3576,6 +4590,12 @@ window.addEventListener('keyup', (evt) => {
 
 function initialize() {
   log('initialize');
+  refreshOppositeStepMapping();
+  clearAffinityGraphData();
+  showAffinityGraph = false;
+  if (affinityGraphToggle) {
+    affinityGraphToggle.checked = false;
+  }
   autoFitPending = true;
   userAdjustedScale = false;
   const img = new Image();
@@ -3601,6 +4621,7 @@ function initialize() {
   };
   img.src = imageDataUrl;
   updateCursor();
+  ensureWebglOverlayReady();
 }
 
 window.addEventListener('resize', resizeCanvas);
@@ -3724,6 +4745,21 @@ if (affinityToggle) {
     setAffinitySegEnabled(evt.target.checked);
   });
 }
+if (affinityGraphToggle) {
+  affinityGraphToggle.addEventListener('change', (evt) => {
+    showAffinityGraph = Boolean(evt.target.checked);
+    if (showAffinityGraph) {
+      // Do not rebuild or mutate the affinity graph here; only (re)build segments if we already have values
+      if (affinityGraphInfo && !affinityGraphInfo.segments) {
+        buildAffinityGraphSegments();
+      }
+      if (webglOverlay && webglOverlay.enabled) {
+        webglOverlay.needsGeometryRebuild = true;
+      }
+    }
+    draw();
+  });
+}
 if (flowOverlayToggle) {
   flowOverlayToggle.addEventListener('change', (evt) => {
     if (!flowOverlayImage || !flowOverlayImage.complete) {
@@ -3828,3 +4864,4 @@ window.addEventListener('beforeunload', () => {
   shuttingDown = true;
   pendingLogs.length = 0;
 });
+// no incremental rebuild method; geometry rebuilds in ensureWebglGeometry

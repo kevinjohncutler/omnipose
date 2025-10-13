@@ -114,6 +114,8 @@ class Segmenter:
         self._cache: dict[str, Any] | None = None
         self._core_module = None
         self._magma_lut: Optional[np.ndarray] = None
+        self._utils_module = None
+        self._kernel_cache: dict[int, tuple[Any, Any, Any, Any, Any]] = {}
 
     def _ensure_model(self) -> None:
         if self._model is None:
@@ -185,9 +187,19 @@ class Segmenter:
         flow_components = self._extract_flows(flows)
         self._cache = self._build_cache(arr, flow_components, parsed, merged_options, mask_uint32.shape)
         ncolor_mask = self._compute_ncolor_mask(mask_uint32)
-        if self._cache is not None:
-            self._cache["mask"] = mask_uint32
-            self._cache["ncolor_mask"] = ncolor_mask
+        if self._cache is None:
+            self._cache = {}
+        cache = self._cache
+        cache["mask"] = mask_uint32
+        cache["ncolor_mask"] = ncolor_mask
+        if parsed.get("affinity_seg"):
+            affinity_data = self._compute_affinity_graph(mask_uint32)
+            if affinity_data is not None:
+                cache["affinity_graph"] = affinity_data
+            else:
+                cache.pop("affinity_graph", None)
+        else:
+            cache.pop("affinity_graph", None)
         return mask_uint32
 
     def resegment(self, settings: Mapping[str, Any] | None = None, **overrides: Any) -> np.ndarray:
@@ -206,7 +218,7 @@ class Segmenter:
         if rescale_value is None:
             rescale_value = 1.0
         core_module = self._ensure_core()
-        mask, p_out, _, bounds, augmented_affinity = core_module.compute_masks(
+        mask, p_out, _, bounds, _ = core_module.compute_masks(
             dP=dP,
             dist=dist,
             bd=bd,
@@ -231,10 +243,14 @@ class Segmenter:
         cache["last_options"] = merged_options
         if parsed["affinity_seg"]:
             cache["bounds"] = bounds
-            cache["affinity"] = augmented_affinity
+            affinity_data = self._compute_affinity_graph(mask_uint32)
+            if affinity_data is not None:
+                cache["affinity_graph"] = affinity_data
+            else:
+                cache.pop("affinity_graph", None)
         else:
             cache.pop("bounds", None)
-            cache.pop("affinity", None)
+            cache.pop("affinity_graph", None)
         if p_out is not None:
             cache["p"] = p_out
         self._cache = cache
@@ -304,6 +320,153 @@ class Segmenter:
             self._core_module = core_module
         return self._core_module
 
+    def _ensure_utils(self):
+        if self._utils_module is None:
+            from omnipose import utils as utils_module
+
+            self._utils_module = utils_module
+        return self._utils_module
+
+    def _get_kernel_info(self, dim: int) -> tuple[np.ndarray, Any, Any, Any, Any]:
+        cached = self._kernel_cache.get(dim)
+        if cached is not None:
+            return cached
+        utils_module = self._ensure_utils()
+        steps, inds, idx, fact, sign = utils_module.kernel_setup(dim)
+        steps_arr = np.asarray(steps)
+        cached = (steps_arr, inds, idx, fact, sign)
+        self._kernel_cache[dim] = cached
+        return cached
+
+    def _compute_affinity_graph(self, mask: np.ndarray) -> Optional[tuple[np.ndarray, np.ndarray]]:
+        mask_int = np.array(mask, dtype=np.int32, copy=False)
+        if mask_int.ndim != 2:
+            return None
+        coords = np.nonzero(mask_int)
+        if coords[0].size == 0:
+            return None
+        steps, inds, idx, fact, sign = self._get_kernel_info(mask_int.ndim)
+        center_index = int(idx)
+        if center_index <= 0:
+            return None
+        core_module = self._ensure_core()
+        affinity_graph = core_module.masks_to_affinity(
+            mask_int,
+            coords,
+            steps,
+            inds,
+            idx,
+            fact,
+            sign,
+            mask_int.ndim,
+        )
+        spatial = core_module.spatial_affinity(affinity_graph, coords, mask_int.shape)
+        non_center_mask = np.ones(steps.shape[0], dtype=bool)
+        non_center_mask[center_index] = False
+        step_subset = np.ascontiguousarray(steps[non_center_mask].astype(np.int8, copy=False))
+        spatial_subset = np.ascontiguousarray(spatial[non_center_mask].astype(np.uint8, copy=False))
+        return step_subset, spatial_subset
+
+
+    def relabel_from_affinity(self, mask: np.ndarray, spatial_affinity: np.ndarray, steps: np.ndarray) -> np.ndarray:
+        """Relabel using a provided spatial affinity graph (S,H,W) and its step offsets.
+
+        Converts spatial (S,H,W) to (S,N) using current mask foreground coords and
+        runs affinity_to_masks to obtain consistent instance labels.
+        """
+        core_module = self._ensure_core()
+        utils_module = self._ensure_utils()
+        mask_int = np.array(mask, dtype=np.int32, copy=False)
+        if mask_int.ndim != 2:
+            return mask_int.astype(np.int32, copy=False)
+        shape = mask_int.shape
+        coords = np.nonzero(mask_int > 0)
+        if coords[0].size == 0:
+            return mask_int.astype(np.int32, copy=False)
+        dim = mask_int.ndim
+        # steps is (S,2) for 2D; canonicalize to kernel order (center + all neighbors)
+        steps_arr = np.asarray(steps, dtype=np.int16)
+        spatial = np.array(spatial_affinity, dtype=np.uint8, copy=False)
+        if spatial.shape[1:] != shape:
+            raise ValueError("spatial affinity shape mismatch")
+        if spatial.shape[0] != steps_arr.shape[0]:
+            raise ValueError(f"spatial steps mismatch: S={spatial.shape[0]} vs steps={steps_arr.shape[0]}")
+        k_steps, _, center_idx, _, _ = utils_module.kernel_setup(dim)
+        k_steps = np.asarray(k_steps, dtype=np.int16)
+        S_full = k_steps.shape[0]
+        spatial_full = np.zeros((S_full, shape[0], shape[1]), dtype=np.uint8)
+        step_to_idx = { (int(s[0]), int(s[1])): i for i, s in enumerate(k_steps) }
+        for i in range(steps_arr.shape[0]):
+            key = (int(steps_arr[i, 0]), int(steps_arr[i, 1]))
+            j = step_to_idx.get(key)
+            if j is not None:
+                spatial_full[j] = spatial[i]
+        # neighbors / neigh_inds built against canonical steps
+        neighbors = utils_module.get_neighbors(coords, k_steps, dim, shape)
+        _, neigh_inds, _ = utils_module.get_neigh_inds(tuple(neighbors), coords, shape)
+        # Convert spatial (S_full,H,W) to (S_full,N) by indexing at coords
+        aff_sn = spatial_full[(Ellipsis,) + coords]
+        iscell = mask_int > 0
+        relabeled = core_module.affinity_to_masks(
+            aff_sn,
+            neigh_inds,
+            iscell,
+            coords,
+            cardinal=False,
+            exclude_interior=False,
+            return_edges=False,
+            verbose=False,
+        )
+        relabeled = np.array(relabeled, dtype=np.int32, copy=False)
+        # Fallback: if relabel produced empty mask, keep the original
+        if relabeled.size == 0 or int(np.max(relabeled)) == 0:
+            print('[relabel_from_affinity] WARNING: empty relabel result; returning original mask')
+            return mask_int
+        return relabeled
+
+    # def relabel_by_affinity(self, mask: np.ndarray, links: list[tuple[int, int]] | None = None) -> np.ndarray:
+    #     """Relabel by recomputing an affinity graph from mask + optional label links, then affinity_to_masks."""
+    #     core_module = self._ensure_core()
+    #     utils_module = self._ensure_utils()
+    #     mask_int = np.array(mask, dtype=np.int32, copy=False)
+    #     if mask_int.ndim != 2:
+    #         return mask_int.astype(np.int32, copy=False)
+    #     shape = mask_int.shape
+    #     coords = np.nonzero(mask_int)
+    #     if coords[0].size == 0:
+    #         return mask_int.astype(np.int32, copy=False)
+    #     dim = mask_int.ndim
+    #     steps, inds, idx, fact, sign = self._get_kernel_info(dim)
+    #     affinity_graph = core_module.masks_to_affinity(
+    #         mask_int,
+    #         coords,
+    #         steps,
+    #         inds,
+    #         idx,
+    #         fact,
+    #         sign,
+    #         dim,
+    #         links=links or [],
+    #     )
+    #     neighbors = utils_module.get_neighbors(coords, steps, dim, shape)
+    #     _, neigh_inds, _ = utils_module.get_neigh_inds(tuple(neighbors), coords, shape)
+    #     iscell = mask_int > 0
+    #     relabeled = core_module.affinity_to_masks(
+    #         affinity_graph,
+    #         neigh_inds,
+    #         iscell,
+    #         coords,
+    #         cardinal=True,
+    #         exclude_interior=False,
+    #         return_edges=False,
+    #         verbose=False,
+    #     )
+    #     relabeled = np.array(relabeled, dtype=np.int32, copy=False)
+    #     if relabeled.size == 0 or int(np.max(relabeled)) == 0:
+    #         print('[relabel_by_affinity] WARNING: empty relabel (recompute); returning original mask')
+    #         return mask_int
+    #     return relabeled
+
     def _compute_ncolor_mask(self, mask: np.ndarray) -> Optional[np.ndarray]:
         try:
             import ncolor
@@ -313,18 +476,14 @@ class Segmenter:
             return None
         mask_int = np.asarray(mask, dtype=np.int32)
         try:
-            labeled, _ = ncolor.label(mask_int, expand=True, return_n=True)
+            # Match show_segmentation usage: prefer deeper search over expand
+            labeled, ngroups = ncolor.label(mask_int, max_depth=20, return_n=True)
         except TypeError:
-            labeled = ncolor.label(mask_int, expand=True)
+            labeled = ncolor.label(mask_int, max_depth=20)
+            ngroups = int(np.unique(labeled[labeled > 0]).size)
         labeled_uint32 = np.ascontiguousarray(labeled.astype(np.uint32, copy=False))
+        print(f"[ncolor] groups={ngroups}")
         return labeled_uint32
-
-    def _ensure_core(self):
-        if self._core_module is None:
-            from omnipose import core as core_module
-
-            self._core_module = core_module
-        return self._core_module
 
     @staticmethod
     def _select_first(obj: Any) -> np.ndarray:
@@ -399,6 +558,27 @@ class Segmenter:
     def get_overlays(self) -> tuple[Optional[str], Optional[str]]:
         cache = self._cache or {}
         return cache.get("flow_overlay"), cache.get("dist_overlay")
+
+    def get_affinity_graph_payload(self) -> Optional[dict[str, object]]:
+        cache = self._cache or {}
+        stored = cache.get("affinity_graph")
+        if not stored:
+            return None
+        steps, data = stored
+        if steps is None or data is None:
+            return None
+        if data.ndim != 3 or data.size == 0:
+            return None
+        # ensure arrays are contiguous for serialization
+        step_array = np.ascontiguousarray(steps.astype(np.int8, copy=False))
+        data_array = np.ascontiguousarray(data.astype(np.uint8, copy=False))
+        encoded = base64.b64encode(data_array.tobytes()).decode("ascii")
+        return {
+            "width": int(data_array.shape[2]),
+            "height": int(data_array.shape[1]),
+            "steps": step_array.tolist(),
+            "encoded": encoded,
+        }
 
     def _generate_overlays(self, flows: list[np.ndarray] | None) -> tuple[Optional[str], Optional[str]]:
         if not flows:
@@ -526,6 +706,11 @@ def run_segmentation(settings: Mapping[str, Any] | None = None) -> dict[str, obj
     encoded_ncolor = None
     if ncolor_mask is not None:
         encoded_ncolor = base64.b64encode(np.ascontiguousarray(ncolor_mask).tobytes()).decode("ascii")
+        try:
+            print(f"[segment] ncolor groups={int(np.unique(ncolor_mask[ncolor_mask>0]).size)}")
+        except Exception:
+            pass
+    affinity_graph = _SEGMENTER.get_affinity_graph_payload()
     return {
         "mask": encoded,
         "width": int(width),
@@ -534,6 +719,7 @@ def run_segmentation(settings: Mapping[str, Any] | None = None) -> dict[str, obj
         "flowOverlay": flow_overlay,
         "distanceOverlay": dist_overlay,
         "nColorMask": encoded_ncolor,
+        "affinityGraph": affinity_graph,
     }
 
 
@@ -547,6 +733,11 @@ def run_mask_update(settings: Mapping[str, Any] | None = None) -> dict[str, obje
     encoded_ncolor = None
     if ncolor_mask is not None:
         encoded_ncolor = base64.b64encode(np.ascontiguousarray(ncolor_mask).tobytes()).decode("ascii")
+        try:
+            print(f"[resegment] ncolor groups={int(np.unique(ncolor_mask[ncolor_mask>0]).size)}")
+        except Exception:
+            pass
+    affinity_graph = _SEGMENTER.get_affinity_graph_payload()
     return {
         "mask": encoded,
         "width": int(width),
@@ -555,6 +746,7 @@ def run_mask_update(settings: Mapping[str, Any] | None = None) -> dict[str, obje
         "flowOverlay": flow_overlay,
         "distanceOverlay": dist_overlay,
         "nColorMask": encoded_ncolor,
+        "affinityGraph": affinity_graph,
     }
 
 
@@ -567,8 +759,12 @@ class DebugAPI:
 
     def log(self, message: str) -> None:
         message = str(message)
-        with self._log_path.open("a", encoding="utf-8") as fh:
-            fh.write(message + "\n")
+        try:
+            with self._log_path.open("a", encoding="utf-8") as fh:
+                fh.write(message + "\n")
+        except OSError:
+            # Ignore logging errors (e.g., reloader closing descriptors)
+            return
 
     def segment(self, settings: Mapping[str, Any] | None = None) -> dict[str, object]:
         mode = None
@@ -580,6 +776,207 @@ class DebugAPI:
 
     def resegment(self, settings: Mapping[str, Any] | None = None) -> dict[str, object]:
         return run_mask_update(settings)
+
+    def get_ncolor(self) -> dict[str, object]:
+        """Return only the current N-color mask from the cached segmentation, if available."""
+        try:
+            ncolor_mask = _SEGMENTER.get_ncolor_mask()
+        except Exception as exc:  # pragma: no cover - diagnostics only
+            return {"error": str(exc)}
+        if ncolor_mask is None:
+            return {"nColorMask": None}
+        encoded = base64.b64encode(np.ascontiguousarray(ncolor_mask).tobytes()).decode("ascii")
+        try:
+            print(f"[api] get_ncolor groups={int(np.unique(ncolor_mask[ncolor_mask>0]).size)}")
+        except Exception:
+            pass
+        return {"nColorMask": encoded}
+
+    def relabel_from_affinity(self, payload: Mapping[str, Any]) -> dict[str, object]:
+        try:
+            mask_b64 = payload.get("mask")
+            width = int(payload.get("width"))
+            height = int(payload.get("height"))
+        except Exception:
+            return {"error": "invalid payload"}
+        if not mask_b64 or width <= 0 or height <= 0:
+            return {"error": "missing mask/shape"}
+        try:
+            raw = base64.b64decode(mask_b64)
+            arr = np.frombuffer(raw, dtype=np.uint32)
+            if arr.size != width * height:
+                return {"error": "mask size mismatch"}
+            mask = arr.reshape((height, width)).astype(np.int32, copy=False)
+        except Exception as exc:
+            return {"error": f"decode failed: {exc}"}
+
+        ag = payload.get("affinityGraph")
+        if not isinstance(ag, Mapping):
+            return {"error": "affinityGraph required"}
+        try:
+            w = int(ag.get("width")); h = int(ag.get("height"))
+            steps_list = ag.get("steps")
+            enc = ag.get("encoded")
+            if w <= 0 or h <= 0:
+                return {"error": "invalid affinityGraph size"}
+            if not isinstance(steps_list, list) or not isinstance(enc, str):
+                return {"error": "invalid affinityGraph payload"}
+            raw_aff = base64.b64decode(enc)
+            arr_aff = np.frombuffer(raw_aff, dtype=np.uint8)
+            s = len(steps_list)
+            if arr_aff.size != s * h * w:
+                return {"error": "affinityGraph data size mismatch"}
+            spatial = arr_aff.reshape((s, h, w))
+            steps = np.asarray(steps_list, dtype=np.int16)
+        except Exception as exc:
+            return {"error": f"invalid affinityGraph: {exc}"}
+
+        try:
+            print(f"[relabel_from_affinity] using provided spatial affinity S={spatial.shape[0]}")
+            before = int(np.unique(mask[mask > 0]).size)
+            new_labels = _SEGMENTER.relabel_from_affinity(mask, spatial, steps)
+            after = int(np.unique(new_labels[new_labels > 0]).size)
+            print(f"[relabel_from_affinity] labels_before={before} labels_after={after}")
+        except Exception as exc:
+            import traceback, sys
+            print("[relabel_from_affinity] EXCEPTION:", file=sys.stderr)
+            traceback.print_exc()
+            return {"error": f"{type(exc).__name__}: {exc}"}
+
+        cache = _SEGMENTER._cache or {}
+        cache["mask"] = np.ascontiguousarray(new_labels.astype(np.uint32, copy=False))
+        cache["ncolor_mask"] = _SEGMENTER.get_ncolor_mask()
+        # Preserve the provided spatial affinity graph exactly; do not recompute
+        try:
+            cache["affinity_graph"] = (
+                np.ascontiguousarray(steps.astype(np.int8, copy=False)),
+                np.ascontiguousarray(spatial.astype(np.uint8, copy=False)),
+            )
+        except Exception:
+            pass
+        _SEGMENTER._cache = cache
+        encoded_mask = base64.b64encode(cache["mask"].tobytes()).decode("ascii")
+        ncolor_mask = cache.get("ncolor_mask")
+        encoded_ncolor = None
+        if ncolor_mask is not None:
+            encoded_ncolor = base64.b64encode(np.ascontiguousarray(ncolor_mask).tobytes()).decode("ascii")
+        affinity_payload = _SEGMENTER.get_affinity_graph_payload()
+        return {
+            "mask": encoded_mask,
+            "nColorMask": encoded_ncolor,
+            "affinityGraph": affinity_payload,
+            "width": int(width),
+            "height": int(height),
+        }
+
+    # def relabel_by_affinity(self, payload: Mapping[str, Any]) -> dict[str, object]:
+    #     try:
+    #         mask_b64 = payload.get("mask")
+    #         width = int(payload.get("width"))
+    #         height = int(payload.get("height"))
+    #     except Exception:
+    #         return {"error": "invalid payload"}
+    #     if not mask_b64 or width <= 0 or height <= 0:
+    #         return {"error": "missing mask/shape"}
+    #     try:
+    #         raw = base64.b64decode(mask_b64)
+    #         arr = np.frombuffer(raw, dtype=np.uint32)
+    #         if arr.size != width * height:
+    #             return {"error": "mask size mismatch"}
+    #         mask = arr.reshape((height, width)).astype(np.int32, copy=False)
+    #     except Exception as exc:
+    #         return {"error": f"decode failed: {exc}"}
+    #     # Optional links from frontend to force connectivity between labels touched by the stroke
+    #     links_payload = payload.get("links")
+    #     links_list: list[tuple[int, int]] | None = None
+    #     if isinstance(links_payload, list):
+    #         try:
+    #             links_list = [(int(a), int(b)) for a, b in links_payload if int(a) > 0 and int(b) > 0 and int(a) != int(b)]
+    #         except Exception:
+    #             links_list = None
+    #     # If client provided a spatial affinity graph, use it directly
+    #     spatial = None
+    #     steps = None
+    #     ag = payload.get("affinityGraph")
+    #     if isinstance(ag, Mapping):
+    #         try:
+    #             w = int(ag.get("width")); h = int(ag.get("height"))
+    #             steps_list = ag.get("steps")
+    #             enc = ag.get("encoded")
+    #             if w > 0 and h > 0 and isinstance(steps_list, list) and isinstance(enc, str):
+    #                 raw = base64.b64decode(enc)
+    #                 arr = np.frombuffer(raw, dtype=np.uint8)
+    #                 s = len(steps_list)
+    #                 if arr.size == s * h * w:
+    #                     spatial = arr.reshape((s, h, w))
+    #                     steps = np.asarray(steps_list, dtype=np.int16)
+    #         except Exception:
+    #             spatial = None
+    #             steps = None
+
+    #     # if spatial is not None and steps is not None:
+    #     print(f"[relabel_by_affinity] using provided spatial affinity S={spatial.shape[0]}")
+    #     new_labels = _SEGMENTER.relabel_from_affinity(mask, spatial, steps)
+    #     # else:
+    #     #     print(f"[relabel_by_affinity] recomputing affinity; links={len(links_list) if links_list else 0}")
+    #     #     new_labels = _SEGMENTER.relabel_by_affinity(mask, links=links_list)
+    #     # Update cache with new labels and overlays
+    #     cache = _SEGMENTER._cache or {}
+    #     cache["mask"] = np.ascontiguousarray(new_labels.astype(np.uint32, copy=False))
+    #     cache["ncolor_mask"] = _SEGMENTER.get_ncolor_mask()
+    #     affinity = _SEGMENTER._compute_affinity_graph(cache["mask"]) if cache.get("mask") is not None else None
+    #     _SEGMENTER._cache = cache
+    #     if affinity is not None:
+    #         cache["affinity_graph"] = affinity
+    #     else:
+    #         cache.pop("affinity_graph", None)
+    #     # Build response
+    #     encoded_mask = base64.b64encode(cache["mask"].tobytes()).decode("ascii")
+    #     ncolor_mask = cache.get("ncolor_mask")
+    #     encoded_ncolor = None
+    #     if ncolor_mask is not None:
+    #         encoded_ncolor = base64.b64encode(np.ascontiguousarray(ncolor_mask).tobytes()).decode("ascii")
+    #     # Return the current affinity graph payload from the Segmenter cache
+    #     affinity_payload = _SEGMENTER.get_affinity_graph_payload()
+    #     try:
+    #         print(f"[relabel_by_affinity] labels_before={int(np.unique(mask[mask>0]).size)} labels_after={int(np.unique(new_labels[new_labels>0]).size)}")
+    #     except Exception:
+    #         pass
+    #     return {
+    #         "mask": encoded_mask,
+    #         "nColorMask": encoded_ncolor,
+    #         "affinityGraph": affinity_payload,
+    #         "width": int(width),
+    #         "height": int(height),
+    #     }
+
+    def ncolor_from_mask(self, payload: Mapping[str, Any]) -> dict[str, object]:
+        try:
+            mask_b64 = payload.get("mask")
+            width = int(payload.get("width"))
+            height = int(payload.get("height"))
+        except Exception:
+            return {"error": "invalid payload"}
+        if not mask_b64 or width <= 0 or height <= 0:
+            return {"error": "missing mask/shape"}
+        try:
+            raw = base64.b64decode(mask_b64)
+            arr = np.frombuffer(raw, dtype=np.uint32)
+            if arr.size != width * height:
+                return {"error": "mask size mismatch"}
+            mask = arr.reshape((height, width)).astype(np.int32, copy=False)
+        except Exception as exc:
+            return {"error": f"decode failed: {exc}"}
+        ncm = _SEGMENTER._compute_ncolor_mask(mask)
+        if ncm is None:
+            return {"nColorMask": None}
+        try:
+            ngroups = int(np.unique(ncm[ncm > 0]).size)
+            print(f"[ncolor-from-mask] groups={ngroups}")
+        except Exception:
+            pass
+        encoded = base64.b64encode(np.ascontiguousarray(ncm.astype(np.uint32, copy=False)).tobytes()).decode("ascii")
+        return {"nColorMask": encoded, "width": int(width), "height": int(height)}
 
 
 def build_html(*, inline_assets: bool = True) -> str:
@@ -685,8 +1082,15 @@ def _start_uvicorn_subprocess(
     ]
     if reload:
         args.append("--reload")
+        # Always watch app + web assets
         args.extend(["--reload-dir", str(Path(__file__).resolve().parent)])
         args.extend(["--reload-dir", str(WEB_DIR)])
+        # Also watch editable third-party dirs we rely on (e.g., ncolor)
+        try:
+            import ncolor  # type: ignore
+            args.extend(["--reload-dir", str(Path(ncolor.__file__).resolve().parent)])
+        except Exception:
+            pass
     if ssl_cert and ssl_key:
         args.extend(["--ssl-certfile", ssl_cert, "--ssl-keyfile", ssl_key])
     process = subprocess.Popen(args, stdout=sys.stdout, stderr=sys.stderr)
@@ -837,6 +1241,32 @@ def create_app() -> "FastAPI":
             return JSONResponse(run_mask_update(payload))
         except Exception as exc:  # pragma: no cover - propagate error to client
             return JSONResponse({"error": str(exc)}, status_code=500)
+    
+    @app.post("/api/relabel_from_affinity", response_class=JSONResponse)
+    async def api_relabel_from_affinity(payload: dict | None = None) -> JSONResponse:
+        try:
+            payload = payload or {}
+            return JSONResponse(DebugAPI().relabel_from_affinity(payload))
+        except Exception as exc:  # pragma: no cover
+            import traceback, sys
+            print("[relabel_from_affinity] EXCEPTION:", file=sys.stderr)
+            traceback.print_exc()
+            return JSONResponse({"error": f"{type(exc).__name__}: {exc}"}, status_code=500)
+
+    @app.get("/api/ncolor", response_class=JSONResponse)
+    async def api_ncolor() -> JSONResponse:
+        try:
+            return JSONResponse(DebugAPI().get_ncolor())
+        except Exception as exc:  # pragma: no cover
+            return JSONResponse({"error": str(exc)}, status_code=500)
+
+    @app.post("/api/ncolor_from_mask", response_class=JSONResponse)
+    async def api_ncolor_from_mask(payload: dict | None = None) -> JSONResponse:
+        try:
+            payload = payload or {}
+            return JSONResponse(DebugAPI().ncolor_from_mask(payload))
+        except Exception as exc:  # pragma: no cover
+            return JSONResponse({"error": str(exc)}, status_code=500)
 
     @app.on_event("startup")
     async def preload_modules() -> None:
@@ -886,13 +1316,20 @@ def run_server(
         print(f"[pywebview] serving at {url}", flush=True)
 
     if reload:
+        # Include ncolor package directory in reload set if available (editable installs)
+        reload_dirs = [str(Path(__file__).resolve().parent), str(WEB_DIR)]
+        try:
+            import ncolor  # type: ignore
+            reload_dirs.append(str(Path(ncolor.__file__).resolve().parent))
+        except Exception:
+            pass
         uvicorn.run(
             "gui.examples.pywebview_image_viewer:create_app",
             factory=True,
             host=host,
             port=port,
             reload=True,
-            reload_dirs=[str(Path(__file__).resolve().parent), str(WEB_DIR)],
+            reload_dirs=reload_dirs,
             ssl_certfile=ssl_cert,
             ssl_keyfile=ssl_key,
             log_level="info",
@@ -940,6 +1377,14 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         default=None,
         help="Path to SSL private key for HTTPS server mode",
     )
+    # Server reload flags (default: OFF)
+    parser.add_argument(
+        "--reload",
+        dest="reload",
+        action="store_true",
+        default=False,
+        help="Enable uvicorn auto-reload for web server mode.",
+    )
     parser.add_argument(
         "--no-reload",
         dest="reload",
@@ -962,12 +1407,19 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         default=0,
         help="Port for the embedded desktop server (default: auto)",
     )
+    # Desktop-embedded server reload flags (default: OFF)
     parser.add_argument(
         "--desktop-reload",
         dest="desktop_reload",
         action="store_true",
-        default=True,
-        help="Use uvicorn --reload for the embedded desktop server (development only).",
+        default=False,
+        help="Enable uvicorn --reload for the embedded desktop server (development only).",
+    )
+    parser.add_argument(
+        "--no-desktop-reload",
+        dest="desktop_reload",
+        action="store_false",
+        help="Disable uvicorn --reload for the embedded desktop server.",
     )
     return parser.parse_args(argv)
 
