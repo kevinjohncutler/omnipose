@@ -4,11 +4,9 @@ import edt
 from scipy.ndimage import affine_transform, binary_dilation, binary_opening, binary_closing, label, shift, uniform_filter # I need to test against skimage labeling
 from skimage.morphology import remove_small_objects
 from skimage.segmentation import find_boundaries
-try:
-    import networkit as nk    # for connected components
-    np.ulong = np.uint64      # restore the old alias
-except:
-    pass
+# networkit is optional; lazily imported only where needed to avoid
+# import-time side effects and deprecation noise in environments that
+# don't exercise those code paths during tests.
 
 # import torch.nn.functional as F
 
@@ -4088,9 +4086,6 @@ def affinity_to_edges(affinity_graph,neigh_inds,step_inds,px_inds):
 
 
 
-from scipy.sparse import coo_matrix
-from networkit import GraphFromCoo
-
 
 def affinity_to_masks(affinity_graph,neigh_inds,iscell, coords,
                       cardinal=True,
@@ -4123,6 +4118,13 @@ def affinity_to_masks(affinity_graph,neigh_inds,iscell, coords,
         
     edge_list = affinity_to_edges(affinity_graph,neigh_inds,step_inds,px_inds)
     # print(edge_list[0].shape,edge_list[1].shape)
+    # Lazily import networkit here to avoid import-time side effects
+    try:
+        import networkit as nk  # for connected components
+        np.ulong = np.uint64    # restore the old alias
+    except Exception as e:
+        raise ImportError("networkit is required for affinity_to_masks; please install networkit") from e
+
     # Create a Networkit graph from the edge list
     g = nk.graph.Graph(n=npix, weighted=False)
     

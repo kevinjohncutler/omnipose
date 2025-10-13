@@ -141,4 +141,10 @@ dmypy.json
 
 # IDE-specific settings and configurations
 .idea/
-.vscode/
+.vscode/_readthedocs/html/
+_readthedocs/jupyter_execute/
+jupyter_execute/
+tests/models/
+**/__pycache__/
+*.nbi
+*.nbc
