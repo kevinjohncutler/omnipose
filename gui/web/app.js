@@ -256,6 +256,7 @@ const OVERLAY_CONTEXT_ATTRIBUTES = {
   desynchronized: true,
   preserveDrawingBuffer: false,
 };
+const FLOOD_REBUILD_THRESHOLD = Math.min(1, Math.max(0, CONFIG.webglFloodRebuildThreshold ?? 0.35));
 // Live WebGL overlay updates during painting (toggle visibility of edges)
 const LIVE_AFFINITY_OVERLAY_UPDATES = true;
 // Batch GPU uploads to once per frame
@@ -1854,86 +1855,154 @@ function floodFill(point) {
   }
 
   ensureFloodBuffers();
+  const width = imgWidth;
+  const height = imgHeight;
+  const totalPixels = maskValues.length;
+  const stack = floodStack;
+  const visited = floodVisited;
+  const output = floodOutput;
+  let top = 0;
+  let count = 0;
+
   let stamp = floodVisitStamp++;
   if (stamp >= 0xffffffff) {
-    floodVisited.fill(0);
+    visited.fill(0);
     floodVisitStamp = 1;
     stamp = floodVisitStamp++;
   }
-  const visited = floodVisited;
-  const stack = floodStack;
-  const output = floodOutput;
-  let top = 0;
-  visited[startIdx] = stamp;
+
   stack[top++] = startIdx;
-  let count = 0;
-  const width = imgWidth;
-  const height = imgHeight;
+
   while (top > 0) {
     const idx = stack[--top];
-    output[count++] = idx;
-    const x = idx % width;
-    const y = (idx / width) | 0;
-    if (x > 0) {
-      const left = idx - 1;
-      if (visited[left] !== stamp && maskValues[left] === targetLabel) {
-        visited[left] = stamp;
-        stack[top++] = left;
+    if (idx < 0 || idx >= totalPixels) {
+      continue;
+    }
+    if (visited[idx] === stamp) {
+      continue;
+    }
+    if ((maskValues[idx] | 0) !== targetLabel) {
+      continue;
+    }
+
+    const row = (idx / width) | 0;
+    let left = idx;
+    while (left % width !== 0) {
+      const candidate = left - 1;
+      if ((maskValues[candidate] | 0) !== targetLabel || visited[candidate] === stamp) {
+        break;
+      }
+      left = candidate;
+    }
+    let right = idx;
+    while (right % width !== width - 1) {
+      const candidate = right + 1;
+      if ((maskValues[candidate] | 0) !== targetLabel || visited[candidate] === stamp) {
+        break;
+      }
+      right = candidate;
+    }
+
+    const leftX = left % width;
+    const rightX = right % width;
+    const rowOffset = row * width;
+
+    for (let xi = leftX; xi <= rightX; xi += 1) {
+      const fillIdx = rowOffset + xi;
+      if (visited[fillIdx] !== stamp) {
+        visited[fillIdx] = stamp;
+        output[count++] = fillIdx;
       }
     }
-    if (x + 1 < width) {
-      const right = idx + 1;
-      if (visited[right] !== stamp && maskValues[right] === targetLabel) {
-        visited[right] = stamp;
-        stack[top++] = right;
+
+    const yAbove = row - 1;
+    if (yAbove >= 0) {
+      const aboveOffset = yAbove * width;
+      let xi = leftX;
+      while (xi <= rightX) {
+        const idxAbove = aboveOffset + xi;
+        if (visited[idxAbove] === stamp || (maskValues[idxAbove] | 0) !== targetLabel) {
+          xi += 1;
+        } else {
+          stack[top++] = idxAbove;
+          xi += 1;
+          while (xi <= rightX) {
+            const checkIdx = aboveOffset + xi;
+            if (visited[checkIdx] === stamp || (maskValues[checkIdx] | 0) !== targetLabel) {
+              break;
+            }
+            xi += 1;
+          }
+        }
       }
     }
-    if (y > 0) {
-      const up = idx - width;
-      if (visited[up] !== stamp && maskValues[up] === targetLabel) {
-        visited[up] = stamp;
-        stack[top++] = up;
-      }
-    }
-    if (y + 1 < height) {
-      const down = idx + width;
-      if (visited[down] !== stamp && maskValues[down] === targetLabel) {
-        visited[down] = stamp;
-        stack[top++] = down;
+
+    const yBelow = row + 1;
+    if (yBelow < height) {
+      const belowOffset = yBelow * width;
+      let xi = leftX;
+      while (xi <= rightX) {
+        const idxBelow = belowOffset + xi;
+        if (visited[idxBelow] === stamp || (maskValues[idxBelow] | 0) !== targetLabel) {
+          xi += 1;
+        } else {
+          stack[top++] = idxBelow;
+          xi += 1;
+          while (xi <= rightX) {
+            const checkIdx = belowOffset + xi;
+            if (visited[checkIdx] === stamp || (maskValues[checkIdx] | 0) !== targetLabel) {
+              break;
+            }
+            xi += 1;
+          }
+        }
       }
     }
   }
+
   if (count === 0) {
     return;
   }
+
   const idxArr = new Uint32Array(count);
   const before = new Uint32Array(count);
+  if (targetLabel !== 0) {
+    before.fill(targetLabel);
+  }
   const after = new Uint32Array(count);
-  const fillsAll = count === maskValues.length;
+  if (paintLabel !== 0) {
+    after.fill(paintLabel);
+  }
+  const fillsAll = count === totalPixels;
   if (fillsAll) {
     for (let i = 0; i < count; i += 1) {
       idxArr[i] = i;
-      before[i] = maskValues[i];
-      after[i] = paintLabel;
       maskValues[i] = paintLabel;
     }
   } else {
     for (let i = 0; i < count; i += 1) {
-      const idx = output[i];
-      idxArr[i] = idx;
-      before[i] = maskValues[idx];
-      after[i] = paintLabel;
-      maskValues[idx] = paintLabel;
+      const fillIdx = output[i];
+      idxArr[i] = fillIdx;
+      maskValues[fillIdx] = paintLabel;
     }
   }
   if (paintLabel > 0) {
     maskHasNonZero = true;
   } else if (paintLabel === 0 && fillsAll) {
     maskHasNonZero = false;
+  } else if (paintLabel === 0 && maskHasNonZero) {
+    maskHasNonZero = false;
+    for (let i = 0; i < maskValues.length; i += 1) {
+      if ((maskValues[i] | 0) > 0) {
+        maskHasNonZero = true;
+        break;
+      }
+    }
   }
 
   pushHistory(idxArr, before, after);
-  if (fillsAll) {
+  const largeFill = fillsAll || count >= totalPixels * FLOOD_REBUILD_THRESHOLD;
+  if (largeFill) {
     rebuildLocalAffinityGraph();
     if (webglOverlay && webglOverlay.enabled) {
       webglOverlay.needsGeometryRebuild = true;
@@ -1946,7 +2015,6 @@ function floodFill(point) {
   requestPaintFrame();
   // Do not change currentLabel here; display coloring comes from nColor.
 }
-
 function pickColor(point) {
   const sx = Math.round(point.x);
   const sy = Math.round(point.y);
