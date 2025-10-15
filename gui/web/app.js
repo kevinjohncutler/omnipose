@@ -215,6 +215,11 @@ maskCanvas.height = imgHeight;
 const maskCtx = maskCanvas.getContext('2d');
 const maskData = maskCtx.createImageData(imgWidth, imgHeight);
 const maskValues = new Uint32Array(imgWidth * imgHeight);
+let maskHasNonZero = false;
+let floodVisited = null;
+let floodVisitStamp = 1;
+let floodStack = null;
+let floodOutput = null;
 // Outline state bitmap (1 = boundary), used to modulate per-pixel alpha in mask rendering
 const outlineState = new Uint8Array(maskValues.length);
 let outlinesVisible = true; // future UI toggle can control this
@@ -1514,8 +1519,28 @@ function pushHistory(indices, before, after) {
 function applyHistoryEntry(entry, useAfter) {
   const values = useAfter ? entry.after : entry.before;
   const idxs = entry.indices;
+  let sawPositive = maskHasNonZero;
   for (let i = 0; i < idxs.length; i += 1) {
-    maskValues[idxs[i]] = values[i];
+    const idx = idxs[i];
+    const next = values[i];
+    maskValues[idx] = next;
+    if (!sawPositive && (next | 0) > 0) {
+      sawPositive = true;
+    }
+  }
+  if (sawPositive) {
+    maskHasNonZero = true;
+  } else if (!useAfter && idxs.length === maskValues.length) {
+    let sequential = true;
+    for (let i = 0; i < idxs.length; i += 1) {
+      if ((idxs[i] | 0) !== i) {
+        sequential = false;
+        break;
+      }
+    }
+    if (sequential) {
+      maskHasNonZero = false;
+    }
   }
 }
 
@@ -1723,6 +1748,9 @@ function paintStroke(point) {
       maskValues[idx] = paintLabel;
       changedIndices.push(idx);
       changed = true;
+      if (paintLabel > 0) {
+        maskHasNonZero = true;
+      }
     }
   });
   if (changed) {
@@ -1772,6 +1800,24 @@ function finalizeStroke() {
   }
 }
 
+
+function ensureFloodBuffers() {
+  const size = maskValues.length | 0;
+  if (!floodVisited || floodVisited.length !== size) {
+    floodVisited = new Uint32Array(size);
+    floodVisitStamp = 1;
+  } else if (floodVisitStamp >= 0xffffffff) {
+    floodVisited.fill(0);
+    floodVisitStamp = 1;
+  }
+  if (!floodStack || floodStack.length !== size) {
+    floodStack = new Uint32Array(size);
+  }
+  if (!floodOutput || floodOutput.length !== size) {
+    floodOutput = new Uint32Array(size);
+  }
+}
+
 function floodFill(point) {
   const sx = Math.round(point.x);
   const sy = Math.round(point.y);
@@ -1779,50 +1825,122 @@ function floodFill(point) {
     return;
   }
   const startIdx = sy * imgWidth + sx;
-  const targetLabel = maskValues[startIdx];
-  // Single-buffer model: paint current label (instance/group depending on mode)
-  const paintLabel = currentLabel;
+  const targetLabel = maskValues[startIdx] | 0;
+  const paintLabel = currentLabel | 0;
   if (targetLabel === paintLabel) {
     return;
   }
-  const visited = new Uint8Array(maskValues.length);
-  const stack = [startIdx];
-  const indices = [];
-  while (stack.length) {
-    const idx = stack.pop();
-    if (visited[idx]) {
-      continue;
+
+  if (!maskHasNonZero && targetLabel === 0 && paintLabel > 0) {
+    const total = maskValues.length;
+    const idxArr = new Uint32Array(total);
+    const before = new Uint32Array(total);
+    const after = new Uint32Array(total);
+    after.fill(paintLabel);
+    for (let i = 0; i < total; i += 1) {
+      idxArr[i] = i;
+      maskValues[i] = paintLabel;
     }
-    visited[idx] = 1;
-    if (maskValues[idx] !== targetLabel) {
-      continue;
+    maskHasNonZero = true;
+    pushHistory(idxArr, before, after);
+    rebuildLocalAffinityGraph();
+    if (webglOverlay && webglOverlay.enabled) {
+      webglOverlay.needsGeometryRebuild = true;
     }
-    indices.push(idx);
-    const x = idx % imgWidth;
-    const y = (idx / imgWidth) | 0;
-    if (x > 0) { stack.push(idx - 1); }
-    if (x + 1 < imgWidth) { stack.push(idx + 1); }
-    if (y > 0) { stack.push(idx - imgWidth); }
-    if (y + 1 < imgHeight) { stack.push(idx + imgWidth); }
-  }
-  if (!indices.length) {
+    clearColorCaches();
+    needsMaskRedraw = true;
+    requestPaintFrame();
     return;
   }
-  const sorted = Array.from(new Set(indices)).sort((a, b) => a - b);
-  const count = sorted.length;
+
+  ensureFloodBuffers();
+  let stamp = floodVisitStamp++;
+  if (stamp >= 0xffffffff) {
+    floodVisited.fill(0);
+    floodVisitStamp = 1;
+    stamp = floodVisitStamp++;
+  }
+  const visited = floodVisited;
+  const stack = floodStack;
+  const output = floodOutput;
+  let top = 0;
+  visited[startIdx] = stamp;
+  stack[top++] = startIdx;
+  let count = 0;
+  const width = imgWidth;
+  const height = imgHeight;
+  while (top > 0) {
+    const idx = stack[--top];
+    output[count++] = idx;
+    const x = idx % width;
+    const y = (idx / width) | 0;
+    if (x > 0) {
+      const left = idx - 1;
+      if (visited[left] !== stamp && maskValues[left] === targetLabel) {
+        visited[left] = stamp;
+        stack[top++] = left;
+      }
+    }
+    if (x + 1 < width) {
+      const right = idx + 1;
+      if (visited[right] !== stamp && maskValues[right] === targetLabel) {
+        visited[right] = stamp;
+        stack[top++] = right;
+      }
+    }
+    if (y > 0) {
+      const up = idx - width;
+      if (visited[up] !== stamp && maskValues[up] === targetLabel) {
+        visited[up] = stamp;
+        stack[top++] = up;
+      }
+    }
+    if (y + 1 < height) {
+      const down = idx + width;
+      if (visited[down] !== stamp && maskValues[down] === targetLabel) {
+        visited[down] = stamp;
+        stack[top++] = down;
+      }
+    }
+  }
+  if (count === 0) {
+    return;
+  }
   const idxArr = new Uint32Array(count);
   const before = new Uint32Array(count);
   const after = new Uint32Array(count);
-  for (let i = 0; i < count; i += 1) {
-    const idx = sorted[i];
-    idxArr[i] = idx;
-    before[i] = maskValues[idx];
-    after[i] = paintLabel;
-    maskValues[idx] = paintLabel;
+  const fillsAll = count === maskValues.length;
+  if (fillsAll) {
+    for (let i = 0; i < count; i += 1) {
+      idxArr[i] = i;
+      before[i] = maskValues[i];
+      after[i] = paintLabel;
+      maskValues[i] = paintLabel;
+    }
+  } else {
+    for (let i = 0; i < count; i += 1) {
+      const idx = output[i];
+      idxArr[i] = idx;
+      before[i] = maskValues[idx];
+      after[i] = paintLabel;
+      maskValues[idx] = paintLabel;
+    }
   }
+  if (paintLabel > 0) {
+    maskHasNonZero = true;
+  } else if (paintLabel === 0 && fillsAll) {
+    maskHasNonZero = false;
+  }
+
   pushHistory(idxArr, before, after);
-    // Keep N-color mapping and mode as-is; update mapping incrementally when present
-  updateAffinityGraphForIndices(idxArr);
+  if (fillsAll) {
+    rebuildLocalAffinityGraph();
+    if (webglOverlay && webglOverlay.enabled) {
+      webglOverlay.needsGeometryRebuild = true;
+    }
+  } else {
+    updateAffinityGraphForIndices(idxArr);
+  }
   clearColorCaches();
   needsMaskRedraw = true;
   requestPaintFrame();
@@ -3301,11 +3419,18 @@ function updateOutlineForIndices(indicesSet) {
   if (!indicesSet || !indicesSet.size) {
     return;
   }
+  let changed = false;
   indicesSet.forEach((idx) => {
+    const before = outlineState[idx];
     updateOutlineForIndex(idx);
+    if (outlineState[idx] !== before) {
+      changed = true;
+    }
   });
-  // Refresh mask rendering to apply per-pixel alpha changes
-  redrawMaskCanvas();
+  if (changed) {
+    // Refresh mask rendering to apply per-pixel alpha changes only if outline changed
+    redrawMaskCanvas();
+  }
 }
 
 function rebuildOutlineFromAffinity() {
@@ -3346,6 +3471,19 @@ function updateAffinityGraphForIndices(indices) {
   }
   ensureWebglOverlayReady();
   const planeStride = width * height;
+  if (indices.length === planeStride) {
+    let sequential = true;
+    for (let i = 0; i < planeStride; i += 1) {
+      if ((indices[i] | 0) !== i) {
+        sequential = false;
+        break;
+      }
+    }
+    if (sequential) {
+      rebuildLocalAffinityGraph();
+      return;
+    }
+  }
   const affected = new Set();
   for (const value of indices) {
     const index = Number(value) | 0;
@@ -3478,7 +3616,6 @@ function updateAffinityGraphForIndices(indices) {
   affinityGraphNeedsLocalRebuild = false;
   updateOutlineForIndices(outlineUpdateSet);
 }
-
 function markAffinityGraphStale() {
   affinityGraphInfo = null;
   affinityGraphNeedsLocalRebuild = true;
@@ -3653,9 +3790,14 @@ function recomputeNColorFromCurrentMask(forceActive = false) {
           for (let i = 0; i < bin.length; i += 1) arr[i] = bin.charCodeAt(i);
           const groups = new Uint32Array(buffer);
           // Overwrite maskValues with group IDs; no separate overlay state
+          let hasNonZero = false;
           for (let i = 0; i < groups.length; i += 1) {
             maskValues[i] = groups[i];
+            if (groups[i] > 0) {
+              hasNonZero = true;
+            }
           }
+          maskHasNonZero = hasNonZero;
           nColorValues = null;
           nColorActive = true;
           clearColorCaches();
@@ -4619,6 +4761,7 @@ function applySegmentationMask(payload) {
   const byteLength = binary.length;
   const expectedBytes = maskValues.length * 4;
   let changed = false;
+  let hasNonZero = false;
   if (byteLength === expectedBytes) {
     const buffer = new ArrayBuffer(byteLength);
     const bytes = new Uint8Array(buffer);
@@ -4632,6 +4775,9 @@ function applySegmentationMask(payload) {
         changed = true;
       }
       maskValues[i] = value;
+      if (value > 0) {
+        hasNonZero = true;
+      }
     }
   } else if (byteLength === maskValues.length) {
     for (let i = 0; i < byteLength; i += 1) {
@@ -4640,10 +4786,14 @@ function applySegmentationMask(payload) {
         changed = true;
       }
       maskValues[i] = value;
+      if (value > 0) {
+        hasNonZero = true;
+      }
     }
   } else {
     throw new Error('mask size mismatch (' + byteLength + ' bytes vs expected ' + expectedBytes + ')');
   }
+  maskHasNonZero = hasNonZero;
   // Switching to a new mask implicitly leaves current color mode as-is; caller controls nColorActive.
   resetNColorAssignments();
   clearColorCaches();
