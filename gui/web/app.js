@@ -349,6 +349,18 @@ function isWebglPipelineActive() {
   return Boolean(webglPipelineReady && webglPipeline && webglPipeline.gl);
 }
 
+function applyMaskRedrawImmediate() {
+  if (!needsMaskRedraw) {
+    return;
+  }
+  if (isWebglPipelineActive()) {
+    flushMaskTextureUpdates();
+  } else {
+    redrawMaskCanvas();
+  }
+  needsMaskRedraw = false;
+}
+
 function rectFromIndices(indices) {
   if (!indices) {
     return null;
@@ -2745,17 +2757,16 @@ function floodFill(point) {
   } else {
     updateAffinityGraphForIndices(idxArr);
   }
-  if (isWebglPipelineActive() && changed) {
-    if (fillsAll) {
-      markMaskTextureFullDirty();
-      markOutlineTextureFullDirty();
-    } else {
-      markMaskIndicesDirty(idxArr);
-    }
+  if (fillsAll) {
+    markMaskTextureFullDirty();
+    markOutlineTextureFullDirty();
+  } else {
+    markMaskIndicesDirty(idxArr);
   }
   clearColorCaches();
   needsMaskRedraw = true;
-  requestPaintFrame();
+  applyMaskRedrawImmediate();
+  draw();
   // Do not change currentLabel here; display coloring comes from nColor.
 }
 
