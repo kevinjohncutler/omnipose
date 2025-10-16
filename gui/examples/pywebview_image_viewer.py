@@ -1,4 +1,7 @@
 """Minimal PyWebView viewer replicating core Omnipose image interactions."""
+# TODOs: 
+# cookie to remember view settings between refreshes 
+# oh and why does the image now look interpolated? it should keeps its pixels crisp
 
 from __future__ import annotations
 
@@ -1009,6 +1012,7 @@ def build_html(*, inline_assets: bool = True) -> str:
         "flowThreshold": 0.0,
         "cluster": True,
         "affinitySeg": True,
+        "useWebglPipeline": True,
     }
     return render_index(config, inline_assets=inline_assets, cache_buster=_CACHE_BUSTER)
 
