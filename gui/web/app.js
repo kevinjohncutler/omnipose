@@ -1107,30 +1107,21 @@ function drawWebglFrame() {
 
   pipelineGl.bindVertexArray(null);
   pipelineGl.useProgram(null);
-  if (showAffinityGraph) {
-    if (isWebglPipelineActive()) {
-      drawAffinityGraphShared(matrix);
-    } else {
-      drawAffinityGraphOverlay();
-    }
-  } else if (webglOverlay && webglOverlay.enabled && !isWebglPipelineActive()) {
-    const { gl, canvas: glCanvas } = webglOverlay;
-    if (glCanvas) {
-      gl.viewport(0, 0, glCanvas.width, glCanvas.height);
-      gl.clear(gl.COLOR_BUFFER_BIT);
-    }
-  }
+  drawAffinityGraphShared(matrix);
 }
 
 function drawAffinityGraphShared(matrix) {
   if (!webglOverlay || !webglOverlay.enabled) {
     return;
   }
+  const glCanvas = getOverlayCanvasElement();
   if (!showAffinityGraph || !affinityGraphInfo || !affinityGraphInfo.values) {
+    clearWebglOverlaySurface();
     return;
   }
   const { gl: overlayGl, program, attribs, uniforms } = webglOverlay;
   if (!overlayGl || !program || !uniforms || !attribs) {
+    clearWebglOverlaySurface();
     return;
   }
   let mustBuild = Boolean(webglOverlay.needsGeometryRebuild)
@@ -1145,13 +1136,9 @@ function drawAffinityGraphShared(matrix) {
     }
   }
   if (!webglOverlay.positionsArray || !webglOverlay.positionsArray.length) {
-    overlayGl.useProgram(null);
-    if (glCanvas && glCanvas.style) {
-      glCanvas.style.opacity = '0';
-    }
+    clearWebglOverlaySurface();
     return;
   }
-  const glCanvas = webglOverlay.canvas || canvas;
   const targetWidth = glCanvas ? glCanvas.width : canvas.width;
   const targetHeight = glCanvas ? glCanvas.height : canvas.height;
   overlayGl.viewport(0, 0, targetWidth, targetHeight);
@@ -1206,13 +1193,54 @@ function drawAffinityGraphShared(matrix) {
   overlayGl.disable(overlayGl.BLEND);
   overlayGl.bindBuffer(overlayGl.ARRAY_BUFFER, null);
   overlayGl.useProgram(null);
-  if (glCanvas && glCanvas.style) {
-    const finalAlpha = hasContent ? Math.max(0, Math.min(1, webglOverlay.displayAlpha || 0)) : 0;
-    glCanvas.style.opacity = String(finalAlpha);
+  const finalAlpha = hasContent ? Math.max(0, Math.min(1, webglOverlay.displayAlpha || 0)) : 0;
+  if (webglOverlay.shared) {
+    webglOverlay.displayAlpha = finalAlpha;
+    return;
+  }
+  if (finalAlpha > 0) {
+    setOverlayCanvasVisibility(true, finalAlpha);
+  } else {
+    clearWebglOverlaySurface();
   }
 }
 let affinityOppositeSteps = [];
 let webglOverlay = null;
+
+function getOverlayCanvasElement() {
+  if (!webglOverlay || !webglOverlay.enabled) {
+    return null;
+  }
+  return webglOverlay.canvas || null;
+}
+
+function setOverlayCanvasVisibility(visible, alpha = 1) {
+  const glCanvas = getOverlayCanvasElement();
+  if (!glCanvas || !glCanvas.style) {
+    return;
+  }
+  if (visible) {
+    if (glCanvas.style.display === 'none') {
+      glCanvas.style.display = 'block';
+    }
+    glCanvas.style.opacity = String(Math.max(0, Math.min(1, alpha)));
+  } else {
+    if (glCanvas.style.display !== 'none') {
+      glCanvas.style.display = 'none';
+    }
+    glCanvas.style.opacity = '0';
+  }
+}
+
+function clearWebglOverlaySurface() {
+  if (!webglOverlay || !webglOverlay.enabled) {
+    return;
+  }
+  webglOverlay.displayAlpha = 0;
+  if (webglOverlay.canvas) {
+    setOverlayCanvasVisibility(false, 0);
+  }
+}
 let minAffinityStepLength = 1.0;
 const previewCanvas = document.getElementById('brushPreview');
 const previewCtx = previewCanvas.getContext('2d');
@@ -3429,6 +3457,8 @@ function initializeWebglOverlay() {
   canvasEl.style.inset = '0';
   canvasEl.style.pointerEvents = 'none';
   canvasEl.style.zIndex = '1';
+  canvasEl.style.display = 'none';
+  canvasEl.style.opacity = '0';
   viewer.appendChild(canvasEl);
   const gl = canvasEl.getContext('webgl2', OVERLAY_CONTEXT_ATTRIBUTES);
   if (!gl) {
@@ -5231,21 +5261,8 @@ function drawAffinityGraphOverlay() {
   const glCanvas = webglOverlay.canvas || canvas;
   const targetWidth = glCanvas ? glCanvas.width : canvas.width;
   const targetHeight = glCanvas ? glCanvas.height : canvas.height;
-  if (!showAffinityGraph) {
-    webglOverlay.gl.viewport(0, 0, targetWidth, targetHeight);
-    webglOverlay.gl.clearColor(0, 0, 0, 0);
-    webglOverlay.gl.clear(webglOverlay.gl.COLOR_BUFFER_BIT);
-    if (glCanvas && glCanvas.style) {
-      glCanvas.style.opacity = '0';
-    }
-    return;
-  }
   const matrix = computeWebglMatrix(webglOverlay.matrixCache, targetWidth, targetHeight);
   drawAffinityGraphShared(matrix);
-  if (glCanvas && glCanvas.style) {
-    const alpha = Number.isFinite(webglOverlay.displayAlpha) ? webglOverlay.displayAlpha : 1;
-    glCanvas.style.opacity = String(Math.max(0, Math.min(1, alpha)));
-  }
 }
 
 function getPointerPosition(evt) {
@@ -6886,6 +6903,18 @@ function initialize() {
 }
 
 window.addEventListener('resize', resizeCanvas);
+let orientationResizePending = false;
+window.addEventListener('orientationchange', () => {
+  if (orientationResizePending) {
+    return;
+  }
+  orientationResizePending = true;
+  setTimeout(() => {
+    orientationResizePending = false;
+    resizeCanvas();
+  }, 120);
+});
+
 if (gammaSlider) {
   gammaSlider.addEventListener('input', (evt) => {
     const value = parseInt(evt.target.value, 10);

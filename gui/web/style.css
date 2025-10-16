@@ -61,6 +61,7 @@ body {
   right: 0;
   background: #111;
   overflow: hidden;
+  z-index: 0;
 }
 
 canvas {
@@ -71,6 +72,9 @@ canvas {
 
 #canvas {
   background: #111;
+  display: block;
+  position: relative;
+  z-index: 0;
 }
 
 #brushPreview {
@@ -78,6 +82,7 @@ canvas {
   inset: 0;
   pointer-events: none;
   background: transparent;
+  z-index: 2;
 }
 
 #dropOverlay {
@@ -96,6 +101,7 @@ canvas {
   transition: opacity 0.18s ease;
   backdrop-filter: blur(8px);
   -webkit-backdrop-filter: blur(8px);
+  z-index: 3;
 }
 
 #dropOverlay.drop-overlay--visible {
@@ -120,6 +126,7 @@ canvas {
   overflow-y: auto;
   overflow-x: hidden;
   overscroll-behavior: contain;
+  z-index: 5;
 }
 
 #imageInfo {
