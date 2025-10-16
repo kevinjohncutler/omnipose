@@ -728,8 +728,8 @@ const texCoords = new Float32Array([
 
   const baseTexture = gl.createTexture();
   gl.bindTexture(gl.TEXTURE_2D, baseTexture);
-  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
-  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
   gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
   gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
   if (imageSource) {
@@ -858,8 +858,8 @@ function updateOverlayTexture(kind, image) {
   }
   pipelineGl.activeTexture(pipelineGl.TEXTURE0 + texUnit);
   pipelineGl.bindTexture(pipelineGl.TEXTURE_2D, texture);
-  pipelineGl.texParameteri(pipelineGl.TEXTURE_2D, pipelineGl.TEXTURE_MIN_FILTER, pipelineGl.LINEAR);
-  pipelineGl.texParameteri(pipelineGl.TEXTURE_2D, pipelineGl.TEXTURE_MAG_FILTER, pipelineGl.LINEAR);
+  pipelineGl.texParameteri(pipelineGl.TEXTURE_2D, pipelineGl.TEXTURE_MIN_FILTER, pipelineGl.NEAREST);
+  pipelineGl.texParameteri(pipelineGl.TEXTURE_2D, pipelineGl.TEXTURE_MAG_FILTER, pipelineGl.NEAREST);
   pipelineGl.texParameteri(pipelineGl.TEXTURE_2D, pipelineGl.TEXTURE_WRAP_S, pipelineGl.CLAMP_TO_EDGE);
   pipelineGl.texParameteri(pipelineGl.TEXTURE_2D, pipelineGl.TEXTURE_WRAP_T, pipelineGl.CLAMP_TO_EDGE);
   pipelineGl.texImage2D(pipelineGl.TEXTURE_2D, 0, pipelineGl.RGBA8, image.width, image.height, 0, pipelineGl.RGBA, pipelineGl.UNSIGNED_BYTE, null);
