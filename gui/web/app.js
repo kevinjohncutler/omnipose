@@ -296,16 +296,16 @@ const AFFINITY_OVERLAY_COLOR = 'rgba(255, 255, 255, 1)';
 // Enable WebGL overlay for affinity graph rendering
 const USE_WEBGL_OVERLAY = true;
 // WebGL overlay quality controls (configurable via __OMNI_CONFIG__)
-const OVERLAY_MSAA_ENABLED = CONFIG.webglOverlayMsaa ?? true;
-const OVERLAY_MSAA_SAMPLES = Math.max(1, Math.min(CONFIG.webglOverlayMsaaSamples ?? 4, 16));
+const OVERLAY_MSAA_ENABLED = CONFIG.webglOverlayMsaa ?? false;
+const OVERLAY_MSAA_SAMPLES = Math.max(1, Math.min(CONFIG.webglOverlayMsaaSamples ?? 2, 8));
 const OVERLAY_FXAA_ENABLED = CONFIG.webglOverlayFxaa ?? false;
 const OVERLAY_TAA_ENABLED = CONFIG.webglOverlayTaa ?? false;
 const OVERLAY_TAA_BLEND = Math.max(0, Math.min(typeof CONFIG.webglOverlayTaaBlend === 'number' ? CONFIG.webglOverlayTaaBlend : 0.18, 1));
 const FXAA_SUBPIX = CONFIG.webglOverlayFxaaSubpixel ?? 0.75;
 const FXAA_EDGE_THRESHOLD = CONFIG.webglOverlayFxaaEdgeThreshold ?? 0.125;
 const FXAA_EDGE_THRESHOLD_MIN = CONFIG.webglOverlayFxaaEdgeThresholdMin ?? 1 / 12;
-const OVERLAY_PIXEL_FADE_CUTOFF = Math.max(0.0001, typeof CONFIG.webglOverlayPixelFadeCutoff === 'number' ? CONFIG.webglOverlayPixelFadeCutoff : 12);
-const OVERLAY_GENERATE_MIPS = CONFIG.webglOverlayGenerateMips ?? true;
+const OVERLAY_PIXEL_FADE_CUTOFF = Math.max(0.0001, typeof CONFIG.webglOverlayPixelFadeCutoff === 'number' ? CONFIG.webglOverlayPixelFadeCutoff : 10);
+const OVERLAY_GENERATE_MIPS = CONFIG.webglOverlayGenerateMips ?? false;
 const OVERLAY_CONTEXT_ATTRIBUTES = {
   antialias: true,
   premultipliedAlpha: true,
@@ -611,10 +611,12 @@ function markOutlineTextureFullDirty() {
 }
 
 function markMaskIndicesDirty(indices) {
-  if (!isWebglPipelineActive() || maskTextureFullDirty) {
-    if (isWebglPipelineActive()) {
-      needsMaskRedraw = true;
-    }
+  if (!isWebglPipelineActive()) {
+    redrawMaskCanvas();
+    return;
+  }
+  if (!indices || maskTextureFullDirty) {
+    markMaskTextureFullDirty();
     return;
   }
   const rect = rectFromIndices(indices);
@@ -632,10 +634,12 @@ function markMaskIndicesDirty(indices) {
 }
 
 function markOutlineIndicesDirty(indices) {
-  if (!isWebglPipelineActive() || outlineTextureFullDirty) {
-    if (isWebglPipelineActive()) {
-      needsMaskRedraw = true;
-    }
+  if (!isWebglPipelineActive()) {
+    redrawMaskCanvas();
+    return;
+  }
+  if (!indices || outlineTextureFullDirty) {
+    markOutlineTextureFullDirty();
     return;
   }
   const rect = rectFromIndices(indices);
@@ -1142,6 +1146,11 @@ function drawAffinityGraphShared(matrix) {
   const targetWidth = glCanvas ? glCanvas.width : canvas.width;
   const targetHeight = glCanvas ? glCanvas.height : canvas.height;
   overlayGl.viewport(0, 0, targetWidth, targetHeight);
+  if (!webglOverlay.shared) {
+    overlayGl.bindFramebuffer(overlayGl.FRAMEBUFFER, null);
+    overlayGl.clearColor(0, 0, 0, 0);
+    overlayGl.clear(overlayGl.COLOR_BUFFER_BIT);
+  }
   overlayGl.disable(overlayGl.DEPTH_TEST);
   overlayGl.lineWidth(1);
   overlayGl.useProgram(program);
@@ -1193,7 +1202,10 @@ function drawAffinityGraphShared(matrix) {
   overlayGl.disable(overlayGl.BLEND);
   overlayGl.bindBuffer(overlayGl.ARRAY_BUFFER, null);
   overlayGl.useProgram(null);
-  const finalAlpha = hasContent ? Math.max(0, Math.min(1, webglOverlay.displayAlpha || 0)) : 0;
+  let finalAlpha = hasContent ? Math.max(0, Math.min(1, webglOverlay.displayAlpha || 0)) : 0;
+  if (finalAlpha <= 0.001) {
+    finalAlpha = 0;
+  }
   if (webglOverlay.shared) {
     webglOverlay.displayAlpha = finalAlpha;
     return;
@@ -1237,6 +1249,20 @@ function clearWebglOverlaySurface() {
     return;
   }
   webglOverlay.displayAlpha = 0;
+  if (!webglOverlay.shared && webglOverlay.gl) {
+    const { gl } = webglOverlay;
+    const target = webglOverlay.canvas;
+    if (target) {
+      gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+      const w = target.width || gl.drawingBufferWidth || 0;
+      const h = target.height || gl.drawingBufferHeight || 0;
+      if (w > 0 && h > 0) {
+        gl.viewport(0, 0, w, h);
+        gl.clearColor(0, 0, 0, 0);
+        gl.clear(gl.COLOR_BUFFER_BIT);
+      }
+    }
+  }
   if (webglOverlay.canvas) {
     setOverlayCanvasVisibility(false, 0);
   }
@@ -2055,6 +2081,7 @@ const maskVisibility = document.getElementById('maskVisibility');
 const toolInfo = document.getElementById('toolInfo');
 const segmentButton = document.getElementById('segmentButton');
 const segmentStatus = document.getElementById('segmentStatus');
+const clearMasksButton = document.getElementById('clearMasksButton');
 const colorMode = document.getElementById('colorMode');
 const gammaInput = document.getElementById('gammaInput');
 const histogramCanvas = document.getElementById('histogram');
@@ -2485,6 +2512,18 @@ function applyHistoryEntry(entry, useAfter) {
   const values = useAfter ? entry.after : entry.before;
   const idxs = entry.indices;
   let sawPositive = maskHasNonZero;
+  if (!idxs) {
+    sawPositive = false;
+    for (let i = 0; i < maskValues.length; i += 1) {
+      const next = values[i] | 0;
+      maskValues[i] = next;
+      if (!sawPositive && next > 0) {
+        sawPositive = true;
+      }
+    }
+    maskHasNonZero = sawPositive;
+    return;
+  }
   for (let i = 0; i < idxs.length; i += 1) {
     const idx = idxs[i];
     const next = values[i];
@@ -2547,6 +2586,73 @@ function redo() {
   }
   draw();
   scheduleStateSave();
+}
+
+function hasAnyMaskPixels() {
+  if (maskHasNonZero) {
+    return true;
+  }
+  for (let i = 0; i < maskValues.length; i += 1) {
+    if ((maskValues[i] | 0) !== 0) {
+      return true;
+    }
+  }
+  return false;
+}
+
+const CLEAR_MASK_CONFIRM_MESSAGE = 'Clear all masks? This removes every mask label. You can undo (Cmd/Ctrl+Z) to restore.';
+
+function performClearMasks({ recordHistory = true } = {}) {
+  if (!maskValues || maskValues.length === 0) {
+    return false;
+  }
+  stopInteraction(null);
+  const hadPixels = hasAnyMaskPixels();
+  const shouldRecord = Boolean(recordHistory && hadPixels);
+  if (shouldRecord) {
+    const before = maskValues.slice();
+    const after = new Uint32Array(before.length);
+    pushHistory(null, before, after);
+  }
+  maskValues.fill(0);
+  maskHasNonZero = false;
+  outlineState.fill(0);
+  nColorActive = false;
+  nColorValues = null;
+  floodVisited = null;
+  floodStack = null;
+  floodOutput = null;
+  clearColorCaches();
+  clearAffinityGraphData();
+  if (webglOverlay && webglOverlay.enabled) {
+    webglOverlay.needsGeometryRebuild = true;
+  }
+  if (isWebglPipelineActive()) {
+    markMaskTextureFullDirty();
+    markOutlineTextureFullDirty();
+  } else {
+    redrawMaskCanvas();
+  }
+  draw();
+  drawBrushPreview(hoverPoint);
+  updateMaskLabel();
+  updateColorModeLabel();
+  log('Masks cleared');
+  scheduleStateSave();
+  return true;
+}
+
+function promptClearMasks({ skipConfirm = false } = {}) {
+  if (!skipConfirm && !hasAnyMaskPixels() && !nColorActive) {
+    return false;
+  }
+  if (!skipConfirm) {
+    const confirmed = window.confirm(CLEAR_MASK_CONFIRM_MESSAGE);
+    if (!confirmed) {
+      return false;
+    }
+  }
+  return performClearMasks({ recordHistory: true });
 }
 
 function collectBrushIndices(target, centerX, centerY) {
@@ -3194,6 +3300,7 @@ function collectViewerState() {
     affinitySegEnabled,
     showFlowOverlay,
     showDistanceOverlay,
+    showAffinityGraph: Boolean(showAffinityGraph),
     timestamp: Date.now(),
   };
 }
@@ -3279,6 +3386,15 @@ function restoreViewerState(saved) {
       showDistanceOverlay = saved.showDistanceOverlay;
       if (distanceOverlayToggle) distanceOverlayToggle.checked = showDistanceOverlay;
     }
+    if (typeof saved.showAffinityGraph === 'boolean') {
+      showAffinityGraph = saved.showAffinityGraph;
+      if (affinityGraphToggle) {
+        affinityGraphToggle.checked = showAffinityGraph;
+      }
+      if (!showAffinityGraph) {
+        clearWebglOverlaySurface();
+      }
+    }
     if (saved.nColorActive) {
       try {
         const decoded = saved.nColorValues ? uint32FromBase64(saved.nColorValues, maskValues.length) : null;
@@ -3307,6 +3423,13 @@ function restoreViewerState(saved) {
     if (distanceOverlayToggle) distanceOverlayToggle.checked = showDistanceOverlay;
   } finally {
     isRestoringState = false;
+  }
+  rebuildLocalAffinityGraph();
+  if (webglOverlay && webglOverlay.enabled) {
+    webglOverlay.needsGeometryRebuild = true;
+  }
+  if (!showAffinityGraph) {
+    clearWebglOverlaySurface();
   }
   needsMaskRedraw = true;
   applyMaskRedrawImmediate();
@@ -4523,12 +4646,9 @@ function clearAffinityGraphData() {
     webglOverlay.nextSlot = 0;
     webglOverlay.maxUsedSlotIndex = -1;
     if (webglOverlay.freeSlots) webglOverlay.freeSlots.length = 0;
-    if (!webglOverlay.shared && glCanvas) {
-      gl.viewport(0, 0, glCanvas.width, glCanvas.height);
-      gl.clear(gl.COLOR_BUFFER_BIT);
-    }
     webglOverlay.needsGeometryRebuild = true;
   }
+  clearWebglOverlaySurface();
 }
 
 function applyAffinityGraphPayload(payload) {
@@ -4798,6 +4918,7 @@ function rebuildOutlineFromAffinity() {
 
 function updateAffinityGraphForIndices(indices) {
   if (!indices || !indices.length) {
+    rebuildLocalAffinityGraph();
     return;
   }
   if (!affinityGraphInfo || !affinityGraphInfo.values || !affinityGraphInfo.stepCount) {
@@ -6750,6 +6871,11 @@ window.addEventListener('keydown', (evt) => {
     evt.preventDefault();
     return;
   }
+  if (modifier && !evt.altKey && key === 'x') {
+    evt.preventDefault();
+    promptClearMasks();
+    return;
+  }
   if (!modifier && !evt.altKey) {
     if (key === 'b') {
       setTool('brush');
@@ -6969,6 +7095,11 @@ if (segmentButton) {
     runSegmentation();
   });
 }
+if (clearMasksButton) {
+  clearMasksButton.addEventListener('click', () => {
+    promptClearMasks();
+  });
+}
 if (histogramCanvas) {
   histogramCanvas.addEventListener('pointerdown', handleHistogramPointerDown);
   histogramCanvas.addEventListener('pointermove', handleHistogramPointerMove);
@@ -7048,6 +7179,8 @@ if (affinityGraphToggle) {
       if (webglOverlay && webglOverlay.enabled) {
         webglOverlay.needsGeometryRebuild = true;
       }
+    } else {
+      clearWebglOverlaySurface();
     }
     draw();
     scheduleStateSave();
