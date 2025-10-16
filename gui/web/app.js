@@ -878,6 +878,29 @@ void main() {
 }
 `;
 
+const AFFINITY_LINE_VERTEX_SHADER = `#version 300 es
+layout (location = 0) in vec2 a_position;
+
+uniform mat3 u_matrix;
+
+void main() {
+  vec3 pos = u_matrix * vec3(a_position, 1.0);
+  gl_Position = vec4(pos.xy, 0.0, 1.0);
+}
+`;
+
+const AFFINITY_LINE_FRAGMENT_SHADER = `#version 300 es
+precision mediump float;
+
+uniform vec4 u_color;
+uniform float u_alpha;
+out vec4 outColor;
+
+void main() {
+  outColor = vec4(u_color.rgb, u_color.a * u_alpha);
+}
+`;
+
 function initializeWebglPipelineResources(imageSource) {
   if (!gl || webglPipelineReady || !webglPipelineRequested) {
     return;
@@ -987,6 +1010,33 @@ const texCoords = new Float32Array([
   gl.uniform1i(uniforms.distanceSampler, 4);
   gl.useProgram(null);
 
+  const affinityProgram = createWebglProgram(gl, AFFINITY_LINE_VERTEX_SHADER, AFFINITY_LINE_FRAGMENT_SHADER);
+  let affinityUniforms = null;
+  let affinityVAO = null;
+  let affinityBuffer = null;
+  if (affinityProgram) {
+    affinityUniforms = {
+      matrix: gl.getUniformLocation(affinityProgram, 'u_matrix'),
+      color: gl.getUniformLocation(affinityProgram, 'u_color'),
+      alpha: gl.getUniformLocation(affinityProgram, 'u_alpha'),
+    };
+    affinityVAO = gl.createVertexArray();
+    affinityBuffer = gl.createBuffer();
+    if (!affinityVAO || !affinityBuffer) {
+      if (affinityVAO) gl.deleteVertexArray(affinityVAO);
+      if (affinityBuffer) gl.deleteBuffer(affinityBuffer);
+      gl.deleteProgram(affinityProgram);
+      console.warn('Failed to initialize affinity line resources; disabling GPU affinity rendering.');
+    } else {
+      gl.bindVertexArray(affinityVAO);
+      gl.bindBuffer(gl.ARRAY_BUFFER, affinityBuffer);
+      gl.enableVertexAttribArray(0);
+      gl.vertexAttribPointer(0, 2, gl.FLOAT, false, 0, 0);
+      gl.bindVertexArray(null);
+      gl.bindBuffer(gl.ARRAY_BUFFER, null);
+    }
+  }
+
   webglPipeline = {
     gl,
     program,
@@ -1003,7 +1053,21 @@ const texCoords = new Float32Array([
     matrixCache: new Float32Array(9),
     maskScratch: null,
     outlineScratch: null,
+    affinityProgram: affinityProgram && affinityVAO && affinityBuffer ? affinityProgram : null,
+    affinityUniforms: affinityProgram && affinityVAO && affinityBuffer ? affinityUniforms : null,
+    affinity: affinityProgram && affinityVAO && affinityBuffer ? {
+      vao: affinityVAO,
+      buffer: affinityBuffer,
+      vertexCount: 0,
+    } : null,
   };
+  if (!webglPipeline.affinityProgram) {
+    if (affinityProgram && (!affinityVAO || !affinityBuffer)) {
+      // Program already deleted above; nothing to do.
+    } else if (affinityProgram && webglPipeline.affinityProgram === null) {
+      gl.deleteProgram(affinityProgram);
+    }
+  }
   webglPipelineReady = true;
   markMaskTextureFullDirty();
   markOutlineTextureFullDirty();
@@ -1014,6 +1078,7 @@ const texCoords = new Float32Array([
   if (distanceOverlayImage && distanceOverlayImage.complete) {
     updateOverlayTexture('distance', distanceOverlayImage);
   }
+  affinityGeometryDirty = true;
 }
 
 function uploadBaseTextureFromCanvas() {
@@ -1026,6 +1091,109 @@ function uploadBaseTextureFromCanvas() {
   pipelineGl.texSubImage2D(pipelineGl.TEXTURE_2D, 0, 0, 0, pipelineGl.RGBA, pipelineGl.UNSIGNED_BYTE, offscreen);
   pipelineGl.pixelStorei(pipelineGl.UNPACK_FLIP_Y_WEBGL, false);
   pipelineGl.bindTexture(pipelineGl.TEXTURE_2D, null);
+}
+
+function computeAffinityAlpha() {
+  if (!showAffinityGraph || !affinityGraphInfo || !affinityGraphInfo.values) {
+    return 0;
+  }
+  const scale = Math.max(0.0001, Number(viewState && viewState.scale ? viewState.scale : 1.0));
+  const minStep = minAffinityStepLength > 0 ? minAffinityStepLength : 1.0;
+  const minEdgePx = Math.max(0, scale * minStep);
+  const dprSafe = Number.isFinite(dpr) && dpr > 0 ? dpr : 1;
+  const cutoff = OVERLAY_PIXEL_FADE_CUTOFF * dprSafe;
+  const t = cutoff <= 0 ? 1 : Math.max(0, Math.min(1, minEdgePx / cutoff));
+  return Math.max(0, Math.min(1, t * t * (3 - 2 * t)));
+}
+
+function rebuildAffinityGeometry(gl) {
+  if (!webglPipeline || !webglPipeline.affinity || !webglPipeline.affinity.buffer) {
+    return;
+  }
+  if (!affinityGeometryDirty) {
+    return;
+  }
+  affinityGeometryDirty = false;
+  const affinity = webglPipeline.affinity;
+  if (!showAffinityGraph || !affinityGraphInfo || !affinityGraphInfo.values) {
+    gl.bindBuffer(gl.ARRAY_BUFFER, affinity.buffer);
+    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(0), gl.STATIC_DRAW);
+    gl.bindBuffer(gl.ARRAY_BUFFER, null);
+    affinity.vertexCount = 0;
+    return;
+  }
+  if (!affinityGraphInfo.segments) {
+    buildAffinityGraphSegments();
+  }
+  const segments = affinityGraphInfo.segments;
+  if (!segments) {
+    gl.bindBuffer(gl.ARRAY_BUFFER, affinity.buffer);
+    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(0), gl.STATIC_DRAW);
+    gl.bindBuffer(gl.ARRAY_BUFFER, null);
+    affinity.vertexCount = 0;
+    return;
+  }
+  let totalEdges = 0;
+  for (let i = 0; i < segments.length; i += 1) {
+    const seg = segments[i];
+    if (seg && seg.map && seg.map.size) {
+      totalEdges += seg.map.size;
+    }
+  }
+  if (totalEdges === 0) {
+    gl.bindBuffer(gl.ARRAY_BUFFER, affinity.buffer);
+    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(0), gl.STATIC_DRAW);
+    gl.bindBuffer(gl.ARRAY_BUFFER, null);
+    affinity.vertexCount = 0;
+    return;
+  }
+  const data = new Float32Array(totalEdges * 4);
+  let offset = 0;
+  for (let i = 0; i < segments.length; i += 1) {
+    const seg = segments[i];
+    if (!seg || !seg.map) continue;
+    seg.map.forEach((coords) => {
+      data[offset + 0] = coords[0];
+      data[offset + 1] = coords[1];
+      data[offset + 2] = coords[2];
+      data[offset + 3] = coords[3];
+      offset += 4;
+    });
+  }
+  gl.bindBuffer(gl.ARRAY_BUFFER, affinity.buffer);
+  gl.bufferData(gl.ARRAY_BUFFER, data, gl.DYNAMIC_DRAW);
+  gl.bindBuffer(gl.ARRAY_BUFFER, null);
+  affinity.vertexCount = totalEdges * 2;
+}
+
+function drawAffinityLines(matrix) {
+  if (!webglPipeline || !webglPipeline.affinityProgram || !webglPipeline.affinityUniforms || !webglPipeline.affinity) {
+    return;
+  }
+  if (!showAffinityGraph || !affinityGraphInfo || !affinityGraphInfo.values) {
+    return;
+  }
+  const alpha = computeAffinityAlpha();
+  if (alpha <= 0) {
+    return;
+  }
+  const { gl, affinityProgram, affinityUniforms, affinity } = webglPipeline;
+  rebuildAffinityGeometry(gl);
+  if (!affinity.vertexCount || affinity.vertexCount <= 0) {
+    return;
+  }
+  gl.useProgram(affinityProgram);
+  gl.uniformMatrix3fv(affinityUniforms.matrix, false, matrix);
+  const rgba = parseCssColorToRgba(AFFINITY_OVERLAY_COLOR, AFFINITY_LINE_ALPHA);
+  gl.uniform4f(affinityUniforms.color, rgba[0], rgba[1], rgba[2], rgba[3]);
+  gl.uniform1f(affinityUniforms.alpha, alpha);
+  gl.bindVertexArray(affinity.vao);
+  gl.enable(gl.BLEND);
+  gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
+  gl.drawArrays(gl.LINES, 0, affinity.vertexCount);
+  gl.disable(gl.BLEND);
+  gl.bindVertexArray(null);
+  gl.useProgram(null);
 }
 
 function updateOverlayTexture(kind, image) {
@@ -1111,7 +1279,7 @@ function drawWebglFrame() {
 
   pipelineGl.bindVertexArray(null);
   pipelineGl.useProgram(null);
-  drawAffinityGraphShared(matrix);
+  drawAffinityLines(matrix);
 }
 
 function drawAffinityGraphShared(matrix) {
@@ -1224,6 +1392,12 @@ function getOverlayCanvasElement() {
     return null;
   }
   return webglOverlay.canvas || null;
+}
+
+let affinityGeometryDirty = true;
+
+function markAffinityGeometryDirty() {
+  affinityGeometryDirty = true;
 }
 
 function setOverlayCanvasVisibility(visible, alpha = 1) {
@@ -2588,6 +2762,7 @@ function redo() {
   scheduleStateSave();
 }
 
+
 function hasAnyMaskPixels() {
   if (maskHasNonZero) {
     return true;
@@ -2627,6 +2802,7 @@ function performClearMasks({ recordHistory = true } = {}) {
   if (webglOverlay && webglOverlay.enabled) {
     webglOverlay.needsGeometryRebuild = true;
   }
+  markAffinityGeometryDirty();
   if (isWebglPipelineActive()) {
     markMaskTextureFullDirty();
     markOutlineTextureFullDirty();
@@ -2875,6 +3051,7 @@ function finalizeStroke() {
   if (webglOverlay && webglOverlay.enabled) {
     webglOverlay.needsGeometryRebuild = true;
   }
+  markAffinityGeometryDirty();
   if (isWebglPipelineActive()) {
     markMaskIndicesDirty(indices);
   }
@@ -4649,6 +4826,7 @@ function clearAffinityGraphData() {
     webglOverlay.needsGeometryRebuild = true;
   }
   clearWebglOverlaySurface();
+  markAffinityGeometryDirty();
 }
 
 function applyAffinityGraphPayload(payload) {
@@ -4785,6 +4963,7 @@ function rebuildLocalAffinityGraph() {
   }
   affinityGraphNeedsLocalRebuild = false;
   affinityGraphSource = 'local';
+  markAffinityGeometryDirty();
 }
 
 function buildAffinityGraphSegments() {
@@ -4823,6 +5002,7 @@ function buildAffinityGraphSegments() {
     };
   }
   affinityGraphInfo.segments = segments;
+  markAffinityGeometryDirty();
 }
 
 function clearOutline() {
@@ -5087,11 +5267,13 @@ function updateAffinityGraphForIndices(indices) {
   }
   affinityGraphNeedsLocalRebuild = false;
   updateOutlineForIndices(outlineUpdateSet);
+  markAffinityGeometryDirty();
 }
 function markAffinityGraphStale() {
   affinityGraphInfo = null;
   affinityGraphNeedsLocalRebuild = true;
   affinityGraphSource = 'local';
+  markAffinityGeometryDirty();
 }
 
 function shouldLogDraw() {
@@ -5376,14 +5558,36 @@ async function relabelFromAffinity() {
 }
 
 function drawAffinityGraphOverlay() {
-  if (!ensureWebglOverlayReady() || !webglOverlay || !webglOverlay.enabled) {
+  if (!ctx || !showAffinityGraph || !affinityGraphInfo || !affinityGraphInfo.values) {
     return;
   }
-  const glCanvas = webglOverlay.canvas || canvas;
-  const targetWidth = glCanvas ? glCanvas.width : canvas.width;
-  const targetHeight = glCanvas ? glCanvas.height : canvas.height;
-  const matrix = computeWebglMatrix(webglOverlay.matrixCache, targetWidth, targetHeight);
-  drawAffinityGraphShared(matrix);
+  const alpha = computeAffinityAlpha();
+  if (alpha <= 0) {
+    return;
+  }
+  if (!affinityGraphInfo.segments) {
+    buildAffinityGraphSegments();
+  }
+  const segments = affinityGraphInfo.segments;
+  if (!segments) {
+    return;
+  }
+  ctx.save();
+  applyViewTransform(ctx, { includeDpr: true });
+  ctx.globalAlpha = alpha;
+  ctx.lineWidth = 1;
+  ctx.strokeStyle = AFFINITY_OVERLAY_COLOR;
+  ctx.beginPath();
+  for (let i = 0; i < segments.length; i += 1) {
+    const seg = segments[i];
+    if (!seg || !seg.map) continue;
+    seg.map.forEach((coords) => {
+      ctx.moveTo(coords[0], coords[1]);
+      ctx.lineTo(coords[2], coords[3]);
+    });
+  }
+  ctx.stroke();
+  ctx.restore();
 }
 
 function getPointerPosition(evt) {
@@ -7182,6 +7386,7 @@ if (affinityGraphToggle) {
     } else {
       clearWebglOverlaySurface();
     }
+    markAffinityGeometryDirty();
     draw();
     scheduleStateSave();
   });

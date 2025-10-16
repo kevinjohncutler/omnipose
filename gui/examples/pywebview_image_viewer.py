@@ -2,8 +2,7 @@
 # two finger tap to home?
 
 # drag bar to hid show panel, mayeb expand it
-# issue: affinity graph shows up above the UI panel, and it should nbe underneath it. in ipad, there is some rally bad chosting of the affinity grapbh that causes doubling and lag. when toggled off, tha affinityg raph even stays in place like a ghost (this happen on all platforms). When screen torates, it even gets stetched. use this to figure out what settigns will maintain compatibiloty and performance  cross-platfrom. 
-
+# aslo the lines of the affinity graph are sitll pretty alisased despite being antialiased with msaa I think. what other options do we have to smooth them? 
 from __future__ import annotations
 
 import argparse
