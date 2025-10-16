@@ -4,6 +4,15 @@ const imgHeight = CONFIG.height || 0;
 const imageDataUrl = CONFIG.imageDataUrl || '';
 const colorTable = CONFIG.colorTable || [];
 const initialBrushRadius = CONFIG.brushRadius ?? 6;
+const sessionId = CONFIG.sessionId || null;
+const currentImagePath = CONFIG.imagePath || null;
+const currentImageName = CONFIG.imageName || null;
+const directoryEntries = Array.isArray(CONFIG.directoryEntries) ? CONFIG.directoryEntries : [];
+const directoryIndex = typeof CONFIG.directoryIndex === 'number' ? CONFIG.directoryIndex : null;
+const directoryPath = CONFIG.directoryPath || null;
+const savedViewerState = CONFIG.savedViewerState || null;
+const hasPrevImage = Boolean(CONFIG.hasPrev);
+const hasNextImage = Boolean(CONFIG.hasNext);
 let defaultPalette = [];
 let nColorPalette = [];
 
@@ -159,6 +168,7 @@ if (canvas && !gl) {
   ctx = canvas.getContext('2d');
 }
 const viewer = document.getElementById('viewer');
+const dropOverlay = document.getElementById('dropOverlay');
 const dpr = window.devicePixelRatio || 1;
 const rootStyle = window.getComputedStyle(document.documentElement);
 const sidebarWidthRaw = rootStyle.getPropertyValue('--sidebar-width');
@@ -252,6 +262,11 @@ let floodOutput = null;
 // Outline state bitmap (1 = boundary), used to modulate per-pixel alpha in mask rendering
 const outlineState = new Uint8Array(maskValues.length);
 let outlinesVisible = true; // future UI toggle can control this
+let stateSaveTimer = null;
+let stateDirty = false;
+let viewStateDirty = false;
+let isRestoringState = false;
+const imageInfo = document.getElementById('imageInfo');
 let webglPipeline = null;
 let webglPipelineReady = false;
 const maskDirtyRegions = [];
@@ -360,6 +375,178 @@ function applyMaskRedrawImmediate() {
   }
   needsMaskRedraw = false;
 }
+
+function scheduleStateSave(delay = 600) {
+  if (!sessionId || isRestoringState) {
+    return;
+  }
+  stateDirty = true;
+  if (stateSaveTimer) {
+    clearTimeout(stateSaveTimer);
+  }
+  stateSaveTimer = setTimeout(() => {
+    stateSaveTimer = null;
+    saveViewerState().catch((err) => {
+      console.warn('saveViewerState failed', err);
+    });
+  }, Math.max(150, delay | 0));
+}
+
+async function saveViewerState({ immediate = false } = {}) {
+  if (!sessionId) {
+    return false;
+  }
+  if (!stateDirty && !immediate) {
+    return true;
+  }
+  const viewerState = collectViewerState();
+  const payload = {
+    sessionId,
+    imagePath: currentImagePath,
+    viewerState,
+  };
+  const body = JSON.stringify(payload);
+  try {
+    if (immediate && typeof navigator !== 'undefined' && navigator.sendBeacon) {
+      const blob = new Blob([body], { type: 'application/json' });
+      navigator.sendBeacon('/api/save_state', blob);
+      stateDirty = false;
+      return true;
+    }
+    const response = await fetch('/api/save_state', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body,
+      keepalive: immediate,
+    });
+    if (!response.ok) {
+      throw new Error('HTTP ' + response.status);
+    }
+    stateDirty = false;
+    return true;
+  } catch (err) {
+    if (!immediate) {
+      stateDirty = true;
+    }
+    throw err;
+  }
+}
+
+async function requestImageChange({ path = null, direction = null } = {}) {
+  if (!sessionId) {
+    console.warn('Session not initialized; cannot change image');
+    return;
+  }
+  const payload = { sessionId };
+  if (typeof path === 'string' && path) {
+    payload.path = path;
+  }
+  if (typeof direction === 'string' && direction) {
+    payload.direction = direction;
+  }
+  await saveViewerState({ immediate: true }).catch(() => {});
+  try {
+    const response = await fetch('/api/open_image', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    if (!response.ok) {
+      const message = await response.text().catch(() => 'unknown');
+      console.warn('open_image failed', response.status, message);
+      return;
+    }
+    const result = await response.json().catch(() => ({}));
+    if (result && result.ok) {
+      window.location.reload();
+    } else if (result && result.error) {
+      console.warn('open_image error', result.error);
+    }
+  } catch (err) {
+    console.warn('open_image request failed', err);
+  }
+}
+
+async function openImageByPath(path) {
+  if (!path) {
+    console.warn('No path provided for openImageByPath');
+    return;
+  }
+  await requestImageChange({ path });
+}
+
+async function navigateDirectory(delta) {
+  if (delta === 0) {
+    return;
+  }
+  const direction = delta > 0 ? 'next' : 'prev';
+  await requestImageChange({ direction });
+}
+
+function setupDragAndDrop() {
+  if (!viewer || !dropOverlay || !sessionId) {
+    return;
+  }
+  let dragDepth = 0;
+
+  const showOverlay = () => {
+    if (!dropOverlay) return;
+    dropOverlay.classList.add('drop-overlay--visible');
+  };
+
+  const hideOverlay = () => {
+    dragDepth = 0;
+    if (!dropOverlay) return;
+    dropOverlay.classList.remove('drop-overlay--visible');
+  };
+
+  viewer.addEventListener('dragenter', (evt) => {
+    evt.preventDefault();
+    dragDepth += 1;
+    showOverlay();
+  });
+
+  viewer.addEventListener('dragover', (evt) => {
+    evt.preventDefault();
+    evt.dataTransfer.dropEffect = 'copy';
+  });
+
+  viewer.addEventListener('dragleave', (evt) => {
+    evt.preventDefault();
+    dragDepth = Math.max(0, dragDepth - 1);
+    if (dragDepth === 0) {
+      hideOverlay();
+    }
+  });
+
+  viewer.addEventListener('drop', async (evt) => {
+    evt.preventDefault();
+    hideOverlay();
+    const files = evt.dataTransfer && evt.dataTransfer.files;
+    if (!files || files.length === 0) {
+      return;
+    }
+    const file = files[0];
+    if (file && typeof file.path === 'string') {
+      await openImageByPath(file.path);
+    } else if (file && file.webkitRelativePath) {
+      await openImageByPath(file.webkitRelativePath);
+    } else {
+      console.warn('Dropped file has no accessible path; drag-and-drop requires file path support.');
+    }
+  });
+
+  window.addEventListener('dragover', (evt) => {
+    evt.preventDefault();
+  });
+  window.addEventListener('drop', (evt) => {
+    evt.preventDefault();
+    if (!viewer.contains(evt.target)) {
+      hideOverlay();
+    }
+  });
+}
+
 
 function rectFromIndices(indices) {
   if (!indices) {
@@ -2035,6 +2222,21 @@ function updateToolInfo() {
   toolInfo.textContent = 'Tool: ' + description;
 }
 
+function updateImageInfo() {
+  if (!imageInfo) {
+    return;
+  }
+  if (currentImageName) {
+    if (directoryPath) {
+      imageInfo.textContent = currentImageName + ' — ' + directoryPath;
+    } else {
+      imageInfo.textContent = currentImageName;
+    }
+  } else {
+    imageInfo.textContent = 'Sample Image';
+  }
+}
+
 function startEraseOverride() {
   if (eraseActive) {
     return;
@@ -2090,6 +2292,7 @@ function setBrushDiameter(nextDiameter, fromUser = false) {
   log('brush size set to ' + brushDiameter);
   if (fromUser) {
     setTool('brush');
+    scheduleStateSave();
   }
   refreshSlider('brushSizeSlider');
   drawBrushPreview(hoverPoint);
@@ -2124,6 +2327,7 @@ function setMaskOpacity(value, { silent = false } = {}) {
       redrawMaskCanvas();
     }
     draw();
+    scheduleStateSave();
   }
 }
 
@@ -2156,6 +2360,7 @@ function setMaskThreshold(value, { silent = false } = {}) {
   syncMaskThresholdControls();
   if (!silent) {
     scheduleMaskRebuild({ interactive: true });
+    scheduleStateSave();
   }
 }
 
@@ -2188,6 +2393,7 @@ function setFlowThreshold(value, { silent = false } = {}) {
   syncFlowThresholdControls();
   if (!silent) {
     scheduleMaskRebuild({ interactive: true });
+    scheduleStateSave();
   }
 }
 
@@ -2202,6 +2408,7 @@ function setClusterEnabled(value, { silent = false } = {}) {
   }
   if (!silent) {
     scheduleMaskRebuild();
+    scheduleStateSave();
   }
 }
 
@@ -2216,6 +2423,7 @@ function setAffinitySegEnabled(value, { silent = false } = {}) {
   }
   if (!silent) {
     scheduleMaskRebuild();
+    scheduleStateSave();
   }
 }
 
@@ -2233,6 +2441,7 @@ function setImageVisible(value, { silent = false } = {}) {
   }
   if (!silent) {
     draw();
+    scheduleStateSave();
   }
 }
 
@@ -2289,6 +2498,7 @@ function undo() {
     redrawMaskCanvas();
   }
   draw();
+  scheduleStateSave();
 }
 
 function redo() {
@@ -2308,6 +2518,7 @@ function redo() {
     redrawMaskCanvas();
   }
   draw();
+  scheduleStateSave();
 }
 
 function collectBrushIndices(target, centerX, centerY) {
@@ -2501,6 +2712,7 @@ function paintStroke(point) {
     clearColorCaches();
     needsMaskRedraw = true;
     requestPaintFrame();
+    scheduleStateSave();
     // Keep currentLabel unchanged; maskValues already reflects the selected mode's label space.
   }
   lastPaintPoint = { x: point.x, y: point.y };
@@ -2533,6 +2745,7 @@ function finalizeStroke() {
     markMaskIndicesDirty(indices);
   }
   draw();
+  scheduleStateSave();
   // Apply any queued segmentation result that arrived during the stroke, otherwise run any pending rebuild
   if (pendingSegmentationPayload) {
     const queued = pendingSegmentationPayload;
@@ -2767,6 +2980,7 @@ function floodFill(point) {
   needsMaskRedraw = true;
   applyMaskRedrawImmediate();
   draw();
+  scheduleStateSave();
   // Do not change currentLabel here; display coloring comes from nColor.
 }
 
@@ -2845,6 +3059,232 @@ function decodeBase64ToUint8(encoded) {
     bytes[i] = binary.charCodeAt(i);
   }
   return bytes;
+}
+
+function base64FromUint32(array) {
+  if (!array || array.length === 0) {
+    return '';
+  }
+  const bytes = new Uint8Array(array.buffer, array.byteOffset, array.byteLength);
+  return base64FromUint8(bytes);
+}
+
+function uint32FromBase64(encoded, expectedLength = null) {
+  const bytes = decodeBase64ToUint8(encoded);
+  if (bytes.length % 4 !== 0) {
+    throw new Error('uint32FromBase64 length mismatch');
+  }
+  const view = new Uint32Array(bytes.buffer, bytes.byteOffset, bytes.byteLength / 4);
+  if (typeof expectedLength === 'number' && expectedLength > 0 && view.length !== expectedLength) {
+    const copy = new Uint32Array(expectedLength);
+    copy.set(view.subarray(0, Math.min(view.length, expectedLength)));
+    return copy;
+  }
+  return view;
+}
+
+function base64FromUint8Array(array) {
+  if (!array || array.length === 0) {
+    return '';
+  }
+  return base64FromUint8(array instanceof Uint8Array ? array : new Uint8Array(array.buffer));
+}
+
+function serializeHistoryEntry(entry) {
+  if (!entry) return null;
+  return {
+    indices: base64FromUint32(entry.indices || new Uint32Array()),
+    before: base64FromUint32(entry.before || new Uint32Array()),
+    after: base64FromUint32(entry.after || new Uint32Array()),
+  };
+}
+
+function deserializeHistoryEntry(serialized, expectedLength) {
+  if (!serialized) return null;
+  return {
+    indices: uint32FromBase64(serialized.indices || '', expectedLength),
+    before: uint32FromBase64(serialized.before || ''),
+    after: uint32FromBase64(serialized.after || ''),
+  };
+}
+
+function serializeHistoryStack(stack, limit = HISTORY_LIMIT) {
+  if (!Array.isArray(stack)) {
+    return [];
+  }
+  const start = Math.max(0, stack.length - limit);
+  const result = [];
+  for (let i = start; i < stack.length; i += 1) {
+    const serialized = serializeHistoryEntry(stack[i]);
+    if (serialized) {
+      result.push(serialized);
+    }
+  }
+  return result;
+}
+
+function deserializeHistoryStack(serialized, target, expectedLength = maskValues.length) {
+  if (!Array.isArray(serialized) || !target) {
+    return;
+  }
+  target.length = 0;
+  const start = Math.max(0, serialized.length - HISTORY_LIMIT);
+  for (let i = start; i < serialized.length; i += 1) {
+    const entry = deserializeHistoryEntry(serialized[i], expectedLength);
+    if (entry) {
+      target.push(entry);
+    }
+  }
+}
+
+function collectViewerState() {
+  return {
+    width: imgWidth,
+    height: imgHeight,
+    mask: base64FromUint32(maskValues),
+    maskHasNonZero: Boolean(maskHasNonZero),
+    outline: base64FromUint8Array(outlineState),
+    undoStack: serializeHistoryStack(undoStack),
+    redoStack: serializeHistoryStack(redoStack),
+    currentLabel,
+    maskOpacity,
+    maskThreshold,
+    flowThreshold,
+    viewState: {
+      scale: viewState.scale,
+      offsetX: viewState.offsetX,
+      offsetY: viewState.offsetY,
+      rotation: viewState.rotation,
+    },
+    tool,
+    brushDiameter,
+    maskVisible,
+    imageVisible,
+    nColorActive,
+    nColorValues: nColorActive && nColorValues ? base64FromUint32(nColorValues) : null,
+    clusterEnabled,
+    affinitySegEnabled,
+    showFlowOverlay,
+    showDistanceOverlay,
+    timestamp: Date.now(),
+  };
+}
+
+function restoreViewerState(saved) {
+  if (!saved || typeof saved !== 'object') {
+    return;
+  }
+  isRestoringState = true;
+  try {
+    const expectedLength = maskValues.length;
+    if (saved.mask) {
+      const restoredMask = uint32FromBase64(saved.mask, expectedLength);
+      maskValues.set(restoredMask.subarray(0, expectedLength));
+      maskHasNonZero = Boolean(saved.maskHasNonZero);
+    } else {
+      maskValues.fill(0);
+      maskHasNonZero = false;
+    }
+    if (saved.outline) {
+      const outlineBytes = decodeBase64ToUint8(saved.outline);
+      if (outlineBytes.length === outlineState.length) {
+        outlineState.set(outlineBytes);
+      } else {
+        outlineState.fill(0);
+      }
+    } else {
+      outlineState.fill(0);
+    }
+    deserializeHistoryStack(saved.undoStack, undoStack, expectedLength);
+    deserializeHistoryStack(saved.redoStack, redoStack, expectedLength);
+    if (typeof saved.currentLabel === 'number') {
+      currentLabel = saved.currentLabel;
+      updateMaskLabel();
+    }
+    if (typeof saved.maskOpacity === 'number') {
+      maskOpacity = saved.maskOpacity;
+      syncMaskOpacityControls();
+      updateMaskOpacityLabel();
+    }
+    if (typeof saved.maskThreshold === 'number') {
+      maskThreshold = saved.maskThreshold;
+      syncMaskThresholdControls();
+    }
+    if (typeof saved.flowThreshold === 'number') {
+      flowThreshold = saved.flowThreshold;
+      syncFlowThresholdControls();
+    }
+    if (saved.viewState) {
+      const vs = saved.viewState;
+      if (typeof vs.scale === 'number') viewState.scale = vs.scale;
+      if (typeof vs.offsetX === 'number') viewState.offsetX = vs.offsetX;
+      if (typeof vs.offsetY === 'number') viewState.offsetY = vs.offsetY;
+      if (typeof vs.rotation === 'number') viewState.rotation = vs.rotation;
+    }
+    if (typeof saved.brushDiameter === 'number') {
+      setBrushDiameter(saved.brushDiameter, false);
+    }
+    if (typeof saved.tool === 'string') {
+      setTool(saved.tool);
+    }
+    if (typeof saved.maskVisible === 'boolean') {
+      maskVisible = saved.maskVisible;
+      if (maskVisibilityToggle) {
+        maskVisibilityToggle.checked = maskVisible;
+      }
+      updateMaskVisibilityLabel();
+    }
+    if (typeof saved.imageVisible === 'boolean') {
+      setImageVisible(saved.imageVisible, { silent: true });
+    }
+    if (typeof saved.clusterEnabled === 'boolean') {
+      setClusterEnabled(saved.clusterEnabled, { silent: true });
+    }
+    if (typeof saved.affinitySegEnabled === 'boolean') {
+      setAffinitySegEnabled(saved.affinitySegEnabled, { silent: true });
+    }
+    if (typeof saved.showFlowOverlay === 'boolean') {
+      showFlowOverlay = saved.showFlowOverlay;
+      if (flowOverlayToggle) flowOverlayToggle.checked = showFlowOverlay;
+    }
+    if (typeof saved.showDistanceOverlay === 'boolean') {
+      showDistanceOverlay = saved.showDistanceOverlay;
+      if (distanceOverlayToggle) distanceOverlayToggle.checked = showDistanceOverlay;
+    }
+    if (saved.nColorActive) {
+      try {
+        const decoded = saved.nColorValues ? uint32FromBase64(saved.nColorValues, maskValues.length) : null;
+        if (decoded && decoded.length === maskValues.length) {
+          nColorValues = decoded;
+          nColorActive = true;
+        } else {
+          nColorActive = false;
+          nColorValues = null;
+        }
+      } catch (err) {
+        console.warn('Failed to restore nColor state', err);
+        nColorActive = false;
+        nColorValues = null;
+      }
+    } else {
+      nColorActive = false;
+      nColorValues = null;
+    }
+    updateColorModeLabel();
+    updateMaskLabel();
+    updateMaskVisibilityLabel();
+    updateToolInfo();
+    updateBrushControls();
+    if (flowOverlayToggle) flowOverlayToggle.checked = showFlowOverlay;
+    if (distanceOverlayToggle) distanceOverlayToggle.checked = showDistanceOverlay;
+  } finally {
+    isRestoringState = false;
+  }
+  needsMaskRedraw = true;
+  applyMaskRedrawImmediate();
+  draw();
+  stateDirty = false;
+  updateImageInfo();
 }
 
 function refreshOppositeStepMapping() {
@@ -4537,6 +4977,7 @@ function setOffsetForImagePoint(imagePoint, canvasPoint) {
   const rotatedY = scaledX * sin + scaledY * cos;
   viewState.offsetX = canvasPoint.x - rotatedX;
   viewState.offsetY = canvasPoint.y - rotatedY;
+  viewStateDirty = true;
 }
 
 function normalizeAngleDelta(delta) {
@@ -4579,6 +5020,7 @@ function rotateView(deltaRadians) {
   autoFitPending = false;
   draw();
   drawBrushPreview(hoverPoint);
+  viewStateDirty = true;
   // Briefly show dot cursor for keyboard rotation
   setCursorTemporary(dotCursorCss, 700);
   // Show a simple dot cursor briefly
@@ -4655,6 +5097,11 @@ function draw() {
     }
     loggedPixelSample = true;
     hideLoadingOverlay();
+  }
+
+  if (viewStateDirty) {
+    viewStateDirty = false;
+    scheduleStateSave(800);
   }
 }
 
@@ -4930,6 +5377,7 @@ function resetView() {
   } else {
     drawBrushPreview(null);
   }
+  viewStateDirty = true;
 }
 
 function clampGammaValue(value) {
@@ -5376,6 +5824,7 @@ function toggleColorMode() {
       updateMaskLabel();
       updateColorModeLabel();
       draw();
+      scheduleStateSave();
     });
     return;
   }
@@ -5412,6 +5861,7 @@ function toggleColorMode() {
       updateMaskLabel();
       updateColorModeLabel();
       draw();
+      scheduleStateSave();
     })
     .catch((err) => {
       console.warn('N-color OFF relabel failed', err);
@@ -5421,12 +5871,19 @@ function toggleColorMode() {
 // buildLinksFromCurrentGraph removed: we keep a single connectivity source based on raw labels only
 
 function getSegmentationSettingsPayload() {
-  return {
+  const payload = {
     mask_threshold: Number(maskThreshold.toFixed(2)),
     flow_threshold: Number(flowThreshold.toFixed(2)),
     cluster: Boolean(clusterEnabled),
     affinity_seg: Boolean(affinitySegEnabled),
   };
+  if (sessionId) {
+    payload.sessionId = sessionId;
+  }
+  if (currentImagePath) {
+    payload.image_path = currentImagePath;
+  }
+  return payload;
 }
 
 const overlayUpdateThrottleMs = 140;
@@ -5764,6 +6221,7 @@ function applySegmentationMask(payload) {
   if (!changed) {
     log('mask update returned identical data');
   }
+  scheduleStateSave();
 }
 
 async function requestSegmentation() {
@@ -6007,6 +6465,7 @@ canvas.addEventListener('pointermove', (evt) => {
             nextScale = pinchState.startScale;
           }
           viewState.scale = nextScale;
+          viewStateDirty = true;
           if (pointerState.options.touch.enableRotate) {
             const angle = Math.atan2(dy, dx);
             const delta = normalizeAngleDelta(angle - pinchState.startAngle);
@@ -6022,6 +6481,7 @@ canvas.addEventListener('pointermove', (evt) => {
               : pinchState.startRotation;
             if (applyRotation) {
               log('pinch rotation applied delta=' + rotationDegrees.toFixed(2) + ' deg total=' + (viewState.rotation * RAD_TO_DEG).toFixed(2));
+              viewStateDirty = true;
             }
           }
           const midpoint = {
@@ -6052,6 +6512,7 @@ canvas.addEventListener('pointermove', (evt) => {
       updateHoverInfo(null);
       evt.preventDefault();
       setCursorHold(dotCursorCss);
+      viewStateDirty = true;
       return;
     }
   }
@@ -6099,6 +6560,7 @@ canvas.addEventListener('pointermove', (evt) => {
   lastPoint = pointer;
   draw();
   updateHoverInfo(screenToImage(pointer));
+  viewStateDirty = true;
   if (isPanning) {
     setCursorHold(dotCursorCss);
   }
@@ -6236,6 +6698,18 @@ window.addEventListener('keydown', (evt) => {
     evt.preventDefault();
     return;
   }
+  if (!modifier && !evt.altKey && !evt.repeat) {
+    if (key === 'w' && hasPrevImage) {
+      evt.preventDefault();
+      navigateDirectory(-1);
+      return;
+    }
+    if (key === 's' && hasNextImage) {
+      evt.preventDefault();
+      navigateDirectory(1);
+      return;
+    }
+  }
   if (!modifier && !evt.altKey && key === 'e') {
     startEraseOverride();
     evt.preventDefault();
@@ -6262,16 +6736,19 @@ window.addEventListener('keydown', (evt) => {
   if (!modifier && !evt.altKey) {
     if (key === 'b') {
       setTool('brush');
+      scheduleStateSave();
       evt.preventDefault();
       return;
     }
     if (key === 'g') {
       setTool('fill');
+      scheduleStateSave();
       evt.preventDefault();
       return;
     }
     if (key === 'i') {
       setTool('picker');
+      scheduleStateSave();
       evt.preventDefault();
       return;
     }
@@ -6306,6 +6783,7 @@ window.addEventListener('keydown', (evt) => {
     }
     draw();
     evt.preventDefault();
+    scheduleStateSave();
     return;
   }
   if (!modifier && !evt.altKey && key === 'n') {
@@ -6321,6 +6799,7 @@ window.addEventListener('keydown', (evt) => {
       // Digits set the current paint value directly (group ID in N-color mode, instance label otherwise)
       currentLabel = next;
       updateMaskLabel();
+      scheduleStateSave();
     }
     evt.preventDefault();
   }
@@ -6335,6 +6814,16 @@ window.addEventListener('keyup', (evt) => {
     stopEraseOverride();
   }
 });
+
+if (sessionId) {
+  window.addEventListener('beforeunload', () => {
+    try {
+      saveViewerState({ immediate: true });
+    } catch (_) {
+      /* ignore */
+    }
+  });
+}
 
 function initialize() {
   log('initialize');
@@ -6361,9 +6850,28 @@ function initialize() {
     setGamma(currentGamma, { emit: false });
     updateHistogramUI();
     applyImageAdjustments();
-    redrawMaskCanvas();
+    let restored = false;
+    if (savedViewerState) {
+      try {
+        restoreViewerState(savedViewerState);
+        restored = true;
+      } catch (err) {
+        console.warn('Failed to restore viewer state', err);
+      }
+    }
+    if (!restored) {
+      maskValues.fill(0);
+      outlineState.fill(0);
+      maskHasNonZero = false;
+      undoStack.length = 0;
+      redoStack.length = 0;
+      needsMaskRedraw = true;
+      applyMaskRedrawImmediate();
+      draw();
+    }
     resizeCanvas();
     updateBrushControls();
+    updateImageInfo();
   };
   img.onerror = (evt) => {
     const detail = evt?.message || 'unknown error';
@@ -6373,6 +6881,8 @@ function initialize() {
   img.src = imageDataUrl;
   updateCursor();
   ensureWebglOverlayReady();
+  setupDragAndDrop();
+  updateImageInfo();
 }
 
 window.addEventListener('resize', resizeCanvas);
@@ -6489,11 +6999,13 @@ if (flowThresholdInput) {
 if (clusterToggle) {
   clusterToggle.addEventListener('change', (evt) => {
     setClusterEnabled(evt.target.checked);
+    scheduleStateSave();
   });
 }
 if (affinityToggle) {
   affinityToggle.addEventListener('change', (evt) => {
     setAffinitySegEnabled(evt.target.checked);
+    scheduleStateSave();
   });
 }
 if (affinityGraphToggle) {
@@ -6509,6 +7021,7 @@ if (affinityGraphToggle) {
       }
     }
     draw();
+    scheduleStateSave();
   });
 }
 if (flowOverlayToggle) {
@@ -6520,6 +7033,7 @@ if (flowOverlayToggle) {
     }
     showFlowOverlay = evt.target.checked;
     draw();
+    scheduleStateSave();
   });
 }
 if (distanceOverlayToggle) {
@@ -6531,6 +7045,7 @@ if (distanceOverlayToggle) {
     }
     showDistanceOverlay = evt.target.checked;
     draw();
+    scheduleStateSave();
   });
 }
 if (imageVisibilityToggle) {
@@ -6551,6 +7066,7 @@ if (maskVisibilityToggle) {
     maskVisible = visible;
     updateMaskVisibilityLabel();
     draw();
+    scheduleStateSave();
   });
 }
 if (maskOpacitySlider) {

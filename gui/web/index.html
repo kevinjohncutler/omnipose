@@ -10,9 +10,11 @@
       <div id="viewer">
         <canvas id="canvas"></canvas>
         <canvas id="brushPreview"></canvas>
+        <div id="dropOverlay" aria-hidden="true">Drop image to load</div>
       </div>
       <div id="sidebar">
-        <h2 style="margin:0;">PyWebView</h2>
+        <h2 style="margin:0;">Omnipose</h2>
+        <div id="imageInfo" class="status"></div>
         <div class="control">
           <label>Intensity Window</label>
           <div class="histogram-surface">
@@ -135,7 +137,7 @@
         <div id="maskVisibility">Mask Layer: On (toggle with 'M')</div>
         <div id="hoverInfo" class="status">Y: --, X: --, Val: --</div>
         <div class="hint">
-          Use B/G/I to switch tools, [ ] to resize brush, digits 0-9 set label. Hold Space to pan, scroll to zoom.
+          Use B/G/I to switch tools, [ ] to resize brush, digits 0-9 set label. Hold Space to pan, scroll to zoom, W/S to traverse directory.
         </div>
       </div>
     </div>
