@@ -7,6 +7,46 @@
   </head>
   <body>
     <div id="app">
+      <div id="leftPanel">
+        <div class="tool-panel">
+          <div class="tool-panel-heading">Tools</div>
+          <div class="tool-buttons" title="Shortcuts: Cmd/Ctrl+1..4">
+            <button type="button" class="tool-stop" data-mode="draw" title="Draw (B)">
+              <svg class="tool-icon" viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M3 16.75L15.06 4.69a1 1 0 011.41 0l2.84 2.84a1 1 0 010 1.41L7.25 21H3z" fill="currentColor"/>
+                <path d="M16.5 6.5l1.5-1.5 1.5 1.5-1.5 1.5z" fill="currentColor"/>
+              </svg>
+            </button>
+            <button type="button" class="tool-stop" data-mode="erase" title="Erase (E)">
+              <svg class="tool-icon" viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M5.5 20h7.5a1 1 0 00.76-.35l5.24-6a1 1 0 000-1.3l-6-7.2a1 1 0 00-1.52 0l-7 8.4a1 1 0 000 1.3l3.26 3.9A1 1 0 005.5 20z" fill="currentColor"/>
+              </svg>
+            </button>
+            <button type="button" class="tool-stop" data-mode="fill" title="Fill (F)">
+              <svg class="tool-icon" viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M4 10.5l5.8-6.3a1 1 0 011.44 0l4.76 5.18H20a1 1 0 010 2h-.63l-1.28 8.24A2 2 0 0116.12 22H7.88a2 2 0 01-1.97-1.38L4.63 11H4a1 1 0 110-2h.08z" fill="currentColor"/>
+                <path d="M10.4 15.4l1.6-1.7 1.6 1.7a1.5 1.5 0 11-3.2 0z" fill="currentColor"/>
+              </svg>
+            </button>
+            <button type="button" class="tool-stop" data-mode="picker" title="Eyedropper (I)">
+              <svg class="tool-icon" viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M4 20v-3.17a2 2 0 01.59-1.41l7.3-7.3-1.42-1.42 2.12-2.12a2 2 0 012.83 0l1.48 1.48a2 2 0 010 2.83l-2.12 2.12-1.42-1.42-7.3 7.3a2 2 0 01-1.41.59H4z" fill="currentColor"/>
+              </svg>
+            </button>
+          </div>
+        </div>
+        <div class="brush-panel">
+          <label for="brushSizeSlider">Brush Size</label>
+          <div class="brush-slider-row">
+            <div class="slider" data-slider-id="brushSizeSlider" data-slider-type="single">
+              <input type="range" id="brushSizeSlider" min="1" max="25" step="1" value="3" />
+            </div>
+            <div class="number-field" data-number-id="brushSizeInput">
+              <input type="number" id="brushSizeInput" min="1" max="25" step="1" value="3" />
+            </div>
+          </div>
+        </div>
+      </div>
       <div id="viewer">
         <canvas id="canvas"></canvas>
         <canvas id="brushPreview"></canvas>
@@ -94,17 +134,6 @@
             <span class="toggle-switch"></span>
             <span class="toggle-label">Distance Overlay</span>
           </label>
-        </div>
-        <div class="control">
-          <label for="brushSizeSlider">Brush Diameter</label>
-          <div class="slider-row">
-            <div class="slider" data-slider-id="brushSizeSlider" data-slider-type="single">
-              <input type="range" id="brushSizeSlider" min="1" max="25" step="1" value="3" />
-            </div>
-            <div class="number-field" data-number-id="brushSizeInput">
-              <input type="number" id="brushSizeInput" min="1" max="25" step="1" value="3" />
-            </div>
-          </div>
         </div>
         <div class="control">
           <label for="brushKernelMode">Brush Kernel</label>

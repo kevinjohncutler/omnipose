@@ -1,6 +1,6 @@
 """Minimal PyWebView viewer replicating core Omnipose image interactions."""
 # two finger tap to home?
-
+# autosave!!!!!
 # drag bar to hid show panel, mayeb expand it
 # aslo the lines of the affinity graph are sitll pretty alisased despite being antialiased with msaa I think. what other options do we have to smooth them? 
 from __future__ import annotations

@@ -1,5 +1,6 @@
 :root {
   --sidebar-width: 260px;
+  --left-panel-width: var(--sidebar-width);
   --control-blur: 20px;
   --accent-color: #d8a200;
   --control-height: 36px;
@@ -56,12 +57,128 @@ body {
 #viewer {
   position: absolute;
   top: 0;
-  left: 0;
+  left: var(--left-panel-width);
   bottom: 0;
   right: 0;
   background: #111;
   overflow: hidden;
   z-index: 0;
+}
+
+#viewer:focus,
+#canvas:focus {
+  outline: none;
+}
+
+#leftPanel {
+  position: absolute;
+  top: 0;
+  left: 0;
+  bottom: 0;
+  width: var(--left-panel-width);
+  background: rgba(24, 24, 24, 0.88);
+  border-right: 1px solid rgba(255, 255, 255, 0.08);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 18px 14px;
+  gap: 24px;
+  z-index: 4;
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+}
+
+.tool-panel {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 10px;
+}
+
+.tool-panel-heading {
+  text-transform: uppercase;
+  font-size: 0.68rem;
+  letter-spacing: 0.2em;
+  text-align: center;
+  color: rgba(255, 255, 255, 0.65);
+}
+
+.tool-buttons {
+  display: flex;
+  flex-direction: row;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+}
+
+.tool-stop {
+  width: 42px;
+  height: 42px;
+  border-radius: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  background: rgba(0, 0, 0, 0.38);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #f4f4f4;
+  cursor: pointer;
+  transition: transform 0.18s ease, border-color 0.18s ease, background 0.18s ease, box-shadow 0.18s ease;
+}
+
+.tool-stop[data-active="true"] {
+  border-color: rgba(216, 162, 0, 0.75);
+  background: rgba(216, 162, 0, 0.26);
+  box-shadow: 0 4px 14px rgba(216, 162, 0, 0.25);
+  transform: translateY(-3px);
+}
+
+.tool-stop:hover {
+  border-color: rgba(255, 255, 255, 0.55);
+  transform: translateY(-2px);
+}
+
+.tool-stop:active {
+  transform: translateY(0);
+}
+
+.tool-icon {
+  width: 20px;
+  height: 20px;
+  display: block;
+  pointer-events: none;
+}
+
+.brush-panel {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 8px;
+}
+
+.brush-panel label {
+  text-transform: uppercase;
+  font-size: 0.68rem;
+  letter-spacing: 0.2em;
+  text-align: center;
+  color: rgba(255, 255, 255, 0.65);
+}
+
+.brush-slider-row {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 8px;
+}
+
+.brush-slider-row .slider {
+  width: 100%;
+}
+
+.brush-slider-row .number-field {
+  align-self: center;
+  width: 64px;
 }
 
 #fpsDisplay {
@@ -708,6 +825,26 @@ button:not(:disabled):hover {
   #sidebar {
     background: var(--control-surface);
     border-left: 1px solid var(--control-border);
+  }
+
+  #leftPanel {
+    background: rgba(245, 245, 245, 0.88);
+    border-right: 1px solid rgba(0, 0, 0, 0.12);
+  }
+
+  .tool-panel-heading,
+  .brush-panel label {
+    color: rgba(0, 0, 0, 0.6);
+  }
+
+  .tool-stop {
+    border-color: rgba(0, 0, 0, 0.12);
+    background: rgba(0, 0, 0, 0.08);
+    color: #1a1a1a;
+  }
+
+  .tool-stop[data-active="true"] {
+    background: rgba(216, 162, 0, 0.24);
   }
 
   #fpsDisplay {

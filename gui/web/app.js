@@ -169,6 +169,23 @@ if (canvas && !gl) {
 }
 const viewer = document.getElementById('viewer');
 const dropOverlay = document.getElementById('dropOverlay');
+if (viewer) {
+  viewer.setAttribute('tabindex', '0');
+  const focusViewer = () => {
+    try {
+      viewer.focus({ preventScroll: true });
+    } catch (_) {
+      viewer.focus();
+    }
+  };
+  viewer.addEventListener('mousedown', focusViewer);
+  viewer.addEventListener('touchstart', focusViewer, { passive: true });
+  viewer.addEventListener('pointerdown', focusViewer);
+  focusViewer();
+}
+if (canvas) {
+  canvas.setAttribute('tabindex', '0');
+}
 const dpr = window.devicePixelRatio || 1;
 const rootStyle = window.getComputedStyle(document.documentElement);
 const sidebarWidthRaw = rootStyle.getPropertyValue('--sidebar-width');
@@ -184,9 +201,11 @@ function getSidebarWidthPx() {
 
 function getViewportSize() {
   // Use the true viewport size to avoid layout effects from scrolling sidebar
-  const w = Math.max(1, Math.floor(window.innerWidth || document.documentElement.clientWidth || 1));
+  const baseWidth = Math.max(1, Math.floor(window.innerWidth || document.documentElement.clientWidth || 1));
   const h = Math.max(1, Math.floor(window.innerHeight || document.documentElement.clientHeight || 1));
-  return { width: w, height: h };
+  const leftPanelRaw = rootStyle.getPropertyValue('--left-panel-width') || '0';
+  const leftPanelWidth = Number.parseFloat(leftPanelRaw) || 0;
+  return { width: Math.max(1, baseWidth - leftPanelWidth), height: h };
 }
 const accentColor = (rootStyle.getPropertyValue('--accent-color') || '#d8a200').trim();
 const histogramWindowColor = (rootStyle.getPropertyValue('--histogram-window-color') || 'rgba(140, 140, 140, 0.35)').trim();
@@ -1623,6 +1642,7 @@ function log(message) {
 
 function clearHoverPreview() {
   hoverPoint = null;
+  hoverScreenPoint = null;
   drawBrushPreview(null);
   updateHoverInfo(null);
 }
@@ -2046,7 +2066,6 @@ window.addEventListener('blur', () => {
   pinchState = null;
   panPointerId = null;
   pointerState.resetPen();
-  stylusToolOverride = null;
   gestureState = null;
   wheelRotationBuffer = 0;
   clearHoverPreview();
@@ -2146,11 +2165,11 @@ function handleTouchPointerDown(evt, pointer) {
     /* ignore */
   }
   hoverPoint = null;
+  hoverScreenPoint = null;
   drawBrushPreview(null);
   updateHoverInfo(null);
   lastPoint = pointer;
   updateCursor();
-  drawBrushPreview(hoverPoint);
 }
 
 function handleGestureStart(evt) {
@@ -2171,6 +2190,7 @@ function handleGestureStart(evt) {
   };
   wheelRotationBuffer = 0;
   hoverPoint = null;
+  hoverScreenPoint = null;
   drawBrushPreview(null);
   isPanning = false;
   spacePan = false;
@@ -2306,6 +2326,8 @@ const flowOverlayToggle = document.getElementById('flowOverlayToggle');
 const distanceOverlayToggle = document.getElementById('distanceOverlayToggle');
 const imageVisibilityToggle = document.getElementById('imageVisibilityToggle');
 const maskVisibilityToggle = document.getElementById('maskVisibilityToggle');
+const toolStopButtons = Array.from(document.querySelectorAll('.tool-stop'));
+const TOOL_MODE_ORDER = ['draw', 'erase', 'fill', 'picker'];
 
 attachNumberInputStepper(brushSizeInput, (delta) => {
   setBrushDiameter(brushDiameter + delta, true);
@@ -2330,7 +2352,6 @@ let lastPaintPoint = null;
 let strokeChanges = null;
 let tool = 'brush';
 let spacePan = false;
-let stylusToolOverride = null;
 
 const FPS_SAMPLE_LIMIT = 30;
 let fpsSamples = [];
@@ -2385,6 +2406,28 @@ let autoFitPending = true;
 function resizePreviewCanvas() {
   previewCanvas.width = canvas.width;
   previewCanvas.height = canvas.height;
+  // The preview canvas shares the same drawing buffer dimensions as the primary canvas,
+  // but we MUST also mirror the CSS width/height so the 2D overlay aligns with the main image.
+  // If we leave the CSS size at the default (device pixels), browsers up-scale/down-scale
+  // the overlay independently of the viewer canvas. On HiDPI screens this creates a 2x stretch,
+  // which was the root cause of the brush preview circle appearing offset and squashed.
+  // Always keep the element's CSS size in sync with the primary canvas so coordinate spaces match.
+  if (canvas.style.width) {
+    previewCanvas.style.width = canvas.style.width;
+  } else {
+    const rect = viewer ? viewer.getBoundingClientRect() : null;
+      if (rect) {
+        previewCanvas.style.width = rect.width + 'px';
+      }
+  }
+  if (canvas.style.height) {
+    previewCanvas.style.height = canvas.style.height;
+  } else {
+    const rect = viewer ? viewer.getBoundingClientRect() : null;
+      if (rect) {
+        previewCanvas.style.height = rect.height + 'px';
+      }
+  }
 }
 
 function clearPreview() {
@@ -2426,6 +2469,7 @@ function drawBrushPreview(point) {
     const pixels = enumerateBrushPixels(point.x, point.y);
     if (pixels.length) {
       const center = getBrushKernelCenter(point.x, point.y);
+      const radius = (brushDiameter - 1) / 2;
       previewCtx.save();
       applyViewTransform(previewCtx, { includeDpr: true });
       previewCtx.imageSmoothingEnabled = false;
@@ -2434,20 +2478,119 @@ function drawBrushPreview(point) {
       for (const pixel of pixels) {
         previewCtx.fillRect(pixel.x, pixel.y, size, size);
       }
-      const radius = (brushDiameter - 1) / 2;
-      if (radius >= 0) {
-        previewCtx.lineWidth = 1 / Math.max(viewState.scale * dpr, 1);
-        previewCtx.strokeStyle = 'rgba(255, 255, 255, 0.9)';
-        previewCtx.beginPath();
-        const centerX = center.x + 0.5;
-        const centerY = center.y + 0.5;
-        previewCtx.arc(centerX, centerY, radius + 0.5, 0, Math.PI * 2);
-        previewCtx.stroke();
-      }
       previewCtx.restore();
+      if (radius >= 0) {
+        const centerScreen = imageToScreen(center);
+        if (Number.isFinite(centerScreen.x) && Number.isFinite(centerScreen.y)) {
+          const cx = centerScreen.x * dpr;
+          const cy = centerScreen.y * dpr;
+          const radiusPx = Math.max(0, radius + 0.5) * viewState.scale * dpr;
+          if (radiusPx >= 0) {
+            previewCtx.save();
+            previewCtx.setTransform(1, 0, 0, 1, 0, 0);
+            previewCtx.lineWidth = Math.max(1, dpr);
+            previewCtx.strokeStyle = 'rgba(255, 255, 255, 0.9)';
+            previewCtx.beginPath();
+            previewCtx.arc(cx, cy, radiusPx, 0, Math.PI * 2);
+            previewCtx.stroke();
+            previewCtx.restore();
+          }
+        }
+      }
     }
   }
   drawTouchOverlay();
+}
+
+let pointerFrameScheduled = false;
+let paintStrokeQueue = [];
+let pendingPanPointer = null;
+let hoverUpdatePending = false;
+let pendingHoverScreenPoint = null;
+let hoverScreenPoint = null;
+let pendingHoverHasPreview = false;
+
+// No-op alignment logger retained for potential future diagnostics.
+// Keeping the function defined prevents runtime errors if older instrumentation
+// paths fire, while avoiding any console noise in production.
+function debugBrushAlignment() { /* noop */ }
+function schedulePointerFrame() {
+  if (pointerFrameScheduled) {
+    return;
+  }
+  pointerFrameScheduled = true;
+  requestAnimationFrame(processPointerFrame);
+}
+
+function processPointerFrame() {
+  pointerFrameScheduled = false;
+  let panUpdated = false;
+  if (isPanning && pendingPanPointer) {
+    const dx = pendingPanPointer.x - lastPoint.x;
+    const dy = pendingPanPointer.y - lastPoint.y;
+    if (dx !== 0 || dy !== 0) {
+      viewState.offsetX += dx;
+      viewState.offsetY += dy;
+      viewStateDirty = true;
+      panUpdated = true;
+    }
+    lastPoint = pendingPanPointer;
+    pendingPanPointer = null;
+    hoverPoint = null;
+    drawBrushPreview(null);
+    updateHoverInfo(screenToImage(lastPoint));
+    hoverUpdatePending = false;
+    pendingHoverScreenPoint = null;
+    pendingHoverHasPreview = false;
+    hoverScreenPoint = null;
+    setCursorHold(dotCursorCss);
+  }
+
+  if (isPainting && paintStrokeQueue.length) {
+    for (let i = 0; i < paintStrokeQueue.length; i += 1) {
+      paintStroke(paintStrokeQueue[i]);
+    }
+    const lastWorld = paintStrokeQueue[paintStrokeQueue.length - 1];
+    hoverPoint = lastWorld;
+    hoverScreenPoint = null;
+    drawBrushPreview(hoverPoint);
+    updateHoverInfo(hoverPoint);
+    paintStrokeQueue.length = 0;
+    hoverUpdatePending = false;
+    pendingHoverScreenPoint = null;
+    pendingHoverHasPreview = false;
+  } else if (hoverUpdatePending) {
+    if (pendingHoverScreenPoint) {
+      const world = screenToImage(pendingHoverScreenPoint);
+      if (pendingHoverHasPreview) {
+        hoverPoint = world;
+        hoverScreenPoint = { x: pendingHoverScreenPoint.x, y: pendingHoverScreenPoint.y };
+        drawBrushPreview(hoverPoint);
+        debugBrushAlignment(hoverScreenPoint, hoverPoint, 'raf:hover');
+      } else {
+        hoverPoint = null;
+        hoverScreenPoint = null;
+        drawBrushPreview(null);
+      }
+      updateHoverInfo(world);
+    } else {
+      hoverPoint = null;
+      hoverScreenPoint = null;
+      drawBrushPreview(null);
+      updateHoverInfo(null);
+    }
+    hoverUpdatePending = false;
+    pendingHoverScreenPoint = null;
+    pendingHoverHasPreview = false;
+  }
+
+  if (panUpdated) {
+    draw();
+  }
+}
+
+function queuePaintPoint(world) {
+  paintStrokeQueue.push({ x: world.x, y: world.y });
 }
 
 function updateCursor() {
@@ -2479,11 +2622,17 @@ function updateMaskOpacityLabel() {
 }
 
 function updateToolInfo() {
-  let description = 'Brush (B=Brush, G=Fill, I=Picker)';
-  if (tool === 'fill') {
-    description = 'Flood Fill (B=Brush, G=Fill, I=Picker)';
-  } else if (tool === 'picker') {
-    description = 'Picker (B=Brush, G=Fill, I=Picker)';
+  if (!toolInfo) {
+    return;
+  }
+  const mode = getActiveToolMode();
+  let description = 'Brush (B)';
+  if (mode === 'erase') {
+    description = 'Erase (E)';
+  } else if (mode === 'fill') {
+    description = 'Fill (F)';
+  } else if (mode === 'picker') {
+    description = 'Eyedropper (I)';
   }
   toolInfo.textContent = 'Tool: ' + description;
 }
@@ -2512,6 +2661,7 @@ function startEraseOverride() {
   setTool('brush');
   currentLabel = 0;
   updateMaskLabel();
+  updateToolButtons();
 }
 
 function stopEraseOverride() {
@@ -2524,15 +2674,71 @@ function stopEraseOverride() {
   eraseActive = false;
   erasePreviousLabel = null;
   updateMaskLabel();
+  updateToolButtons();
 }
 
 function setTool(nextTool) {
   if (tool === nextTool) {
+    updateToolButtons();
     return;
   }
   tool = nextTool;
   updateToolInfo();
   updateCursor();
+  updateToolButtons();
+}
+
+function getActiveToolMode() {
+  if (eraseActive) {
+    return 'erase';
+  }
+  if (tool === 'fill') {
+    return 'fill';
+  }
+  if (tool === 'picker') {
+    return 'picker';
+  }
+  return 'draw';
+}
+
+function updateToolButtons() {
+  if (!toolStopButtons || !toolStopButtons.length) {
+    return;
+  }
+  const mode = getActiveToolMode();
+  toolStopButtons.forEach((btn) => {
+    const btnMode = btn.getAttribute('data-mode');
+    const isActive = btnMode === mode;
+    if (isActive) {
+      btn.setAttribute('data-active', 'true');
+      btn.setAttribute('aria-pressed', 'true');
+    } else {
+      btn.removeAttribute('data-active');
+      btn.setAttribute('aria-pressed', 'false');
+    }
+  });
+}
+
+function selectToolMode(mode) {
+  switch (mode) {
+    case 'erase':
+      startEraseOverride();
+      break;
+    case 'fill':
+      if (eraseActive) stopEraseOverride();
+      setTool('fill');
+      break;
+    case 'picker':
+      if (eraseActive) stopEraseOverride();
+      setTool('picker');
+      break;
+    case 'draw':
+    default:
+      if (eraseActive) stopEraseOverride();
+      setTool('brush');
+      break;
+  }
+  updateToolButtons();
 }
 
 function updateBrushControls() {
@@ -2557,7 +2763,7 @@ function setBrushDiameter(nextDiameter, fromUser = false) {
   updateBrushControls();
   log('brush size set to ' + brushDiameter);
   if (fromUser) {
-    setTool('brush');
+    selectToolMode('draw');
     scheduleStateSave();
   }
   refreshSlider('brushSizeSlider');
@@ -5646,10 +5852,11 @@ function getPointerPosition(evt) {
 function screenToImage(point) {
   const cos = Math.cos(viewState.rotation);
   const sin = Math.sin(viewState.rotation);
+  const scale = viewState.scale || 1;
   const dx = point.x - viewState.offsetX;
   const dy = point.y - viewState.offsetY;
-  const localX = (dx * cos + dy * sin) / viewState.scale;
-  const localY = (-dx * sin + dy * cos) / viewState.scale;
+  const localX = (dx * cos + dy * sin) / scale;
+  const localY = (-dx * sin + dy * cos) / scale;
   return {
     x: localX,
     y: localY,
@@ -6718,6 +6925,7 @@ function startPointerPan(evt) {
     /* ignore */
   }
   hoverPoint = null;
+  hoverScreenPoint = null;
   drawBrushPreview(null);
   updateHoverInfo(null);
 }
@@ -6733,9 +6941,16 @@ function beginBrushStroke(evt, worldPoint) {
   } catch (_) {
     /* ignore */
   }
+  paintStrokeQueue.length = 0;
   lastPaintPoint = null;
   paintStroke(worldPoint);
   hoverPoint = worldPoint ? { x: worldPoint.x, y: worldPoint.y } : null;
+  if (hoverPoint) {
+    const pointer = getPointerPosition(evt);
+    hoverScreenPoint = { x: pointer.x, y: pointer.y };
+  } else {
+    hoverScreenPoint = null;
+  }
   drawBrushPreview(hoverPoint);
   updateHoverInfo(hoverPoint);
 }
@@ -6767,9 +6982,21 @@ canvas.addEventListener('pointerdown', (evt) => {
       startPointerPan(evt);
       return;
     }
-    if (stylusToolOverride === null && tool !== 'brush') {
-      stylusToolOverride = tool;
-      setTool('brush');
+    const mode = getActiveToolMode();
+    if (mode === 'fill') {
+      floodFill(world);
+      scheduleStateSave();
+      return;
+    }
+    if (mode === 'picker') {
+      pickColor(world);
+      scheduleStateSave();
+      return;
+    }
+    if (mode === 'erase') {
+      startEraseOverride();
+    } else if (mode === 'draw' && eraseActive) {
+      stopEraseOverride();
     }
     beginBrushStroke(evt, world);
     return;
@@ -6815,6 +7042,7 @@ canvas.addEventListener('pointermove', (evt) => {
   pointerState.registerPointerMove(evt);
   const pointer = getPointerPosition(evt);
   const world = screenToImage(pointer);
+  debugBrushAlignment(pointer, world, 'pointermove');
   if (!isPanning && !isPainting && pointerState.isStylusPointer(evt) && pointerState.isBarrelPanActive()) {
     startPointerPan(evt);
     return;
@@ -6903,53 +7131,59 @@ canvas.addEventListener('pointermove', (evt) => {
       return;
     }
   }
+  if (isPanning && evt.pointerId === panPointerId) {
+    pendingPanPointer = { x: pointer.x, y: pointer.y };
+    hoverUpdatePending = true;
+    pendingHoverScreenPoint = null;
+    schedulePointerFrame();
+    if (typeof evt.preventDefault === 'function') {
+      evt.preventDefault();
+    }
+    return;
+  }
   if (isPainting) {
     if (USE_COALESCED_EVENTS && typeof evt.getCoalescedEvents === 'function') {
       const events = evt.getCoalescedEvents();
       if (events && events.length) {
+        const rect = canvas.getBoundingClientRect();
         for (let i = 0; i < events.length; i += 1) {
           const e = events[i];
-          const p = { x: e.clientX, y: e.clientY };
-          const rect = canvas.getBoundingClientRect();
-          const local = { x: p.x - rect.left, y: p.y - rect.top };
+          const local = { x: e.clientX - rect.left, y: e.clientY - rect.top };
           const w = screenToImage(local);
-          paintStroke(w);
+          queuePaintPoint(w);
         }
-        hoverPoint = world;
-        drawBrushPreview(hoverPoint);
-        updateHoverInfo(world);
-        return;
+      } else {
+        queuePaintPoint(world);
       }
+    } else {
+      queuePaintPoint(world);
     }
-    paintStroke(world);
-    hoverPoint = world;
+    hoverPoint = { x: world.x, y: world.y };
+    hoverScreenPoint = { x: pointer.x, y: pointer.y };
     drawBrushPreview(hoverPoint);
-    updateHoverInfo(world);
+    updateHoverInfo(hoverPoint);
+    debugBrushAlignment(pointer, hoverPoint, 'pointermove:paint');
+    hoverUpdatePending = false;
+    pendingHoverScreenPoint = null;
+    pendingHoverHasPreview = false;
+    schedulePointerFrame();
     return;
   }
   if (!isPanning && !spacePan) {
-    if (tool === 'brush') {
-      hoverPoint = world;
-      drawBrushPreview(hoverPoint);
-    } else {
-      hoverPoint = null;
-      drawBrushPreview(null);
-    }
-    updateHoverInfo(world);
+    pendingHoverScreenPoint = { x: pointer.x, y: pointer.y };
+    pendingHoverHasPreview = tool === 'brush';
+    hoverUpdatePending = true;
+    schedulePointerFrame();
   }
-  if (!isPanning) {
-    return;
-  }
-  const dx = pointer.x - lastPoint.x;
-  const dy = pointer.y - lastPoint.y;
-  viewState.offsetX += dx;
-  viewState.offsetY += dy;
-  lastPoint = pointer;
-  draw();
-  updateHoverInfo(screenToImage(pointer));
-  viewStateDirty = true;
   if (isPanning) {
-    setCursorHold(dotCursorCss);
+    pendingPanPointer = { x: pointer.x, y: pointer.y };
+    hoverUpdatePending = true;
+    pendingHoverScreenPoint = null;
+    pendingHoverHasPreview = false;
+    schedulePointerFrame();
+    if (typeof evt.preventDefault === 'function') {
+      evt.preventDefault();
+    }
   }
 });
 
@@ -6972,8 +7206,6 @@ if (supportsGestureEvents && viewer && viewer !== canvas) {
 }
 
 function stopInteraction(evt) {
-  const stylusEvent = evt ? pointerState.isStylusPointer(evt) : false;
-  const penShouldFinalize = stylusEvent && evt && (evt.type === 'pointerup' || evt.type === 'pointercancel');
   if (evt && (evt.type === 'pointerup' || evt.type === 'pointercancel')) {
     pointerState.registerPointerUp(evt);
   }
@@ -7002,6 +7234,11 @@ function stopInteraction(evt) {
   spacePan = false;
   updateCursor();
   lastPaintPoint = null;
+  paintStrokeQueue.length = 0;
+  pendingPanPointer = null;
+  hoverUpdatePending = false;
+  pendingHoverScreenPoint = null;
+  pendingHoverHasPreview = false;
   if (evt && evt.type === 'pointerleave') {
     clearHoverPreview();
   } else if (hoverPoint) {
@@ -7024,13 +7261,6 @@ function stopInteraction(evt) {
     }
   }
   activePointerId = null;
-  if (penShouldFinalize && stylusToolOverride !== null) {
-    const previousTool = stylusToolOverride;
-    stylusToolOverride = null;
-    if (previousTool !== tool) {
-      setTool(previousTool);
-    }
-  }
   wheelRotationBuffer = 0;
   clearCursorOverride();
 }
@@ -7085,6 +7315,18 @@ window.addEventListener('keydown', (evt) => {
     evt.preventDefault();
     return;
   }
+  if (modifier && !evt.altKey) {
+    if (key >= '1' && key <= '4') {
+      const idx = parseInt(key, 10) - 1;
+      const mode = TOOL_MODE_ORDER[idx];
+      if (mode) {
+        selectToolMode(mode);
+        scheduleStateSave();
+      }
+      evt.preventDefault();
+      return;
+    }
+  }
   if (!modifier && !evt.altKey && !evt.repeat) {
     if (key === 'w' && hasPrevImage) {
       evt.preventDefault();
@@ -7127,19 +7369,19 @@ window.addEventListener('keydown', (evt) => {
   }
   if (!modifier && !evt.altKey) {
     if (key === 'b') {
-      setTool('brush');
+      selectToolMode('draw');
       scheduleStateSave();
       evt.preventDefault();
       return;
     }
     if (key === 'g') {
-      setTool('fill');
+      selectToolMode('fill');
       scheduleStateSave();
       evt.preventDefault();
       return;
     }
     if (key === 'i') {
-      setTool('picker');
+      selectToolMode('picker');
       scheduleStateSave();
       evt.preventDefault();
       return;
@@ -7381,6 +7623,23 @@ if (clearCacheButton) {
     window.location.reload();
   });
 }
+if (toolStopButtons.length) {
+  toolStopButtons.forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const mode = btn.getAttribute('data-mode') || 'draw';
+      selectToolMode(mode);
+      scheduleStateSave();
+      if (viewer && typeof viewer.focus === 'function') {
+        try {
+          viewer.focus({ preventScroll: true });
+        } catch (_) {
+          viewer.focus();
+        }
+      }
+    });
+  });
+}
+updateToolButtons();
 if (histogramCanvas) {
   histogramCanvas.addEventListener('pointerdown', handleHistogramPointerDown);
   histogramCanvas.addEventListener('pointermove', handleHistogramPointerMove);
