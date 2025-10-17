@@ -11,6 +11,7 @@
         <canvas id="canvas"></canvas>
         <canvas id="brushPreview"></canvas>
         <div id="dropOverlay" aria-hidden="true">Drop image to load</div>
+        <div id="fpsDisplay" aria-hidden="true">FPS: --</div>
       </div>
       <div id="sidebar">
         <h2 style="margin:0;">Omnipose</h2>
@@ -39,6 +40,9 @@
         </div>
         <div class="control">
           <button id="clearMasksButton" title="Clear all masks (Cmd/Ctrl+X)">Clear Masks</button>
+        </div>
+        <div class="control">
+          <button id="clearCacheButton" title="Clear viewer cache and reload">Clear Cache &amp; Reload</button>
         </div>
         <div class="control slider-inline">
           <label for="maskThresholdSlider">Mask</label>

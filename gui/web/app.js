@@ -1449,6 +1449,36 @@ previewCanvas.height = canvas.height;
   // Ensure brush preview is above WebGL overlay for visibility
   try { previewCanvas.style.zIndex = '2'; } catch (_) { /* ignore */ }
 
+function updateFps(now) {
+  const delta = now - lastFrameTimestamp;
+  lastFrameTimestamp = now;
+  if (delta <= 0 || delta > 2000) {
+    return;
+  }
+  const fps = 1000 / delta;
+  fpsSamples.push(fps);
+  if (fpsSamples.length > FPS_SAMPLE_LIMIT) {
+    fpsSamples.shift();
+  }
+  if (!fpsDisplay) {
+    return;
+  }
+  if (now - lastFpsUpdate < 250) {
+    return;
+  }
+  lastFpsUpdate = now;
+  const average = fpsSamples.reduce((sum, value) => sum + value, 0) / fpsSamples.length;
+  const text = `FPS: ${average.toFixed(1)}`;
+  fpsDisplay.textContent = text;
+  if (average >= 50) {
+    fpsDisplay.style.color = '#8ff7c1';
+  } else if (average >= 30) {
+    fpsDisplay.style.color = '#f7d774';
+  } else {
+    fpsDisplay.style.color = '#ff8787';
+  }
+}
+
 const loadingOverlay = null;
 const loadingOverlayMessage = null;
 let overlayDismissed = true;
@@ -2256,11 +2286,13 @@ const toolInfo = document.getElementById('toolInfo');
 const segmentButton = document.getElementById('segmentButton');
 const segmentStatus = document.getElementById('segmentStatus');
 const clearMasksButton = document.getElementById('clearMasksButton');
+const clearCacheButton = document.getElementById('clearCacheButton');
 const colorMode = document.getElementById('colorMode');
 const gammaInput = document.getElementById('gammaInput');
 const histogramCanvas = document.getElementById('histogram');
 const histRangeLabel = document.getElementById('histRange');
 const hoverInfo = document.getElementById('hoverInfo');
+const fpsDisplay = document.getElementById('fpsDisplay');
 const maskOpacitySlider = document.getElementById('maskOpacity');
 const maskOpacityInput = document.getElementById('maskOpacityInput');
 const maskThresholdSlider = document.getElementById('maskThresholdSlider');
@@ -2299,6 +2331,11 @@ let strokeChanges = null;
 let tool = 'brush';
 let spacePan = false;
 let stylusToolOverride = null;
+
+const FPS_SAMPLE_LIMIT = 30;
+let fpsSamples = [];
+let lastFrameTimestamp = (typeof performance !== 'undefined' ? performance.now() : Date.now());
+let lastFpsUpdate = lastFrameTimestamp;
 
 let hoverPoint = null;
 let eraseActive = false;
@@ -3598,6 +3635,13 @@ function restoreViewerState(saved) {
     updateBrushControls();
     if (flowOverlayToggle) flowOverlayToggle.checked = showFlowOverlay;
     if (distanceOverlayToggle) distanceOverlayToggle.checked = showDistanceOverlay;
+    if (isWebglPipelineActive()) {
+      markMaskTextureFullDirty();
+      markOutlineTextureFullDirty();
+    } else {
+      redrawMaskCanvas();
+    }
+    markAffinityGeometryDirty();
   } finally {
     isRestoringState = false;
   }
@@ -5364,6 +5408,7 @@ function draw() {
   if (shuttingDown) {
     return;
   }
+  updateFps(typeof performance !== 'undefined' ? performance.now() : Date.now());
   if (shouldLogDraw()) {
     log('draw start scale=' + viewState.scale.toFixed(3) + ' offset=' + viewState.offsetX.toFixed(1) + ',' + viewState.offsetY.toFixed(1));
   }
@@ -7302,6 +7347,38 @@ if (segmentButton) {
 if (clearMasksButton) {
   clearMasksButton.addEventListener('click', () => {
     promptClearMasks();
+  });
+}
+if (clearCacheButton) {
+  clearCacheButton.addEventListener('click', async () => {
+    if (!confirm('Clear cached viewer state and reload?')) {
+      return;
+    }
+    try {
+      if (typeof window !== 'undefined' && window.localStorage) {
+        const storageKeys = Object.keys(window.localStorage);
+        storageKeys
+          .filter((key) => key.startsWith('OMNI') || key.includes('omnipose'))
+          .forEach((key) => {
+            try {
+              window.localStorage.removeItem(key);
+            } catch (_) {
+              /* ignore */
+            }
+          });
+      }
+    } catch (_) {
+      // ignore storage access errors
+    }
+    try {
+      const response = await fetch('/api/clear_cache', { method: 'POST', keepalive: true });
+      if (!response.ok) {
+        console.warn('clear_cache request failed', response.status);
+      }
+    } catch (_) {
+      // ignore network errors
+    }
+    window.location.reload();
   });
 }
 if (histogramCanvas) {

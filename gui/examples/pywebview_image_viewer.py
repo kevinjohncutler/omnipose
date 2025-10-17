@@ -180,6 +180,12 @@ class SessionManager:
         with self._lock:
             return self._sessions[session_id]
 
+    def clear_saved_states(self, state: SessionState) -> None:
+        with self._lock:
+            existing = self._sessions.get(state.session_id)
+            if existing:
+                existing.saved_states.clear()
+
     def _load_image_from_path(self, path: Path) -> tuple[np.ndarray, bool]:
         arr = imageio.imread(path)
         arr = _ensure_spatial_last(arr)
@@ -861,6 +867,10 @@ class Segmenter:
             self._magma_lut = lut
         return self._magma_lut
 
+    def clear_cache(self) -> None:
+        with self._eval_lock:
+            self._cache = None
+
 _SEGMENTER = Segmenter()
 
 
@@ -1513,6 +1523,20 @@ def create_app() -> "FastAPI":
             return JSONResponse(run_mask_update(payload, state=state))
         except Exception as exc:  # pragma: no cover - propagate error to client
             return JSONResponse({"error": str(exc)}, status_code=500)
+
+    @app.post("/api/clear_cache", response_class=JSONResponse)
+    async def api_clear_cache(request: Request) -> JSONResponse:
+        session_cookie = request.cookies.get(SESSION_COOKIE_NAME)
+        state: Optional[SessionState] = None
+        if session_cookie:
+            try:
+                state = SESSION_MANAGER.get(session_cookie)
+            except KeyError:
+                state = None
+        if state is not None:
+            SESSION_MANAGER.clear_saved_states(state)
+        _SEGMENTER.clear_cache()
+        return JSONResponse({"status": "ok"})
     
     @app.post("/api/relabel_from_affinity", response_class=JSONResponse)
     async def api_relabel_from_affinity(payload: dict | None = None) -> JSONResponse:
