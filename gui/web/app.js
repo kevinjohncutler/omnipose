@@ -191,6 +191,7 @@ const rootStyle = window.getComputedStyle(document.documentElement);
 const sidebarWidthRaw = rootStyle.getPropertyValue('--sidebar-width');
 const sidebarWidthValue = Number.parseFloat(sidebarWidthRaw || '');
 const sidebarWidthDefault = Number.isFinite(sidebarWidthValue) ? Math.max(0, sidebarWidthValue) : 260;
+const BRUSH_CROSSHAIR_ENABLED = CONFIG.showBrushCrosshair ?? true;
 function getSidebarWidthPx() {
   const el = document.getElementById('sidebar');
   if (!el) return sidebarWidthDefault;
@@ -199,13 +200,31 @@ function getSidebarWidthPx() {
   return Number.isFinite(w) && w > 0 ? w : sidebarWidthDefault;
 }
 
+const leftPanelWidthRaw = rootStyle.getPropertyValue('--left-panel-width');
+const leftPanelWidthValue = Number.parseFloat(leftPanelWidthRaw || '');
+const leftPanelWidthDefault = Number.isFinite(leftPanelWidthValue) ? Math.max(0, leftPanelWidthValue) : 260;
+function getLeftPanelWidthPx() {
+  const el = document.getElementById('leftPanel');
+  if (!el) return leftPanelWidthDefault;
+  const r = el.getBoundingClientRect();
+  const w = Math.max(0, Math.round(r.width));
+  return Number.isFinite(w) && w > 0 ? w : leftPanelWidthDefault;
+}
+
 function getViewportSize() {
   // Use the true viewport size to avoid layout effects from scrolling sidebar
   const baseWidth = Math.max(1, Math.floor(window.innerWidth || document.documentElement.clientWidth || 1));
   const h = Math.max(1, Math.floor(window.innerHeight || document.documentElement.clientHeight || 1));
-  const leftPanelRaw = rootStyle.getPropertyValue('--left-panel-width') || '0';
-  const leftPanelWidth = Number.parseFloat(leftPanelRaw) || 0;
-  return { width: Math.max(1, baseWidth - leftPanelWidth), height: h };
+  const leftInset = getLeftPanelWidthPx();
+  const visibleWidth = Math.max(1, baseWidth - leftInset);
+  // Report both the visible drawing width and the full viewport width so callers can size
+  // the canvas while still centering content within the unobstructed region.
+  return {
+    width: visibleWidth,
+    height: h,
+    totalWidth: baseWidth,
+    leftInset,
+  };
 }
 const accentColor = (rootStyle.getPropertyValue('--accent-color') || '#d8a200').trim();
 const histogramWindowColor = (rootStyle.getPropertyValue('--histogram-window-color') || 'rgba(140, 140, 140, 0.35)').trim();
@@ -2465,10 +2484,14 @@ function drawTouchOverlay() {
 
 function drawBrushPreview(point) {
   clearPreview();
+
   if (point) {
     const pixels = enumerateBrushPixels(point.x, point.y);
     if (pixels.length) {
-      const center = getBrushKernelCenter(point.x, point.y);
+      const kernelCenter = getBrushKernelCenter(point.x, point.y);
+      const circleCenter = (brushKernelMode === BRUSH_KERNEL_MODES.SNAPPED)
+        ? { x: kernelCenter.x + 0.5, y: kernelCenter.y + 0.5 }
+        : { x: kernelCenter.x, y: kernelCenter.y };
       const radius = (brushDiameter - 1) / 2;
       previewCtx.save();
       applyViewTransform(previewCtx, { includeDpr: true });
@@ -2480,21 +2503,29 @@ function drawBrushPreview(point) {
       }
       previewCtx.restore();
       if (radius >= 0) {
-        const centerScreen = imageToScreen(center);
-        if (Number.isFinite(centerScreen.x) && Number.isFinite(centerScreen.y)) {
-          const cx = centerScreen.x * dpr;
-          const cy = centerScreen.y * dpr;
-          const radiusPx = Math.max(0, radius + 0.5) * viewState.scale * dpr;
-          if (radiusPx >= 0) {
-            previewCtx.save();
-            previewCtx.setTransform(1, 0, 0, 1, 0, 0);
-            previewCtx.lineWidth = Math.max(1, dpr);
-            previewCtx.strokeStyle = 'rgba(255, 255, 255, 0.9)';
-            previewCtx.beginPath();
-            previewCtx.arc(cx, cy, radiusPx, 0, Math.PI * 2);
-            previewCtx.stroke();
-            previewCtx.restore();
-          }
+        previewCtx.save();
+        applyViewTransform(previewCtx, { includeDpr: true });
+        previewCtx.lineWidth = 1 / Math.max(viewState.scale * dpr, 1);
+        previewCtx.strokeStyle = 'rgba(255, 255, 255, 0.9)';
+        previewCtx.beginPath();
+        const radiusPixels = radius + 0.5;
+        previewCtx.arc(circleCenter.x, circleCenter.y, radiusPixels, 0, Math.PI * 2);
+        previewCtx.stroke();
+        previewCtx.restore();
+
+        if (BRUSH_CROSSHAIR_ENABLED) {
+          const crosshairHalf = 0.25;
+          previewCtx.save();
+          applyViewTransform(previewCtx, { includeDpr: true });
+          previewCtx.lineWidth = 1 / Math.max(viewState.scale * dpr, 1);
+          previewCtx.strokeStyle = 'rgba(255, 255, 255, 0.9)';
+          previewCtx.beginPath();
+          previewCtx.moveTo(circleCenter.x - crosshairHalf, circleCenter.y);
+          previewCtx.lineTo(circleCenter.x + crosshairHalf, circleCenter.y);
+          previewCtx.moveTo(circleCenter.x, circleCenter.y - crosshairHalf);
+          previewCtx.lineTo(circleCenter.x, circleCenter.y + crosshairHalf);
+          previewCtx.stroke();
+          previewCtx.restore();
         }
       }
     }
@@ -2509,11 +2540,6 @@ let hoverUpdatePending = false;
 let pendingHoverScreenPoint = null;
 let hoverScreenPoint = null;
 let pendingHoverHasPreview = false;
-
-// No-op alignment logger retained for potential future diagnostics.
-// Keeping the function defined prevents runtime errors if older instrumentation
-// paths fire, while avoiding any console noise in production.
-function debugBrushAlignment() { /* noop */ }
 function schedulePointerFrame() {
   if (pointerFrameScheduled) {
     return;
@@ -2566,7 +2592,6 @@ function processPointerFrame() {
         hoverPoint = world;
         hoverScreenPoint = { x: pendingHoverScreenPoint.x, y: pendingHoverScreenPoint.y };
         drawBrushPreview(hoverPoint);
-        debugBrushAlignment(hoverScreenPoint, hoverPoint, 'raf:hover');
       } else {
         hoverPoint = null;
         hoverScreenPoint = null;
@@ -2601,7 +2626,7 @@ function updateCursor() {
   // Prefer dot cursor during any interaction
   if (isPanning || spacePan || gestureState) {
     canvas.style.cursor = dotCursorCss;
-  } else if (tool === 'brush' && cursorInsideImage) {
+  } else if ((tool === 'brush' || tool === 'erase' || tool === 'fill' || tool === 'picker') && cursorInsideCanvas) {
     canvas.style.cursor = 'none';
   } else {
     canvas.style.cursor = 'default';
@@ -3104,7 +3129,9 @@ function getBrushKernelCenter(x, y) {
   return { x, y };
 }
 
-function enumerateBrushPixels(centerX, centerY) {
+function enumerateBrushPixels(rawCenterX, rawCenterY) {
+  const centerX = rawCenterX - 0.5;
+  const centerY = rawCenterY - 0.5;
   if (brushKernelMode === BRUSH_KERNEL_MODES.SNAPPED) {
     return enumerateSnappedBrushPixels(centerX, centerY);
   }
@@ -5899,16 +5926,20 @@ function resizeCanvas() {
     return;
   }
   const v = getViewportSize();
+  const viewerRect = viewer ? viewer.getBoundingClientRect() : null;
   if (v.width <= 0 || v.height <= 0) {
-    log('resize skipped: viewer size ' + rect.width.toFixed(1) + 'x' + rect.height.toFixed(1));
+    if (viewerRect) {
+      log('resize skipped: viewer size ' + viewerRect.width.toFixed(1) + 'x' + viewerRect.height.toFixed(1));
+    }
     if (!shuttingDown) {
       requestAnimationFrame(resizeCanvas);
     }
     return;
   }
-  canvas.width = Math.max(1, Math.round(v.width * dpr));
+  const renderWidth = Math.max(1, v.totalWidth || v.width);
+  canvas.width = Math.max(1, Math.round(renderWidth * dpr));
   canvas.height = Math.max(1, Math.round(v.height * dpr));
-  canvas.style.width = v.width + 'px';
+  canvas.style.width = renderWidth + 'px';
   canvas.style.height = v.height + 'px';
   resizeWebglOverlay();
   resizePreviewCanvas();
@@ -5920,12 +5951,15 @@ function resizeCanvas() {
 }
 
 function recenterView(bounds) {
-  const rectLike = bounds || getViewportSize();
-  const width = rectLike ? rectLike.width : 0;
-  const height = rectLike ? rectLike.height : 0;
+  const metrics = bounds && typeof bounds.width === 'number'
+    ? bounds
+    : getViewportSize();
+  const visibleWidth = metrics.width || 0;
+  const height = metrics.height || 0;
+  const leftInset = metrics.leftInset || getLeftPanelWidthPx();
   const imageCenter = { x: imgWidth / 2, y: imgHeight / 2 };
-  // Center relative to the full browser viewport, ignoring the control panel
-  const target = { x: width / 2, y: height / 2 };
+  // Center relative to the visible viewport by offsetting past the left tool rail.
+  const target = { x: leftInset + (visibleWidth / 2), y: height / 2 };
   setOffsetForImagePoint(imageCenter, target);
   log('recenter to ' + viewState.offsetX.toFixed(1) + ',' + viewState.offsetY.toFixed(1));
 }
@@ -5937,14 +5971,16 @@ function fitViewToWindow(bounds) {
   if (userAdjustedScale && !autoFitPending) {
     return false;
   }
-  const rectLike = bounds || getViewportSize();
-  if (!rectLike || rectLike.width <= 0 || rectLike.height <= 0 || imgWidth === 0 || imgHeight === 0) {
+  const metrics = bounds && typeof bounds.width === 'number'
+    ? bounds
+    : getViewportSize();
+  if (metrics.width <= 0 || metrics.height <= 0 || imgWidth === 0 || imgHeight === 0) {
     return false;
   }
   const marginPx = 2; // ensure fully visible by a small pixel margin
-  // Fit based on full viewport width, ignoring the control panel
-  const scaleX = Math.max(0.0001, (rectLike.width - marginPx) / imgWidth);
-  const scaleY = Math.max(0.0001, (rectLike.height - marginPx) / imgHeight);
+  // Fit based on the unobstructed viewport width (excluding the left tool rail)
+  const scaleX = Math.max(0.0001, (metrics.width - marginPx) / imgWidth);
+  const scaleY = Math.max(0.0001, (metrics.height - marginPx) / imgHeight);
   const nextScale = Math.max(0.0001, Math.min(scaleX, scaleY));
   if (!Number.isFinite(nextScale) || nextScale <= 0) {
     return false;
@@ -5952,18 +5988,18 @@ function fitViewToWindow(bounds) {
   viewState.scale = nextScale;
   viewState.rotation = 0;
   autoFitPending = false;
-  recenterView(rectLike);
+  recenterView(metrics);
   return true;
 }
 
 function resetView() {
-  const rect = viewer ? viewer.getBoundingClientRect() : null;
+  const metrics = getViewportSize();
   autoFitPending = true;
   userAdjustedScale = false;
   viewState.rotation = 0;
-  if (!fitViewToWindow(rect)) {
+  if (!fitViewToWindow(metrics)) {
     viewState.rotation = 0;
-    recenterView(rect);
+    recenterView(metrics);
   }
   draw();
   if (hoverPoint) {
@@ -6956,6 +6992,7 @@ function beginBrushStroke(evt, worldPoint) {
 }
 
 canvas.addEventListener('pointerdown', (evt) => {
+  cursorInsideCanvas = true;
   gestureState = null;
   pointerState.registerPointerDown(evt);
   const pointer = getPointerPosition(evt);
@@ -7040,9 +7077,9 @@ canvas.addEventListener('pointerdown', (evt) => {
 
 canvas.addEventListener('pointermove', (evt) => {
   pointerState.registerPointerMove(evt);
+  cursorInsideCanvas = true;
   const pointer = getPointerPosition(evt);
   const world = screenToImage(pointer);
-  debugBrushAlignment(pointer, world, 'pointermove');
   if (!isPanning && !isPainting && pointerState.isStylusPointer(evt) && pointerState.isBarrelPanActive()) {
     startPointerPan(evt);
     return;
@@ -7162,7 +7199,6 @@ canvas.addEventListener('pointermove', (evt) => {
     hoverScreenPoint = { x: pointer.x, y: pointer.y };
     drawBrushPreview(hoverPoint);
     updateHoverInfo(hoverPoint);
-    debugBrushAlignment(pointer, hoverPoint, 'pointermove:paint');
     hoverUpdatePending = false;
     pendingHoverScreenPoint = null;
     pendingHoverHasPreview = false;
@@ -7206,6 +7242,9 @@ if (supportsGestureEvents && viewer && viewer !== canvas) {
 }
 
 function stopInteraction(evt) {
+  if (evt && (evt.type === 'pointerleave' || evt.type === 'pointercancel')) {
+    cursorInsideCanvas = false;
+  }
   if (evt && (evt.type === 'pointerup' || evt.type === 'pointercancel')) {
     pointerState.registerPointerUp(evt);
   }
