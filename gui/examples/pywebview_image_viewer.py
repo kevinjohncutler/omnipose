@@ -7,7 +7,9 @@
 # did something happen to make the zoom in/out less optimized than before? it is now stuttering again on ipad. 
 # need to smooth out 2 finger zoom and drag on ipad
 # would be nice if all colored elements could inherit a background color gradient, so that their either show the gradietn through themselvs or have a soldi color that is jsut dependent on theoir position from the top of the screen. 
+# remove glow from the toolicons, use custom svgs 
 
+# here is a question: can we make a long press work as a contect menu opener on ipad? we should remove the esititng three press to home and instead eplore this idea of long press to 
 from __future__ import annotations
 
 import argparse

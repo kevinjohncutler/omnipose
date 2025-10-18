@@ -2323,6 +2323,7 @@ const labelStepDown = document.getElementById('labelStepDown');
 const labelStepUp = document.getElementById('labelStepUp');
 const undoButton = document.getElementById('undoButton');
 const redoButton = document.getElementById('redoButton');
+const resetViewButton = document.getElementById('resetViewButton');
 const maskVisibility = document.getElementById('maskVisibility');
 const toolInfo = document.getElementById('toolInfo');
 const segmentButton = document.getElementById('segmentButton');
@@ -2381,6 +2382,11 @@ if (undoButton) {
 if (redoButton) {
   redoButton.addEventListener('click', () => {
     redo();
+  });
+}
+if (resetViewButton) {
+  resetViewButton.addEventListener('click', () => {
+    resetView();
   });
 }
 

@@ -163,27 +163,34 @@ body {
 }
 
 .history-panel {
-  padding-bottom: 4px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  /* --history-icon-undo: url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path fill="currentColor" d="M12.5 5.5a8 8 0 00-6.85 3.69L4.71 8.24A1.25 1.25 0 002.6 9.18l-.05 4.79a1.25 1.25 0 001.25 1.26h4.79a1.25 1.25 0 00.78-2.2l-1.76-1.46A5.75 5.75 0 1118.75 13a1.25 1.25 0 002.5 0A8 8 0 0012.5 5.5z"/></svg>'); */
+  /* --history-icon-redo: url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path fill="currentColor" d="M11.5 5.5a8 8 0 017.35 5.63l1.76-1.45a1.25 1.25 0 012.05.94v4.79a1.25 1.25 0 01-1.25 1.25h-4.79a1.25 1.25 0 01-.78-2.2l1.76-1.45A5.75 5.75 0 103.75 13a1.25 1.25 0 01-2.5 0A8 8 0 0111.5 5.5z"/></svg>'); */
+  /* --history-icon-home: url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path fill="currentColor" d="M11.2 3.4L3.7 10.3a1.25 1.25 0 001.68 1.84l.87-.8V18.5A1.5 1.5 0 007.75 20h8.5a1.5 1.5 0 001.5-1.5v-7.16l.87.8a1.25 1.25 0 101.68-1.84l-7.5-6.9a1.5 1.5 0 00-2.08 0zM13 18.5h-2v-3.75a1 1 0 012 0z"/></svg>'); */
+  --history-icon-undo: url('/static/icons/arrow-back-up.svg');
+  --history-icon-redo: url('/static/icons/arrow-forward-up.svg');
+  --history-icon-home: url('/static/icons/home-2.svg');
 }
 
 .history-controls {
   display: flex;
-  justify-content: flex-start;
   gap: 10px;
+  justify-content: space-between;
 }
 
 .history-button {
-  flex: 0 0 auto;
-  min-width: 68px;
-  height: 34px;
+  flex: 1 1 0;
+  min-width: 0;
+  height: 36px;
   border-radius: 12px;
   border: 1px solid var(--control-border);
   background: var(--control-input-surface);
   color: var(--panel-text-color);
-  font-size: 0.85rem;
-  font-weight: 600;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   cursor: pointer;
   transition: border-color 0.18s ease, background 0.18s ease, color 0.18s ease;
 }
@@ -196,6 +203,41 @@ body {
 .history-button:disabled {
   opacity: 0.4;
   cursor: default;
+}
+
+.history-icon {
+  width: 18px;
+  height: 18px;
+  display: inline-block;
+  background-color: currentColor;
+  pointer-events: none;
+}
+
+.history-icon-undo {
+  -webkit-mask: var(--history-icon-undo) no-repeat center / contain;
+  mask: var(--history-icon-undo) no-repeat center / contain;
+}
+
+.history-icon-redo {
+  -webkit-mask: var(--history-icon-redo) no-repeat center / contain;
+  mask: var(--history-icon-redo) no-repeat center / contain;
+}
+
+.history-icon-home {
+  -webkit-mask: var(--history-icon-home) no-repeat center / contain;
+  mask: var(--history-icon-home) no-repeat center / contain;
+}
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
 }
 
 .label-panel-row {
@@ -237,8 +279,8 @@ body {
 }
 
 .tool-stop {
-  width: 42px;
-  height: 42px;
+  width: 46px;
+  height: 46px;
   border-radius: 12px;
   border: 1px solid var(--control-border);
   background: var(--control-input-surface);
@@ -251,26 +293,57 @@ body {
 }
 
 .tool-stop[data-active="true"] {
-  border-color: rgba(216, 162, 0, 0.75);
-  background: rgba(216, 162, 0, 0.26);
-  box-shadow: 0 4px 14px rgba(216, 162, 0, 0.25);
-  transform: translateY(-3px);
+  border-color: var(--accent-color);
+  color: var(--accent-color);
+  background: var(--control-input-surface);
+  box-shadow: none;
+  transform: none;
 }
 
 .tool-stop:hover {
   border-color: var(--accent-hover);
-  transform: translateY(-2px);
+  transform: translateY(-1px);
 }
 
 .tool-stop:active {
   transform: translateY(0);
 }
 
+.tool-panel {
+  /* Override these URLs with your own assets under /static/icons/… */
+  /* --tool-icon-draw: url('data:...'); */
+  --tool-icon-draw: url('/static/icons/pencil.svg');
+  --tool-icon-erase: url('/static/icons/eraser.svg');
+  --tool-icon-fill: url('/static/icons/droplet-half-2.svg');
+  --tool-icon-picker: url('/static/icons/palette.svg');
+}
+
 .tool-icon {
-  width: 20px;
-  height: 20px;
-  display: block;
+  width: 24px;
+  height: 24px;
+  display: inline-block;
+  background-color: currentColor;
   pointer-events: none;
+}
+
+.tool-icon-draw {
+  -webkit-mask: var(--tool-icon-draw) no-repeat center / contain;
+  mask: var(--tool-icon-draw) no-repeat center / contain;
+}
+
+.tool-icon-erase {
+  -webkit-mask: var(--tool-icon-erase) no-repeat center / contain;
+  mask: var(--tool-icon-erase) no-repeat center / contain;
+}
+
+.tool-icon-fill {
+  -webkit-mask: var(--tool-icon-fill) no-repeat center / contain;
+  mask: var(--tool-icon-fill) no-repeat center / contain;
+}
+
+.tool-icon-picker {
+  -webkit-mask: var(--tool-icon-picker) no-repeat center / contain;
+  mask: var(--tool-icon-picker) no-repeat center / contain;
 }
 
 #fpsDisplay {
