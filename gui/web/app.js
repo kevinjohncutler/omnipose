@@ -365,8 +365,20 @@ const THROTTLE_DRAW_DURING_PAINT = true;
 let paintingFrameScheduled = false;
 let needsMaskRedraw = false;
 
+function flushPendingAffinityUpdates() {
+  if (!pendingAffinityIndexSet || pendingAffinityIndexSet.size === 0) {
+    return false;
+  }
+  const merged = Array.from(pendingAffinityIndexSet);
+  pendingAffinityIndexSet.clear();
+  pendingAffinityIndexSet = null;
+  updateAffinityGraphForIndices(merged);
+  return true;
+}
+
 function requestPaintFrame() {
   if (!THROTTLE_DRAW_DURING_PAINT) {
+    flushPendingAffinityUpdates();
     if (needsMaskRedraw) {
       if (isWebglPipelineActive()) {
         flushMaskTextureUpdates();
@@ -384,6 +396,7 @@ function requestPaintFrame() {
   paintingFrameScheduled = true;
   requestAnimationFrame(() => {
     paintingFrameScheduled = false;
+    flushPendingAffinityUpdates();
     if (needsMaskRedraw) {
       if (isWebglPipelineActive()) {
         flushMaskTextureUpdates();
@@ -2205,6 +2218,8 @@ function handleGestureStart(evt) {
     origin,
     imagePoint,
   };
+  pendingGestureUpdate = null;
+  gestureFrameScheduled = false;
   wheelRotationBuffer = 0;
   hoverPoint = null;
   hoverScreenPoint = null;
@@ -2222,34 +2237,12 @@ function handleGestureChange(evt) {
     return;
   }
   evt.preventDefault();
-  const currentOrigin = resolveGestureOrigin(evt);
-  gestureState.origin = currentOrigin;
-  gestureState.imagePoint = screenToImage(currentOrigin);
-  hoverPoint = { x: gestureState.imagePoint.x, y: gestureState.imagePoint.y };
-  hoverScreenPoint = { x: currentOrigin.x, y: currentOrigin.y };
-  // keep cursor visible during gesture
-  setCursorHold(dotCursorCss);
-  if (pointerState.options.touch.enablePinchZoom) {
-    const nextScale = gestureState.startScale * evt.scale;
-    if (Number.isFinite(nextScale) && nextScale > 0) {
-      viewState.scale = Math.min(Math.max(nextScale, 0.1), 40);
-    }
-  }
-  if (pointerState.options.touch.enableRotate) {
-    const deadzone = Math.max(pointerState.options.touch.rotationDeadzoneDegrees || 0, 0);
-    const rotationDegrees = Number.isFinite(evt.rotation) ? evt.rotation : 0;
-    if (Math.abs(rotationDegrees) >= deadzone) {
-      viewState.rotation = normalizeAngle(gestureState.startRotation + (rotationDegrees * Math.PI / 180));
-      setCursorHold(dotCursorCss);
-    } else {
-      viewState.rotation = gestureState.startRotation;
-    }
-  }
-  setOffsetForImagePoint(gestureState.imagePoint, gestureState.origin);
-  userAdjustedScale = true;
-  autoFitPending = false;
-  draw();
-  drawBrushPreview(null);
+  pendingGestureUpdate = {
+    origin: resolveGestureOrigin(evt),
+    scale: Number.isFinite(evt.scale) ? evt.scale : 1,
+    rotation: Number.isFinite(evt.rotation) ? evt.rotation : 0,
+  };
+  scheduleGestureUpdate();
 }
 
 function handleGestureEnd(evt) {
@@ -2259,7 +2252,10 @@ function handleGestureEnd(evt) {
   if (evt && typeof evt.preventDefault === 'function') {
     evt.preventDefault();
   }
+  applyPendingGestureUpdate();
   gestureState = null;
+  pendingGestureUpdate = null;
+  gestureFrameScheduled = false;
   clearCursorOverride();
   renderHoverPreview();
   updateHoverInfo(hoverPoint || null);
@@ -2274,6 +2270,8 @@ const BRUSH_KERNEL_MODES = {
 };
 let brushKernelMode = BRUSH_KERNEL_MODES.SMOOTH;
 const snappedKernelCache = new Map();
+let pendingGestureUpdate = null;
+let gestureFrameScheduled = false;
 
 function clampBrushDiameter(value) {
   const numeric = Number(value);
@@ -2577,6 +2575,53 @@ function drawBrushPreview(point, { crosshairOnly = false } = {}) {
   drawTouchOverlay();
 }
 
+function scheduleGestureUpdate() {
+  if (gestureFrameScheduled) {
+    return;
+  }
+  gestureFrameScheduled = true;
+  // Throttle pinch updates so we stay synced with the browser compositor and avoid the iPad stutter regression.
+  requestAnimationFrame(() => {
+    gestureFrameScheduled = false;
+    applyPendingGestureUpdate();
+  });
+}
+
+function applyPendingGestureUpdate() {
+  if (!gestureState || !pendingGestureUpdate) {
+    return;
+  }
+  const { origin, scale, rotation } = pendingGestureUpdate;
+  pendingGestureUpdate = null;
+  const currentOrigin = origin;
+  gestureState.origin = currentOrigin;
+  const imagePoint = screenToImage(currentOrigin);
+  gestureState.imagePoint = imagePoint;
+  hoverPoint = { x: imagePoint.x, y: imagePoint.y };
+  hoverScreenPoint = { x: currentOrigin.x, y: currentOrigin.y };
+  setCursorHold(dotCursorCss);
+  if (pointerState.options.touch.enablePinchZoom) {
+    const nextScale = gestureState.startScale * scale;
+    if (Number.isFinite(nextScale) && nextScale > 0) {
+      viewState.scale = Math.min(Math.max(nextScale, 0.1), 40);
+    }
+  }
+  if (pointerState.options.touch.enableRotate) {
+    const deadzone = Math.max(pointerState.options.touch.rotationDeadzoneDegrees || 0, 0);
+    if (Math.abs(rotation) >= deadzone) {
+      viewState.rotation = normalizeAngle(gestureState.startRotation + (rotation * Math.PI / 180));
+      setCursorHold(dotCursorCss);
+    } else {
+      viewState.rotation = gestureState.startRotation;
+    }
+  }
+  setOffsetForImagePoint(gestureState.imagePoint, gestureState.origin);
+  userAdjustedScale = true;
+  autoFitPending = false;
+  draw();
+  drawBrushPreview(null);
+}
+
 function renderHoverPreview() {
   if (hoverPoint) {
     if (PREVIEW_TOOL_TYPES.has(tool)) {
@@ -2598,6 +2643,7 @@ let hoverUpdatePending = false;
 let pendingHoverScreenPoint = null;
 let hoverScreenPoint = null;
 let pendingHoverHasPreview = false;
+let pendingAffinityIndexSet = null;
 function schedulePointerFrame() {
   if (pointerFrameScheduled) {
     return;
@@ -3405,7 +3451,16 @@ function paintStroke(point) {
   });
   if (changed) {
     if (changedIndices.length) {
-      updateAffinityGraphForIndices(changedIndices);
+      if (isPainting) {
+        if (!pendingAffinityIndexSet) {
+          pendingAffinityIndexSet = new Set();
+        }
+        for (let i = 0; i < changedIndices.length; i += 1) {
+          pendingAffinityIndexSet.add(changedIndices[i]);
+        }
+      } else {
+        updateAffinityGraphForIndices(changedIndices);
+      }
     }
     if (isWebglPipelineActive() && changedIndices.length) {
       markMaskIndicesDirty(changedIndices);
@@ -3438,7 +3493,10 @@ function finalizeStroke() {
   pushHistory(indices, before, after);
   try { window.__pendingRelabelSelection = indices; } catch (_) { /* noop */ }
   strokeChanges = null;
-  updateAffinityGraphForIndices(indices);
+  const affinityFlushed = flushPendingAffinityUpdates();
+  if (!affinityFlushed) {
+    updateAffinityGraphForIndices(indices);
+  }
   if (webglOverlay && webglOverlay.enabled) {
     webglOverlay.needsGeometryRebuild = true;
   }
