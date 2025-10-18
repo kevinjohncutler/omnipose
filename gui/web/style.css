@@ -104,6 +104,20 @@ body {
   display: flex;
   flex-direction: column;
   gap: 10px;
+  /* Override these icon URLs with your preferred assets under /static/icons/ */
+  --label-icon-decrement: url('/static/icons/minus.svg');
+  --label-icon-increment: url('/static/icons/plus.svg');
+  --label-stepper-size: var(--control-height);
+}
+
+.control-heading {
+  font-size: 0.78rem;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--panel-text-color);
+  opacity: 0.8;
+  margin: 0;
 }
 
 .label-panel-title {
@@ -125,17 +139,20 @@ body {
 }
 
 .label-stepper button {
-  width: 34px;
-  height: 34px;
+  width: var(--label-stepper-size);
+  height: var(--label-stepper-size);
   border-radius: 12px;
   border: 1px solid var(--control-border);
   background: var(--control-input-surface);
+  backdrop-filter: blur(var(--control-blur));
+  -webkit-backdrop-filter: blur(var(--control-blur));
   color: var(--panel-text-color);
-  font-size: 1.1rem;
+  font-size: 0.85rem;
   line-height: 1;
   display: flex;
   align-items: center;
   justify-content: center;
+  padding: 0;
   cursor: pointer;
   transition: border-color 0.18s ease, background 0.18s ease;
 }
@@ -147,7 +164,7 @@ body {
 .label-stepper input[type="number"] {
   flex: 1;
   min-width: 0;
-  height: 34px;
+  height: var(--label-stepper-size);
   border-radius: 12px;
   border: 1px solid var(--control-border);
   background: var(--control-input-surface);
@@ -156,6 +173,30 @@ body {
   font-size: 0.95rem;
   outline: none;
   text-align: center;
+}
+
+.label-icon {
+  width: calc(var(--label-stepper-size) * 0.55);
+  height: calc(var(--label-stepper-size) * 0.55);
+  display: inline-block;
+  background-color: currentColor;
+  pointer-events: none;
+  -webkit-mask-repeat: no-repeat;
+  mask-repeat: no-repeat;
+  -webkit-mask-position: center;
+  mask-position: center;
+  -webkit-mask-size: contain;
+  mask-size: contain;
+}
+
+.label-icon-decrement {
+  -webkit-mask-image: var(--label-icon-decrement);
+  mask-image: var(--label-icon-decrement);
+}
+
+.label-icon-increment {
+  -webkit-mask-image: var(--label-icon-increment);
+  mask-image: var(--label-icon-increment);
 }
 
 .label-stepper input[type="number"]:focus {
@@ -187,6 +228,8 @@ body {
   border-radius: 12px;
   border: 1px solid var(--control-border);
   background: var(--control-input-surface);
+  backdrop-filter: blur(var(--control-blur));
+  -webkit-backdrop-filter: blur(var(--control-blur));
   color: var(--panel-text-color);
   display: flex;
   align-items: center;
@@ -284,6 +327,8 @@ body {
   border-radius: 12px;
   border: 1px solid var(--control-border);
   background: var(--control-input-surface);
+  backdrop-filter: blur(var(--control-blur));
+  -webkit-backdrop-filter: blur(var(--control-blur));
   display: flex;
   align-items: center;
   justify-content: center;
@@ -435,19 +480,19 @@ canvas {
   color: currentColor;
 }
 
-.control.slider-inline {
+.slider-inline {
   flex-direction: row;
   align-items: center;
   gap: 10px;
 }
 
-.control.slider-inline label {
+.slider-inline label {
   margin: 0;
   min-width: 52px;
   font-weight: 500;
 }
 
-.control.slider-inline .slider-row {
+.slider-inline .slider-row {
   flex: 1;
   display: flex;
   align-items: center;
@@ -455,12 +500,12 @@ canvas {
   min-width: 0;
 }
 
-.control.slider-inline .slider {
+.slider-inline .slider {
   flex: 1;
   min-width: 0;
 }
 
-.control.slider-inline .number-field {
+.slider-inline .number-field {
   flex: 0 0 auto;
 }
 
@@ -717,12 +762,13 @@ canvas {
   background: transparent;
   border: none;
   color: currentColor;
-  padding: 0 8px;
+  padding: 0;
   font-size: 0.9rem;
   font-family: inherit;
   outline: none;
   box-shadow: none;
   border-radius: inherit;
+  text-align: center;
 }
 
 .number-field input[type='number']::-webkit-outer-spin-button,

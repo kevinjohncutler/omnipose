@@ -45,9 +45,9 @@
             </button>
           </div>
         </div>
-        <div class="brush-panel control slider-inline">
-          <label for="brushSizeSlider">Brush Size</label>
-          <div class="slider-row">
+        <div class="brush-panel control">
+          <div class="control-heading">Brush Size</div>
+          <div class="brush-slider slider-inline">
             <div class="slider" data-slider-id="brushSizeSlider" data-slider-type="single">
               <input type="range" id="brushSizeSlider" min="1" max="25" step="1" value="3" />
             </div>
@@ -59,9 +59,15 @@
         <div class="label-panel control">
           <label class="label-panel-title" for="labelValueInput">Label</label>
           <div class="label-panel-row label-stepper">
-            <button type="button" id="labelStepDown" aria-label="Decrement label">&#8722;</button>
+            <button type="button" id="labelStepDown" aria-label="Decrement label">
+              <span class="label-icon label-icon-decrement" aria-hidden="true"></span>
+              <span class="sr-only">Decrement</span>
+            </button>
             <input type="number" id="labelValueInput" min="0" step="1" value="1" />
-            <button type="button" id="labelStepUp" aria-label="Increment label">&#43;</button>
+            <button type="button" id="labelStepUp" aria-label="Increment label">
+              <span class="label-icon label-icon-increment" aria-hidden="true"></span>
+              <span class="sr-only">Increment</span>
+            </button>
           </div>
         </div>
       </div>
