@@ -217,12 +217,10 @@ function getViewportSize() {
   const h = Math.max(1, Math.floor(window.innerHeight || document.documentElement.clientHeight || 1));
   const leftInset = getLeftPanelWidthPx();
   const visibleWidth = Math.max(1, baseWidth - leftInset);
-  // Report both the visible drawing width and the full viewport width so callers can size
-  // the canvas while still centering content within the unobstructed region.
   return {
-    width: visibleWidth,
+    width: baseWidth,
     height: h,
-    totalWidth: baseWidth,
+    visibleWidth,
     leftInset,
   };
 }
@@ -2227,6 +2225,8 @@ function handleGestureChange(evt) {
   const currentOrigin = resolveGestureOrigin(evt);
   gestureState.origin = currentOrigin;
   gestureState.imagePoint = screenToImage(currentOrigin);
+  hoverPoint = { x: gestureState.imagePoint.x, y: gestureState.imagePoint.y };
+  hoverScreenPoint = { x: currentOrigin.x, y: currentOrigin.y };
   // keep cursor visible during gesture
   setCursorHold(dotCursorCss);
   if (pointerState.options.touch.enablePinchZoom) {
@@ -2260,9 +2260,9 @@ function handleGestureEnd(evt) {
     evt.preventDefault();
   }
   gestureState = null;
-  drawBrushPreview(hoverPoint);
   clearCursorOverride();
-  clearCursorOverride();
+  renderHoverPreview();
+  updateHoverInfo(hoverPoint || null);
 }
 
 const MIN_BRUSH_DIAMETER = 1;
@@ -2320,6 +2320,11 @@ window.addEventListener('resize', () => {
 const gammaSlider = document.getElementById('gamma');
 const gammaValue = document.getElementById('gammaValue');
 const maskLabel = document.getElementById('maskLabel');
+const labelValueInput = document.getElementById('labelValueInput');
+const labelStepDown = document.getElementById('labelStepDown');
+const labelStepUp = document.getElementById('labelStepUp');
+const undoButton = document.getElementById('undoButton');
+const redoButton = document.getElementById('redoButton');
 const maskVisibility = document.getElementById('maskVisibility');
 const toolInfo = document.getElementById('toolInfo');
 const segmentButton = document.getElementById('segmentButton');
@@ -2347,6 +2352,39 @@ const imageVisibilityToggle = document.getElementById('imageVisibilityToggle');
 const maskVisibilityToggle = document.getElementById('maskVisibilityToggle');
 const toolStopButtons = Array.from(document.querySelectorAll('.tool-stop'));
 const TOOL_MODE_ORDER = ['draw', 'erase', 'fill', 'picker'];
+const PREVIEW_TOOL_TYPES = new Set(['brush', 'erase']);
+const CROSSHAIR_TOOL_TYPES = new Set(['brush', 'erase', 'fill', 'picker']);
+
+if (labelValueInput) {
+  labelValueInput.addEventListener('change', (evt) => {
+    applyCurrentLabel(evt.target.value);
+  });
+  labelValueInput.addEventListener('keydown', (evt) => {
+    if (evt.key === 'Enter') {
+      applyCurrentLabel(evt.target.value);
+    }
+  });
+}
+if (labelStepDown) {
+  labelStepDown.addEventListener('click', () => {
+    applyCurrentLabel(currentLabel - 1);
+  });
+}
+if (labelStepUp) {
+  labelStepUp.addEventListener('click', () => {
+    applyCurrentLabel(currentLabel + 1);
+  });
+}
+if (undoButton) {
+  undoButton.addEventListener('click', () => {
+    undo();
+  });
+}
+if (redoButton) {
+  redoButton.addEventListener('click', () => {
+    redo();
+  });
+}
 
 attachNumberInputStepper(brushSizeInput, (delta) => {
   setBrushDiameter(brushDiameter + delta, true);
@@ -2363,6 +2401,7 @@ const viewState = { scale: 1.0, offsetX: 0.0, offsetY: 0.0, rotation: 0.0 };
 let maskVisible = true;
 let imageVisible = true;
 let currentLabel = 1;
+updateLabelControls();
 let originalImageData = null;
 let isPanning = false;
 let isPainting = false;
@@ -2447,6 +2486,7 @@ function resizePreviewCanvas() {
         previewCanvas.style.height = rect.height + 'px';
       }
   }
+  previewCanvas.style.transform = canvas.style.transform || '';
 }
 
 function clearPreview() {
@@ -2482,55 +2522,73 @@ function drawTouchOverlay() {
 
 // Interaction dot overlay removed
 
-function drawBrushPreview(point) {
+function drawBrushPreview(point, { crosshairOnly = false } = {}) {
   clearPreview();
 
   if (point) {
-    const pixels = enumerateBrushPixels(point.x, point.y);
-    if (pixels.length) {
-      const kernelCenter = getBrushKernelCenter(point.x, point.y);
-      const circleCenter = (brushKernelMode === BRUSH_KERNEL_MODES.SNAPPED)
-        ? { x: kernelCenter.x + 0.5, y: kernelCenter.y + 0.5 }
-        : { x: kernelCenter.x, y: kernelCenter.y };
-      const radius = (brushDiameter - 1) / 2;
-      previewCtx.save();
-      applyViewTransform(previewCtx, { includeDpr: true });
-      previewCtx.imageSmoothingEnabled = false;
-      previewCtx.fillStyle = 'rgba(255, 255, 255, 0.24)';
-      const size = 1;
-      for (const pixel of pixels) {
-        previewCtx.fillRect(pixel.x, pixel.y, size, size);
-      }
-      previewCtx.restore();
-      if (radius >= 0) {
+    let circleCenter = null;
+    if (!crosshairOnly && PREVIEW_TOOL_TYPES.has(tool)) {
+      const pixels = enumerateBrushPixels(point.x, point.y);
+      if (pixels.length) {
+        const kernelCenter = getBrushKernelCenter(point.x, point.y);
+        circleCenter = (brushKernelMode === BRUSH_KERNEL_MODES.SNAPPED)
+          ? { x: kernelCenter.x + 0.5, y: kernelCenter.y + 0.5 }
+          : { x: kernelCenter.x, y: kernelCenter.y };
+        const radius = (brushDiameter - 1) / 2;
         previewCtx.save();
         applyViewTransform(previewCtx, { includeDpr: true });
-        previewCtx.lineWidth = 1 / Math.max(viewState.scale * dpr, 1);
-        previewCtx.strokeStyle = 'rgba(255, 255, 255, 0.9)';
-        previewCtx.beginPath();
-        const radiusPixels = radius + 0.5;
-        previewCtx.arc(circleCenter.x, circleCenter.y, radiusPixels, 0, Math.PI * 2);
-        previewCtx.stroke();
+        previewCtx.imageSmoothingEnabled = false;
+        previewCtx.fillStyle = 'rgba(255, 255, 255, 0.24)';
+        const size = 1;
+        for (const pixel of pixels) {
+          previewCtx.fillRect(pixel.x, pixel.y, size, size);
+        }
         previewCtx.restore();
-
-        if (BRUSH_CROSSHAIR_ENABLED) {
-          const crosshairHalf = 0.25;
+        if (radius >= 0) {
           previewCtx.save();
           applyViewTransform(previewCtx, { includeDpr: true });
           previewCtx.lineWidth = 1 / Math.max(viewState.scale * dpr, 1);
           previewCtx.strokeStyle = 'rgba(255, 255, 255, 0.9)';
           previewCtx.beginPath();
-          previewCtx.moveTo(circleCenter.x - crosshairHalf, circleCenter.y);
-          previewCtx.lineTo(circleCenter.x + crosshairHalf, circleCenter.y);
-          previewCtx.moveTo(circleCenter.x, circleCenter.y - crosshairHalf);
-          previewCtx.lineTo(circleCenter.x, circleCenter.y + crosshairHalf);
+          const radiusPixels = radius + 0.5;
+          previewCtx.arc(circleCenter.x, circleCenter.y, radiusPixels, 0, Math.PI * 2);
           previewCtx.stroke();
           previewCtx.restore();
         }
       }
     }
+    const wantCrosshair = BRUSH_CROSSHAIR_ENABLED || crosshairOnly;
+    if (wantCrosshair) {
+      const crosshairHalf = 0.25;
+      const crossPoint = circleCenter && !crosshairOnly ? circleCenter : { x: point.x, y: point.y };
+      previewCtx.save();
+      applyViewTransform(previewCtx, { includeDpr: true });
+      previewCtx.lineWidth = 1 / Math.max(viewState.scale * dpr, 1);
+      previewCtx.strokeStyle = 'rgba(255, 255, 255, 0.9)';
+      previewCtx.beginPath();
+      previewCtx.moveTo(crossPoint.x - crosshairHalf, crossPoint.y);
+      previewCtx.lineTo(crossPoint.x + crosshairHalf, crossPoint.y);
+      previewCtx.moveTo(crossPoint.x, crossPoint.y - crosshairHalf);
+      previewCtx.lineTo(crossPoint.x, crossPoint.y + crosshairHalf);
+      previewCtx.stroke();
+      previewCtx.restore();
+    }
   }
   drawTouchOverlay();
+}
+
+function renderHoverPreview() {
+  if (hoverPoint) {
+    if (PREVIEW_TOOL_TYPES.has(tool)) {
+      drawBrushPreview(hoverPoint);
+    } else if (CROSSHAIR_TOOL_TYPES.has(tool) && cursorInsideImage) {
+      drawBrushPreview(hoverPoint, { crosshairOnly: true });
+    } else {
+      drawBrushPreview(null);
+    }
+  } else {
+    drawBrushPreview(null);
+  }
 }
 
 let pointerFrameScheduled = false;
@@ -2592,6 +2650,10 @@ function processPointerFrame() {
         hoverPoint = world;
         hoverScreenPoint = { x: pendingHoverScreenPoint.x, y: pendingHoverScreenPoint.y };
         drawBrushPreview(hoverPoint);
+      } else if (CROSSHAIR_TOOL_TYPES.has(tool)) {
+        hoverPoint = world;
+        hoverScreenPoint = { x: pendingHoverScreenPoint.x, y: pendingHoverScreenPoint.y };
+        drawBrushPreview(hoverPoint, { crosshairOnly: true });
       } else {
         hoverPoint = null;
         hoverScreenPoint = null;
@@ -2626,7 +2688,7 @@ function updateCursor() {
   // Prefer dot cursor during any interaction
   if (isPanning || spacePan || gestureState) {
     canvas.style.cursor = dotCursorCss;
-  } else if ((tool === 'brush' || tool === 'erase' || tool === 'fill' || tool === 'picker') && cursorInsideCanvas) {
+  } else if (CROSSHAIR_TOOL_TYPES.has(tool) && cursorInsideImage) {
     canvas.style.cursor = 'none';
   } else {
     canvas.style.cursor = 'default';
@@ -2637,6 +2699,41 @@ function updateMaskLabel() {
   if (!maskLabel) return;
   const prefix = nColorActive ? 'Mask Group' : 'Mask Label';
   maskLabel.textContent = prefix + ': ' + currentLabel;
+  updateLabelControls();
+}
+
+function updateHistoryButtons() {
+  if (undoButton) {
+    undoButton.disabled = undoStack.length === 0;
+  }
+  if (redoButton) {
+    redoButton.disabled = redoStack.length === 0;
+  }
+}
+
+function updateLabelControls() {
+  if (!labelValueInput) {
+    return;
+  }
+  labelValueInput.value = String(currentLabel);
+  if (currentLabel > 0) {
+    const rgb = hashColorForLabel(currentLabel);
+    if (Array.isArray(rgb) && rgb.length >= 3) {
+      const [r, g, b] = rgb;
+      const color = 'rgb(' + (r | 0) + ', ' + (g | 0) + ', ' + (b | 0) + ')';
+      const luminance = (0.2126 * r + 0.7152 * g + 0.0722 * b) / 255;
+      const textColor = luminance > 0.62 ? 'rgba(20, 20, 20, 0.86)' : '#f6f6f6';
+      labelValueInput.style.setProperty('background', color);
+      labelValueInput.style.setProperty('border-color', 'rgba(0, 0, 0, 0.18)');
+      labelValueInput.style.setProperty('color', textColor);
+      labelValueInput.style.setProperty('caret-color', textColor);
+      return;
+    }
+  }
+  labelValueInput.style.removeProperty('background');
+  labelValueInput.style.removeProperty('border-color');
+  labelValueInput.style.removeProperty('color');
+  labelValueInput.style.removeProperty('caret-color');
 }
 
 function updateMaskVisibilityLabel() {
@@ -2660,6 +2757,27 @@ function updateToolInfo() {
     description = 'Eyedropper (I)';
   }
   toolInfo.textContent = 'Tool: ' + description;
+}
+
+function applyCurrentLabel(nextLabel, { scheduleSave = true } = {}) {
+  const parsed = Number(nextLabel);
+  if (!Number.isFinite(parsed)) {
+    updateLabelControls();
+    return;
+  }
+  const normalized = Math.max(0, Math.floor(parsed));
+  if (normalized === currentLabel) {
+    updateLabelControls();
+    return;
+  }
+  if (eraseActive && normalized !== 0) {
+    stopEraseOverride();
+  }
+  currentLabel = normalized;
+  updateMaskLabel();
+  if (scheduleSave) {
+    scheduleStateSave();
+  }
 }
 
 function updateImageInfo() {
@@ -2948,6 +3066,7 @@ function pushHistory(indices, before, after) {
     undoStack.shift();
   }
   redoStack.length = 0;
+  updateHistoryButtons();
 }
 
 function applyHistoryEntry(entry, useAfter) {
@@ -3008,6 +3127,7 @@ function undo() {
   }
   draw();
   scheduleStateSave();
+  updateHistoryButtons();
 }
 
 function redo() {
@@ -3028,6 +3148,7 @@ function redo() {
   }
   draw();
   scheduleStateSave();
+  updateHistoryButtons();
 }
 
 
@@ -3706,6 +3827,7 @@ function serializeHistoryStack(stack, limit = HISTORY_LIMIT) {
 
 function deserializeHistoryStack(serialized, target, expectedLength = maskValues.length) {
   if (!Array.isArray(serialized) || !target) {
+    updateHistoryButtons();
     return;
   }
   target.length = 0;
@@ -3716,6 +3838,7 @@ function deserializeHistoryStack(serialized, target, expectedLength = maskValues
       target.push(entry);
     }
   }
+  updateHistoryButtons();
 }
 
 function collectViewerState() {
@@ -4796,6 +4919,7 @@ function resizeWebglOverlay() {
   glCanvas.height = canvas.height;
   glCanvas.style.width = canvas.style.width;
   glCanvas.style.height = canvas.style.height;
+  glCanvas.style.transform = canvas.style.transform || '';
   ensureOverlayTargets(glCanvas.width, glCanvas.height);
 }
 
@@ -5936,11 +6060,12 @@ function resizeCanvas() {
     }
     return;
   }
-  const renderWidth = Math.max(1, v.totalWidth || v.width);
+  const renderWidth = Math.max(1, v.width);
   canvas.width = Math.max(1, Math.round(renderWidth * dpr));
   canvas.height = Math.max(1, Math.round(v.height * dpr));
   canvas.style.width = renderWidth + 'px';
   canvas.style.height = v.height + 'px';
+  canvas.style.transform = '';
   resizeWebglOverlay();
   resizePreviewCanvas();
   if (!fitViewToWindow(v)) {
@@ -5954,11 +6079,10 @@ function recenterView(bounds) {
   const metrics = bounds && typeof bounds.width === 'number'
     ? bounds
     : getViewportSize();
-  const visibleWidth = metrics.width || 0;
+  const visibleWidth = metrics.visibleWidth || Math.max(1, metrics.width - (metrics.leftInset || 0));
   const height = metrics.height || 0;
   const leftInset = metrics.leftInset || getLeftPanelWidthPx();
   const imageCenter = { x: imgWidth / 2, y: imgHeight / 2 };
-  // Center relative to the visible viewport by offsetting past the left tool rail.
   const target = { x: leftInset + (visibleWidth / 2), y: height / 2 };
   setOffsetForImagePoint(imageCenter, target);
   log('recenter to ' + viewState.offsetX.toFixed(1) + ',' + viewState.offsetY.toFixed(1));
@@ -5974,12 +6098,13 @@ function fitViewToWindow(bounds) {
   const metrics = bounds && typeof bounds.width === 'number'
     ? bounds
     : getViewportSize();
-  if (metrics.width <= 0 || metrics.height <= 0 || imgWidth === 0 || imgHeight === 0) {
+  const visibleWidth = metrics.visibleWidth || Math.max(1, metrics.width - (metrics.leftInset || 0));
+  if (visibleWidth <= 0 || metrics.height <= 0 || imgWidth === 0 || imgHeight === 0) {
     return false;
   }
   const marginPx = 2; // ensure fully visible by a small pixel margin
   // Fit based on the unobstructed viewport width (excluding the left tool rail)
-  const scaleX = Math.max(0.0001, (metrics.width - marginPx) / imgWidth);
+  const scaleX = Math.max(0.0001, (visibleWidth - marginPx) / imgWidth);
   const scaleY = Math.max(0.0001, (metrics.height - marginPx) / imgHeight);
   const nextScale = Math.max(0.0001, Math.min(scaleX, scaleY));
   if (!Number.isFinite(nextScale) || nextScale <= 0) {
@@ -6002,11 +6127,8 @@ function resetView() {
     recenterView(metrics);
   }
   draw();
-  if (hoverPoint) {
-    drawBrushPreview(hoverPoint);
-  } else {
-    drawBrushPreview(null);
-  }
+  renderHoverPreview();
+  updateHoverInfo(hoverPoint || null);
   viewStateDirty = true;
 }
 
@@ -7207,7 +7329,7 @@ canvas.addEventListener('pointermove', (evt) => {
   }
   if (!isPanning && !spacePan) {
     pendingHoverScreenPoint = { x: pointer.x, y: pointer.y };
-    pendingHoverHasPreview = tool === 'brush';
+    pendingHoverHasPreview = PREVIEW_TOOL_TYPES.has(tool);
     hoverUpdatePending = true;
     schedulePointerFrame();
   }
@@ -7242,8 +7364,16 @@ if (supportsGestureEvents && viewer && viewer !== canvas) {
 }
 
 function stopInteraction(evt) {
-  if (evt && (evt.type === 'pointerleave' || evt.type === 'pointercancel')) {
-    cursorInsideCanvas = false;
+  if (evt) {
+    cursorInsideCanvas = evt.type !== 'pointerleave' && evt.type !== 'pointercancel';
+    if (typeof evt.clientX === 'number' && typeof evt.clientY === 'number') {
+      const pointer = getPointerPosition(evt);
+      hoverScreenPoint = { x: pointer.x, y: pointer.y };
+      if (CROSSHAIR_TOOL_TYPES.has(tool) || PREVIEW_TOOL_TYPES.has(tool)) {
+        const world = screenToImage(pointer);
+        hoverPoint = { x: world.x, y: world.y };
+      }
+    }
   }
   if (evt && (evt.type === 'pointerup' || evt.type === 'pointercancel')) {
     pointerState.registerPointerUp(evt);
@@ -7280,11 +7410,9 @@ function stopInteraction(evt) {
   pendingHoverHasPreview = false;
   if (evt && evt.type === 'pointerleave') {
     clearHoverPreview();
-  } else if (hoverPoint) {
-    drawBrushPreview(hoverPoint);
-    updateHoverInfo(hoverPoint);
   } else {
-    clearHoverPreview();
+    renderHoverPreview();
+    updateHoverInfo(hoverPoint || null);
   }
   if (evt && evt.pointerId !== undefined) {
     try {
@@ -7539,12 +7667,14 @@ function initialize() {
       undoStack.length = 0;
       redoStack.length = 0;
       needsMaskRedraw = true;
+      updateHistoryButtons();
       applyMaskRedrawImmediate();
       draw();
     }
     resizeCanvas();
     updateBrushControls();
     updateImageInfo();
+    updateHistoryButtons();
   };
   img.onerror = (evt) => {
     const detail = evt?.message || 'unknown error';

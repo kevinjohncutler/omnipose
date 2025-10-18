@@ -3,6 +3,11 @@
 # autosave!!!!!
 # drag bar to hid show panel, mayeb expand it
 # aslo the lines of the affinity graph are sitll pretty alisased despite being antialiased with msaa I think. what other options do we have to smooth them? 
+
+# did something happen to make the zoom in/out less optimized than before? it is now stuttering again on ipad. 
+
+# would be nice if all colored elements could inherit a background color gradient, so that their either show the gradietn through themselvs or have a soldi color that is jsut dependent on theoir position from the top of the screen. 
+
 from __future__ import annotations
 
 import argparse
@@ -311,6 +316,8 @@ class SessionManager:
 SESSION_MANAGER = SessionManager()
 
 
+# for a general UI, could make a window that lets users specify a kwarg dict
+# or could have a config file that allows specification of title. slider types
 class Segmenter:
     def __init__(self) -> None:
         self._model = None

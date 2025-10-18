@@ -70,20 +70,19 @@ body {
   outline: none;
 }
 
-#leftPanel {
+.side-panel {
+  /* Shared panel styling for both left (tools) and right (settings) rails.
+     Keep all translucent/blur settings centralized here so the panels stay visually identical. */
   position: absolute;
   top: 0;
-  left: 0;
   bottom: 0;
-  width: var(--left-panel-width);
-  background: var(--control-surface);
-  border-right: 1px solid var(--control-border);
   display: flex;
   flex-direction: column;
   align-items: stretch;
   padding: 20px;
   gap: 14px;
   z-index: 4;
+  background: var(--control-surface);
   color: var(--panel-text-color);
   backdrop-filter: blur(var(--control-blur));
   -webkit-backdrop-filter: blur(var(--control-blur));
@@ -98,6 +97,124 @@ body {
   flex-direction: column;
   align-items: stretch;
   gap: 10px;
+}
+
+.label-panel {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.label-panel-title {
+  font-size: 0.78rem;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--panel-text-color);
+  opacity: 0.8;
+  margin: 0;
+}
+
+.label-stepper {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.label-stepper button {
+  width: 34px;
+  height: 34px;
+  border-radius: 12px;
+  border: 1px solid var(--control-border);
+  background: var(--control-input-surface);
+  color: var(--panel-text-color);
+  font-size: 1.1rem;
+  line-height: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: border-color 0.18s ease, background 0.18s ease;
+}
+
+.label-stepper button:hover {
+  border-color: var(--accent-hover);
+}
+
+.label-stepper input[type="number"] {
+  flex: 1;
+  min-width: 0;
+  height: 34px;
+  border-radius: 12px;
+  border: 1px solid var(--control-border);
+  background: var(--control-input-surface);
+  color: var(--panel-text-color);
+  padding: 0 12px;
+  font-size: 0.95rem;
+  outline: none;
+  text-align: center;
+}
+
+.label-stepper input[type="number"]:focus {
+  border-color: var(--accent-hover);
+}
+
+.history-panel {
+  padding-bottom: 4px;
+}
+
+.history-controls {
+  display: flex;
+  justify-content: flex-start;
+  gap: 10px;
+}
+
+.history-button {
+  flex: 0 0 auto;
+  min-width: 68px;
+  height: 34px;
+  border-radius: 12px;
+  border: 1px solid var(--control-border);
+  background: var(--control-input-surface);
+  color: var(--panel-text-color);
+  font-size: 0.85rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  cursor: pointer;
+  transition: border-color 0.18s ease, background 0.18s ease, color 0.18s ease;
+}
+
+.history-button:hover:not([disabled]) {
+  border-color: var(--accent-hover);
+  background: var(--control-input-hover-surface);
+}
+
+.history-button:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.label-panel-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+}
+
+#labelValueInput {
+  -moz-appearance: textfield;
+  appearance: textfield;
+  transition: background 0.2s ease, border-color 0.2s ease, color 0.2s ease;
+}
+
+#labelValueInput::-webkit-outer-spin-button,
+#labelValueInput::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
 }
 
 .tool-panel-heading {
@@ -217,24 +334,18 @@ canvas {
   opacity: 1;
 }
 
+#leftPanel {
+  /* Only layout-specific overrides belong here (width/edge positioning). */
+  left: 0;
+  width: var(--left-panel-width);
+  border-right: 1px solid var(--control-border);
+}
+
 #sidebar {
-  position: absolute;
-  top: 0;
+  /* Mirror layout overrides for the right rail; visual style lives in .side-panel. */
   right: 0;
   width: var(--sidebar-width);
-  height: 100%;
-  padding: 20px;
-  background: var(--control-surface);
   border-left: 1px solid var(--control-border);
-  display: flex;
-  flex-direction: column;
-  gap: 14px;
-  backdrop-filter: blur(var(--control-blur));
-  -webkit-backdrop-filter: blur(var(--control-blur));
-  color: var(--panel-text-color);
-  overflow-y: auto;
-  overflow-x: hidden;
-  overscroll-behavior: contain;
   z-index: 5;
 }
 
@@ -797,14 +908,6 @@ button:not(:disabled):hover {
 }
 
 @media (prefers-color-scheme: light) {
-  #sidebar {
-    background: var(--control-surface);
-    border-left: 1px solid var(--control-border);
-  }
-
-  #leftPanel {
-    border-right: 1px solid rgba(0, 0, 0, 0.12);
-  }
 
   .tool-panel-heading {
     color: rgba(0, 0, 0, 0.62);

@@ -7,7 +7,13 @@
   </head>
   <body>
     <div id="app">
-      <div id="leftPanel">
+      <div id="leftPanel" class="side-panel">
+        <div class="control history-panel">
+          <div class="history-controls" role="group" aria-label="Undo and Redo">
+            <button type="button" id="undoButton" class="history-button" aria-label="Undo" disabled>Undo</button>
+            <button type="button" id="redoButton" class="history-button" aria-label="Redo" disabled>Redo</button>
+          </div>
+        </div>
         <div class="tool-panel">
           <div class="tool-panel-heading">Tools</div>
           <div class="tool-buttons" title="Shortcuts: Cmd/Ctrl+1..4">
@@ -46,6 +52,14 @@
             </div>
           </div>
         </div>
+        <div class="label-panel control">
+          <label class="label-panel-title" for="labelValueInput">Label</label>
+          <div class="label-panel-row label-stepper">
+            <button type="button" id="labelStepDown" aria-label="Decrement label">&#8722;</button>
+            <input type="number" id="labelValueInput" min="0" step="1" value="1" />
+            <button type="button" id="labelStepUp" aria-label="Increment label">&#43;</button>
+          </div>
+        </div>
       </div>
       <div id="viewer">
         <canvas id="canvas"></canvas>
@@ -53,7 +67,7 @@
         <div id="dropOverlay" aria-hidden="true">Drop image to load</div>
         <div id="fpsDisplay" aria-hidden="true">FPS: --</div>
       </div>
-      <div id="sidebar">
+      <div id="sidebar" class="side-panel">
         <h2 style="margin:0;">Omnipose</h2>
         <div id="imageInfo" class="status"></div>
         <div class="control">
