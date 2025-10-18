@@ -27,7 +27,7 @@ INSTANCE_COLOR_TABLE = np.array(
     dtype=np.uint8,
 )
 
-DEFAULT_BRUSH_RADIUS = 6
+# DEFAULT_BRUSH_RADIUS = 1 # defined the default 
 
 DEFAULT_HOME_SAMPLE = Path.home() / ".omnipose" / "test_files" / "e1t1_crop.tif"
 REPO_FALLBACK_SAMPLE = (

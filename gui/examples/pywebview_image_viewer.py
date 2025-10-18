@@ -55,7 +55,6 @@ sys.modules["gui.examples.pywebview_image_viewer"] = current_module
 if __package__ in (None, ""):
     sys.path.append(str(Path(__file__).resolve().parent))
     from sample_image import (  # type: ignore
-        DEFAULT_BRUSH_RADIUS,
         get_instance_color_table,
         load_image_uint8,
         _ensure_spatial_last,
@@ -64,7 +63,6 @@ if __package__ in (None, ""):
     )
 else:
     from .sample_image import (
-        DEFAULT_BRUSH_RADIUS,
         get_instance_color_table,
         load_image_uint8,
         _ensure_spatial_last,
@@ -258,7 +256,7 @@ class SessionManager:
             "height": int(height),
             "imageDataUrl": encoded,
             "colorTable": get_instance_color_table().tolist(),
-            "brushRadius": DEFAULT_BRUSH_RADIUS,
+            # Use frontend fallback for initial brush size; omit explicit default.
             "maskOpacity": 0.8,
             "maskThreshold": -2.0,
             "flowThreshold": 0.0,
