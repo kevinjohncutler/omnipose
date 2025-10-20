@@ -2058,7 +2058,6 @@ const BRUSH_KERNEL_MODES = {
   SNAPPED: 'snapped',
 };
 let brushKernelMode = BRUSH_KERNEL_MODES.SMOOTH;
-const snappedKernelCache = new Map();
 let pendingGestureUpdate = null;
 let gestureFrameScheduled = false;
 
@@ -2255,6 +2254,32 @@ let clusterEnabled = typeof CONFIG.cluster === 'boolean' ? CONFIG.cluster : true
 let affinitySegEnabled = typeof CONFIG.affinitySeg === 'boolean' ? CONFIG.affinitySeg : true;
 let userAdjustedScale = false;
 const touchPointers = new Map();
+const brushApi = window.OmniBrush || {};
+if (typeof brushApi.init === 'function') {
+  try {
+    brushApi.init({
+      getBrushDiameter: () => brushDiameter,
+      getBrushKernelMode: () => brushKernelMode,
+      modes: BRUSH_KERNEL_MODES,
+      getImageDimensions: () => ({ width: imgWidth, height: imgHeight }),
+      previewCanvas,
+      previewCtx,
+      canvas,
+      viewer,
+      applyViewTransform,
+      getViewState: () => viewState,
+      getDpr: () => dpr,
+      getTool: () => tool,
+      previewToolTypes: PREVIEW_TOOL_TYPES,
+      crosshairToolTypes: CROSSHAIR_TOOL_TYPES,
+      isCrosshairEnabled: () => BRUSH_CROSSHAIR_ENABLED,
+      isDebugTouchOverlay: () => debugTouchOverlay,
+      getTouchPointers: () => touchPointers,
+    });
+  } catch (err) {
+    console.warn('OmniBrush init failed', err);
+  }
+}
 let pinchState = null;
 let panPointerId = null;
 let activePointerId = null;
@@ -2270,119 +2295,35 @@ const HIST_HANDLE_THRESHOLD = 8;
 let autoFitPending = true;
 
 function resizePreviewCanvas() {
-  previewCanvas.width = canvas.width;
-  previewCanvas.height = canvas.height;
-  // The preview canvas shares the same drawing buffer dimensions as the primary canvas,
-  // but we MUST also mirror the CSS width/height so the 2D overlay aligns with the main image.
-  // If we leave the CSS size at the default (device pixels), browsers up-scale/down-scale
-  // the overlay independently of the viewer canvas. On HiDPI screens this creates a 2x stretch,
-  // which was the root cause of the brush preview circle appearing offset and squashed.
-  // Always keep the element's CSS size in sync with the primary canvas so coordinate spaces match.
-  if (canvas.style.width) {
-    previewCanvas.style.width = canvas.style.width;
-  } else {
-    const rect = viewer ? viewer.getBoundingClientRect() : null;
-      if (rect) {
-        previewCanvas.style.width = rect.width + 'px';
-      }
+  if (typeof brushApi.resizePreviewCanvas === 'function') {
+    brushApi.resizePreviewCanvas();
   }
-  if (canvas.style.height) {
-    previewCanvas.style.height = canvas.style.height;
-  } else {
-    const rect = viewer ? viewer.getBoundingClientRect() : null;
-      if (rect) {
-        previewCanvas.style.height = rect.height + 'px';
-      }
-  }
-  previewCanvas.style.transform = canvas.style.transform || '';
 }
 
-function clearPreview() {
-  previewCtx.setTransform(1, 0, 0, 1, 0, 0);
-  previewCtx.clearRect(0, 0, previewCanvas.width, previewCanvas.height);
+function drawBrushPreview(point, options = {}) {
+  if (typeof brushApi.drawBrushPreview === 'function') {
+    brushApi.drawBrushPreview(point, options);
+  }
 }
 
-function drawTouchOverlay() {
-  if (!debugTouchOverlay) {
-    return;
+function getBrushKernelCenter(x, y) {
+  if (typeof brushApi.getBrushKernelCenter === 'function') {
+    return brushApi.getBrushKernelCenter(x, y);
   }
-  const rect = canvas.getBoundingClientRect();
-  previewCtx.save();
-  previewCtx.setTransform(1, 0, 0, 1, 0, 0);
-  previewCtx.lineWidth = 2;
-  previewCtx.strokeStyle = 'rgba(0, 200, 255, 0.9)';
-  previewCtx.fillStyle = 'rgba(0, 200, 255, 0.2)';
-  let rendered = false;
-  touchPointers.forEach((data) => {
-    const x = data.x - rect.left;
-    const y = data.y - rect.top;
-    if (!Number.isFinite(x) || !Number.isFinite(y)) {
-      return;
-    }
-    rendered = true;
-    previewCtx.beginPath();
-    previewCtx.arc(x, y, 16, 0, Math.PI * 2);
-    previewCtx.fill();
-    previewCtx.stroke();
-  });
-  previewCtx.restore();
+  return { x, y };
 }
 
-// Interaction dot overlay removed
-
-function drawBrushPreview(point, { crosshairOnly = false } = {}) {
-  clearPreview();
-
-  if (point) {
-    let circleCenter = null;
-    if (!crosshairOnly && PREVIEW_TOOL_TYPES.has(tool)) {
-      const pixels = enumerateBrushPixels(point.x, point.y);
-      if (pixels.length) {
-        const kernelCenter = getBrushKernelCenter(point.x, point.y);
-        circleCenter = (brushKernelMode === BRUSH_KERNEL_MODES.SNAPPED)
-          ? { x: kernelCenter.x + 0.5, y: kernelCenter.y + 0.5 }
-          : { x: kernelCenter.x, y: kernelCenter.y };
-        const radius = (brushDiameter - 1) / 2;
-        previewCtx.save();
-        applyViewTransform(previewCtx, { includeDpr: true });
-        previewCtx.imageSmoothingEnabled = false;
-        previewCtx.fillStyle = 'rgba(255, 255, 255, 0.24)';
-        const size = 1;
-        for (const pixel of pixels) {
-          previewCtx.fillRect(pixel.x, pixel.y, size, size);
-        }
-        previewCtx.restore();
-        if (radius >= 0) {
-          previewCtx.save();
-          applyViewTransform(previewCtx, { includeDpr: true });
-          previewCtx.lineWidth = 1 / Math.max(viewState.scale * dpr, 1);
-          previewCtx.strokeStyle = 'rgba(255, 255, 255, 0.9)';
-          previewCtx.beginPath();
-          const radiusPixels = radius + 0.5;
-          previewCtx.arc(circleCenter.x, circleCenter.y, radiusPixels, 0, Math.PI * 2);
-          previewCtx.stroke();
-          previewCtx.restore();
-        }
-      }
-    }
-    const wantCrosshair = BRUSH_CROSSHAIR_ENABLED || crosshairOnly;
-    if (wantCrosshair) {
-      const crosshairHalf = 0.25;
-      const crossPoint = circleCenter && !crosshairOnly ? circleCenter : { x: point.x, y: point.y };
-      previewCtx.save();
-      applyViewTransform(previewCtx, { includeDpr: true });
-      previewCtx.lineWidth = 1 / Math.max(viewState.scale * dpr, 1);
-      previewCtx.strokeStyle = 'rgba(255, 255, 255, 0.9)';
-      previewCtx.beginPath();
-      previewCtx.moveTo(crossPoint.x - crosshairHalf, crossPoint.y);
-      previewCtx.lineTo(crossPoint.x + crosshairHalf, crossPoint.y);
-      previewCtx.moveTo(crossPoint.x, crossPoint.y - crosshairHalf);
-      previewCtx.lineTo(crossPoint.x, crossPoint.y + crosshairHalf);
-      previewCtx.stroke();
-      previewCtx.restore();
-    }
+function enumerateBrushPixels(centerX, centerY) {
+  if (typeof brushApi.enumerateBrushPixels === 'function') {
+    return brushApi.enumerateBrushPixels(centerX, centerY);
   }
-  drawTouchOverlay();
+  return [];
+}
+
+function collectBrushIndices(target, centerX, centerY) {
+  if (typeof brushApi.collectBrushIndices === 'function') {
+    brushApi.collectBrushIndices(target, centerX, centerY);
+  }
 }
 
 function scheduleGestureUpdate() {
@@ -3078,13 +3019,6 @@ function promptClearMasks({ skipConfirm = false } = {}) {
   return performClearMasks({ recordHistory: true });
 }
 
-function collectBrushIndices(target, centerX, centerY) {
-  const pixels = enumerateBrushPixels(centerX, centerY);
-  for (const pixel of pixels) {
-    target.add(pixel.y * imgWidth + pixel.x);
-  }
-}
-
 function setBrushKernelMode(nextMode) {
   const normalized = nextMode === BRUSH_KERNEL_MODES.SNAPPED
     ? BRUSH_KERNEL_MODES.SNAPPED
@@ -3099,93 +3033,6 @@ function setBrushKernelMode(nextMode) {
   }
   log('brush kernel mode set to ' + brushKernelMode);
   drawBrushPreview(hoverPoint);
-}
-
-function getBrushKernelCenter(x, y) {
-  if (brushKernelMode === BRUSH_KERNEL_MODES.SNAPPED) {
-    return { x: Math.round(x), y: Math.round(y) };
-  }
-  return { x, y };
-}
-
-function enumerateBrushPixels(rawCenterX, rawCenterY) {
-  const centerX = rawCenterX - 0.5;
-  const centerY = rawCenterY - 0.5;
-  if (brushKernelMode === BRUSH_KERNEL_MODES.SNAPPED) {
-    return enumerateSnappedBrushPixels(centerX, centerY);
-  }
-  return enumerateSmoothBrushPixels(centerX, centerY);
-}
-
-function enumerateSmoothBrushPixels(centerX, centerY) {
-  const pixels = [];
-  const radius = (brushDiameter - 1) / 2;
-  if (radius <= 0) {
-    const x = Math.round(centerX);
-    const y = Math.round(centerY);
-    if (x >= 0 && x < imgWidth && y >= 0 && y < imgHeight) {
-      pixels.push({ x, y });
-    }
-    return pixels;
-  }
-  const threshold = (radius + 0.35) * (radius + 0.35);
-  const minX = Math.max(0, Math.floor(centerX - radius - 1));
-  const maxX = Math.min(imgWidth - 1, Math.ceil(centerX + radius + 1));
-  for (let x = minX; x <= maxX; x += 1) {
-    const dx = x - centerX;
-    if (dx * dx > threshold) {
-      continue;
-    }
-    const dy = Math.sqrt(Math.max(0, threshold - dx * dx));
-    let yMin = Math.ceil(centerY - dy);
-    let yMax = Math.floor(centerY + dy);
-    if (yMax < yMin) {
-      continue;
-    }
-    if (yMin < 0) {
-      yMin = 0;
-    }
-    if (yMax >= imgHeight) {
-      yMax = imgHeight - 1;
-    }
-    for (let y = yMin; y <= yMax; y += 1) {
-      pixels.push({ x, y });
-    }
-  }
-  return pixels;
-}
-
-function enumerateSnappedBrushPixels(centerX, centerY) {
-  const center = getBrushKernelCenter(centerX, centerY);
-  const offsets = getSnappedKernelOffsets(brushDiameter);
-  const pixels = [];
-  for (const offset of offsets) {
-    const x = center.x + offset.x;
-    const y = center.y + offset.y;
-    if (x >= 0 && x < imgWidth && y >= 0 && y < imgHeight) {
-      pixels.push({ x, y });
-    }
-  }
-  return pixels;
-}
-
-function getSnappedKernelOffsets(diameter) {
-  if (snappedKernelCache.has(diameter)) {
-    return snappedKernelCache.get(diameter);
-  }
-  const radius = (diameter - 1) / 2;
-  const threshold = (radius + 0.35) * (radius + 0.35);
-  const span = Math.ceil(radius + 1);
-  const offsets = [];
-  for (let y = -span; y <= span; y += 1) {
-    for (let x = -span; x <= span; x += 1) {
-      if (x * x + y * y <= threshold) {
-        offsets.push({ x, y });
-      }
-    }
-  }
-  snappedKernelCache.set(diameter, offsets);
-  return offsets;
 }
 
 function traverseLine(x0, y0, x1, y1, callback) {
