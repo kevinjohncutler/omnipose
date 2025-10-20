@@ -1,0 +1,66 @@
+<!-- Extracted from index.html lines 10-73 -->
+
+      <div id="leftPanel" class="side-panel">
+        <div class="control history-panel">
+          <div class="history-controls" role="group" aria-label="Undo, Redo, and Recenter">
+            <button type="button" id="undoButton" class="history-button" aria-label="Undo" disabled>
+              <span class="history-icon history-icon-undo" aria-hidden="true"></span>
+              <span class="sr-only">Undo</span>
+            </button>
+            <button type="button" id="redoButton" class="history-button" aria-label="Redo" disabled>
+              <span class="history-icon history-icon-redo" aria-hidden="true"></span>
+              <span class="sr-only">Redo</span>
+            </button>
+            <button type="button" id="resetViewButton" class="history-button" aria-label="Recenter view">
+              <span class="history-icon history-icon-home" aria-hidden="true"></span>
+              <span class="sr-only">Recenter</span>
+            </button>
+          </div>
+        </div>
+        <div class="tool-panel">
+          <div class="tool-panel-heading">Tools</div>
+          <div class="tool-buttons" title="Shortcuts: Cmd/Ctrl+1..4">
+            <button type="button" class="tool-stop" data-mode="draw" title="Draw (B)">
+              <span class="tool-icon tool-icon-draw" aria-hidden="true"></span>
+              <span class="sr-only">Draw</span>
+            </button>
+            <button type="button" class="tool-stop" data-mode="erase" title="Erase (E)">
+              <span class="tool-icon tool-icon-erase" aria-hidden="true"></span>
+              <span class="sr-only">Erase</span>
+            </button>
+            <button type="button" class="tool-stop" data-mode="fill" title="Fill (F)">
+              <span class="tool-icon tool-icon-fill" aria-hidden="true"></span>
+              <span class="sr-only">Fill</span>
+            </button>
+            <button type="button" class="tool-stop" data-mode="picker" title="Eyedropper (I)">
+              <span class="tool-icon tool-icon-picker" aria-hidden="true"></span>
+              <span class="sr-only">Picker</span>
+            </button>
+          </div>
+        </div>
+        <div class="brush-panel control">
+          <div class="control-heading">Brush Size</div>
+          <div class="brush-slider slider-inline">
+            <div class="slider" data-slider-id="brushSizeSlider" data-slider-type="single">
+              <input type="range" id="brushSizeSlider" min="1" max="25" step="1" value="3" />
+            </div>
+            <div class="number-field" data-number-id="brushSizeInput">
+              <input type="number" id="brushSizeInput" min="1" max="25" step="1" value="3" />
+            </div>
+          </div>
+        </div>
+        <div class="label-panel control">
+          <label class="label-panel-title" for="labelValueInput">Label</label>
+          <div class="label-panel-row label-stepper">
+            <button type="button" id="labelStepDown" aria-label="Decrement label">
+              <span class="label-icon label-icon-decrement" aria-hidden="true"></span>
+              <span class="sr-only">Decrement</span>
+            </button>
+            <input type="number" id="labelValueInput" min="0" step="1" value="1" />
+            <button type="button" id="labelStepUp" aria-label="Increment label">
+              <span class="label-icon label-icon-increment" aria-hidden="true"></span>
+              <span class="sr-only">Increment</span>
+            </button>
+          </div>
+        </div>
+      </div>

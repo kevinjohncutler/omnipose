@@ -3,7 +3,7 @@ const imgWidth = CONFIG.width || 0;
 const imgHeight = CONFIG.height || 0;
 const imageDataUrl = CONFIG.imageDataUrl || '';
 const colorTable = CONFIG.colorTable || [];
-const initialBrushRadius = CONFIG.brushRadius ?? 1; // default brush radius
+const initialBrushRadius = CONFIG.brushRadius ?? 6;
 const sessionId = CONFIG.sessionId || null;
 const currentImagePath = CONFIG.imagePath || null;
 const currentImageName = CONFIG.imageName || null;
@@ -16,27 +16,17 @@ const hasNextImage = Boolean(CONFIG.hasNext);
 let defaultPalette = [];
 let nColorPalette = [];
 
-// Centralized input policy so stylus, touch, and mouse behavior can be tuned per platform.
-const POINTER_OPTIONS = {
-  stylus: {
-    allowSimultaneousTouchGestures: false,
-    barrelButtonPan: true,
-  },
-  touch: {
-    enablePan: true,
-    enablePinchZoom: true,
-    enableRotate: true,
-    rotationDeadzoneDegrees: 0.1,
-  },
-  mouse: {
-    primaryDraw: true,
-    secondaryPan: true,
-  },
-};
+const OmniPointer = window.OmniPointer || {};
+const POINTER_OPTIONS = OmniPointer.POINTER_OPTIONS;
+const createPointerState = typeof OmniPointer.createPointerState === 'function'
+  ? OmniPointer.createPointerState
+  : null;
+if (!POINTER_OPTIONS || !createPointerState) {
+  throw new Error('OmniPointer helpers missing; ensure /static/js/pointer-state.js loads before app.js');
+}
 
 const RAD_TO_DEG = 180 / Math.PI;
 const USE_WEBGL_PIPELINE = CONFIG.useWebglPipeline ?? false;
-
 const MAIN_WEBGL_CONTEXT_ATTRIBUTES = {
   alpha: true,
   antialias: true,
@@ -46,96 +36,6 @@ const MAIN_WEBGL_CONTEXT_ATTRIBUTES = {
   stencil: false,
   desynchronized: true,
 };
-
-function createPointerState(options = {}) {
-  const merged = {
-    stylus: {
-      allowSimultaneousTouchGestures: false,
-      barrelButtonPan: true,
-      ...(options.stylus || {}),
-    },
-    touch: {
-      enablePan: true,
-      enablePinchZoom: true,
-      enableRotate: true,
-      rotationDeadzoneDegrees: 0.1,
-      ...(options.touch || {}),
-    },
-    mouse: {
-      primaryDraw: true,
-      secondaryPan: true,
-      ...(options.mouse || {}),
-    },
-  };
-  let activePenId = null;
-  let penButtons = 0;
-  let penBarrelPan = false;
-
-  function isStylusPointer(evt) {
-    if (!evt) {
-      return false;
-    }
-    if (evt.pointerType === 'pen') {
-      return true;
-    }
-    if (evt.pointerType === 'touch' && typeof evt.touchType === 'string') {
-      return evt.touchType.toLowerCase() === 'stylus';
-    }
-    return false;
-  }
-
-  function registerPenButtons(evt) {
-    penButtons = typeof evt.buttons === 'number' ? evt.buttons : 0;
-    penBarrelPan = merged.stylus.barrelButtonPan && (penButtons & ~1) !== 0;
-  }
-
-  return {
-    options: merged,
-    isStylusPointer,
-    registerPointerDown(evt) {
-      if (isStylusPointer(evt)) {
-        activePenId = evt.pointerId;
-        registerPenButtons(evt);
-      }
-    },
-    registerPointerMove(evt) {
-      if (isStylusPointer(evt) && evt.pointerId === activePenId) {
-        registerPenButtons(evt);
-      }
-    },
-    registerPointerUp(evt) {
-      if (isStylusPointer(evt) && evt.pointerId === activePenId) {
-        registerPenButtons(evt);
-        activePenId = null;
-        penBarrelPan = false;
-        penButtons = 0;
-      }
-    },
-    isActivePen(pointerId) {
-      return activePenId !== null && pointerId === activePenId;
-    },
-    hasActivePen() {
-      return activePenId !== null;
-    },
-    isBarrelPanActive() {
-      return penBarrelPan;
-    },
-    shouldIgnoreTouch(evt) {
-      if (!evt || evt.pointerType !== 'touch') {
-        return false;
-      }
-      if (!merged.stylus.allowSimultaneousTouchGestures && activePenId !== null) {
-        return true;
-      }
-      return false;
-    },
-    resetPen() {
-      activePenId = null;
-      penButtons = 0;
-      penBarrelPan = false;
-    },
-  };
-}
 
 const supportsGestureEvents = typeof window !== 'undefined'
   && (typeof window.GestureEvent === 'function' || 'ongesturestart' in window);
@@ -1536,11 +1436,15 @@ function setLoadingOverlay() {}
 
 function hideLoadingOverlay() {}
 
-const pendingLogs = [];
-let pywebviewReady = false;
+const OmniLog = window.OmniLog || {};
+const log = typeof OmniLog.log === 'function' ? OmniLog.log : () => {};
+const flushLogs = typeof OmniLog.flushLogs === 'function' ? OmniLog.flushLogs : () => {};
+const scheduleLogFlush = typeof OmniLog.scheduleLogFlush === 'function' ? OmniLog.scheduleLogFlush : () => {};
+const setPywebviewReady = typeof OmniLog.setPywebviewReady === 'function' ? OmniLog.setPywebviewReady : () => {};
+const clearLogQueue = typeof OmniLog.clearQueue === 'function' ? OmniLog.clearQueue : () => {};
+const OmniHistory = window.OmniHistory || {};
 let loggedPixelSample = false;
 let drawLogCount = 0;
-let logFlushTimer = null;
 const SEGMENTATION_UPDATE_DELAY = 180;
 let segmentationUpdateTimer = null;
 let pendingMaskRebuild = false;
@@ -1553,122 +1457,7 @@ let affinityGraphNeedsLocalRebuild = false;
 let affinityGraphSource = 'none';
 let affinitySteps = DEFAULT_AFFINITY_STEPS.map((step) => step.slice());
 refreshOppositeStepMapping();
-const startTime = (typeof performance !== 'undefined' && performance.now)
-  ? performance.now()
-  : Date.now();
 let shuttingDown = false;
-const pywebviewPoll = setInterval(() => {
-  if (pywebviewReady) {
-    clearInterval(pywebviewPoll);
-    return;
-  }
-  const api = window.pywebview ? window.pywebview.api : null;
-  if (api && api.log) {
-    pywebviewReady = true;
-    clearInterval(pywebviewPoll);
-    log('pywebview api detected via poll');
-    flushLogs();
-  }
-}, 50);
-
-window.addEventListener('error', (evt) => {
-  try {
-    const message = evt && evt.message ? evt.message : String(evt);
-    log('uncaught error: ' + message);
-  } catch (_) {
-    /* ignore */
-  }
-});
-
-function pushToQueue(msg) {
-  pendingLogs.push(msg);
-  if (pendingLogs.length > 200) {
-    pendingLogs.shift();
-  }
-  scheduleLogFlush();
-}
-
-function flushLogs() {
-  if (logFlushTimer !== null) {
-    clearTimeout(logFlushTimer);
-    logFlushTimer = null;
-  }
-  if (!pendingLogs.length) {
-    return;
-  }
-  if (pywebviewReady) {
-    const api = window.pywebview && window.pywebview.api && window.pywebview.api.log
-      ? window.pywebview.api
-      : null;
-    if (!api || !api.log) {
-      return;
-    }
-    while (pendingLogs.length) {
-      api.log(pendingLogs.shift());
-    }
-    return;
-  }
-  if (typeof fetch !== 'function') {
-    return;
-  }
-  const payload = { messages: pendingLogs.splice(0, pendingLogs.length) };
-  const body = JSON.stringify(payload);
-  try {
-    if (navigator && typeof navigator.sendBeacon === 'function') {
-      const ok = navigator.sendBeacon('/api/log', new Blob([body], { type: 'application/json' }));
-      if (!ok) {
-        pendingLogs.unshift(...payload.messages);
-        scheduleLogFlush();
-      }
-    } else {
-      fetch('/api/log', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body,
-        keepalive: true,
-      }).catch(() => {
-        pendingLogs.unshift(...payload.messages);
-        scheduleLogFlush();
-      });
-    }
-  } catch (_) {
-    pendingLogs.unshift(...payload.messages);
-    scheduleLogFlush();
-  }
-}
-
-function scheduleLogFlush(delay = 200) {
-  if (logFlushTimer !== null) {
-    return;
-  }
-  logFlushTimer = setTimeout(() => {
-    logFlushTimer = null;
-    flushLogs();
-  }, delay);
-}
-
-function formatMessage(message) {
-  const now = (typeof performance !== 'undefined' && performance.now)
-    ? (performance.now() - startTime)
-    : (Date.now() - startTime);
-  const timestamp = now.toFixed(1).padStart(7, ' ');
-  return '[' + timestamp + ' ms] ' + message;
-}
-
-function log(message) {
-  const formatted = formatMessage(String(message));
-  try {
-    console.log('[pywebview]', formatted);
-  } catch (_) {
-    /* console unavailable */
-  }
-  const api = window.pywebview ? window.pywebview.api : null;
-  if (api && api.log) {
-    api.log(formatted);
-  } else {
-    pushToQueue(formatted);
-  }
-}
 
 function clearHoverPreview() {
   hoverPoint = null;
@@ -1677,13 +1466,16 @@ function clearHoverPreview() {
   updateHoverInfo(null);
 }
 
+function clamp(value, min, max) {
+  if (!Number.isFinite(value)) {
+    return min;
+  }
+  return Math.min(max, Math.max(min, value));
+}
+
 const sliderRegistry = new Map();
 const dropdownRegistry = new Map();
 let dropdownOpenId = null;
-
-function clamp(value, min, max) {
-  return Math.min(max, Math.max(min, value));
-}
 
 function valueToPercent(input) {
   const min = Number(input.min || 0);
@@ -1726,7 +1518,7 @@ function registerSlider(root) {
     return;
   }
   const type = (root.dataset.sliderType || 'single').toLowerCase();
-  const inputs = Array.from(root.querySelectorAll('input[type="range"]'));
+  const inputs = Array.from(root.querySelectorAll('input[type=\"range\"]'));
   if (!inputs.length) {
     return;
   }
@@ -1738,22 +1530,14 @@ function registerSlider(root) {
   root.innerHTML = '';
   const track = document.createElement('div');
   track.className = 'slider-track';
+  root.appendChild(track);
   const fill = document.createElement('div');
   fill.className = 'slider-fill';
-  root.appendChild(track);
-  root.appendChild(fill);
-
-  inputs.forEach((input) => {
-    input.classList.add('slider-input');
-    input.setAttribute('aria-hidden', 'true');
-    root.appendChild(input);
-  });
-
-  const thumbs = inputs.map((_, idx) => {
+  track.appendChild(fill);
+  const thumbs = inputs.map(() => {
     const thumb = document.createElement('div');
     thumb.className = 'slider-thumb';
-    thumb.dataset.index = String(idx);
-    root.appendChild(thumb);
+    track.appendChild(thumb);
     return thumb;
   });
 
@@ -2070,6 +1854,13 @@ function registerDropdown(root) {
   dropdownRegistry.set(id, entry);
 }
 
+function refreshDropdown(id) {
+  const entry = dropdownRegistry.get(id);
+  if (entry && typeof entry.applySelection === 'function') {
+    entry.applySelection();
+  }
+}
+
 document.addEventListener('pointerdown', (evt) => {
   if (!dropdownOpenId) {
     return;
@@ -2084,13 +1875,6 @@ document.addEventListener('pointerdown', (evt) => {
   }
 });
 
-function refreshDropdown(id) {
-  const entry = dropdownRegistry.get(id);
-  if (entry && typeof entry.applySelection === 'function') {
-    entry.applySelection();
-  }
-}
-
 window.addEventListener('blur', () => {
   touchPointers.clear();
   pinchState = null;
@@ -2100,7 +1884,12 @@ window.addEventListener('blur', () => {
   wheelRotationBuffer = 0;
   clearHoverPreview();
   if (dropdownOpenId) {
-    closeDropdown(dropdownRegistry.get(dropdownOpenId));
+    const entry = dropdownRegistry.get(dropdownOpenId);
+    if (entry) {
+      closeDropdown(entry);
+    } else {
+      dropdownOpenId = null;
+    }
   }
 });
 
@@ -2311,7 +2100,11 @@ updateBrushControls();
 window.addEventListener('resize', () => {
   if (dropdownOpenId) {
     const entry = dropdownRegistry.get(dropdownOpenId);
-    positionDropdown(entry);
+    if (entry) {
+      positionDropdown(entry);
+    } else {
+      dropdownOpenId = null;
+    }
   }
 });
 
@@ -2399,8 +2192,19 @@ attachNumberInputStepper(gammaInput, (delta) => {
 });
 
 const HISTORY_LIMIT = 200;
-const undoStack = [];
-const redoStack = [];
+if (typeof OmniHistory.init === 'function') {
+  try {
+    OmniHistory.init({ limit: HISTORY_LIMIT });
+  } catch (err) {
+    console.warn('OmniHistory init failed', err);
+  }
+}
+const undoStack = typeof OmniHistory.getUndoStack === 'function'
+  ? OmniHistory.getUndoStack()
+  : [];
+const redoStack = typeof OmniHistory.getRedoStack === 'function'
+  ? OmniHistory.getRedoStack()
+  : [];
 const viewState = { scale: 1.0, offsetX: 0.0, offsetY: 0.0, rotation: 0.0 };
 let maskVisible = true;
 let imageVisible = true;
@@ -2756,10 +2560,16 @@ function updateMaskLabel() {
 
 function updateHistoryButtons() {
   if (undoButton) {
-    undoButton.disabled = undoStack.length === 0;
+    const count = (typeof OmniHistory.getUndoCount === 'function')
+      ? OmniHistory.getUndoCount()
+      : 0;
+    undoButton.disabled = count === 0;
   }
   if (redoButton) {
-    redoButton.disabled = redoStack.length === 0;
+    const count = (typeof OmniHistory.getRedoCount === 'function')
+      ? OmniHistory.getRedoCount()
+      : 0;
+    redoButton.disabled = count === 0;
   }
 }
 
@@ -3113,11 +2923,9 @@ function setImageVisible(value, { silent = false } = {}) {
 }
 
 function pushHistory(indices, before, after) {
-  undoStack.push({ indices, before, after });
-  if (undoStack.length > HISTORY_LIMIT) {
-    undoStack.shift();
+  if (typeof OmniHistory.push === 'function') {
+    OmniHistory.push(indices, before, after);
   }
-  redoStack.length = 0;
   updateHistoryButtons();
 }
 
@@ -3162,12 +2970,11 @@ function applyHistoryEntry(entry, useAfter) {
 }
 
 function undo() {
-  if (!undoStack.length) {
+  const entry = (typeof OmniHistory.undo === 'function') ? OmniHistory.undo() : null;
+  if (!entry) {
     return;
   }
-  const entry = undoStack.pop();
   applyHistoryEntry(entry, false);
-  redoStack.push(entry);
   // Update affinity graph incrementally for the edited indices
   try { updateAffinityGraphForIndices(entry.indices); } catch (_) {}
   clearColorCaches();
@@ -3183,12 +2990,11 @@ function undo() {
 }
 
 function redo() {
-  if (!redoStack.length) {
+  const entry = (typeof OmniHistory.redo === 'function') ? OmniHistory.redo() : null;
+  if (!entry) {
     return;
   }
-  const entry = redoStack.pop();
   applyHistoryEntry(entry, true);
-  undoStack.push(entry);
   // Update affinity graph incrementally for the edited indices
   try { updateAffinityGraphForIndices(entry.indices); } catch (_) {}
   clearColorCaches();
@@ -3856,64 +3662,75 @@ function base64FromUint8Array(array) {
   return base64FromUint8(array instanceof Uint8Array ? array : new Uint8Array(array.buffer));
 }
 
-function serializeHistoryEntry(entry) {
-  if (!entry) return null;
-  return {
-    indices: base64FromUint32(entry.indices || new Uint32Array()),
-    before: base64FromUint32(entry.before || new Uint32Array()),
-    after: base64FromUint32(entry.after || new Uint32Array()),
-  };
-}
-
-function deserializeHistoryEntry(serialized, expectedLength) {
-  if (!serialized) return null;
-  return {
-    indices: uint32FromBase64(serialized.indices || '', expectedLength),
-    before: uint32FromBase64(serialized.before || ''),
-    after: uint32FromBase64(serialized.after || ''),
-  };
-}
-
-function serializeHistoryStack(stack, limit = HISTORY_LIMIT) {
-  if (!Array.isArray(stack)) {
-    return [];
+function encodeHistoryField(array) {
+  if (!array || array.length === 0) {
+    return '';
   }
-  const start = Math.max(0, stack.length - limit);
-  const result = [];
-  for (let i = start; i < stack.length; i += 1) {
-    const serialized = serializeHistoryEntry(stack[i]);
-    if (serialized) {
-      result.push(serialized);
+  const view = array instanceof Uint32Array ? array : new Uint32Array(array);
+  return base64FromUint32(view);
+}
+
+function decodeHistoryField(value, expectedLength) {
+  if (value == null || value === '') {
+    if (typeof expectedLength === 'number' && expectedLength > 0) {
+      return new Uint32Array(expectedLength);
+    }
+    return new Uint32Array(0);
+  }
+  if (value instanceof Uint32Array) {
+    if (typeof expectedLength === 'number' && expectedLength > 0 && value.length !== expectedLength) {
+      const copy = new Uint32Array(expectedLength);
+      copy.set(value.subarray(0, Math.min(value.length, expectedLength)));
+      return copy;
+    }
+    return value;
+  }
+  if (Array.isArray(value)) {
+    return new Uint32Array(value);
+  }
+  if (typeof value === 'string') {
+    return uint32FromBase64(value, expectedLength);
+  }
+  return new Uint32Array(0);
+}
+
+function serializeHistoryState() {
+  if (typeof OmniHistory.serialize === 'function') {
+    try {
+      return OmniHistory.serialize(encodeHistoryField);
+    } catch (err) {
+      console.warn('serializeHistoryState failed', err);
     }
   }
-  return result;
+  return { undo: [], redo: [] };
 }
 
-function deserializeHistoryStack(serialized, target, expectedLength = maskValues.length) {
-  if (!Array.isArray(serialized) || !target) {
-    updateHistoryButtons();
-    return;
-  }
-  target.length = 0;
-  const start = Math.max(0, serialized.length - HISTORY_LIMIT);
-  for (let i = start; i < serialized.length; i += 1) {
-    const entry = deserializeHistoryEntry(serialized[i], expectedLength);
-    if (entry) {
-      target.push(entry);
+function restoreHistoryState(serialized, expectedLength) {
+  if (typeof OmniHistory.restore === 'function') {
+    try {
+      OmniHistory.restore(serialized || {}, decodeHistoryField, expectedLength);
+      updateHistoryButtons();
+      return;
+    } catch (err) {
+      console.warn('restoreHistoryState failed', err);
     }
+  }
+  if (typeof OmniHistory.clear === 'function') {
+    OmniHistory.clear();
   }
   updateHistoryButtons();
 }
 
 function collectViewerState() {
+  const historyState = serializeHistoryState();
   return {
     width: imgWidth,
     height: imgHeight,
     mask: base64FromUint32(maskValues),
     maskHasNonZero: Boolean(maskHasNonZero),
     outline: base64FromUint8Array(outlineState),
-    undoStack: serializeHistoryStack(undoStack),
-    redoStack: serializeHistoryStack(redoStack),
+    undoStack: historyState.undo,
+    redoStack: historyState.redo,
     currentLabel,
     maskOpacity,
     maskThreshold,
@@ -3964,8 +3781,10 @@ function restoreViewerState(saved) {
     } else {
       outlineState.fill(0);
     }
-    deserializeHistoryStack(saved.undoStack, undoStack, expectedLength);
-    deserializeHistoryStack(saved.redoStack, redoStack, expectedLength);
+    restoreHistoryState(
+      { undo: saved.undoStack, redo: saved.redoStack },
+      expectedLength,
+    );
     if (typeof saved.currentLabel === 'number') {
       currentLabel = saved.currentLabel;
       updateMaskLabel();
@@ -7542,7 +7361,12 @@ window.addEventListener('keydown', (evt) => {
   const key = evt.key.toLowerCase();
   const modifier = evt.ctrlKey || evt.metaKey;
   if (key === 'escape' && dropdownOpenId) {
-    closeDropdown(dropdownRegistry.get(dropdownOpenId));
+    const entry = dropdownRegistry.get(dropdownOpenId);
+    if (entry) {
+      closeDropdown(entry);
+    } else {
+      dropdownOpenId = null;
+    }
     evt.preventDefault();
     return;
   }
@@ -7728,8 +7552,9 @@ function initialize() {
       maskValues.fill(0);
       outlineState.fill(0);
       maskHasNonZero = false;
-      undoStack.length = 0;
-      redoStack.length = 0;
+      if (typeof OmniHistory.clear === 'function') {
+        OmniHistory.clear();
+      }
       needsMaskRedraw = true;
       updateHistoryButtons();
       applyMaskRedrawImmediate();
@@ -8058,13 +7883,13 @@ if (document.readyState === 'complete' || document.readyState === 'interactive')
   window.addEventListener('load', boot);
 }
 window.addEventListener('pywebviewready', () => {
-  pywebviewReady = true;
+  setPywebviewReady(true);
   log('pywebview ready event');
   flushLogs();
   boot();
 });
 window.addEventListener('beforeunload', () => {
   shuttingDown = true;
-  pendingLogs.length = 0;
+  clearLogQueue();
 });
 // no incremental rebuild method; geometry rebuilds in ensureWebglGeometry

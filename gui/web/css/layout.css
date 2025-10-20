@@ -1,0 +1,200 @@
+:root {
+  --sidebar-width: 260px;
+  --left-panel-width: var(--sidebar-width);
+  --control-blur: 20px;
+  --accent-color: #d8a200;
+  --control-height: 36px;
+}
+
+/* Dark theme defaults */
+
+:root {
+  color-scheme: dark;
+  --panel-text-color: #f4f4f4;
+  --control-surface: rgba(72, 72, 72, 0.55);
+  --control-input-surface: rgba(72, 72, 72, 0.18);
+  --control-input-hover-surface: rgba(112, 112, 112, 0.42);
+  --control-hover-surface: rgba(112, 112, 112, 0.7);
+  --control-border: rgba(220, 220, 220, 0.14);
+  --accent-hover: #f3c54a;
+  --histogram-window-color: rgba(128, 128, 128, 0.12);
+}
+
+/* Light theme overrides */
+
+@media (prefers-color-scheme: light) {
+  :root {
+    color-scheme: light;
+    --panel-text-color: #1a1a1a;
+    --control-surface: rgba(245, 245, 245, 0.88);
+    --control-input-surface: rgba(255, 255, 255, 0.54);
+    --control-input-hover-surface: rgba(255, 255, 255, 0.76);
+    --control-hover-surface: rgba(228, 228, 228, 0.96);
+    --control-border: rgba(0, 0, 0, 0.16);
+    --accent-hover: #c49500;
+    --histogram-window-color: rgba(128, 128, 128, 0.1);
+  }
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+
+body {
+  margin: 0;
+  height: 100%;
+  background: #111;
+  color: #eee;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+}
+
+#app {
+  position: relative;
+  width: 100vw;
+  height: 100vh;
+  overflow: hidden;
+}
+
+#viewer {
+  position: absolute;
+  top: 0;
+  left: 0;
+  bottom: 0;
+  right: 0;
+  background: #111;
+  overflow: hidden;
+  z-index: 0;
+}
+
+#viewer:focus,
+
+#canvas:focus {
+  outline: none;
+}
+
+.side-panel {
+  /* Shared panel styling for both left (tools) and right (settings) rails.
+     Keep all translucent/blur settings centralized here so the panels stay visually identical. */
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  padding: 20px;
+  gap: 14px;
+  z-index: 4;
+  background: var(--control-surface);
+  color: var(--panel-text-color);
+  backdrop-filter: blur(var(--control-blur));
+  -webkit-backdrop-filter: blur(var(--control-blur));
+  overflow-y: auto;
+  overflow-x: hidden;
+  overscroll-behavior: contain;
+}
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+#leftPanel {
+  /* Only layout-specific overrides belong here (width/edge positioning). */
+  left: 0;
+  width: var(--left-panel-width);
+  border-right: 1px solid var(--control-border);
+}
+
+#sidebar {
+  /* Mirror layout overrides for the right rail; visual style lives in .side-panel. */
+  right: 0;
+  width: var(--sidebar-width);
+  border-left: 1px solid var(--control-border);
+  z-index: 5;
+}
+
+@media (prefers-color-scheme: light) {
+
+  .tool-panel-heading {
+    color: rgba(0, 0, 0, 0.62);
+    opacity: 1;
+  }
+
+  .tool-stop {
+    border-color: rgba(0, 0, 0, 0.12);
+    background: rgba(0, 0, 0, 0.08);
+    color: #1a1a1a;
+  }
+
+  .tool-stop[data-active="true"] {
+    background: rgba(216, 162, 0, 0.24);
+  }
+
+  #fpsDisplay {
+    background: rgba(255, 255, 255, 0.65);
+    color: #1a1a1a;
+  }
+
+  button {
+    background: var(--accent-color);
+    color: #1a1a1a;
+  }
+
+  .hint {
+    color: rgba(0, 0, 0, 0.55);
+  }
+
+  .dropdown-toggle {
+    background: var(--control-input-surface);
+    color: var(--panel-text-color);
+    border: none;
+  }
+
+  .dropdown[data-open='true'] .dropdown-toggle,
+  .dropdown-toggle:hover {
+    background: var(--control-input-surface);
+    color: var(--panel-text-color);
+    box-shadow: 0 0 0 2px rgba(216, 162, 0, 0.22);
+  }
+
+  .dropdown-option {
+    color: var(--panel-text-color);
+  }
+
+  .dropdown-option[data-selected='true'] {
+    background: transparent;
+    color: var(--accent-hover);
+  }
+
+  .number-field {
+    background: var(--control-surface);
+    border: none;
+    box-shadow: none;
+  }
+
+  .number-field input[type='number'] {
+    color: var(--panel-text-color);
+  }
+  .toggle-switch {
+    background: rgba(0, 0, 0, 0.12);
+    border-color: rgba(0, 0, 0, 0.2);
+  }
+
+  .toggle input:checked + .toggle-switch {
+    background: var(--accent-color);
+    border-color: var(--accent-color);
+  }
+
+  .toggle input:checked + .toggle-switch::after {
+    background: #1a1a1a;
+  }
+}

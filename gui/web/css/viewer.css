@@ -1,0 +1,80 @@
+#fpsDisplay {
+  position: absolute;
+  top: 10px;
+  left: calc(var(--left-panel-width) + 10px);
+  padding: 4px 8px;
+  border-radius: 6px;
+  background: rgba(0, 0, 0, 0.55);
+  color: #f4f4f4;
+  font-size: 0.75rem;
+  font-weight: 500;
+  letter-spacing: 0.02em;
+  pointer-events: none;
+  z-index: 4;
+  min-width: 72px;
+  text-align: center;
+}
+
+canvas {
+  width: 100%;
+  height: 100%;
+  touch-action: none;
+}
+
+#canvas {
+  background: #111;
+  display: block;
+  position: relative;
+  z-index: 0;
+}
+
+#brushPreview {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: transparent;
+  z-index: 2;
+}
+
+#dropOverlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+  opacity: 0;
+  background: rgba(0, 0, 0, 0.35);
+  color: var(--panel-text-color);
+  font-size: 1.1rem;
+  font-weight: 600;
+  border: 2px dashed rgba(255, 255, 255, 0.3);
+  transition: opacity 0.18s ease;
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  z-index: 3;
+}
+
+#dropOverlay.drop-overlay--visible {
+  opacity: 1;
+}
+
+.histogram-surface {
+  background: var(--control-input-surface);
+  backdrop-filter: blur(var(--control-blur));
+  -webkit-backdrop-filter: blur(var(--control-blur));
+  border-radius: 8px;
+  border: 1px solid var(--control-border);
+  padding: 10px;
+}
+
+canvas.histogram {
+  display: block;
+  width: 100%;
+  height: 80px;
+  color: currentColor;
+  background: transparent;
+  border-radius: 0;
+  cursor: crosshair;
+  touch-action: none;
+}

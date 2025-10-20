@@ -1,0 +1,265 @@
+.tool-panel {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 10px;
+}
+
+.label-panel {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  /* Override these icon URLs with your preferred assets under /static/icons/ */
+  --label-icon-decrement: url('/static/icons/minus.svg');
+  --label-icon-increment: url('/static/icons/plus.svg');
+  --label-stepper-size: var(--control-height);
+}
+
+.label-panel-title {
+  font-size: 0.78rem;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--panel-text-color);
+  opacity: 0.8;
+  margin: 0;
+}
+
+.label-stepper {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.label-stepper button {
+  width: var(--label-stepper-size);
+  height: var(--label-stepper-size);
+  border-radius: 12px;
+  border: 1px solid var(--control-border);
+  background: var(--control-input-surface);
+  backdrop-filter: blur(var(--control-blur));
+  -webkit-backdrop-filter: blur(var(--control-blur));
+  color: var(--panel-text-color);
+  font-size: 0.85rem;
+  line-height: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  cursor: pointer;
+  transition: border-color 0.18s ease, background 0.18s ease;
+}
+
+.label-stepper button:hover {
+  border-color: var(--accent-hover);
+}
+
+.label-stepper input[type="number"] {
+  flex: 1;
+  min-width: 0;
+  height: var(--label-stepper-size);
+  border-radius: 12px;
+  border: 1px solid var(--control-border);
+  background: var(--control-input-surface);
+  color: var(--panel-text-color);
+  padding: 0 12px;
+  font-size: 0.95rem;
+  outline: none;
+  text-align: center;
+}
+
+.label-icon {
+  width: calc(var(--label-stepper-size) * 0.55);
+  height: calc(var(--label-stepper-size) * 0.55);
+  display: inline-block;
+  background-color: currentColor;
+  pointer-events: none;
+  -webkit-mask-repeat: no-repeat;
+  mask-repeat: no-repeat;
+  -webkit-mask-position: center;
+  mask-position: center;
+  -webkit-mask-size: contain;
+  mask-size: contain;
+}
+
+.label-stepper input[type="number"]:focus {
+  border-color: var(--accent-hover);
+}
+
+.history-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  --history-icon-undo: url('/static/icons/arrow-back-up.svg');
+  --history-icon-redo: url('/static/icons/arrow-forward-up.svg');
+  --history-icon-home: url('/static/icons/home-2.svg');
+}
+
+.history-controls {
+  display: flex;
+  gap: 10px;
+  justify-content: space-between;
+}
+
+.history-button {
+  flex: 1 1 0;
+  min-width: 0;
+  height: 36px;
+  border-radius: 12px;
+  border: 1px solid var(--control-border);
+  background: var(--control-input-surface);
+  backdrop-filter: blur(var(--control-blur));
+  -webkit-backdrop-filter: blur(var(--control-blur));
+  color: var(--panel-text-color);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: border-color 0.18s ease, background 0.18s ease, color 0.18s ease;
+}
+
+.history-button:hover:not([disabled]) {
+  border-color: var(--accent-hover);
+  background: var(--control-input-hover-surface);
+}
+
+.history-button:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.history-icon {
+  width: 18px;
+  height: 18px;
+  display: inline-block;
+  background-color: currentColor;
+  pointer-events: none;
+}
+
+.history-icon-undo {
+  -webkit-mask: var(--history-icon-undo) no-repeat center / contain;
+  mask: var(--history-icon-undo) no-repeat center / contain;
+}
+
+.history-icon-redo {
+  -webkit-mask: var(--history-icon-redo) no-repeat center / contain;
+  mask: var(--history-icon-redo) no-repeat center / contain;
+}
+
+.history-icon-home {
+  -webkit-mask: var(--history-icon-home) no-repeat center / contain;
+  mask: var(--history-icon-home) no-repeat center / contain;
+}
+
+.label-panel-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+}
+
+#labelValueInput {
+  -moz-appearance: textfield;
+  appearance: textfield;
+  transition: background 0.2s ease, border-color 0.2s ease, color 0.2s ease;
+}
+
+#labelValueInput::-webkit-outer-spin-button,
+
+#labelValueInput::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+
+.tool-panel-heading {
+  text-transform: uppercase;
+  font-size: 0.68rem;
+  letter-spacing: 0.2em;
+  text-align: left;
+  color: var(--panel-text-color);
+  opacity: 0.7;
+  margin: 0;
+  font-weight: 600;
+}
+
+.tool-buttons {
+  display: flex;
+  flex-direction: row;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+}
+
+.tool-stop {
+  width: 46px;
+  height: 46px;
+  border-radius: 12px;
+  border: 1px solid var(--control-border);
+  background: var(--control-input-surface);
+  backdrop-filter: blur(var(--control-blur));
+  -webkit-backdrop-filter: blur(var(--control-blur));
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--panel-text-color);
+  cursor: pointer;
+  transition: transform 0.18s ease, border-color 0.18s ease, background 0.18s ease, box-shadow 0.18s ease;
+}
+
+.tool-stop[data-active="true"] {
+  border-color: var(--accent-color);
+  color: var(--accent-color);
+  background: var(--control-input-surface);
+  box-shadow: none;
+  transform: none;
+}
+
+.tool-stop:hover {
+  border-color: var(--accent-hover);
+  transform: translateY(-1px);
+}
+
+.tool-stop:active {
+  transform: translateY(0);
+}
+
+.tool-panel {
+  /* Override these URLs with your own assets under /static/icons/… */
+  /* --tool-icon-draw: url('data:...'); */
+  --tool-icon-draw: url('/static/icons/pencil.svg');
+  --tool-icon-erase: url('/static/icons/eraser.svg');
+  --tool-icon-fill: url('/static/icons/droplet-half-2.svg');
+  --tool-icon-picker: url('/static/icons/palette.svg');
+}
+
+.tool-icon {
+  width: 24px;
+  height: 24px;
+  display: inline-block;
+  background-color: currentColor;
+  pointer-events: none;
+}
+
+.tool-icon-draw {
+  -webkit-mask: var(--tool-icon-draw) no-repeat center / contain;
+  mask: var(--tool-icon-draw) no-repeat center / contain;
+}
+
+.tool-icon-erase {
+  -webkit-mask: var(--tool-icon-erase) no-repeat center / contain;
+  mask: var(--tool-icon-erase) no-repeat center / contain;
+}
+
+.tool-icon-fill {
+  -webkit-mask: var(--tool-icon-fill) no-repeat center / contain;
+  mask: var(--tool-icon-fill) no-repeat center / contain;
+}
+
+.tool-icon-picker {
+  -webkit-mask: var(--tool-icon-picker) no-repeat center / contain;
+  mask: var(--tool-icon-picker) no-repeat center / contain;
+}

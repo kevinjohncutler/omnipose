@@ -55,6 +55,7 @@ sys.modules["gui.examples.pywebview_image_viewer"] = current_module
 if __package__ in (None, ""):
     sys.path.append(str(Path(__file__).resolve().parent))
     from sample_image import (  # type: ignore
+        DEFAULT_BRUSH_RADIUS,
         get_instance_color_table,
         load_image_uint8,
         _ensure_spatial_last,
@@ -63,6 +64,7 @@ if __package__ in (None, ""):
     )
 else:
     from .sample_image import (
+        DEFAULT_BRUSH_RADIUS,
         get_instance_color_table,
         load_image_uint8,
         _ensure_spatial_last,
@@ -73,8 +75,40 @@ else:
 
 WEB_DIR = (Path(__file__).resolve().parent.parent / "web").resolve()
 INDEX_HTML = WEB_DIR / "index.html"
-STYLE_CSS = WEB_DIR / "style.css"
 APP_JS = WEB_DIR / "app.js"
+HTML_DIR = WEB_DIR / "html"
+CSS_DIR = WEB_DIR / "css"
+POINTER_JS = WEB_DIR / "js" / "pointer-state.js"
+LOGGING_JS = WEB_DIR / "js" / "logging.js"
+HISTORY_JS = WEB_DIR / "js" / "history.js"
+HTML_FRAGMENTS = [
+    HTML_DIR / "left-panel.html",
+    HTML_DIR / "viewer.html",
+    HTML_DIR / "sidebar.html",
+]
+CSS_FILES = [
+    CSS_DIR / "layout.css",
+    CSS_DIR / "tools.css",
+    CSS_DIR / "controls.css",
+    CSS_DIR / "viewer.css",
+]
+CSS_LINKS = (
+    '    <link rel="stylesheet" href="/static/css/layout.css" />',
+    '    <link rel="stylesheet" href="/static/css/tools.css" />',
+    '    <link rel="stylesheet" href="/static/css/controls.css" />',
+    '    <link rel="stylesheet" href="/static/css/viewer.css" />',
+)
+JS_FILES = [POINTER_JS, LOGGING_JS, HISTORY_JS, APP_JS]
+JS_STATIC_PATHS = (
+    "/static/js/pointer-state.js",
+    "/static/js/logging.js",
+    "/static/js/history.js",
+    "/static/app.js",
+)
+_INDEX_HTML_CACHE: dict[str, object] = {"content": "", "mtime": None}
+_LAYOUT_MARKUP_CACHE: dict[str, object] = {"markup": "", "mtimes": {}}
+_INLINE_CSS_CACHE: dict[str, object] = {"text": "", "mtimes": {}}
+_INLINE_JS_CACHE: dict[str, object] = {"text": "", "mtimes": {}}
 _CACHE_BUSTER = str(int(time.time()))
 _DEV_CERT_DIR = Path(tempfile.gettempdir()) / "omnipose_pywebview_dev_ssl"
 
@@ -275,9 +309,11 @@ class SessionManager:
         saved_state = state.saved_states.get(state.path_key())
         if saved_state:
             try:
-                config["savedViewerState"] = json.loads(json.dumps(saved_state))
+                sanitized = json.loads(json.dumps(saved_state))
             except Exception:
-                config["savedViewerState"] = saved_state
+                sanitized = saved_state
+            config["savedViewerState"] = sanitized
+            state.saved_states[state.path_key()] = sanitized
         return config
 
     def _encode_image(self, array: np.ndarray, *, is_rgb: bool) -> str:
@@ -881,35 +917,136 @@ class Segmenter:
 _SEGMENTER = Segmenter()
 
 
+def _load_fragment(path: Path) -> str:
+    """Return fragment content with leading extract comments removed."""
+
+    lines = path.read_text(encoding="utf-8").splitlines()
+    while lines and not lines[0].strip():
+        lines.pop(0)
+    if lines and lines[0].lstrip().startswith("<!--"):
+        lines.pop(0)
+        while lines and not lines[0].strip():
+            lines.pop(0)
+    return "\n".join(lines)
+
+
+def _get_index_template() -> str:
+    global _INDEX_HTML_CACHE
+    try:
+        mtime = INDEX_HTML.stat().st_mtime_ns
+    except FileNotFoundError:
+        mtime = -1
+    cached_content = _INDEX_HTML_CACHE.get("content")
+    if cached_content and _INDEX_HTML_CACHE.get("mtime") == mtime:
+        return cached_content  # type: ignore[return-value]
+    content = INDEX_HTML.read_text(encoding="utf-8")
+    _INDEX_HTML_CACHE = {"content": content, "mtime": mtime}
+    return content
+
+
+def _snapshot_mtimes(paths: Sequence[Path]) -> dict[str, int]:
+    mtimes: dict[str, int] = {}
+    for path in paths:
+        try:
+            mtimes[str(path)] = path.stat().st_mtime_ns
+        except FileNotFoundError:
+            mtimes[str(path)] = -1
+    return mtimes
+
+
+def _get_layout_markup() -> str:
+    global _LAYOUT_MARKUP_CACHE
+    mtimes = _snapshot_mtimes(HTML_FRAGMENTS)
+    cached_markup = _LAYOUT_MARKUP_CACHE.get("markup")
+    cached_mtimes = _LAYOUT_MARKUP_CACHE.get("mtimes")
+    if cached_markup and cached_mtimes == mtimes:
+        return cached_markup  # type: ignore[return-value]
+    markup = "\n".join(_load_fragment(path) for path in HTML_FRAGMENTS)
+    _LAYOUT_MARKUP_CACHE = {"markup": markup, "mtimes": mtimes}
+    return markup
+
+
+def _concat_cached_text(paths: Sequence[Path], cache: dict[str, object]) -> str:
+    mtimes = _snapshot_mtimes(paths)
+    cached_text = cache.get("text")
+    if cached_text and cache.get("mtimes") == mtimes:
+        return cached_text  # type: ignore[return-value]
+    text = "\n".join(path.read_text(encoding="utf-8") for path in paths)
+    cache["text"] = text
+    cache["mtimes"] = mtimes
+    return text
+
+
+def _prime_static_caches() -> None:
+    try:
+        _INDEX_HTML_CACHE["content"] = INDEX_HTML.read_text(encoding="utf-8")
+        _INDEX_HTML_CACHE["mtime"] = INDEX_HTML.stat().st_mtime_ns
+    except FileNotFoundError:
+        _INDEX_HTML_CACHE["content"] = ""
+        _INDEX_HTML_CACHE["mtime"] = None
+    _LAYOUT_MARKUP_CACHE["markup"] = "\n".join(_load_fragment(path) for path in HTML_FRAGMENTS)
+    _LAYOUT_MARKUP_CACHE["mtimes"] = _snapshot_mtimes(HTML_FRAGMENTS)
+    _INLINE_CSS_CACHE["text"] = "\n".join(path.read_text(encoding="utf-8") for path in CSS_FILES)
+    _INLINE_CSS_CACHE["mtimes"] = _snapshot_mtimes(CSS_FILES)
+    _INLINE_JS_CACHE["text"] = "\n\n".join(path.read_text(encoding="utf-8") for path in JS_FILES)
+    _INLINE_JS_CACHE["mtimes"] = _snapshot_mtimes(JS_FILES)
+
+
+_prime_static_caches()
+
+
 def render_index(
     config: dict[str, object],
     *,
     inline_assets: bool,
     cache_buster: str | None = None,
 ) -> str:
-    html = INDEX_HTML.read_text(encoding="utf-8")
-    config_script = f"<script>window.__OMNI_CONFIG__ = {json.dumps(config)}</script>"
-    if inline_assets:
-        css = STYLE_CSS.read_text(encoding="utf-8")
-        js = APP_JS.read_text(encoding="utf-8")
+    html = _get_index_template()
+    layout_markup = _get_layout_markup()
+    placeholder = '    <div id="app"></div>'
+    if placeholder in html:
         html = html.replace(
-            '<link rel="stylesheet" href="/static/style.css" />',
-            f"<style>{css}</style>",
+            placeholder,
+            f"    <div id=\"app\">\n{layout_markup}\n    </div>",
         )
+    config_json = json.dumps(config).replace('</', '<\/')
+    config_script = f"<script>window.__OMNI_CONFIG__ = {config_json}</script>"
+    css_links = list(CSS_LINKS)
+    script_tag = '    <script src="/static/app.js"></script>'
+    keep_order_comment = (
+        "<!-- IMPORTANT: Viewer scripts must remain classic scripts in this order. "
+        "Switching to type=\"module\" breaks PyWebView image loading. -->"
+    )
+
+    if inline_assets:
+        css_text = _concat_cached_text(CSS_FILES, _INLINE_CSS_CACHE)
+        html = html.replace(css_links[0], f"    <style>{css_text}</style>")
+        for link in css_links[1:]:
+            html = html.replace(f"{link}\n", "")
+            html = html.replace(link, "")
+        js_bundle = _concat_cached_text(JS_FILES, _INLINE_JS_CACHE)
         html = html.replace(
-            '<script src="/static/app.js"></script>',
-            f"{config_script}\n<script>{js}</script>",
+            script_tag,
+            "\n".join(
+                [
+                    config_script,
+                    f"<script>\n/* {keep_order_comment[5:-4]} */\n{js_bundle}\n</script>",
+                ]
+            ),
         )
     else:
         suffix = f"?v={cache_buster}" if cache_buster else ""
-        html = html.replace(
-            'href="/static/style.css"',
-            f'href="/static/style.css{suffix}"',
+        for link in css_links:
+            html = html.replace(
+                link,
+                link.replace(".css\"", f".css{suffix}\""),
+            )
+        script_parts = [config_script, f'    {keep_order_comment}']
+        script_parts.extend(
+            f'    <script src="{path}{suffix}"></script>'
+            for path in JS_STATIC_PATHS
         )
-        html = html.replace(
-            '<script src="/static/app.js"></script>',
-            f"{config_script}\n<script src=\"/static/app.js{suffix}\"></script>",
-        )
+        html = html.replace(script_tag, "\n".join(script_parts))
     return html
 
 
@@ -1313,6 +1450,9 @@ def run_desktop(
     ssl_cert: str | None = None,
     ssl_key: str | None = None,
     reload: bool = False,
+    snapshot_path: str | None = None,
+    snapshot_timeout: float = 4.0,
+    eval_js: str | None = None,
 ) -> None:
     app_start = time.perf_counter()
 
@@ -1353,17 +1493,82 @@ def run_desktop(
     window_url = f"{scheme}://{serve_host}:{serve_port}/"
     print(f"[pywebview] desktop UI loading {window_url}", flush=True)
 
+    snapshot_target = Path(snapshot_path).expanduser() if snapshot_path else None
+    automation_needed = bool(snapshot_target or eval_js)
+    snapshot_timeout = max(0.1, snapshot_timeout)
+    loaded_event = threading.Event()
+
     window = webview.create_window(
         "Omnipose PyWebView Viewer",
         url=window_url,
         width=1024,
         height=768,
         resizable=True,
+        hidden=automation_needed,
     )
+
+    if automation_needed:
+        try:
+            window.move(-20000, -20000)
+            window.resize(1024, 768)
+        except Exception:
+            pass
+
+    def _automation_worker():
+        wait_for_load_sec = max(snapshot_timeout, 10.0)
+        if not loaded_event.wait(timeout=wait_for_load_sec):
+            print('[pywebview] automation timeout waiting for window load', flush=True)
+            try:
+                webview.destroy_window()
+            except Exception:
+                pass
+            return
+        if automation_needed:
+            try:
+                window.show()
+            except Exception:
+                pass
+        if eval_js:
+            try:
+                result = window.evaluate_js(eval_js)
+                print(f"[pywebview] eval-js result: {result!r}", flush=True)
+            except Exception as exc:
+                print(f"[pywebview] eval-js error: {exc}", file=sys.stderr)
+        if snapshot_target:
+            if snapshot_target.parent and not snapshot_target.parent.exists():
+                snapshot_target.parent.mkdir(parents=True, exist_ok=True)
+            try:
+                prep_result = window.evaluate_js("(function(){try{if(typeof window.setImageVisible==='function'){window.setImageVisible(true,{silent:true});} if(typeof window.maskVisible==='boolean'){window.maskVisible=true;} if(typeof window.resetView==='function'){window.resetView();} else if(typeof window.fitViewToWindow==='function'){window.fitViewToWindow();} if(typeof window.draw==='function'){window.draw();} return {ok:true};}catch(e){return {ok:false, reason:String(e)};}})();")
+                print(f"[pywebview] snapshot prep: {prep_result!r}", flush=True)
+            except Exception as exc:
+                print(f"[pywebview] snapshot prep error: {exc}", file=sys.stderr)
+                prep_result = {"ok": False, "reason": str(exc)}
+            time.sleep(0.25)
+            try:
+                capture_raw = window.evaluate_js("(function(){var canvas=document.getElementById('canvas'); if(!canvas){return {ok:false, reason:'no-canvas'};} if(!canvas.width||!canvas.height){return {ok:false, reason:'zero-size'};} try {var dataUrl=canvas.toDataURL('image/png'); return {ok:true, dataUrl:dataUrl};} catch(e){return {ok:false, reason:String(e)};}})();")
+                print(f"[pywebview] snapshot raw: {capture_raw!r}", flush=True)
+                capture_info = capture_raw if isinstance(capture_raw, dict) else (json.loads(capture_raw) if capture_raw else {'ok': False, 'reason': 'no-result'})
+            except Exception as exc:
+                capture_info = {'ok': False, 'reason': f'capture-eval-error: {exc}'}
+            if capture_info.get('ok') and isinstance(capture_info.get('dataUrl'), str):
+                data_url = capture_info['dataUrl']
+                _, _, payload = data_url.partition(',')
+                try:
+                    snapshot_target.write_bytes(base64.b64decode(payload))
+                    print(f"[pywebview] snapshot saved to {snapshot_target}", flush=True)
+                except Exception as exc:
+                    print(f"[pywebview] snapshot save failed: {exc}", file=sys.stderr)
+            else:
+                print(f"[pywebview] snapshot capture failed: {capture_info}", file=sys.stderr)
+        try:
+            webview.destroy_window()
+        except Exception:
+            pass
 
     def on_window_loaded() -> None:
         log_timing("window loaded")
         _SEGMENTER.preload_modules_async(delay=0.1)
+        loaded_event.set()
 
     def on_window_shown() -> None:
         log_timing("window shown")
@@ -1383,6 +1588,12 @@ def run_desktop(
         elapsed = (time.perf_counter() - app_start) * 1000.0
         print(f"[pywebview] event loop started after {elapsed:.1f} ms", flush=True)
         log_timing("event loop started")
+        if automation_needed:
+            threading.Thread(
+                target=_automation_worker,
+                name="ViewerAutomation",
+                daemon=True,
+            ).start()
 
     webview.start(on_start)
 
@@ -1435,13 +1646,20 @@ def create_app() -> "FastAPI":
 
     @app.post("/api/log", response_class=JSONResponse)
     async def api_log(payload: dict) -> JSONResponse:
-        messages = payload.get("messages")
+        messages = payload.get('messages')
         if isinstance(messages, list):
             for raw in messages:
                 api.log(str(raw))
+            return JSONResponse({'status': 'ok'})
+        payload_type = payload.get('type')
+        if payload_type == 'JS_ERROR':
+            detail = payload.get('payload') or {}
+            api.log('JS_ERROR')
+            for key in ('message', 'filename', 'lineno', 'colno', 'stack'):
+                api.log(f'    {key}: {detail.get(key)}')
         else:
-            api.log(str(payload.get("message", "")))
-        return JSONResponse({"status": "ok"})
+            api.log(str(payload.get('message', '')))
+        return JSONResponse({'status': 'ok'})
 
     @app.post("/api/open_image", response_class=JSONResponse)
     async def api_open_image(payload: dict) -> JSONResponse:
@@ -1724,6 +1942,23 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         action="store_false",
         help="Disable uvicorn --reload for the embedded desktop server.",
     )
+    parser.add_argument(
+        "--snapshot",
+        metavar="PNG_PATH",
+        help="Capture the viewer canvas to the given PNG file and exit.",
+    )
+    parser.add_argument(
+        "--snapshot-timeout",
+        type=float,
+        default=4.0,
+        help="Seconds to wait for the first draw before giving up on --snapshot (default: 4).",
+    )
+    parser.add_argument(
+        "--eval-js",
+        dest="eval_js",
+        default=None,
+        help="JavaScript snippet to evaluate after the viewer loads (testing/automation).",
+    )
     return parser.parse_args(argv)
 
 
@@ -1745,6 +1980,9 @@ def main(argv: list[str] | None = None) -> None:
             ssl_cert=args.ssl_cert,
             ssl_key=args.ssl_key,
             reload=args.desktop_reload,
+            snapshot_path=args.snapshot,
+            snapshot_timeout=args.snapshot_timeout,
+            eval_js=args.eval_js,
         )
 
 

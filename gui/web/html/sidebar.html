@@ -1,0 +1,125 @@
+<!-- Extracted from index.html lines 80-202 -->
+
+      <div id="sidebar" class="side-panel">
+        <h2 style="margin:0;">Omnipose</h2>
+        <div id="imageInfo" class="status"></div>
+        <div class="control">
+          <label>Intensity Window</label>
+          <div class="histogram-surface">
+            <canvas id="histogram" class="histogram" width="220" height="80"></canvas>
+          </div>
+          <div id="histRange" class="status">Window: [0, 255]</div>
+        </div>
+        <div class="control slider-inline">
+          <label for="gamma">&gamma;</label>
+          <div class="slider-row">
+            <div class="slider" data-slider-id="gamma" data-slider-type="single">
+              <input type="range" id="gamma" min="10" max="600" value="100" />
+            </div>
+            <div class="number-field" data-number-id="gammaInput">
+              <input type="number" id="gammaInput" min="0.10" max="6.00" step="0.05" value="1.00" />
+            </div>
+          </div>
+        </div>
+        <div class="control">
+          <button id="segmentButton">Segment (Omnipose)</button>
+          <div id="segmentStatus" class="status"></div>
+        </div>
+        <div class="control">
+          <button id="clearMasksButton" title="Clear all masks (Cmd/Ctrl+X)">Clear Masks</button>
+        </div>
+        <div class="control">
+          <button id="clearCacheButton" title="Clear viewer cache and reload">Clear Cache &amp; Reload</button>
+        </div>
+        <div class="control slider-inline">
+          <label for="maskThresholdSlider">Mask</label>
+          <div class="slider-row">
+            <div class="slider" data-slider-id="maskThreshold" data-slider-type="single">
+              <input type="range" id="maskThresholdSlider" min="-5" max="5" step="0.1" value="-2" />
+            </div>
+            <div class="number-field" data-number-id="maskThresholdInput">
+              <input type="number" id="maskThresholdInput" min="-5" max="5" step="0.1" value="-2.0" />
+            </div>
+          </div>
+        </div>
+        <div class="control slider-inline">
+          <label for="flowThresholdSlider">Flow</label>
+          <div class="slider-row">
+            <div class="slider" data-slider-id="flowThreshold" data-slider-type="single">
+              <input type="range" id="flowThresholdSlider" min="0" max="5" step="0.1" value="0" />
+            </div>
+            <div class="number-field" data-number-id="flowThresholdInput">
+              <input type="number" id="flowThresholdInput" min="0" max="5" step="0.1" value="0.0" />
+            </div>
+          </div>
+        </div>
+        <div class="control toggle-group">
+          <label class="toggle">
+            <input type="checkbox" id="clusterToggle" checked />
+            <span class="toggle-switch"></span>
+            <span class="toggle-label">Enable Clustering</span>
+          </label>
+          <label class="toggle">
+            <input type="checkbox" id="affinityToggle" checked />
+            <span class="toggle-switch"></span>
+            <span class="toggle-label">Affinity Segmentation</span>
+          </label>
+        </div>
+        <div class="control toggle-group" id="overlayControls">
+          <label class="toggle">
+            <input type="checkbox" id="affinityGraphToggle" />
+            <span class="toggle-switch"></span>
+            <span class="toggle-label">Affinity Graph</span>
+          </label>
+          <label class="toggle">
+            <input type="checkbox" id="flowOverlayToggle" disabled />
+            <span class="toggle-switch"></span>
+            <span class="toggle-label">Flow Overlay</span>
+          </label>
+          <label class="toggle">
+            <input type="checkbox" id="distanceOverlayToggle" disabled />
+            <span class="toggle-switch"></span>
+            <span class="toggle-label">Distance Overlay</span>
+          </label>
+        </div>
+        <div class="control">
+          <label for="brushKernelMode">Brush Kernel</label>
+          <div class="dropdown" data-dropdown-id="brushKernelMode">
+            <select id="brushKernelMode">
+              <option value="smooth">Interpolated (continuous)</option>
+              <option value="snapped">Snapped (integer)</option>
+            </select>
+          </div>
+        </div>
+        <div class="control slider-inline">
+          <label for="maskOpacity">Mask Opacity</label>
+          <div class="slider-row">
+            <div class="slider" data-slider-id="maskOpacity" data-slider-type="single">
+              <input type="range" id="maskOpacity" min="0" max="1" step="0.01" value="0.8" />
+            </div>
+            <div class="number-field" data-number-id="maskOpacityInput">
+              <input type="number" id="maskOpacityInput" min="0" max="1" step="0.01" value="0.80" />
+            </div>
+          </div>
+        </div>
+        <div class="control toggle-group" id="layerVisibilityControls">
+          <label class="toggle">
+            <input type="checkbox" id="imageVisibilityToggle" checked />
+            <span class="toggle-switch"></span>
+            <span class="toggle-label">Show Image</span>
+          </label>
+          <label class="toggle">
+            <input type="checkbox" id="maskVisibilityToggle" checked />
+            <span class="toggle-switch"></span>
+            <span class="toggle-label">Show Masks</span>
+          </label>
+        </div>
+        <div id="colorMode">Mask Colors: Palette (toggle with 'N')</div>
+        <div id="maskLabel">Mask Label: 1</div>
+        <div id="toolInfo">Tool: Brush (B=Brush, G=Fill, I=Picker)</div>
+        <div id="maskVisibility">Mask Layer: On (toggle with 'M')</div>
+        <div id="hoverInfo" class="status">Y: --, X: --, Val: --</div>
+        <div class="hint">
+          Use B/G/I to switch tools, [ ] to resize brush, digits 0-9 set label. Hold Space to pan, scroll to zoom, W/S to traverse directory.
+        </div>
+      </div>
