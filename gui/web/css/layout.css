@@ -93,6 +93,7 @@ body {
   overflow-y: auto;
   overflow-x: hidden;
   overscroll-behavior: contain;
+  touch-action: manipulation;
 }
 
 .sr-only {

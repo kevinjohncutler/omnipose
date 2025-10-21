@@ -99,6 +99,11 @@
   --history-icon-home: url('/static/icons/home-2.svg');
 }
 
+.image-nav-panel {
+  --history-icon-prev: url('/static/icons/arrow-back-up.svg');
+  --history-icon-next: url('/static/icons/arrow-forward-up.svg');
+}
+
 .history-controls {
   display: flex;
   gap: 10px;
@@ -153,6 +158,16 @@
 .history-icon-home {
   -webkit-mask: var(--history-icon-home) no-repeat center / contain;
   mask: var(--history-icon-home) no-repeat center / contain;
+}
+
+.history-icon-prev {
+  -webkit-mask: var(--history-icon-prev) no-repeat center / contain;
+  mask: var(--history-icon-prev) no-repeat center / contain;
+}
+
+.history-icon-next {
+  -webkit-mask: var(--history-icon-next) no-repeat center / contain;
+  mask: var(--history-icon-next) no-repeat center / contain;
 }
 
 .label-panel-row {

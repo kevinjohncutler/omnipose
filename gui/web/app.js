@@ -1082,6 +1082,10 @@ function rebuildAffinityGeometry(gl) {
   if (!affinityGeometryDirty) {
     return;
   }
+  if (USE_WEBGL_OVERLAY && webglOverlay && webglOverlay.enabled) {
+    affinityGeometryDirty = false;
+    return;
+  }
   const affinity = webglPipeline.affinity;
   if (!affinityGraphInfo) {
     gl.bindBuffer(gl.ARRAY_BUFFER, affinity.buffer);
@@ -1242,7 +1246,10 @@ function drawWebglFrame() {
 
   pipelineGl.bindVertexArray(null);
   pipelineGl.useProgram(null);
-  drawAffinityLines(matrix);
+  const overlayHandled = drawAffinityGraphWebgl();
+  if (!overlayHandled) {
+    drawAffinityLines(matrix);
+  }
 }
 
 function drawAffinityGraphShared(matrix) {
@@ -2142,6 +2149,10 @@ const labelStepUp = document.getElementById('labelStepUp');
 const undoButton = document.getElementById('undoButton');
 const redoButton = document.getElementById('redoButton');
 const resetViewButton = document.getElementById('resetViewButton');
+const prevImageButton = document.getElementById('prevImageButton');
+const nextImageButton = document.getElementById('nextImageButton');
+const leftPanelEl = document.getElementById('leftPanel');
+const sidebarEl = document.getElementById('sidebar');
 const maskVisibility = document.getElementById('maskVisibility');
 const toolInfo = document.getElementById('toolInfo');
 const segmentButton = document.getElementById('segmentButton');
@@ -2207,6 +2218,31 @@ if (resetViewButton) {
     resetView();
   });
 }
+if (prevImageButton) {
+  prevImageButton.disabled = !hasPrevImage;
+  prevImageButton.addEventListener('click', () => {
+    if (!hasPrevImage) {
+      return;
+    }
+    navigateDirectory(-1).catch((err) => {
+      console.warn('navigateDirectory(-1) failed', err);
+    });
+  });
+}
+if (nextImageButton) {
+  nextImageButton.disabled = !hasNextImage;
+  nextImageButton.addEventListener('click', () => {
+    if (!hasNextImage) {
+      return;
+    }
+    navigateDirectory(1).catch((err) => {
+      console.warn('navigateDirectory(1) failed', err);
+    });
+  });
+}
+
+suppressDoubleTapZoom(leftPanelEl);
+suppressDoubleTapZoom(sidebarEl);
 
 attachNumberInputStepper(brushSizeInput, (delta) => {
   setBrushDiameter(brushDiameter + delta, true);
@@ -3685,6 +3721,10 @@ function initializeWebglOverlay() {
     return false;
   }
   resizeWebglOverlay();
+  if (affinityGraphInfo && affinityGraphInfo.vertices) {
+    affinityGraphInfo.vertices = null;
+    affinityGeometryDirty = true;
+  }
   return true;
 }
 
@@ -4255,6 +4295,11 @@ function finalizeOverlayFrame(hasContent) {
     }
     finalAlpha = Math.max(0, Math.min(1, finalAlpha));
     glCanvas.style.opacity = String(finalAlpha);
+    if (hasContent && finalAlpha > 0) {
+      setOverlayCanvasVisibility(true, finalAlpha);
+    } else {
+      setOverlayCanvasVisibility(false, 0);
+    }
   }
 }
 
@@ -4902,8 +4947,9 @@ function buildAffinityGraphSegments() {
       map,
     };
   }
+  const overlayActiveForGeometry = Boolean(USE_WEBGL_OVERLAY && webglOverlay && webglOverlay.enabled);
   let vertices = null;
-  if (totalEdges > 0) {
+  if (totalEdges > 0 && !overlayActiveForGeometry) {
     vertices = new Float32Array(totalEdges * 4);
     let offset = 0;
     for (let i = 0; i < segments.length; i += 1) {
@@ -5244,6 +5290,50 @@ function normalizeAngle(angle) {
     return 0;
   }
   return Math.atan2(Math.sin(angle), Math.cos(angle));
+}
+
+function suppressDoubleTapZoom(element) {
+  if (!element || typeof element.addEventListener !== 'function') {
+    return;
+  }
+  let lastTouchTime = 0;
+  let lastTouchX = 0;
+  let lastTouchY = 0;
+  const reset = () => {
+    lastTouchTime = 0;
+    lastTouchX = 0;
+    lastTouchY = 0;
+  };
+  element.addEventListener('touchend', (evt) => {
+    if (!evt || (evt.touches && evt.touches.length > 0)) {
+      return;
+    }
+    const changed = evt.changedTouches && evt.changedTouches[0];
+    if (!changed) {
+      return;
+    }
+    if (evt.target && typeof evt.target.closest === 'function') {
+      const interactive = evt.target.closest('input, textarea, select, [contenteditable="true"]');
+      if (interactive) {
+        reset();
+        return;
+      }
+    }
+    const now = typeof performance !== 'undefined' ? performance.now() : Date.now();
+    const dt = now - lastTouchTime;
+    const dx = changed.clientX - lastTouchX;
+    const dy = changed.clientY - lastTouchY;
+    const distanceSq = (dx * dx) + (dy * dy);
+    if (Number.isFinite(dt) && dt > 0 && dt < 350 && distanceSq < 400) {
+      evt.preventDefault();
+      evt.stopPropagation();
+      reset();
+      return;
+    }
+    lastTouchTime = now;
+    lastTouchX = changed.clientX;
+    lastTouchY = changed.clientY;
+  }, { passive: false });
 }
 
 function rotateView(deltaRadians) {
