@@ -3,6 +3,15 @@ const imgWidth = CONFIG.width || 0;
 const imgHeight = CONFIG.height || 0;
 const imageDataUrl = CONFIG.imageDataUrl || '';
 const colorTable = CONFIG.colorTable || [];
+const hasNColor = Boolean(
+  CONFIG.hasNColor
+  ?? CONFIG.nColor
+  ?? CONFIG.ncolor
+  ?? CONFIG.enableNColor
+  ?? CONFIG.nColorMask
+  ?? CONFIG.ncolorMask
+  ?? false,
+);
 const initialBrushRadius = CONFIG.brushRadius ?? 6;
 const sessionId = CONFIG.sessionId || null;
 const currentImagePath = CONFIG.imagePath || null;
@@ -191,10 +200,6 @@ const maskCtx = maskCanvas.getContext('2d');
 const maskData = maskCtx.createImageData(imgWidth, imgHeight);
 const maskValues = new Uint32Array(imgWidth * imgHeight);
 let maskHasNonZero = false;
-let floodVisited = null;
-let floodVisitStamp = 1;
-let floodStack = null;
-let floodOutput = null;
 // Outline state bitmap (1 = boundary), used to modulate per-pixel alpha in mask rendering
 const outlineState = new Uint8Array(maskValues.length);
 let outlinesVisible = true; // future UI toggle can control this
@@ -265,20 +270,11 @@ const THROTTLE_DRAW_DURING_PAINT = true;
 let paintingFrameScheduled = false;
 let needsMaskRedraw = false;
 
-function flushPendingAffinityUpdates() {
-  if (!pendingAffinityIndexSet || pendingAffinityIndexSet.size === 0) {
-    return false;
-  }
-  const merged = Array.from(pendingAffinityIndexSet);
-  pendingAffinityIndexSet.clear();
-  pendingAffinityIndexSet = null;
-  updateAffinityGraphForIndices(merged);
-  return true;
-}
-
 function requestPaintFrame() {
   if (!THROTTLE_DRAW_DURING_PAINT) {
-    flushPendingAffinityUpdates();
+    if (typeof paintingApi.flushPendingAffinityUpdates === 'function') {
+      paintingApi.flushPendingAffinityUpdates();
+    }
     if (needsMaskRedraw) {
       if (isWebglPipelineActive()) {
         flushMaskTextureUpdates();
@@ -296,7 +292,9 @@ function requestPaintFrame() {
   paintingFrameScheduled = true;
   requestAnimationFrame(() => {
     paintingFrameScheduled = false;
-    flushPendingAffinityUpdates();
+    if (typeof paintingApi.flushPendingAffinityUpdates === 'function') {
+      paintingApi.flushPendingAffinityUpdates();
+    }
     if (needsMaskRedraw) {
       if (isWebglPipelineActive()) {
         flushMaskTextureUpdates();
@@ -1460,8 +1458,10 @@ refreshOppositeStepMapping();
 let shuttingDown = false;
 
 function clearHoverPreview() {
-  hoverPoint = null;
-  hoverScreenPoint = null;
+  if (interactionsApi && typeof interactionsApi.clearHoverPreview === 'function') {
+    interactionsApi.clearHoverPreview();
+    return;
+  }
   drawBrushPreview(null);
   updateHoverInfo(null);
 }
@@ -1935,8 +1935,9 @@ function beginPinchGesture() {
   wheelRotationBuffer = 0;
   isPanning = false;
   isPainting = false;
-  hoverPoint = null;
-  drawBrushPreview(null);
+  setHoverState(imageMid, canvasMid);
+  updateHoverInfo(imageMid);
+  renderHoverPreview();
 }
 
 function handleTouchPointerDown(evt, pointer) {
@@ -1975,7 +1976,6 @@ function handleTouchPointerDown(evt, pointer) {
     return;
   }
   isPainting = false;
-  strokeChanges = null;
   isPanning = true;
   panPointerId = evt.pointerId;
   try {
@@ -1983,10 +1983,10 @@ function handleTouchPointerDown(evt, pointer) {
   } catch (_) {
     /* ignore */
   }
-  hoverPoint = null;
-  hoverScreenPoint = null;
-  drawBrushPreview(null);
-  updateHoverInfo(null);
+  const worldPoint = screenToImage(pointer);
+  setHoverState(worldPoint, { x: pointer.x, y: pointer.y });
+  updateHoverInfo(worldPoint);
+  renderHoverPreview();
   lastPoint = pointer;
   updateCursor();
 }
@@ -2007,12 +2007,13 @@ function handleGestureStart(evt) {
     origin,
     imagePoint,
   };
-  pendingGestureUpdate = null;
-  gestureFrameScheduled = false;
+  if (interactionsApi && typeof interactionsApi.resetGestureScheduling === 'function') {
+    interactionsApi.resetGestureScheduling();
+  }
   wheelRotationBuffer = 0;
-  hoverPoint = null;
-  hoverScreenPoint = null;
-  drawBrushPreview(null);
+  setHoverState(imagePoint, origin);
+  updateHoverInfo(imagePoint);
+  renderHoverPreview();
   isPanning = false;
   spacePan = false;
   // Set a helpful cursor at gesture start
@@ -2026,11 +2027,13 @@ function handleGestureChange(evt) {
     return;
   }
   evt.preventDefault();
-  pendingGestureUpdate = {
-    origin: resolveGestureOrigin(evt),
-    scale: Number.isFinite(evt.scale) ? evt.scale : 1,
-    rotation: Number.isFinite(evt.rotation) ? evt.rotation : 0,
-  };
+  if (interactionsApi && typeof interactionsApi.setPendingGestureUpdate === 'function') {
+    interactionsApi.setPendingGestureUpdate({
+      origin: resolveGestureOrigin(evt),
+      scale: Number.isFinite(evt.scale) ? evt.scale : 1,
+      rotation: Number.isFinite(evt.rotation) ? evt.rotation : 0,
+    });
+  }
   scheduleGestureUpdate();
 }
 
@@ -2043,11 +2046,12 @@ function handleGestureEnd(evt) {
   }
   applyPendingGestureUpdate();
   gestureState = null;
-  pendingGestureUpdate = null;
-  gestureFrameScheduled = false;
+  if (interactionsApi && typeof interactionsApi.resetGestureScheduling === 'function') {
+    interactionsApi.resetGestureScheduling();
+  }
   clearCursorOverride();
+  updateHoverInfo(getHoverPoint() || null);
   renderHoverPreview();
-  updateHoverInfo(hoverPoint || null);
 }
 
 const MIN_BRUSH_DIAMETER = 1;
@@ -2058,8 +2062,6 @@ const BRUSH_KERNEL_MODES = {
   SNAPPED: 'snapped',
 };
 let brushKernelMode = BRUSH_KERNEL_MODES.SMOOTH;
-let pendingGestureUpdate = null;
-let gestureFrameScheduled = false;
 
 function clampBrushDiameter(value) {
   const numeric = Number(value);
@@ -2213,8 +2215,6 @@ let originalImageData = null;
 let isPanning = false;
 let isPainting = false;
 let lastPoint = { x: 0, y: 0 };
-let lastPaintPoint = null;
-let strokeChanges = null;
 let tool = 'brush';
 let spacePan = false;
 
@@ -2223,7 +2223,6 @@ let fpsSamples = [];
 let lastFrameTimestamp = (typeof performance !== 'undefined' ? performance.now() : Date.now());
 let lastFpsUpdate = lastFrameTimestamp;
 
-let hoverPoint = null;
 let eraseActive = false;
 let erasePreviousLabel = null;
 let isSegmenting = false;
@@ -2254,7 +2253,10 @@ let clusterEnabled = typeof CONFIG.cluster === 'boolean' ? CONFIG.cluster : true
 let affinitySegEnabled = typeof CONFIG.affinitySeg === 'boolean' ? CONFIG.affinitySeg : true;
 let userAdjustedScale = false;
 const touchPointers = new Map();
-const brushApi = window.OmniBrush || {};
+window.OmniBrush = window.OmniBrush || {};
+const brushApi = window.OmniBrush;
+window.OmniPainting = window.OmniPainting || {};
+const paintingApi = window.OmniPainting;
 if (typeof brushApi.init === 'function') {
   try {
     brushApi.init({
@@ -2279,6 +2281,98 @@ if (typeof brushApi.init === 'function') {
   } catch (err) {
     console.warn('OmniBrush init failed', err);
   }
+}
+const paintingInitOptions = {
+  maskValues,
+  outlineState,
+  viewState,
+  getImageDimensions: () => ({ width: imgWidth, height: imgHeight }),
+  getCurrentLabel: () => currentLabel,
+  setCurrentLabel: (value) => {
+    currentLabel = value;
+    updateMaskLabel();
+  },
+  hasNColor,
+  isNColorActive: () => nColorActive,
+  getMaskHasNonZero: () => maskHasNonZero,
+  setMaskHasNonZero: (value) => {
+    maskHasNonZero = Boolean(value);
+  },
+  markMaskIndicesDirty,
+  markMaskTextureFullDirty,
+  markOutlineTextureFullDirty,
+  updateAffinityGraphForIndices,
+  rebuildLocalAffinityGraph,
+  markAffinityGeometryDirty,
+  isWebglPipelineActive,
+  clearColorCaches,
+  requestPaintFrame: () => requestPaintFrame(),
+  scheduleStateSave: () => scheduleStateSave(),
+  pushHistory,
+  log,
+  draw,
+  redrawMaskCanvas,
+  markNeedsMaskRedraw: () => {
+    needsMaskRedraw = true;
+  },
+  applySegmentationMask,
+  getPendingSegmentationPayload: () => pendingSegmentationPayload,
+  setPendingSegmentationPayload: (value) => {
+    pendingSegmentationPayload = value;
+  },
+  getPendingMaskRebuild: () => pendingMaskRebuild,
+  setPendingMaskRebuild: (value) => {
+    pendingMaskRebuild = Boolean(value);
+  },
+  getSegmentationTimer: () => segmentationUpdateTimer,
+  setSegmentationTimer: (value) => {
+    segmentationUpdateTimer = value;
+  },
+  canRebuildMask: () => canRebuildMask,
+  triggerMaskRebuild,
+  applyMaskRedrawImmediate,
+  collectBrushIndices: (target, x, y) => {
+    if (typeof brushApi.collectBrushIndices === 'function') {
+      brushApi.collectBrushIndices(target, x, y);
+    }
+  },
+};
+let paintingInitApplied = false;
+function applyPaintingInit() {
+  if (paintingInitApplied) {
+    return true;
+  }
+  if (typeof paintingApi.init !== 'function') {
+    return false;
+  }
+  try {
+    paintingApi.init(paintingInitOptions);
+    paintingInitApplied = true;
+  } catch (err) {
+    console.warn('OmniPainting init failed', err);
+  }
+  return paintingInitApplied;
+}
+if (!applyPaintingInit()) {
+  Object.defineProperty(paintingApi, 'init', {
+    configurable: true,
+    enumerable: true,
+    get: () => undefined,
+    set(fn) {
+      Object.defineProperty(paintingApi, 'init', {
+        configurable: true,
+        enumerable: true,
+        writable: true,
+        value: fn,
+      });
+      applyPaintingInit();
+    },
+  });
+}
+window.OmniInteractions = window.OmniInteractions || {};
+const interactionsApi = window.OmniInteractions;
+if (!interactionsApi || typeof interactionsApi.init !== 'function') {
+  console.warn('OmniInteractions helpers missing; ensure /static/js/interactions.js loads before app.js');
 }
 let pinchState = null;
 let panPointerId = null;
@@ -2327,154 +2421,146 @@ function collectBrushIndices(target, centerX, centerY) {
 }
 
 function scheduleGestureUpdate() {
-  if (gestureFrameScheduled) {
-    return;
+  if (interactionsApi && typeof interactionsApi.scheduleGestureUpdate === 'function') {
+    interactionsApi.scheduleGestureUpdate();
   }
-  gestureFrameScheduled = true;
-  // Throttle pinch updates so we stay synced with the browser compositor and avoid the iPad stutter regression.
-  requestAnimationFrame(() => {
-    gestureFrameScheduled = false;
-    applyPendingGestureUpdate();
-  });
 }
 
 function applyPendingGestureUpdate() {
-  if (!gestureState || !pendingGestureUpdate) {
-    return;
+  if (interactionsApi && typeof interactionsApi.applyPendingGestureUpdate === 'function') {
+    interactionsApi.applyPendingGestureUpdate();
   }
-  const { origin, scale, rotation } = pendingGestureUpdate;
-  pendingGestureUpdate = null;
-  const currentOrigin = origin;
-  gestureState.origin = currentOrigin;
-  const imagePoint = screenToImage(currentOrigin);
-  gestureState.imagePoint = imagePoint;
-  hoverPoint = { x: imagePoint.x, y: imagePoint.y };
-  hoverScreenPoint = { x: currentOrigin.x, y: currentOrigin.y };
-  setCursorHold(dotCursorCss);
-  if (pointerState.options.touch.enablePinchZoom) {
-    const nextScale = gestureState.startScale * scale;
-    if (Number.isFinite(nextScale) && nextScale > 0) {
-      viewState.scale = Math.min(Math.max(nextScale, 0.1), 40);
-    }
-  }
-  if (pointerState.options.touch.enableRotate) {
-    const deadzone = Math.max(pointerState.options.touch.rotationDeadzoneDegrees || 0, 0);
-    if (Math.abs(rotation) >= deadzone) {
-      viewState.rotation = normalizeAngle(gestureState.startRotation + (rotation * Math.PI / 180));
-      setCursorHold(dotCursorCss);
-    } else {
-      viewState.rotation = gestureState.startRotation;
-    }
-  }
-  setOffsetForImagePoint(gestureState.imagePoint, gestureState.origin);
-  userAdjustedScale = true;
-  autoFitPending = false;
-  draw();
-  drawBrushPreview(null);
 }
 
 function renderHoverPreview() {
-  if (hoverPoint) {
-    if (PREVIEW_TOOL_TYPES.has(tool)) {
-      drawBrushPreview(hoverPoint);
-    } else if (CROSSHAIR_TOOL_TYPES.has(tool) && cursorInsideImage) {
-      drawBrushPreview(hoverPoint, { crosshairOnly: true });
-    } else {
-      drawBrushPreview(null);
-    }
-  } else {
-    drawBrushPreview(null);
-  }
-}
-
-let pointerFrameScheduled = false;
-let paintStrokeQueue = [];
-let pendingPanPointer = null;
-let hoverUpdatePending = false;
-let pendingHoverScreenPoint = null;
-let hoverScreenPoint = null;
-let pendingHoverHasPreview = false;
-let pendingAffinityIndexSet = null;
-function schedulePointerFrame() {
-  if (pointerFrameScheduled) {
+  if (interactionsApi && typeof interactionsApi.renderHoverPreview === 'function') {
+    interactionsApi.renderHoverPreview();
     return;
   }
-  pointerFrameScheduled = true;
-  requestAnimationFrame(processPointerFrame);
+  const point = getHoverPoint();
+  if (!point) {
+    drawBrushPreview(null);
+    return;
+  }
+  if (PREVIEW_TOOL_TYPES.has(tool)) {
+    drawBrushPreview(point);
+    return;
+  }
+  if (CROSSHAIR_TOOL_TYPES.has(tool) && cursorInsideImage) {
+    drawBrushPreview(point, { crosshairOnly: true });
+    return;
+  }
+  drawBrushPreview(null);
 }
 
-function processPointerFrame() {
-  pointerFrameScheduled = false;
-  let panUpdated = false;
-  if (isPanning && pendingPanPointer) {
-    const dx = pendingPanPointer.x - lastPoint.x;
-    const dy = pendingPanPointer.y - lastPoint.y;
-    if (dx !== 0 || dy !== 0) {
+function getHoverPoint() {
+  if (interactionsApi && typeof interactionsApi.getHoverPoint === 'function') {
+    return interactionsApi.getHoverPoint();
+  }
+  return null;
+}
+
+function getHoverScreenPoint() {
+  if (interactionsApi && typeof interactionsApi.getHoverScreenPoint === 'function') {
+    return interactionsApi.getHoverScreenPoint();
+  }
+  return null;
+}
+
+function setHoverState(worldPoint, screenPoint = null) {
+  if (interactionsApi && typeof interactionsApi.setHoverState === 'function') {
+    interactionsApi.setHoverState(worldPoint, screenPoint);
+  }
+}
+
+function clearHoverState() {
+  if (interactionsApi && typeof interactionsApi.clearHoverState === 'function') {
+    interactionsApi.clearHoverState();
+  }
+}
+
+function queuePanPointer(point) {
+  if (interactionsApi && typeof interactionsApi.queuePanPointer === 'function') {
+    interactionsApi.queuePanPointer(point);
+  }
+}
+
+function queueHoverUpdate(point, hasPreview = false) {
+  if (interactionsApi && typeof interactionsApi.queueHoverUpdate === 'function') {
+    interactionsApi.queueHoverUpdate(point, { hasPreview });
+  }
+}
+
+function clearInteractionPending() {
+  if (interactionsApi && typeof interactionsApi.clearPending === 'function') {
+    interactionsApi.clearPending();
+  }
+}
+
+if (interactionsApi && typeof interactionsApi.init === 'function') {
+  interactionsApi.init({
+    pointerState,
+    getTool: () => tool,
+    getPreviewToolTypes: () => PREVIEW_TOOL_TYPES,
+    getCrosshairToolTypes: () => CROSSHAIR_TOOL_TYPES,
+    isCursorInsideImage: () => cursorInsideImage,
+    drawBrushPreview: (point, options) => drawBrushPreview(point, options),
+    updateHoverInfo: (point) => updateHoverInfo(point),
+    draw: () => draw(),
+    screenToImage: (point) => screenToImage(point),
+    setCursorHold: (style) => setCursorHold(style),
+    cursorStyles: { dot: dotCursorCss },
+    normalizeAngle: (value) => normalizeAngle(value),
+    setOffsetForImagePoint: (imagePoint, origin) => setOffsetForImagePoint(imagePoint, origin),
+    getViewState: () => viewState,
+    setViewStateScale: (value) => {
+      viewState.scale = value;
+    },
+    setViewStateRotation: (value) => {
+      viewState.rotation = value;
+    },
+    applyPanDelta: (dx, dy) => {
       viewState.offsetX += dx;
       viewState.offsetY += dy;
+    },
+    markViewStateDirty: () => {
       viewStateDirty = true;
-      panUpdated = true;
-    }
-    lastPoint = pendingPanPointer;
-    pendingPanPointer = null;
-    hoverPoint = null;
-    drawBrushPreview(null);
-    updateHoverInfo(screenToImage(lastPoint));
-    hoverUpdatePending = false;
-    pendingHoverScreenPoint = null;
-    pendingHoverHasPreview = false;
-    hoverScreenPoint = null;
-    setCursorHold(dotCursorCss);
-  }
-
-  if (isPainting && paintStrokeQueue.length) {
-    for (let i = 0; i < paintStrokeQueue.length; i += 1) {
-      paintStroke(paintStrokeQueue[i]);
-    }
-    const lastWorld = paintStrokeQueue[paintStrokeQueue.length - 1];
-    hoverPoint = lastWorld;
-    hoverScreenPoint = null;
-    drawBrushPreview(hoverPoint);
-    updateHoverInfo(hoverPoint);
-    paintStrokeQueue.length = 0;
-    hoverUpdatePending = false;
-    pendingHoverScreenPoint = null;
-    pendingHoverHasPreview = false;
-  } else if (hoverUpdatePending) {
-    if (pendingHoverScreenPoint) {
-      const world = screenToImage(pendingHoverScreenPoint);
-      if (pendingHoverHasPreview) {
-        hoverPoint = world;
-        hoverScreenPoint = { x: pendingHoverScreenPoint.x, y: pendingHoverScreenPoint.y };
-        drawBrushPreview(hoverPoint);
-      } else if (CROSSHAIR_TOOL_TYPES.has(tool)) {
-        hoverPoint = world;
-        hoverScreenPoint = { x: pendingHoverScreenPoint.x, y: pendingHoverScreenPoint.y };
-        drawBrushPreview(hoverPoint, { crosshairOnly: true });
-      } else {
-        hoverPoint = null;
-        hoverScreenPoint = null;
-        drawBrushPreview(null);
+    },
+    setUserAdjustedScale: (value) => {
+      userAdjustedScale = Boolean(value);
+    },
+    setAutoFitPending: (value) => {
+      autoFitPending = Boolean(value);
+    },
+    processPaintQueue: () => (typeof paintingApi.processPaintQueue === 'function'
+      ? paintingApi.processPaintQueue()
+      : null),
+    isPainting: () => isPainting,
+    isPanning: () => isPanning,
+    getLastPointer: () => ({ x: lastPoint.x, y: lastPoint.y }),
+    setLastPointer: (value) => {
+      if (value && Number.isFinite(value.x) && Number.isFinite(value.y)) {
+        lastPoint = { x: value.x, y: value.y };
       }
-      updateHoverInfo(world);
-    } else {
-      hoverPoint = null;
-      hoverScreenPoint = null;
-      drawBrushPreview(null);
-      updateHoverInfo(null);
-    }
-    hoverUpdatePending = false;
-    pendingHoverScreenPoint = null;
-    pendingHoverHasPreview = false;
-  }
+    },
+    getGestureState: () => gestureState,
+    setGestureState: (value) => {
+      gestureState = value;
+    },
+    requestAnimationFrame: (callback) => requestAnimationFrame(callback),
+  });
+}
 
-  if (panUpdated) {
-    draw();
+function schedulePointerFrame() {
+  if (interactionsApi && typeof interactionsApi.schedulePointerFrame === 'function') {
+    interactionsApi.schedulePointerFrame();
   }
 }
 
 function queuePaintPoint(world) {
-  paintStrokeQueue.push({ x: world.x, y: world.y });
+  if (typeof paintingApi.queuePaintPoint === 'function') {
+    paintingApi.queuePaintPoint(world);
+  }
 }
 
 function updateCursor() {
@@ -2713,7 +2799,7 @@ function setBrushDiameter(nextDiameter, fromUser = false) {
     scheduleStateSave();
   }
   refreshSlider('brushSizeSlider');
-  drawBrushPreview(hoverPoint);
+  drawBrushPreview(getHoverPoint());
 }
 
 function syncMaskOpacityControls() {
@@ -2970,6 +3056,9 @@ function performClearMasks({ recordHistory = true } = {}) {
     return false;
   }
   stopInteraction(null);
+  if (typeof paintingApi.cancelStroke === 'function') {
+    paintingApi.cancelStroke();
+  }
   const hadPixels = hasAnyMaskPixels();
   const shouldRecord = Boolean(recordHistory && hadPixels);
   if (shouldRecord) {
@@ -2982,9 +3071,6 @@ function performClearMasks({ recordHistory = true } = {}) {
   outlineState.fill(0);
   nColorActive = false;
   nColorValues = null;
-  floodVisited = null;
-  floodStack = null;
-  floodOutput = null;
   clearColorCaches();
   clearAffinityGraphData();
   if (webglOverlay && webglOverlay.enabled) {
@@ -2998,7 +3084,7 @@ function performClearMasks({ recordHistory = true } = {}) {
     redrawMaskCanvas();
   }
   draw();
-  drawBrushPreview(hoverPoint);
+  drawBrushPreview(getHoverPoint());
   updateMaskLabel();
   updateColorModeLabel();
   log('Masks cleared');
@@ -3032,398 +3118,26 @@ function setBrushKernelMode(nextMode) {
     refreshDropdown('brushKernelMode');
   }
   log('brush kernel mode set to ' + brushKernelMode);
-  drawBrushPreview(hoverPoint);
-}
-
-function traverseLine(x0, y0, x1, y1, callback) {
-  let ix0 = Math.round(x0);
-  let iy0 = Math.round(y0);
-  const ix1 = Math.round(x1);
-  const iy1 = Math.round(y1);
-  const dx = Math.abs(ix1 - ix0);
-  const sx = ix0 < ix1 ? 1 : -1;
-  const dy = -Math.abs(iy1 - iy0);
-  const sy = iy0 < iy1 ? 1 : -1;
-  let err = dx + dy;
-  while (true) {
-    callback(ix0, iy0);
-    if (ix0 === ix1 && iy0 === iy1) break;
-    const e2 = 2 * err;
-    if (e2 >= dy) {
-      err += dy;
-      ix0 += sx;
-    }
-    if (e2 <= dx) {
-      err += dx;
-      iy0 += sy;
-    }
-  }
-}
-
-function paintStroke(point) {
-  if (!strokeChanges) {
-    strokeChanges = new Map();
-  }
-  const start = lastPaintPoint ? { x: lastPaintPoint.x, y: lastPaintPoint.y } : { x: point.x, y: point.y };
-  const local = new Set();
-  // Sample along the segment at scale-adjusted spacing to balance smoothness and performance
-  const dx = point.x - start.x;
-  const dy = point.y - start.y;
-  const dist = Math.hypot(dx, dy);
-  const spacing = Math.max(0.15, 0.5 / Math.max(viewState.scale, 0.0001));
-  const steps = Math.max(1, Math.ceil(dist / spacing));
-  for (let i = 0; i <= steps; i += 1) {
-    const t = steps === 0 ? 1 : i / steps;
-    const px = start.x + dx * t;
-    const py = start.y + dy * t;
-    collectBrushIndices(local, px, py);
-  }
-  // Single-buffer model: paint the current label value (instance or group ID depending on mode)
-  const paintLabel = currentLabel;
-  try {
-    if (hasNColor && nColorActive) {
-      window.__lastPaintRawLabel = paintLabel | 0;
-      window.__lastPaintGroupId = (currentLabel | 0);
-    } else {
-      window.__lastPaintRawLabel = paintLabel | 0;
-      window.__lastPaintGroupId = 0;
-    }
-  } catch (_) { /* noop */ }
-  let changed = false;
-  const changedIndices = [];
-  local.forEach((idx) => {
-    if (!strokeChanges.has(idx)) {
-      const original = maskValues[idx];
-      if (original === paintLabel) {
-        return;
-      }
-      strokeChanges.set(idx, original);
-    }
-    if (maskValues[idx] !== paintLabel) {
-      maskValues[idx] = paintLabel;
-      changedIndices.push(idx);
-      changed = true;
-      if (paintLabel > 0) {
-        maskHasNonZero = true;
-      }
-    }
-  });
-  if (changed) {
-    if (changedIndices.length) {
-      if (isPainting) {
-        if (!pendingAffinityIndexSet) {
-          pendingAffinityIndexSet = new Set();
-        }
-        for (let i = 0; i < changedIndices.length; i += 1) {
-          pendingAffinityIndexSet.add(changedIndices[i]);
-        }
-      } else {
-        updateAffinityGraphForIndices(changedIndices);
-      }
-    }
-    if (isWebglPipelineActive() && changedIndices.length) {
-      markMaskIndicesDirty(changedIndices);
-    }
-    clearColorCaches();
-    needsMaskRedraw = true;
-    requestPaintFrame();
-    scheduleStateSave();
-    // Keep currentLabel unchanged; maskValues already reflects the selected mode's label space.
-  }
-  lastPaintPoint = { x: point.x, y: point.y };
-}
-
-function finalizeStroke() {
-  if (!strokeChanges || strokeChanges.size === 0) {
-    strokeChanges = null;
-    return;
-  }
-  const keys = Array.from(strokeChanges.keys()).sort((a, b) => a - b);
-  const count = keys.length;
-  const indices = new Uint32Array(count);
-  const before = new Uint32Array(count);
-  const after = new Uint32Array(count);
-  for (let i = 0; i < count; i += 1) {
-    const idx = keys[i];
-    indices[i] = idx;
-    before[i] = strokeChanges.get(idx);
-    after[i] = currentLabel;
-  }
-  pushHistory(indices, before, after);
-  try { window.__pendingRelabelSelection = indices; } catch (_) { /* noop */ }
-  strokeChanges = null;
-  const affinityFlushed = flushPendingAffinityUpdates();
-  if (!affinityFlushed) {
-    updateAffinityGraphForIndices(indices);
-  }
-  if (webglOverlay && webglOverlay.enabled) {
-    webglOverlay.needsGeometryRebuild = true;
-  }
-  markAffinityGeometryDirty();
-  if (isWebglPipelineActive()) {
-    markMaskIndicesDirty(indices);
-  }
-  draw();
-  scheduleStateSave();
-  // Apply any queued segmentation result that arrived during the stroke, otherwise run any pending rebuild
-  if (pendingSegmentationPayload) {
-    const queued = pendingSegmentationPayload;
-    pendingSegmentationPayload = null;
-    applySegmentationMask(queued);
-    pendingMaskRebuild = false;
-  } else if (pendingMaskRebuild && segmentationUpdateTimer === null && canRebuildMask) {
-    triggerMaskRebuild();
-  }
-}
-
-
-function ensureFloodBuffers() {
-  const size = maskValues.length | 0;
-  if (!floodVisited || floodVisited.length !== size) {
-    floodVisited = new Uint32Array(size);
-    floodVisitStamp = 1;
-  } else if (floodVisitStamp >= 0xffffffff) {
-    floodVisited.fill(0);
-    floodVisitStamp = 1;
-  }
-  if (!floodStack || floodStack.length !== size) {
-    floodStack = new Uint32Array(size);
-  }
-  if (!floodOutput || floodOutput.length !== size) {
-    floodOutput = new Uint32Array(size);
-  }
+  drawBrushPreview(getHoverPoint());
 }
 
 function floodFill(point) {
-  const sx = Math.round(point.x);
-  const sy = Math.round(point.y);
-  if (sx < 0 || sy < 0 || sx >= imgWidth || sy >= imgHeight) {
-    return;
+  if (typeof paintingApi.floodFill === 'function') {
+    paintingApi.floodFill(point);
   }
-  const startIdx = sy * imgWidth + sx;
-  const targetLabel = maskValues[startIdx] | 0;
-  const paintLabel = currentLabel | 0;
-  if (targetLabel === paintLabel) {
-    return;
-  }
-
-  if (!maskHasNonZero && targetLabel === 0 && paintLabel > 0) {
-    const total = maskValues.length;
-    const idxArr = new Uint32Array(total);
-    const before = new Uint32Array(total);
-    const after = new Uint32Array(total);
-    after.fill(paintLabel);
-    for (let i = 0; i < total; i += 1) {
-      idxArr[i] = i;
-      maskValues[i] = paintLabel;
-    }
-    maskHasNonZero = true;
-    pushHistory(idxArr, before, after);
-    rebuildLocalAffinityGraph();
-    if (webglOverlay && webglOverlay.enabled) {
-      webglOverlay.needsGeometryRebuild = true;
-    }
-    clearColorCaches();
-    if (isWebglPipelineActive()) {
-      markMaskTextureFullDirty();
-      markOutlineTextureFullDirty();
-    }
-    needsMaskRedraw = true;
-    requestPaintFrame();
-    return;
-  }
-
-  ensureFloodBuffers();
-  const width = imgWidth;
-  const height = imgHeight;
-  const totalPixels = maskValues.length;
-  const stack = floodStack;
-  const visited = floodVisited;
-  const output = floodOutput;
-  let top = 0;
-  let count = 0;
-
-  let stamp = floodVisitStamp++;
-  if (stamp >= 0xffffffff) {
-    visited.fill(0);
-    floodVisitStamp = 1;
-    stamp = floodVisitStamp++;
-  }
-
-  stack[top++] = startIdx;
-
-  while (top > 0) {
-    const idx = stack[--top];
-    if (idx < 0 || idx >= totalPixels) {
-      continue;
-    }
-    if (visited[idx] === stamp) {
-      continue;
-    }
-    if ((maskValues[idx] | 0) !== targetLabel) {
-      continue;
-    }
-
-    const row = (idx / width) | 0;
-    let left = idx;
-    while (left % width !== 0) {
-      const candidate = left - 1;
-      if ((maskValues[candidate] | 0) !== targetLabel || visited[candidate] === stamp) {
-        break;
-      }
-      left = candidate;
-    }
-    let right = idx;
-    while (right % width !== width - 1) {
-      const candidate = right + 1;
-      if ((maskValues[candidate] | 0) !== targetLabel || visited[candidate] === stamp) {
-        break;
-      }
-      right = candidate;
-    }
-
-    const leftX = left % width;
-    const rightX = right % width;
-    const rowOffset = row * width;
-
-    for (let xi = leftX; xi <= rightX; xi += 1) {
-      const fillIdx = rowOffset + xi;
-      if (visited[fillIdx] !== stamp) {
-        visited[fillIdx] = stamp;
-        output[count++] = fillIdx;
-      }
-    }
-
-    const yAbove = row - 1;
-    if (yAbove >= 0) {
-      const aboveOffset = yAbove * width;
-      let xi = leftX;
-      while (xi <= rightX) {
-        const idxAbove = aboveOffset + xi;
-        if (visited[idxAbove] === stamp || (maskValues[idxAbove] | 0) !== targetLabel) {
-          xi += 1;
-        } else {
-          stack[top++] = idxAbove;
-          xi += 1;
-          while (xi <= rightX) {
-            const checkIdx = aboveOffset + xi;
-            if (visited[checkIdx] === stamp || (maskValues[checkIdx] | 0) !== targetLabel) {
-              break;
-            }
-            xi += 1;
-          }
-        }
-      }
-    }
-
-    const yBelow = row + 1;
-    if (yBelow < height) {
-      const belowOffset = yBelow * width;
-      let xi = leftX;
-      while (xi <= rightX) {
-        const idxBelow = belowOffset + xi;
-        if (visited[idxBelow] === stamp || (maskValues[idxBelow] | 0) !== targetLabel) {
-          xi += 1;
-        } else {
-          stack[top++] = idxBelow;
-          xi += 1;
-          while (xi <= rightX) {
-            const checkIdx = belowOffset + xi;
-            if (visited[checkIdx] === stamp || (maskValues[checkIdx] | 0) !== targetLabel) {
-              break;
-            }
-            xi += 1;
-          }
-        }
-      }
-    }
-  }
-
-  if (count === 0) {
-    return;
-  }
-
-  const idxArr = new Uint32Array(count);
-  const before = new Uint32Array(count);
-  if (targetLabel !== 0) {
-    before.fill(targetLabel);
-  }
-  const after = new Uint32Array(count);
-  if (paintLabel !== 0) {
-    after.fill(paintLabel);
-  }
-  const fillsAll = count === totalPixels;
-  if (fillsAll) {
-    for (let i = 0; i < count; i += 1) {
-      idxArr[i] = i;
-      maskValues[i] = paintLabel;
-    }
-  } else {
-    for (let i = 0; i < count; i += 1) {
-      const fillIdx = output[i];
-      idxArr[i] = fillIdx;
-      maskValues[fillIdx] = paintLabel;
-    }
-  }
-  if (paintLabel > 0) {
-    maskHasNonZero = true;
-  } else if (paintLabel === 0 && fillsAll) {
-    maskHasNonZero = false;
-  } else if (paintLabel === 0 && maskHasNonZero) {
-    maskHasNonZero = false;
-    for (let i = 0; i < maskValues.length; i += 1) {
-      if ((maskValues[i] | 0) > 0) {
-        maskHasNonZero = true;
-        break;
-      }
-    }
-  }
-
-  pushHistory(idxArr, before, after);
-  const largeFill = fillsAll || count >= totalPixels * FLOOD_REBUILD_THRESHOLD;
-  if (largeFill) {
-    rebuildLocalAffinityGraph();
-    if (webglOverlay && webglOverlay.enabled) {
-      webglOverlay.needsGeometryRebuild = true;
-    }
-  } else {
-    updateAffinityGraphForIndices(idxArr);
-  }
-  if (fillsAll) {
-    markMaskTextureFullDirty();
-    markOutlineTextureFullDirty();
-  } else {
-    markMaskIndicesDirty(idxArr);
-  }
-  clearColorCaches();
-  needsMaskRedraw = true;
-  applyMaskRedrawImmediate();
-  draw();
-  scheduleStateSave();
-  // Do not change currentLabel here; display coloring comes from nColor.
 }
 
 function pickColor(point) {
-  const sx = Math.round(point.x);
-  const sy = Math.round(point.y);
-  if (sx < 0 || sy < 0 || sx >= imgWidth || sy >= imgHeight) {
-    return;
+  if (typeof paintingApi.pickColor === 'function') {
+    paintingApi.pickColor(point);
   }
-  const idx = sy * imgWidth + sx;
-  // Single-buffer model: pick the current pixel's label (group ID or instance label)
-  currentLabel = maskValues[idx] | 0;
-  updateMaskLabel();
-  log('picker set ' + (nColorActive ? 'color group ' : 'raw label ') + currentLabel);
 }
 
 function labelAtPoint(point) {
-  if (!point) return 0;
-  const x = Math.round(point.x);
-  const y = Math.round(point.y);
-  if (x < 0 || y < 0 || x >= imgWidth || y >= imgHeight) {
-    return 0;
+  if (typeof paintingApi.labelAtPoint === 'function') {
+    return paintingApi.labelAtPoint(point);
   }
-  return maskValues[y * imgWidth + x] | 0;
+  return 0;
 }
 
 function redrawMaskCanvas() {
@@ -5483,7 +5197,7 @@ function rotateView(deltaRadians) {
   userAdjustedScale = true;
   autoFitPending = false;
   draw();
-  drawBrushPreview(hoverPoint);
+  drawBrushPreview(getHoverPoint());
   viewStateDirty = true;
   // Briefly show dot cursor for keyboard rotation
   setCursorTemporary(dotCursorCss, 700);
@@ -5505,7 +5219,7 @@ function draw() {
       needsMaskRedraw = false;
     }
     drawWebglFrame();
-    drawBrushPreview(hoverPoint);
+    drawBrushPreview(getHoverPoint());
     if (!loggedPixelSample && canvas.width > 0 && canvas.height > 0) {
       loggedPixelSample = true;
       hideLoadingOverlay();
@@ -5550,7 +5264,7 @@ function draw() {
   }
   ctx.restore();
   drawAffinityGraphOverlay();
-  drawBrushPreview(hoverPoint);
+  drawBrushPreview(getHoverPoint());
   if (!loggedPixelSample && canvas.width > 0 && canvas.height > 0) {
     try {
       const cx = Math.floor(canvas.width / 2);
@@ -5802,7 +5516,7 @@ function resizeCanvas() {
     recenterView(v);
   }
   draw();
-  drawBrushPreview(hoverPoint);
+  drawBrushPreview(getHoverPoint());
 }
 
 function recenterView(bounds) {
@@ -5857,8 +5571,8 @@ function resetView() {
     recenterView(metrics);
   }
   draw();
+  updateHoverInfo(getHoverPoint() || null);
   renderHoverPreview();
-  updateHoverInfo(hoverPoint || null);
   viewStateDirty = true;
 }
 
@@ -6801,7 +6515,9 @@ canvas.addEventListener('wheel', (evt) => {
 
 function startPointerPan(evt) {
   isPainting = false;
-  strokeChanges = null;
+  if (typeof paintingApi.cancelStroke === 'function') {
+    paintingApi.cancelStroke();
+  }
   isPanning = true;
   lastPoint = getPointerPosition(evt);
   setCursorHold(dotCursorCss);
@@ -6812,14 +6528,17 @@ function startPointerPan(evt) {
   } catch (_) {
     /* ignore */
   }
-  hoverPoint = null;
-  hoverScreenPoint = null;
-  drawBrushPreview(null);
-  updateHoverInfo(null);
+  const worldPoint = screenToImage(lastPoint);
+  setHoverState(worldPoint, { x: lastPoint.x, y: lastPoint.y });
+  updateHoverInfo(worldPoint);
+  renderHoverPreview();
 }
 
 function beginBrushStroke(evt, worldPoint) {
-  strokeChanges = new Map();
+  let result = null;
+  if (typeof paintingApi.beginStroke === 'function') {
+    result = paintingApi.beginStroke(worldPoint) || null;
+  }
   isPainting = true;
   canvas.classList.add('painting');
   updateCursor();
@@ -6829,18 +6548,26 @@ function beginBrushStroke(evt, worldPoint) {
   } catch (_) {
     /* ignore */
   }
-  paintStrokeQueue.length = 0;
-  lastPaintPoint = null;
-  paintStroke(worldPoint);
-  hoverPoint = worldPoint ? { x: worldPoint.x, y: worldPoint.y } : null;
-  if (hoverPoint) {
-    const pointer = getPointerPosition(evt);
-    hoverScreenPoint = { x: pointer.x, y: pointer.y };
-  } else {
-    hoverScreenPoint = null;
+  const startPoint = result && result.lastPoint ? result.lastPoint : worldPoint;
+  let initialPoint = startPoint;
+  if (typeof paintingApi.processPaintQueue === 'function') {
+    const processed = paintingApi.processPaintQueue();
+    if (processed) {
+      initialPoint = processed;
+    }
   }
-  drawBrushPreview(hoverPoint);
-  updateHoverInfo(hoverPoint);
+  if (initialPoint) {
+    const pointer = getPointerPosition(evt);
+    const worldHover = { x: initialPoint.x, y: initialPoint.y };
+    const screenHover = pointer ? { x: pointer.x, y: pointer.y } : null;
+    setHoverState(worldHover, screenHover);
+    drawBrushPreview(worldHover);
+    updateHoverInfo(worldHover);
+  } else {
+    clearHoverState();
+    drawBrushPreview(null);
+    updateHoverInfo(null);
+  }
 }
 
 canvas.addEventListener('pointerdown', (evt) => {
@@ -7000,7 +6727,11 @@ canvas.addEventListener('pointermove', (evt) => {
           userAdjustedScale = true;
           autoFitPending = false;
           draw();
-          drawBrushPreview(null);
+          const worldPoint = screenToImage(midCanvas);
+          setHoverState(worldPoint, midCanvas);
+          updateHoverInfo(worldPoint);
+          renderHoverPreview();
+          clearInteractionPending();
         }
       }
       evt.preventDefault();
@@ -7013,7 +6744,11 @@ canvas.addEventListener('pointermove', (evt) => {
       viewState.offsetY += dy;
       lastPoint = pointer;
       draw();
-      updateHoverInfo(null);
+      const worldPoint = screenToImage(pointer);
+      setHoverState(worldPoint, pointer);
+      updateHoverInfo(worldPoint);
+      renderHoverPreview();
+      clearInteractionPending();
       evt.preventDefault();
       setCursorHold(dotCursorCss);
       viewStateDirty = true;
@@ -7021,9 +6756,7 @@ canvas.addEventListener('pointermove', (evt) => {
     }
   }
   if (isPanning && evt.pointerId === panPointerId) {
-    pendingPanPointer = { x: pointer.x, y: pointer.y };
-    hoverUpdatePending = true;
-    pendingHoverScreenPoint = null;
+    queuePanPointer({ x: pointer.x, y: pointer.y });
     schedulePointerFrame();
     if (typeof evt.preventDefault === 'function') {
       evt.preventDefault();
@@ -7047,27 +6780,19 @@ canvas.addEventListener('pointermove', (evt) => {
     } else {
       queuePaintPoint(world);
     }
-    hoverPoint = { x: world.x, y: world.y };
-    hoverScreenPoint = { x: pointer.x, y: pointer.y };
-    drawBrushPreview(hoverPoint);
-    updateHoverInfo(hoverPoint);
-    hoverUpdatePending = false;
-    pendingHoverScreenPoint = null;
-    pendingHoverHasPreview = false;
+    setHoverState(world, pointer);
+    drawBrushPreview(world);
+    updateHoverInfo(world);
+    clearInteractionPending();
     schedulePointerFrame();
     return;
   }
   if (!isPanning && !spacePan) {
-    pendingHoverScreenPoint = { x: pointer.x, y: pointer.y };
-    pendingHoverHasPreview = PREVIEW_TOOL_TYPES.has(tool);
-    hoverUpdatePending = true;
+    queueHoverUpdate({ x: pointer.x, y: pointer.y }, PREVIEW_TOOL_TYPES.has(tool));
     schedulePointerFrame();
   }
   if (isPanning) {
-    pendingPanPointer = { x: pointer.x, y: pointer.y };
-    hoverUpdatePending = true;
-    pendingHoverScreenPoint = null;
-    pendingHoverHasPreview = false;
+    queuePanPointer({ x: pointer.x, y: pointer.y });
     schedulePointerFrame();
     if (typeof evt.preventDefault === 'function') {
       evt.preventDefault();
@@ -7098,10 +6823,12 @@ function stopInteraction(evt) {
     cursorInsideCanvas = evt.type !== 'pointerleave' && evt.type !== 'pointercancel';
     if (typeof evt.clientX === 'number' && typeof evt.clientY === 'number') {
       const pointer = getPointerPosition(evt);
-      hoverScreenPoint = { x: pointer.x, y: pointer.y };
+      const screenPoint = { x: pointer.x, y: pointer.y };
       if (CROSSHAIR_TOOL_TYPES.has(tool) || PREVIEW_TOOL_TYPES.has(tool)) {
         const world = screenToImage(pointer);
-        hoverPoint = { x: world.x, y: world.y };
+        setHoverState(world, screenPoint);
+      } else {
+        setHoverState(getHoverPoint(), screenPoint);
       }
     }
   }
@@ -7127,22 +6854,22 @@ function stopInteraction(evt) {
   // Mark painting complete before finalize so deferred overlay rebuild can run
   isPainting = false;
   if (wasPainting) {
-    finalizeStroke();
+    if (typeof paintingApi.finalizeStroke === 'function') {
+      paintingApi.finalizeStroke();
+    }
+  }
+  if (typeof paintingApi.cancelStroke === 'function') {
+    paintingApi.cancelStroke();
   }
   isPanning = false;
   spacePan = false;
   updateCursor();
-  lastPaintPoint = null;
-  paintStrokeQueue.length = 0;
-  pendingPanPointer = null;
-  hoverUpdatePending = false;
-  pendingHoverScreenPoint = null;
-  pendingHoverHasPreview = false;
+  clearInteractionPending();
   if (evt && evt.type === 'pointerleave') {
     clearHoverPreview();
   } else {
+    updateHoverInfo(getHoverPoint() || null);
     renderHoverPreview();
-    updateHoverInfo(hoverPoint || null);
   }
   if (evt && evt.pointerId !== undefined) {
     try {
@@ -7175,7 +6902,12 @@ function handleContextMenuEvent(evt) {
     activePointerId = null;
   }
   if (isPainting) {
-    finalizeStroke();
+    if (typeof paintingApi.finalizeStroke === 'function') {
+      paintingApi.finalizeStroke();
+    }
+  }
+  if (typeof paintingApi.cancelStroke === 'function') {
+    paintingApi.cancelStroke();
   }
   isPainting = false;
   isPanning = false;

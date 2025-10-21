@@ -82,6 +82,8 @@ POINTER_JS = WEB_DIR / "js" / "pointer-state.js"
 LOGGING_JS = WEB_DIR / "js" / "logging.js"
 HISTORY_JS = WEB_DIR / "js" / "history.js"
 BRUSH_JS = WEB_DIR / "js" / "brush.js"
+PAINTING_JS = WEB_DIR / "js" / "painting.js"
+INTERACTIONS_JS = WEB_DIR / "js" / "interactions.js"
 HTML_FRAGMENTS = [
     HTML_DIR / "left-panel.html",
     HTML_DIR / "viewer.html",
@@ -99,12 +101,14 @@ CSS_LINKS = (
     '    <link rel="stylesheet" href="/static/css/controls.css" />',
     '    <link rel="stylesheet" href="/static/css/viewer.css" />',
 )
-JS_FILES = [POINTER_JS, LOGGING_JS, HISTORY_JS, BRUSH_JS, APP_JS]
+JS_FILES = [POINTER_JS, LOGGING_JS, HISTORY_JS, BRUSH_JS, PAINTING_JS, INTERACTIONS_JS, APP_JS]
 JS_STATIC_PATHS = (
     "/static/js/pointer-state.js",
     "/static/js/logging.js",
     "/static/js/history.js",
     "/static/js/brush.js",
+    "/static/js/painting.js",
+    "/static/js/interactions.js",
     "/static/app.js",
 )
 _INDEX_HTML_CACHE: dict[str, object] = {"content": "", "mtime": None}

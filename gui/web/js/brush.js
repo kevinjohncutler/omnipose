@@ -310,7 +310,8 @@
     drawTouchOverlay();
   }
 
-  global.OmniBrush = Object.assign({}, global.OmniBrush, {
+  const api = global.OmniBrush || {};
+  Object.assign(api, {
     init,
     getBrushKernelCenter,
     enumerateBrushPixels,
@@ -319,4 +320,5 @@
     resizePreviewCanvas,
     drawBrushPreview,
   });
+  global.OmniBrush = api;
 })(typeof window !== 'undefined' ? window : globalThis);
