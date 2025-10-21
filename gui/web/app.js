@@ -73,10 +73,30 @@ if (canvas && webglPipelineRequested) {
     gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
   }
 }
-if (canvas && !gl) {
-  ctx = canvas.getContext('2d');
-}
 const viewer = document.getElementById('viewer');
+const ENABLE_WEBGL_LOGGING = Boolean(window.__OMNI_WEBGL_LOGGING__);
+function perfNow() {
+  return typeof performance !== 'undefined' && typeof performance.now === 'function'
+    ? performance.now()
+    : Date.now();
+}
+function logWebgl(kind, data) {
+  if (!ENABLE_WEBGL_LOGGING) {
+    return;
+  }
+  try {
+    if (typeof window !== 'undefined' && typeof window.__omniLogPush === 'function') {
+      window.__omniLogPush(kind, data);
+    } else if (console && typeof console.debug === 'function') {
+      console.debug('[webgl]', kind, data);
+    }
+  } catch (_) {
+    /* ignore */
+  }
+}
+const AFFINITY_DRAW_LOG_INTERVAL = 30;
+let affinityDrawLogCounter = 0;
+let webglUnavailableNotified = false;
 const dropOverlay = document.getElementById('dropOverlay');
 if (viewer) {
   viewer.setAttribute('tabindex', '0');
@@ -1054,66 +1074,52 @@ function computeAffinityAlpha() {
 }
 
 function rebuildAffinityGeometry(gl) {
+  const startTime = perfNow();
   if (!webglPipeline || !webglPipeline.affinity || !webglPipeline.affinity.buffer) {
+    logWebgl('affinity-geometry', { reason: 'missing-buffer' });
     return;
   }
   if (!affinityGeometryDirty) {
     return;
   }
-  affinityGeometryDirty = false;
   const affinity = webglPipeline.affinity;
-  if (!showAffinityGraph || !affinityGraphInfo || !affinityGraphInfo.values) {
+  if (!affinityGraphInfo) {
     gl.bindBuffer(gl.ARRAY_BUFFER, affinity.buffer);
     gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(0), gl.STATIC_DRAW);
     gl.bindBuffer(gl.ARRAY_BUFFER, null);
     affinity.vertexCount = 0;
+    affinityGeometryDirty = false;
+    logWebgl('affinity-geometry', { reason: 'hidden', duration: perfNow() - startTime });
     return;
   }
-  if (!affinityGraphInfo.segments) {
+  if (!affinityGraphInfo.vertices || !affinityGraphInfo.vertices.length) {
     buildAffinityGraphSegments();
   }
-  const segments = affinityGraphInfo.segments;
-  if (!segments) {
+  const info = affinityGraphInfo;
+  if (!showAffinityGraph || !info || !info.vertices || !info.vertices.length) {
     gl.bindBuffer(gl.ARRAY_BUFFER, affinity.buffer);
     gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(0), gl.STATIC_DRAW);
     gl.bindBuffer(gl.ARRAY_BUFFER, null);
     affinity.vertexCount = 0;
+    affinityGeometryDirty = false;
+    logWebgl('affinity-geometry', { reason: 'hidden', duration: perfNow() - startTime });
     return;
-  }
-  let totalEdges = 0;
-  for (let i = 0; i < segments.length; i += 1) {
-    const seg = segments[i];
-    if (seg && seg.map && seg.map.size) {
-      totalEdges += seg.map.size;
-    }
-  }
-  if (totalEdges === 0) {
-    gl.bindBuffer(gl.ARRAY_BUFFER, affinity.buffer);
-    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(0), gl.STATIC_DRAW);
-    gl.bindBuffer(gl.ARRAY_BUFFER, null);
-    affinity.vertexCount = 0;
-    return;
-  }
-  const data = new Float32Array(totalEdges * 4);
-  let offset = 0;
-  for (let i = 0; i < segments.length; i += 1) {
-    const seg = segments[i];
-    if (!seg || !seg.map) continue;
-    seg.map.forEach((coords) => {
-      data[offset + 0] = coords[0];
-      data[offset + 1] = coords[1];
-      data[offset + 2] = coords[2];
-      data[offset + 3] = coords[3];
-      offset += 4;
-    });
   }
   gl.bindBuffer(gl.ARRAY_BUFFER, affinity.buffer);
-  gl.bufferData(gl.ARRAY_BUFFER, data, gl.DYNAMIC_DRAW);
+  gl.bufferData(gl.ARRAY_BUFFER, info.vertices, gl.STATIC_DRAW);
   gl.bindBuffer(gl.ARRAY_BUFFER, null);
-  affinity.vertexCount = totalEdges * 2;
+  affinity.vertexCount = info.vertices.length / 2;
+  affinityGeometryDirty = false;
+  logWebgl('affinity-geometry', {
+    edges: info.vertices.length / 4,
+    vertices: affinity.vertexCount,
+    byteLength: info.vertices.byteLength,
+    duration: perfNow() - startTime,
+  });
 }
 
 function drawAffinityLines(matrix) {
+  const startTime = perfNow();
   if (!webglPipeline || !webglPipeline.affinityProgram || !webglPipeline.affinityUniforms || !webglPipeline.affinity) {
     return;
   }
@@ -1122,11 +1128,13 @@ function drawAffinityLines(matrix) {
   }
   const alpha = computeAffinityAlpha();
   if (alpha <= 0) {
+    logWebgl('affinity-draw', { reason: 'alpha-zero', alpha });
     return;
   }
   const { gl, affinityProgram, affinityUniforms, affinity } = webglPipeline;
   rebuildAffinityGeometry(gl);
   if (!affinity.vertexCount || affinity.vertexCount <= 0) {
+    logWebgl('affinity-draw', { reason: 'no-vertices' });
     return;
   }
   gl.useProgram(affinityProgram);
@@ -1141,6 +1149,14 @@ function drawAffinityLines(matrix) {
   gl.disable(gl.BLEND);
   gl.bindVertexArray(null);
   gl.useProgram(null);
+  if ((affinityDrawLogCounter++ % AFFINITY_DRAW_LOG_INTERVAL) === 0) {
+    logWebgl('affinity-draw', {
+      vertexCount: affinity.vertexCount,
+      alpha,
+      scale: viewState.scale,
+      duration: perfNow() - startTime,
+    });
+  }
 }
 
 function updateOverlayTexture(kind, image) {
@@ -1345,6 +1361,10 @@ let affinityGeometryDirty = true;
 
 function markAffinityGeometryDirty() {
   affinityGeometryDirty = true;
+  if (affinityGraphInfo) {
+    affinityGraphInfo.path = null;
+    affinityGraphInfo.vertices = null;
+  }
 }
 
 function setOverlayCanvasVisibility(visible, alpha = 1) {
@@ -2253,6 +2273,13 @@ let clusterEnabled = typeof CONFIG.cluster === 'boolean' ? CONFIG.cluster : true
 let affinitySegEnabled = typeof CONFIG.affinitySeg === 'boolean' ? CONFIG.affinitySeg : true;
 let userAdjustedScale = false;
 const touchPointers = new Map();
+const brushTapHistory = { pen: 0, mouse: 0 };
+const brushTapLastPos = { pen: null, mouse: null };
+let brushTapUndoBaseline = null;
+let pendingBrushDoubleTap = null;
+const BRUSH_DOUBLE_TAP_MAX_INTERVAL_MOUSE_MS = 220;
+const BRUSH_DOUBLE_TAP_MAX_INTERVAL_STYLUS_MS = 420;
+const BRUSH_DOUBLE_TAP_MAX_POINTER_DISTANCE = 24;
 window.OmniBrush = window.OmniBrush || {};
 const brushApi = window.OmniBrush;
 window.OmniPainting = window.OmniPainting || {};
@@ -4818,10 +4845,23 @@ function buildAffinityGraphSegments() {
   const { width, height, values, stepCount } = affinityGraphInfo;
   if (!values || values.length === 0 || stepCount === 0) {
     affinityGraphInfo.segments = null;
+    affinityGraphInfo.path = null;
+    affinityGraphInfo.vertices = null;
+    markAffinityGeometryDirty();
     return;
   }
   const planeStride = width * height;
   const segments = new Array(stepCount);
+  let totalEdges = 0;
+  let path = null;
+  const canUsePath = typeof Path2D === 'function';
+  if (canUsePath) {
+    try {
+      path = new Path2D();
+    } catch (err) {
+      path = null;
+    }
+  }
   for (let s = 0; s < stepCount; s += 1) {
     const [dyRaw, dxRaw] = affinitySteps[s];
     const dy = dyRaw | 0;
@@ -4840,14 +4880,37 @@ function buildAffinityGraphSegments() {
         continue;
       }
       map.set(idx, new Float32Array([x + 0.5, y + 0.5, nx + 0.5, ny + 0.5]));
+      totalEdges += 1;
+      if (path) {
+        path.moveTo(x + 0.5, y + 0.5);
+        path.lineTo(nx + 0.5, ny + 0.5);
+      }
     }
     segments[s] = {
       color: AFFINITY_OVERLAY_COLOR,
       map,
     };
   }
+  let vertices = null;
+  if (totalEdges > 0) {
+    vertices = new Float32Array(totalEdges * 4);
+    let offset = 0;
+    for (let i = 0; i < segments.length; i += 1) {
+      const seg = segments[i];
+      if (!seg || !seg.map) continue;
+      seg.map.forEach((coords) => {
+        vertices[offset + 0] = coords[0];
+        vertices[offset + 1] = coords[1];
+        vertices[offset + 2] = coords[2];
+        vertices[offset + 3] = coords[3];
+        offset += 4;
+      });
+    }
+  }
   affinityGraphInfo.segments = segments;
-  markAffinityGeometryDirty();
+  affinityGraphInfo.path = path || null;
+  affinityGraphInfo.vertices = vertices;
+  affinityGeometryDirty = true;
 }
 
 function clearOutline() {
@@ -5226,61 +5289,15 @@ function draw() {
     }
     return;
   }
-  if (!ctx) {
-    return;
-  }
-  // Do not rebuild affinity graph locally; graph remains fixed
-  ctx.save();
-  ctx.setTransform(1, 0, 0, 1, 0, 0);
-  ctx.clearRect(0, 0, canvas.width, canvas.height);
-  ctx.restore();
-  ctx.save();
-  applyViewTransform(ctx, { includeDpr: true });
-  const smooth = viewState.scale < 1;
-  ctx.imageSmoothingEnabled = smooth;
-  ctx.imageSmoothingQuality = smooth ? 'high' : 'low';
-  if (imageVisible) {
-    ctx.drawImage(offscreen, 0, 0);
-  }
-  if (maskVisible) {
-    // Always render mask overlay with nearest-neighbor for crisp pixel edges
-    ctx.imageSmoothingEnabled = false;
-    ctx.drawImage(maskCanvas, 0, 0);
-    // Outline is integrated via per-pixel alpha; no separate overlay draw
-  }
-  if (showFlowOverlay && flowOverlayImage && flowOverlayImage.complete) {
-    ctx.save();
-    ctx.globalAlpha = 0.7;
-    ctx.imageSmoothingEnabled = false;
-    ctx.drawImage(flowOverlayImage, 0, 0);
-    ctx.restore();
-  }
-  if (showDistanceOverlay && distanceOverlayImage && distanceOverlayImage.complete) {
-    ctx.save();
-    ctx.globalAlpha = 0.6;
-    ctx.imageSmoothingEnabled = false;
-    ctx.drawImage(distanceOverlayImage, 0, 0);
-    ctx.restore();
-  }
-  ctx.restore();
-  drawAffinityGraphOverlay();
-  drawBrushPreview(getHoverPoint());
-  if (!loggedPixelSample && canvas.width > 0 && canvas.height > 0) {
-    try {
-      const cx = Math.floor(canvas.width / 2);
-      const cy = Math.floor(canvas.height / 2);
-      const sample = ctx.getImageData(cx, cy, 1, 1).data;
-      log('center pixel rgba=' + Array.from(sample).join(','));
-    } catch (err) {
-      log('center pixel read failed: ' + (err && err.message ? err.message : err));
+  if (webglPipelineRequested) {
+    if (!webglPipelineReady) {
+      return;
     }
-    loggedPixelSample = true;
-    hideLoadingOverlay();
   }
-
-  if (viewStateDirty) {
-    viewStateDirty = false;
-    scheduleStateSave(800);
+  if (!webglUnavailableNotified) {
+    webglUnavailableNotified = true;
+    console.error('WebGL2 pipeline unavailable; OmniPose viewer requires WebGL2.');
+    setLoadingOverlay('WebGL2 rendering unavailable. Please enable WebGL2 support and reload.', true);
   }
 }
 
@@ -5986,6 +6003,48 @@ function updateHoverInfo(point) {
   updateCursor();
 }
 
+function handleBrushDoubleTapOnDown(evt, pointer, world) {
+  if (!evt || tool !== 'brush' || eraseActive) {
+    return null;
+  }
+  const type = evt.pointerType || (pointerState.isStylusPointer(evt) ? 'pen' : 'mouse');
+  if (type !== 'pen' && type !== 'mouse') {
+    return null;
+  }
+  const maxInterval = type === 'pen'
+    ? BRUSH_DOUBLE_TAP_MAX_INTERVAL_STYLUS_MS
+    : BRUSH_DOUBLE_TAP_MAX_INTERVAL_MOUSE_MS;
+  const now = perfNow();
+  const lastTime = brushTapHistory[type] || 0;
+  const lastPos = brushTapLastPos[type];
+  const pointerPos = { x: pointer.x, y: pointer.y };
+  brushTapHistory[type] = now;
+  brushTapLastPos[type] = pointerPos;
+  if (!lastTime || (now - lastTime) > maxInterval) {
+    brushTapUndoBaseline = typeof OmniHistory.getUndoCount === 'function'
+      ? OmniHistory.getUndoCount()
+      : null;
+    return null;
+  }
+  if (lastPos) {
+    const dp = Math.hypot(pointerPos.x - lastPos.x, pointerPos.y - lastPos.y);
+    if (dp > BRUSH_DOUBLE_TAP_MAX_POINTER_DISTANCE) {
+      brushTapUndoBaseline = typeof OmniHistory.getUndoCount === 'function'
+        ? OmniHistory.getUndoCount()
+        : null;
+      return null;
+    }
+  }
+  brushTapHistory[type] = 0;
+  brushTapLastPos[type] = null;
+  return {
+    pointerType: type,
+    pointerId: evt.pointerId,
+    world: { x: world.x, y: world.y },
+    undoBaseline: brushTapUndoBaseline,
+  };
+}
+
 function updateColorModeLabel() {
   if (!colorMode) {
     return;
@@ -6578,6 +6637,14 @@ canvas.addEventListener('pointerdown', (evt) => {
   lastPoint = pointer;
   const world = screenToImage(pointer);
   updateHoverInfo(world);
+  const pointerType = evt.pointerType || (pointerState.isStylusPointer(evt) ? 'pen' : 'mouse');
+  if (!pendingBrushDoubleTap && tool === 'brush' && (pointerType === 'pen' || pointerType === 'mouse')) {
+    const tapTarget = handleBrushDoubleTapOnDown(evt, pointer, world);
+    if (tapTarget) {
+      pendingBrushDoubleTap = tapTarget;
+      return;
+    }
+  }
   const isStylus = pointerState.isStylusPointer(evt);
   if (isStylus) {
     if (!pointerState.options.stylus.allowSimultaneousTouchGestures) {
@@ -6915,9 +6982,46 @@ function handleContextMenuEvent(evt) {
   updateCursor();
 }
 
-canvas.addEventListener('pointerup', stopInteraction);
+function handlePointerUp(evt) {
+  const type = evt.pointerType || 'mouse';
+  if (pendingBrushDoubleTap
+    && pendingBrushDoubleTap.pointerType === type
+    && (pendingBrushDoubleTap.pointerId === undefined || pendingBrushDoubleTap.pointerId === evt.pointerId)) {
+    const target = pendingBrushDoubleTap;
+    pendingBrushDoubleTap = null;
+    const getUndoCount = typeof OmniHistory.getUndoCount === 'function'
+      ? OmniHistory.getUndoCount
+      : null;
+    if (target.undoBaseline !== null && getUndoCount && typeof OmniHistory.undo === 'function') {
+      let undoCount = getUndoCount();
+      while (undoCount > target.undoBaseline) {
+        const before = undoCount;
+        undo();
+        undoCount = getUndoCount();
+        if (undoCount >= before) {
+          break;
+        }
+      }
+    }
+    brushTapHistory[type] = 0;
+    brushTapLastPos[type] = null;
+    floodFill(target.world);
+    stopInteraction(evt);
+    scheduleStateSave();
+    return;
+  }
+  pendingBrushDoubleTap = null;
+  stopInteraction(evt);
+}
+
+function handlePointerCancel(evt) {
+  pendingBrushDoubleTap = null;
+  stopInteraction(evt);
+}
+
+canvas.addEventListener('pointerup', handlePointerUp);
 canvas.addEventListener('pointerleave', stopInteraction);
-canvas.addEventListener('pointercancel', stopInteraction);
+canvas.addEventListener('pointercancel', handlePointerCancel);
 canvas.addEventListener('mouseenter', () => {
   cursorInsideCanvas = true;
   updateCursor();

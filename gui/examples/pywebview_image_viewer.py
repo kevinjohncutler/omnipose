@@ -1,15 +1,4 @@
 """Minimal PyWebView viewer replicating core Omnipose image interactions."""
-# two finger tap to home?
-# autosave!!!!!
-# drag bar to hid show panel, mayeb expand it
-# aslo the lines of the affinity graph are sitll pretty alisased despite being antialiased with msaa I think. what other options do we have to smooth them? 
-
-# did something happen to make the zoom in/out less optimized than before? it is now stuttering again on ipad. 
-# need to smooth out 2 finger zoom and drag on ipad
-# would be nice if all colored elements could inherit a background color gradient, so that their either show the gradietn through themselvs or have a soldi color that is jsut dependent on theoir position from the top of the screen. 
-# remove glow from the toolicons, use custom svgs 
-
-# here is a question: can we make a long press work as a contect menu opener on ipad? we should remove the esititng three press to home and instead eplore this idea of long press to 
 from __future__ import annotations
 
 import argparse
@@ -117,6 +106,61 @@ _INLINE_CSS_CACHE: dict[str, object] = {"text": "", "mtimes": {}}
 _INLINE_JS_CACHE: dict[str, object] = {"text": "", "mtimes": {}}
 _CACHE_BUSTER = str(int(time.time()))
 _DEV_CERT_DIR = Path(tempfile.gettempdir()) / "omnipose_pywebview_dev_ssl"
+WEBGL_LOG_PATH = Path("/tmp/webgl_log.txt")
+try:
+    WEBGL_LOG_PATH.write_text("", encoding="utf-8")
+except OSError:
+    pass
+
+CAPTURE_LOG_SCRIPT = """<script>
+(function(){
+  if (window.__omniLogPush) { return; }
+  var queue = [];
+  var endpoint = '/api/log';
+  var maxBatch = 25;
+  var flushTimer = null;
+  function flush(){
+    if (!queue.length) { return; }
+    var payload = queue.slice();
+    queue.length = 0;
+    try {
+      fetch(endpoint, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ entries: payload })
+      }).catch(function(){ });
+    } catch (err) {
+      console.warn('[log] flush failed', err);
+    }
+  }
+  function schedule(){
+    if (flushTimer) { return; }
+    flushTimer = setTimeout(function(){ flushTimer = null; flush(); }, 300);
+  }
+  window.__omniLogPush = function(kind, data){
+    try {
+      queue.push({ kind: kind, data: data, ts: Date.now() });
+      if (queue.length >= maxBatch) {
+        if (flushTimer) { clearTimeout(flushTimer); flushTimer = null; }
+        flush();
+      } else {
+        schedule();
+      }
+    } catch (err) {
+      console.warn('[log] push failed', err);
+    }
+  };
+  window.addEventListener('error', function(evt){
+    window.__omniLogPush('JS_ERROR', {
+      message: evt.message || '',
+      filename: evt.filename || '',
+      lineno: evt.lineno || 0,
+      colno: evt.colno || 0,
+      stack: evt.error && evt.error.stack ? String(evt.error.stack) : ''
+    });
+  });
+})();
+</script>"""
 
 SUPPORTED_IMAGE_EXTS = {
     ".png",
@@ -1016,7 +1060,9 @@ def render_index(
             f"    <div id=\"app\">\n{layout_markup}\n    </div>",
         )
     config_json = json.dumps(config).replace('</', '<\/')
-    config_script = f"<script>window.__OMNI_CONFIG__ = {config_json}</script>"
+    config_script = f"<script>window.__OMNI_CONFIG__ = {config_json}; window.__OMNI_WEBGL_LOGGING__ = true;</script>"
+    capture_script = CAPTURE_LOG_SCRIPT.strip()
+    capture_script = "    " + capture_script.replace("\n", "\n    ")
     css_links = list(CSS_LINKS)
     script_tag = '    <script src="/static/app.js"></script>'
     keep_order_comment = (
@@ -1031,14 +1077,15 @@ def render_index(
             html = html.replace(f"{link}\n", "")
             html = html.replace(link, "")
         js_bundle = _concat_cached_text(JS_FILES, _INLINE_JS_CACHE)
+        bundled_script = f"<script>\n/* {keep_order_comment[5:-4]} */\n{js_bundle}\n</script>"
+        bundled_script = "    " + bundled_script.replace("\n", "\n    ")
         html = html.replace(
             script_tag,
-            "\n".join(
-                [
-                    config_script,
-                    f"<script>\n/* {keep_order_comment[5:-4]} */\n{js_bundle}\n</script>",
-                ]
-            ),
+            "\n".join([
+                config_script,
+                capture_script,
+                bundled_script,
+            ]),
         )
     else:
         suffix = f"?v={cache_buster}" if cache_buster else ""
@@ -1047,7 +1094,7 @@ def render_index(
                 link,
                 link.replace(".css\"", f".css{suffix}\""),
             )
-        script_parts = [config_script, f'    {keep_order_comment}']
+        script_parts = [config_script, capture_script, f'    {keep_order_comment}']
         script_parts.extend(
             f'    <script src="{path}{suffix}"></script>'
             for path in JS_STATIC_PATHS
@@ -1128,7 +1175,7 @@ def run_mask_update(
 
 class DebugAPI:
     def __init__(self, log_path: Path | None = None) -> None:
-        self._log_path = log_path or Path("pywebview_debug.log")
+        self._log_path = log_path or WEBGL_LOG_PATH
 
     def log(self, message: str) -> None:
         message = str(message)
@@ -1621,7 +1668,7 @@ def create_app() -> "FastAPI":
     from fastapi.responses import HTMLResponse, JSONResponse
     from fastapi.staticfiles import StaticFiles
 
-    api = DebugAPI()
+    api = DebugAPI(log_path=WEBGL_LOG_PATH)
 
     app = FastAPI(title="Omnipose PyWebView Viewer")
     app.add_middleware(
@@ -1652,6 +1699,14 @@ def create_app() -> "FastAPI":
 
     @app.post("/api/log", response_class=JSONResponse)
     async def api_log(payload: dict) -> JSONResponse:
+        entries = payload.get('entries')
+        if isinstance(entries, list):
+            for entry in entries:
+                try:
+                    api.log(json.dumps(entry, ensure_ascii=False))
+                except Exception:
+                    api.log(str(entry))
+            return JSONResponse({'status': 'ok'})
         messages = payload.get('messages')
         if isinstance(messages, list):
             for raw in messages:
