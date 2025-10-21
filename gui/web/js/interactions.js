@@ -53,6 +53,7 @@
       requestAnimationFrame: typeof global.requestAnimationFrame === 'function'
         ? global.requestAnimationFrame.bind(global)
         : (fn) => global.setTimeout(fn, 16),
+      scheduleDraw: null,
     }, options || {});
     state.hoverPoint = null;
     state.hoverScreenPoint = null;
@@ -127,6 +128,20 @@
     }
     if (typeof context.updateHoverInfo === 'function') {
       context.updateHoverInfo(null);
+    }
+  }
+
+  function requestContextDraw(context, options = {}) {
+    if (!context) {
+      return;
+    }
+    const schedule = context.scheduleDraw;
+    if (typeof schedule === 'function') {
+      schedule(options);
+      return;
+    }
+    if (typeof context.draw === 'function') {
+      context.draw();
     }
   }
 
@@ -232,9 +247,7 @@
     if (typeof context.setAutoFitPending === 'function') {
       context.setAutoFitPending(false);
     }
-    if (typeof context.draw === 'function') {
-      context.draw();
-    }
+    requestContextDraw(context, { immediate: true });
     if (typeof context.updateHoverInfo === 'function') {
       context.updateHoverInfo(state.hoverPoint || null);
     }
@@ -344,8 +357,8 @@
       state.pendingHoverHasPreview = false;
     }
 
-    if (panUpdated && typeof context.draw === 'function') {
-      context.draw();
+    if (panUpdated) {
+      requestContextDraw(context, { immediate: true });
     }
   }
 

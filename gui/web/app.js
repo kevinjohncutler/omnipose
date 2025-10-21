@@ -1427,6 +1427,11 @@ function updateFps(now) {
   if (fpsSamples.length > FPS_SAMPLE_LIMIT) {
     fpsSamples.shift();
   }
+  const average = fpsSamples.reduce((sum, value) => sum + value, 0) / fpsSamples.length;
+  const interval = 1000 / Math.max(average, 1);
+  const smoothing = 0.3;
+  const blendedInterval = (frameIntervalEstimateMs * (1 - smoothing)) + (interval * smoothing);
+  frameIntervalEstimateMs = Math.max(MIN_FRAME_INTERVAL_MS, blendedInterval);
   if (!fpsDisplay) {
     return;
   }
@@ -1434,7 +1439,6 @@ function updateFps(now) {
     return;
   }
   lastFpsUpdate = now;
-  const average = fpsSamples.reduce((sum, value) => sum + value, 0) / fpsSamples.length;
   const text = `FPS: ${average.toFixed(1)}`;
   fpsDisplay.textContent = text;
   if (average >= 50) {
@@ -2242,6 +2246,12 @@ const FPS_SAMPLE_LIMIT = 30;
 let fpsSamples = [];
 let lastFrameTimestamp = (typeof performance !== 'undefined' ? performance.now() : Date.now());
 let lastFpsUpdate = lastFrameTimestamp;
+const DEFAULT_FRAME_INTERVAL_MS = 1000 / 60;
+const MIN_FRAME_INTERVAL_MS = 1000 / 240;
+let frameIntervalEstimateMs = DEFAULT_FRAME_INTERVAL_MS;
+let drawRequestHandle = 0;
+let drawRequestPending = false;
+let lastDrawCompletedAt = lastFrameTimestamp;
 
 let eraseActive = false;
 let erasePreviousLabel = null;
@@ -2534,6 +2544,7 @@ if (interactionsApi && typeof interactionsApi.init === 'function') {
     drawBrushPreview: (point, options) => drawBrushPreview(point, options),
     updateHoverInfo: (point) => updateHoverInfo(point),
     draw: () => draw(),
+    scheduleDraw: (options) => scheduleDraw(options),
     screenToImage: (point) => screenToImage(point),
     setCursorHold: (style) => setCursorHold(style),
     cursorStyles: { dot: dotCursorCss },
@@ -5268,11 +5279,49 @@ function rotateView(deltaRadians) {
   setCursorTemporary(dotCursorCss, 600);
 }
 
+function scheduleDraw(options = {}) {
+  if (shuttingDown) {
+    return;
+  }
+  const opts = options || {};
+  const immediate = Boolean(opts.immediate);
+  if (immediate) {
+    if (drawRequestHandle && typeof cancelAnimationFrame === 'function') {
+      cancelAnimationFrame(drawRequestHandle);
+    }
+    drawRequestHandle = 0;
+    drawRequestPending = false;
+    draw();
+    return;
+  }
+  const now = typeof performance !== 'undefined' ? performance.now() : Date.now();
+  const minInterval = Math.max(MIN_FRAME_INTERVAL_MS, frameIntervalEstimateMs);
+  if (!drawRequestPending && (now - lastDrawCompletedAt) >= minInterval) {
+    draw();
+    return;
+  }
+  if (drawRequestPending) {
+    return;
+  }
+  if (typeof requestAnimationFrame !== 'function') {
+    draw();
+    return;
+  }
+  drawRequestPending = true;
+  drawRequestHandle = requestAnimationFrame(() => {
+    drawRequestPending = false;
+    drawRequestHandle = 0;
+    draw();
+  });
+}
+
 function draw() {
   if (shuttingDown) {
     return;
   }
-  updateFps(typeof performance !== 'undefined' ? performance.now() : Date.now());
+  const now = typeof performance !== 'undefined' ? performance.now() : Date.now();
+  updateFps(now);
+  lastDrawCompletedAt = now;
   if (shouldLogDraw()) {
     log('draw start scale=' + viewState.scale.toFixed(3) + ' offset=' + viewState.offsetX.toFixed(1) + ',' + viewState.offsetY.toFixed(1));
   }
@@ -6563,7 +6612,7 @@ canvas.addEventListener('wheel', (evt) => {
     setOffsetForImagePoint(imagePoint, pointer);
     userAdjustedScale = true;
     autoFitPending = false;
-    draw();
+    scheduleDraw();
   }
   if (!rotationApplied && deltaY !== 0) {
     setCursorTemporary(dotCursorCss, 350);
@@ -6793,7 +6842,7 @@ canvas.addEventListener('pointermove', (evt) => {
           setOffsetForImagePoint(pinchState.imageMid, midCanvas);
           userAdjustedScale = true;
           autoFitPending = false;
-          draw();
+          scheduleDraw();
           const worldPoint = screenToImage(midCanvas);
           setHoverState(worldPoint, midCanvas);
           updateHoverInfo(worldPoint);
@@ -6810,7 +6859,7 @@ canvas.addEventListener('pointermove', (evt) => {
       viewState.offsetX += dx;
       viewState.offsetY += dy;
       lastPoint = pointer;
-      draw();
+      scheduleDraw();
       const worldPoint = screenToImage(pointer);
       setHoverState(worldPoint, pointer);
       updateHoverInfo(worldPoint);
