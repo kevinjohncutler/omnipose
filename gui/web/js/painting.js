@@ -12,6 +12,7 @@
     floodOutput: null,
     lastPaintPoint: null,
     isPainting: false,
+    pendingMaskFlush: false,
   };
 
   const brushApi = global.OmniBrush || {};
@@ -48,6 +49,7 @@
       pushHistory: () => {},
       log: () => {},
       draw: () => {},
+      scheduleDraw: () => {},
       redrawMaskCanvas: () => {},
       markNeedsMaskRedraw: () => {},
       applySegmentationMask: () => {},
@@ -61,6 +63,7 @@
       triggerMaskRebuild: () => {},
       applyMaskRedrawImmediate: () => {},
       collectBrushIndices: null,
+      enqueueAffinityIndexBatch: null,
       floodRebuildThreshold: 0.35,
     }, options || {});
     state.strokeChanges = null;
@@ -72,6 +75,7 @@
     state.floodVisitStamp = 1;
     state.lastPaintPoint = null;
     state.isPainting = false;
+    state.pendingMaskFlush = false;
   }
 
   function beginStroke(point) {
@@ -112,6 +116,34 @@
     state.pendingAffinitySet = null;
     state.lastPaintPoint = null;
     state.isPainting = false;
+  }
+
+  function scheduleDeferredMaskUpdate() {
+    const ctx = ensureCtx();
+    if (state.pendingMaskFlush) {
+      return;
+    }
+    state.pendingMaskFlush = true;
+    const scheduler = typeof requestAnimationFrame === 'function'
+      ? requestAnimationFrame
+      : (cb) => setTimeout(cb, 16);
+    scheduler(() => {
+      state.pendingMaskFlush = false;
+      if (typeof ctx.requestPaintFrame === 'function') {
+        ctx.requestPaintFrame();
+      }
+      if (typeof ctx.markNeedsMaskRedraw === 'function') {
+        ctx.markNeedsMaskRedraw();
+      }
+      if (typeof ctx.applyMaskRedrawImmediate === 'function') {
+        ctx.applyMaskRedrawImmediate();
+      }
+      if (typeof ctx.scheduleDraw === 'function') {
+        ctx.scheduleDraw();
+      } else if (typeof ctx.draw === 'function') {
+        ctx.draw();
+      }
+    });
   }
 
   function flushPendingAffinityUpdates() {
@@ -163,7 +195,10 @@
     if (!affinityFlushed && typeof ctx.updateAffinityGraphForIndices === 'function') {
       ctx.updateAffinityGraphForIndices(indices);
     }
-    if (typeof ctx.markAffinityGeometryDirty === 'function') {
+    const hasLiveOverlay = typeof ctx.hasLiveAffinityOverlay === 'function'
+      ? ctx.hasLiveAffinityOverlay()
+      : false;
+    if (!hasLiveOverlay && typeof ctx.markAffinityGeometryDirty === 'function') {
       ctx.markAffinityGeometryDirty();
     }
     if (typeof ctx.isWebglPipelineActive === 'function' && ctx.isWebglPipelineActive()) {
@@ -172,9 +207,6 @@
       }
     } else if (typeof ctx.redrawMaskCanvas === 'function') {
       ctx.redrawMaskCanvas();
-    }
-    if (typeof ctx.draw === 'function') {
-      ctx.draw();
     }
     if (typeof ctx.scheduleStateSave === 'function') {
       ctx.scheduleStateSave();
@@ -301,12 +333,7 @@
       if (typeof ctx.clearColorCaches === 'function') {
         ctx.clearColorCaches();
       }
-      if (typeof ctx.markNeedsMaskRedraw === 'function') {
-        ctx.markNeedsMaskRedraw();
-      }
-      if (typeof ctx.requestPaintFrame === 'function') {
-        ctx.requestPaintFrame();
-      }
+      scheduleDeferredMaskUpdate();
       if (typeof ctx.scheduleStateSave === 'function') {
         ctx.scheduleStateSave();
       }
@@ -378,27 +405,22 @@
       if (typeof ctx.rebuildLocalAffinityGraph === 'function') {
         ctx.rebuildLocalAffinityGraph();
       }
-      if (typeof ctx.markAffinityGeometryDirty === 'function') {
+      const hasLiveOverlay = typeof ctx.hasLiveAffinityOverlay === 'function'
+        ? ctx.hasLiveAffinityOverlay()
+        : false;
+      if (!hasLiveOverlay && typeof ctx.markAffinityGeometryDirty === 'function') {
         ctx.markAffinityGeometryDirty();
       }
-      if (typeof ctx.markMaskTextureFullDirty === 'function') {
-        ctx.markMaskTextureFullDirty();
-      }
-      if (typeof ctx.markOutlineTextureFullDirty === 'function') {
-        ctx.markOutlineTextureFullDirty();
+    if (typeof ctx.markMaskTextureFullDirty === 'function') {
+      ctx.markMaskTextureFullDirty();
+    }
+    if (typeof ctx.markOutlineTextureFullDirty === 'function') {
+      ctx.markOutlineTextureFullDirty();
       }
       if (typeof ctx.clearColorCaches === 'function') {
         ctx.clearColorCaches();
       }
-      if (typeof ctx.markNeedsMaskRedraw === 'function') {
-        ctx.markNeedsMaskRedraw();
-      }
-      if (typeof ctx.applyMaskRedrawImmediate === 'function') {
-        ctx.applyMaskRedrawImmediate();
-      }
-      if (typeof ctx.draw === 'function') {
-        ctx.draw();
-      }
+      scheduleDeferredMaskUpdate();
       if (typeof ctx.scheduleStateSave === 'function') {
         ctx.scheduleStateSave();
       }
@@ -544,19 +566,13 @@
     if (typeof ctx.pushHistory === 'function') {
       ctx.pushHistory(idxArr, before, after);
     }
-    const thresholdRatio = typeof ctx.floodRebuildThreshold === 'number'
-      ? Math.min(1, Math.max(0, ctx.floodRebuildThreshold))
-      : 0.35;
-    const largeFill = fillsAll || count >= Math.ceil(maskValues.length * thresholdRatio);
-    if (largeFill) {
-      if (typeof ctx.rebuildLocalAffinityGraph === 'function') {
-        ctx.rebuildLocalAffinityGraph();
+    if (typeof ctx.updateAffinityGraphForIndices === 'function') {
+      const highWater = Math.max(5000, Math.floor(maskValues.length * 0.05));
+      if (count > highWater && typeof ctx.enqueueAffinityIndexBatch === 'function') {
+        ctx.enqueueAffinityIndexBatch(idxArr, count);
+      } else {
+        ctx.updateAffinityGraphForIndices(idxArr);
       }
-      if (typeof ctx.markAffinityGeometryDirty === 'function') {
-        ctx.markAffinityGeometryDirty();
-      }
-    } else if (typeof ctx.updateAffinityGraphForIndices === 'function') {
-      ctx.updateAffinityGraphForIndices(idxArr);
     }
     if (fillsAll) {
       if (typeof ctx.markMaskTextureFullDirty === 'function') {
@@ -571,15 +587,7 @@
     if (typeof ctx.clearColorCaches === 'function') {
       ctx.clearColorCaches();
     }
-    if (typeof ctx.markNeedsMaskRedraw === 'function') {
-      ctx.markNeedsMaskRedraw();
-    }
-    if (typeof ctx.applyMaskRedrawImmediate === 'function') {
-      ctx.applyMaskRedrawImmediate();
-    }
-    if (typeof ctx.draw === 'function') {
-      ctx.draw();
-    }
+    scheduleDeferredMaskUpdate();
     if (typeof ctx.scheduleStateSave === 'function') {
       ctx.scheduleStateSave();
     }

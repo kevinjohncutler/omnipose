@@ -1315,7 +1315,7 @@ function drawAffinityGraphShared(matrix) {
       overlayGl.bindBuffer(overlayGl.ARRAY_BUFFER, webglOverlay.colorBuffer);
       for (const slot of webglOverlay.dirtyColSlots) {
         const baseCol = slot * 8;
-        overlayGl.bufferSubData(overlayGl.ARRAY_BUFFER, baseCol * 4, webglOverlay.colorsArray.subarray(baseCol, baseCol + 8));
+        overlayGl.bufferSubData(overlayGl.ARRAY_BUFFER, baseCol, webglOverlay.colorsArray.subarray(baseCol, baseCol + 8));
       }
       webglOverlay.dirtyColSlots.clear();
     }
@@ -1325,7 +1325,7 @@ function drawAffinityGraphShared(matrix) {
   overlayGl.vertexAttribPointer(attribs.position, 2, overlayGl.FLOAT, false, 0, 0);
   overlayGl.bindBuffer(overlayGl.ARRAY_BUFFER, webglOverlay.colorBuffer);
   overlayGl.enableVertexAttribArray(attribs.color);
-  overlayGl.vertexAttribPointer(attribs.color, 4, overlayGl.FLOAT, false, 0, 0);
+  overlayGl.vertexAttribPointer(attribs.color, 4, overlayGl.UNSIGNED_BYTE, true, 0, 0);
   overlayGl.enable(overlayGl.BLEND);
   overlayGl.blendFunc(overlayGl.SRC_ALPHA, overlayGl.ONE_MINUS_SRC_ALPHA);
   const edgesToDraw = Math.max(webglOverlay.edgeCount | 0, (webglOverlay.maxUsedSlotIndex | 0) + 1);
@@ -2377,6 +2377,7 @@ const paintingInitOptions = {
   updateAffinityGraphForIndices,
   rebuildLocalAffinityGraph,
   markAffinityGeometryDirty,
+  hasLiveAffinityOverlay: () => Boolean(webglOverlay && webglOverlay.enabled && LIVE_AFFINITY_OVERLAY_UPDATES),
   isWebglPipelineActive,
   clearColorCaches,
   requestPaintFrame: () => requestPaintFrame(),
@@ -2384,6 +2385,7 @@ const paintingInitOptions = {
   pushHistory,
   log,
   draw,
+  scheduleDraw: (options) => scheduleDraw(options),
   redrawMaskCanvas,
   markNeedsMaskRedraw: () => {
     needsMaskRedraw = true;
@@ -2409,6 +2411,7 @@ const paintingInitOptions = {
       brushApi.collectBrushIndices(target, x, y);
     }
   },
+  enqueueAffinityIndexBatch: (buffer, length) => enqueueAffinityIndexBatch(buffer, length),
 };
 let paintingInitApplied = false;
 function applyPaintingInit() {
@@ -4315,7 +4318,7 @@ function overlayEnsureCapacity(requiredEdges) {
   let newCap = cap > 0 ? cap : 1;
   while (newCap < requiredEdges) newCap = newCap * 2;
   const newPositions = new Float32Array(newCap * 4);
-  const newColors = new Float32Array(newCap * 8);
+  const newColors = new Uint8Array(newCap * 8);
   if (webglOverlay.positionsArray) {
     newPositions.set(webglOverlay.positionsArray);
   }
@@ -4371,21 +4374,25 @@ function overlaySetSlotVisibility(slot, rgba, visible) {
   const r = rgba && rgba.length ? rgba[0] : 1.0;
   const g = rgba && rgba.length ? rgba[1] : 1.0;
   const b = rgba && rgba.length ? rgba[2] : 1.0;
+  const rByte = Math.max(0, Math.min(255, Math.round(r * 255)));
+  const gByte = Math.max(0, Math.min(255, Math.round(g * 255)));
+  const bByte = Math.max(0, Math.min(255, Math.round(b * 255)));
+  const aByte = Math.max(0, Math.min(255, Math.round(a * 255)));
   // Two vertices per edge
-  webglOverlay.colorsArray[baseCol] = r;
-  webglOverlay.colorsArray[baseCol + 1] = g;
-  webglOverlay.colorsArray[baseCol + 2] = b;
-  webglOverlay.colorsArray[baseCol + 3] = a;
-  webglOverlay.colorsArray[baseCol + 4] = r;
-  webglOverlay.colorsArray[baseCol + 5] = g;
-  webglOverlay.colorsArray[baseCol + 6] = b;
-  webglOverlay.colorsArray[baseCol + 7] = a;
+  webglOverlay.colorsArray[baseCol] = rByte;
+  webglOverlay.colorsArray[baseCol + 1] = gByte;
+  webglOverlay.colorsArray[baseCol + 2] = bByte;
+  webglOverlay.colorsArray[baseCol + 3] = aByte;
+  webglOverlay.colorsArray[baseCol + 4] = rByte;
+  webglOverlay.colorsArray[baseCol + 5] = gByte;
+  webglOverlay.colorsArray[baseCol + 6] = bByte;
+  webglOverlay.colorsArray[baseCol + 7] = aByte;
   if (BATCH_LIVE_OVERLAY_UPDATES) {
     webglOverlay.dirtyColSlots.add(slot);
   } else {
     const { gl } = webglOverlay;
     gl.bindBuffer(gl.ARRAY_BUFFER, webglOverlay.colorBuffer);
-    gl.bufferSubData(gl.ARRAY_BUFFER, baseCol * 4, webglOverlay.colorsArray.subarray(baseCol, baseCol + 8));
+    gl.bufferSubData(gl.ARRAY_BUFFER, baseCol, webglOverlay.colorsArray.subarray(baseCol, baseCol + 8));
   }
 }
 
@@ -4500,7 +4507,7 @@ function ensureWebglGeometry(width, height) {
     gl.bindBuffer(gl.ARRAY_BUFFER, positionBuffer);
     gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(), gl.STATIC_DRAW);
     gl.bindBuffer(gl.ARRAY_BUFFER, colorBuffer);
-    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(), gl.DYNAMIC_DRAW);
+    gl.bufferData(gl.ARRAY_BUFFER, new Uint8Array(), gl.DYNAMIC_DRAW);
     webglOverlay.positionsArray = null;
     webglOverlay.colorsArray = null;
     webglOverlay.edgeCount = 0;
@@ -4514,8 +4521,8 @@ function ensureWebglGeometry(width, height) {
   let totalEdges = 0;
   for (let s = 0; s < segments.length; s += 1) {
     const seg = segments[s];
-    if (seg && seg.map && seg.map.size) {
-      totalEdges += seg.map.size;
+    if (seg && seg.indices && seg.indices.size) {
+      totalEdges += seg.indices.size;
     }
   }
   const { gl } = webglOverlay;
@@ -4536,29 +4543,43 @@ function ensureWebglGeometry(width, height) {
   let cursor = 0;
   for (let s = 0; s < segments.length; s += 1) {
     const seg = segments[s];
-    if (!seg || !seg.map || seg.map.size === 0) continue;
+    const indices = seg && seg.indices;
+    if (!seg || !indices || indices.size === 0) continue;
+    const [dyRaw, dxRaw] = affinitySteps[s];
+    const dx = dxRaw | 0;
+    const dy = dyRaw | 0;
     const rgba = seg.rgba || parseCssColorToRgba(seg.color, AFFINITY_LINE_ALPHA);
-    seg.map.forEach((coords, index) => {
+    for (const index of indices) {
       const slot = cursor;
+      const x = index % width;
+      const y = (index / width) | 0;
+      const cx1 = x + 0.5;
+      const cy1 = y + 0.5;
+      const cx2 = x + dx + 0.5;
+      const cy2 = y + dy + 0.5;
       // write positions
       const basePos = slot * 4;
-      webglOverlay.positionsArray[basePos] = coords[0];
-      webglOverlay.positionsArray[basePos + 1] = coords[1];
-      webglOverlay.positionsArray[basePos + 2] = coords[2];
-      webglOverlay.positionsArray[basePos + 3] = coords[3];
+      webglOverlay.positionsArray[basePos] = cx1;
+      webglOverlay.positionsArray[basePos + 1] = cy1;
+      webglOverlay.positionsArray[basePos + 2] = cx2;
+      webglOverlay.positionsArray[basePos + 3] = cy2;
       // write colors
+      const r = Math.max(0, Math.min(255, Math.round(rgba[0] * 255)));
+      const g = Math.max(0, Math.min(255, Math.round(rgba[1] * 255)));
+      const b = Math.max(0, Math.min(255, Math.round(rgba[2] * 255)));
+      const aByte = Math.max(0, Math.min(255, Math.round(rgba[3] * 255)));
       const baseCol = slot * 8;
-      webglOverlay.colorsArray[baseCol] = rgba[0];
-      webglOverlay.colorsArray[baseCol + 1] = rgba[1];
-      webglOverlay.colorsArray[baseCol + 2] = rgba[2];
-      webglOverlay.colorsArray[baseCol + 3] = rgba[3];
-      webglOverlay.colorsArray[baseCol + 4] = rgba[0];
-      webglOverlay.colorsArray[baseCol + 5] = rgba[1];
-      webglOverlay.colorsArray[baseCol + 6] = rgba[2];
-      webglOverlay.colorsArray[baseCol + 7] = rgba[3];
+      webglOverlay.colorsArray[baseCol] = r;
+      webglOverlay.colorsArray[baseCol + 1] = g;
+      webglOverlay.colorsArray[baseCol + 2] = b;
+      webglOverlay.colorsArray[baseCol + 3] = aByte;
+      webglOverlay.colorsArray[baseCol + 4] = r;
+      webglOverlay.colorsArray[baseCol + 5] = g;
+      webglOverlay.colorsArray[baseCol + 6] = b;
+      webglOverlay.colorsArray[baseCol + 7] = aByte;
       seg.slots.set(index, slot);
       cursor += 1;
-    });
+    }
   }
   // Upload full buffers
   gl.bindBuffer(gl.ARRAY_BUFFER, webglOverlay.positionBuffer);
@@ -4702,7 +4723,7 @@ function drawAffinityGraphWebgl() {
       gl.bindBuffer(gl.ARRAY_BUFFER, webglOverlay.colorBuffer);
       for (const slot of webglOverlay.dirtyColSlots) {
         const baseCol = slot * 8;
-        gl.bufferSubData(gl.ARRAY_BUFFER, baseCol * 4, webglOverlay.colorsArray.subarray(baseCol, baseCol + 8));
+        gl.bufferSubData(gl.ARRAY_BUFFER, baseCol, webglOverlay.colorsArray.subarray(baseCol, baseCol + 8));
       }
       webglOverlay.dirtyColSlots.clear();
     }
@@ -4712,7 +4733,7 @@ function drawAffinityGraphWebgl() {
   gl.vertexAttribPointer(attribs.position, 2, gl.FLOAT, false, 0, 0);
   gl.bindBuffer(gl.ARRAY_BUFFER, webglOverlay.colorBuffer);
   gl.enableVertexAttribArray(attribs.color);
-  gl.vertexAttribPointer(attribs.color, 4, gl.FLOAT, false, 0, 0);
+  gl.vertexAttribPointer(attribs.color, 4, gl.UNSIGNED_BYTE, true, 0, 0);
   gl.enable(gl.BLEND);
   gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
   const edgesToDraw = Math.max(webglOverlay.edgeCount | 0, (webglOverlay.maxUsedSlotIndex | 0) + 1);
@@ -4731,6 +4752,7 @@ function drawAffinityGraphWebgl() {
 // Affinity graph rendering is handled exclusively by WebGL.
 
 function clearAffinityGraphData() {
+  resetAffinityUpdateQueue();
   affinityGraphInfo = null;
   affinityGraphNeedsLocalRebuild = true;
   affinityGraphSource = 'none';
@@ -4758,6 +4780,7 @@ function clearAffinityGraphData() {
 }
 
 function applyAffinityGraphPayload(payload) {
+  resetAffinityUpdateQueue();
   // If the backend did not provide an affinity graph, rebuild locally from the current mask
   // so that outlines and (optionally) the overlay remain consistent after parameter changes.
   if (!payload || !payload.encoded || !payload.steps || !payload.steps.length) {
@@ -4829,6 +4852,7 @@ function applyAffinityGraphPayload(payload) {
 }
 
 function rebuildLocalAffinityGraph() {
+  resetAffinityUpdateQueue();
   refreshOppositeStepMapping();
   if (!maskValues || maskValues.length === 0) {
     clearAffinityGraphData();
@@ -4923,7 +4947,7 @@ function buildAffinityGraphSegments() {
     const dy = dyRaw | 0;
     const dx = dxRaw | 0;
     const planeOffset = s * planeStride;
-    const map = new Map();
+    const indices = new Set();
     for (let idx = 0; idx < planeStride; idx += 1) {
       if (!values[planeOffset + idx]) {
         continue;
@@ -4935,7 +4959,7 @@ function buildAffinityGraphSegments() {
       if (nx < 0 || nx >= width || ny < 0 || ny >= height) {
         continue;
       }
-      map.set(idx, new Float32Array([x + 0.5, y + 0.5, nx + 0.5, ny + 0.5]));
+      indices.add(idx);
       totalEdges += 1;
       if (path) {
         path.moveTo(x + 0.5, y + 0.5);
@@ -4944,7 +4968,7 @@ function buildAffinityGraphSegments() {
     }
     segments[s] = {
       color: AFFINITY_OVERLAY_COLOR,
-      map,
+      indices,
     };
   }
   const overlayActiveForGeometry = Boolean(USE_WEBGL_OVERLAY && webglOverlay && webglOverlay.enabled);
@@ -5066,6 +5090,8 @@ function updateAffinityGraphForIndices(indices) {
     rebuildLocalAffinityGraph();
     return;
   }
+  const updateStart = typeof performance !== 'undefined' && performance.now ? performance.now() : Date.now();
+  debugAffinity(`[affinity] incremental update start (indices=${indices.length})`);
   if (!affinityGraphInfo || !affinityGraphInfo.values || !affinityGraphInfo.stepCount) {
     // Initialize the local affinity graph from the current mask so we can incrementally update it
     rebuildLocalAffinityGraph();
@@ -5101,13 +5127,28 @@ function updateAffinityGraphForIndices(indices) {
       return;
     }
   }
-  const affected = new Set();
-  for (const value of indices) {
-    const index = Number(value) | 0;
-    if (index < 0 || index >= planeStride) continue;
-    affected.add(index);
-    const x = index % width;
-    const y = (index / width) | 0;
+  ensureAffinityTouchedStorage(planeStride);
+  let stamp = affinityTouchedStamp++;
+  if (stamp === 0xffffffff) {
+    affinityTouchedMask.fill(0);
+    stamp = 1;
+    affinityTouchedStamp = 2;
+  }
+  const touchedMask = affinityTouchedMask;
+  const touchedList = affinityTouchedList;
+  let touchedCount = 0;
+  const pushIndex = (idx) => {
+    if (idx < 0 || idx >= planeStride) return;
+    if (touchedMask[idx] === stamp) return;
+    touchedMask[idx] = stamp;
+    touchedList[touchedCount++] = idx;
+  };
+  for (let i = 0; i < indices.length; i += 1) {
+    const baseIndex = Number(indices[i]) | 0;
+    if (baseIndex < 0 || baseIndex >= planeStride) continue;
+    pushIndex(baseIndex);
+    const x = baseIndex % width;
+    const y = (baseIndex / width) | 0;
     for (let s = 0; s < stepCount; s += 1) {
       const [dyRaw, dxRaw] = affinitySteps[s];
       const dx = dxRaw | 0;
@@ -5115,19 +5156,22 @@ function updateAffinityGraphForIndices(indices) {
       const nx = x + dx;
       const ny = y + dy;
       if (nx >= 0 && nx < width && ny >= 0 && ny < height) {
-        affected.add(ny * width + nx);
+        pushIndex(ny * width + nx);
       }
       const px = x - dx;
       const py = y - dy;
       if (px >= 0 && px < width && py >= 0 && py < height) {
-        affected.add(py * width + px);
+        pushIndex(py * width + px);
       }
     }
   }
-  if (!affected.size) return;
+  if (touchedCount === 0) {
+    return;
+  }
   const { values, segments } = info;
-  const outlineUpdateSet = new Set(affected);
-  for (const index of affected) {
+  let outlineChanged = false;
+  for (let listIdx = 0; listIdx < touchedCount; listIdx += 1) {
+    const index = touchedList[listIdx];
     const label = (maskValues[index] | 0);
     const x = index % width;
     const y = (index / width) | 0;
@@ -5146,7 +5190,6 @@ function updateAffinityGraphForIndices(indices) {
         if (label > 0 && neighborRaw > 0 && neighborRaw === label) {
           value = 1;
         }
-        outlineUpdateSet.add(neighborIndex);
       }
       values[planeOffset] = value;
       // Maintain symmetric edge in the opposite step direction
@@ -5159,21 +5202,16 @@ function updateAffinityGraphForIndices(indices) {
       const segment = segments[s];
       if (segment) {
         if (!segment.rgba) segment.rgba = parseCssColorToRgba(segment.color, AFFINITY_LINE_ALPHA);
-        if (!segment.map) segment.map = new Map();
+        if (!segment.indices) segment.indices = new Set();
         if (neighborIndex >= 0) {
           const cx1 = x + 0.5;
           const cy1 = y + 0.5;
           const cx2 = (x + (dx | 0)) + 0.5;
           const cy2 = (y + (dy | 0)) + 0.5;
           if (value) {
-            let coords = segment.map.get(index);
-            if (coords) {
-              coords[0] = cx1; coords[1] = cy1; coords[2] = cx2; coords[3] = cy2;
-            } else {
-              segment.map.set(index, new Float32Array([cx1, cy1, cx2, cy2]));
-            }
+            segment.indices.add(index);
           } else {
-            segment.map.delete(index);
+            segment.indices.delete(index);
           }
           if (webglOverlay && webglOverlay.enabled && LIVE_AFFINITY_OVERLAY_UPDATES) {
             if (!segment.slots) segment.slots = new Map();
@@ -5197,20 +5235,15 @@ function updateAffinityGraphForIndices(indices) {
         const oppSegment = segments[oppIdx];
         if (oppSegment) {
           if (!oppSegment.rgba) oppSegment.rgba = parseCssColorToRgba(oppSegment.color, AFFINITY_LINE_ALPHA);
-          if (!oppSegment.map) oppSegment.map = new Map();
+          if (!oppSegment.indices) oppSegment.indices = new Set();
           const cx1o = (x + (dx | 0)) + 0.5;
           const cy1o = (y + (dy | 0)) + 0.5;
           const cx2o = x + 0.5;
           const cy2o = y + 0.5;
           if (value) {
-            let coords2 = oppSegment.map.get(neighborIndex);
-            if (coords2) {
-              coords2[0] = cx1o; coords2[1] = cy1o; coords2[2] = cx2o; coords2[3] = cy2o;
-            } else {
-              oppSegment.map.set(neighborIndex, new Float32Array([cx1o, cy1o, cx2o, cy2o]));
-            }
+            oppSegment.indices.add(neighborIndex);
           } else {
-            oppSegment.map.delete(neighborIndex);
+            oppSegment.indices.delete(neighborIndex);
           }
           if (webglOverlay && webglOverlay.enabled && LIVE_AFFINITY_OVERLAY_UPDATES) {
             if (!oppSegment.slots) oppSegment.slots = new Map();
@@ -5231,8 +5264,29 @@ function updateAffinityGraphForIndices(indices) {
     }
   }
   affinityGraphNeedsLocalRebuild = false;
-  updateOutlineForIndices(outlineUpdateSet);
-  markAffinityGeometryDirty();
+  for (let listIdx = 0; listIdx < touchedCount; listIdx += 1) {
+    const idx = touchedList[listIdx];
+    const before = outlineState[idx];
+    updateOutlineForIndex(idx);
+    if (outlineState[idx] !== before) {
+      outlineChanged = true;
+    }
+  }
+  if (outlineChanged) {
+    const slice = touchedList.subarray(0, touchedCount);
+    if (isWebglPipelineActive()) {
+      markOutlineIndicesDirty(slice);
+    } else {
+      redrawMaskCanvas();
+    }
+  }
+  if (!webglOverlay || !webglOverlay.enabled || !LIVE_AFFINITY_OVERLAY_UPDATES) {
+    markAffinityGeometryDirty();
+  }
+  if (DEBUG_AFFINITY) {
+    const updateEnd = typeof performance !== 'undefined' && performance.now ? performance.now() : Date.now();
+    debugAffinity(`[affinity] incremental update complete (touched=${touchedCount}, outlineChanged=${outlineChanged}, ${Math.round(updateEnd - updateStart)}ms)`);
+  }
 }
 function markAffinityGraphStale() {
   affinityGraphInfo = null;
@@ -5384,12 +5438,6 @@ function scheduleDraw(options = {}) {
     draw();
     return;
   }
-  const now = typeof performance !== 'undefined' ? performance.now() : Date.now();
-  const minInterval = Math.max(MIN_FRAME_INTERVAL_MS, frameIntervalEstimateMs);
-  if (!drawRequestPending && (now - lastDrawCompletedAt) >= minInterval) {
-    draw();
-    return;
-  }
   if (drawRequestPending) {
     return;
   }
@@ -5403,6 +5451,110 @@ function scheduleDraw(options = {}) {
     drawRequestHandle = 0;
     draw();
   });
+}
+
+const AFFINITY_UPDATE_BATCH_SIZE = 24000;
+const AFFINITY_UPDATE_MAX_CHUNKS_PER_TICK = 3;
+const affinityUpdateQueue = [];
+let affinityBatchScheduled = false;
+let affinityBatchHandle = null;
+let affinityBatchQueuedTotal = 0;
+let affinityBatchProcessedTotal = 0;
+let affinityBatchChunkCounter = 0;
+const idleScheduler = typeof requestIdleCallback === 'function'
+  ? {
+    request: (cb) => requestIdleCallback(cb, { timeout: 32 }),
+    cancel: (handle) => cancelIdleCallback(handle),
+  }
+  : {
+    request: (cb) => setTimeout(() => cb({ didTimeout: true, timeRemaining: () => 0 }), 16),
+    cancel: (handle) => clearTimeout(handle),
+  };
+
+function enqueueAffinityIndexBatch(source, length) {
+  if (!source || typeof length !== 'number') {
+    return;
+  }
+  const total = Math.max(0, Math.min(source.length, length | 0));
+  if (total === 0) {
+    return;
+  }
+  const view = total === source.length ? source : source.subarray(0, total);
+  if (total <= AFFINITY_UPDATE_BATCH_SIZE) {
+    affinityUpdateQueue.push(view.subarray(0, total));
+  } else {
+    for (let offset = 0; offset < total; offset += AFFINITY_UPDATE_BATCH_SIZE) {
+      const end = Math.min(total, offset + AFFINITY_UPDATE_BATCH_SIZE);
+      affinityUpdateQueue.push(view.subarray(offset, end));
+    }
+  }
+  affinityBatchQueuedTotal += total;
+  debugAffinity(`[affinity] queued ${total} indices (${affinityUpdateQueue.length} chunks pending, total ${affinityBatchQueuedTotal})`);
+  if (!affinityBatchScheduled) {
+    affinityBatchScheduled = true;
+    scheduleAffinityBatch();
+  }
+}
+
+function scheduleAffinityBatch() {
+  debugAffinity('[affinity] scheduling batch processing');
+  affinityBatchHandle = idleScheduler.request(processAffinityBatch);
+}
+
+function resetAffinityUpdateQueue() {
+  affinityUpdateQueue.length = 0;
+  if (affinityBatchScheduled && affinityBatchHandle !== null) {
+    idleScheduler.cancel(affinityBatchHandle);
+  }
+  affinityBatchHandle = null;
+  affinityBatchScheduled = false;
+  affinityBatchQueuedTotal = 0;
+  affinityBatchProcessedTotal = 0;
+  affinityBatchChunkCounter = 0;
+}
+
+function processAffinityBatch(deadline) {
+  let processed = 0;
+  const allowMore = () => {
+    if (!deadline || typeof deadline.timeRemaining !== 'function') {
+      return processed < AFFINITY_UPDATE_MAX_CHUNKS_PER_TICK;
+    }
+    return deadline.timeRemaining() > 1 || deadline.didTimeout || processed < AFFINITY_UPDATE_MAX_CHUNKS_PER_TICK;
+  };
+  while (affinityUpdateQueue.length && allowMore()) {
+    const chunk = affinityUpdateQueue.shift();
+    try {
+      updateAffinityGraphForIndices(chunk);
+    } catch (err) {
+      console.warn('incremental affinity update failed', err);
+    }
+    affinityBatchProcessedTotal += chunk.length;
+    affinityBatchChunkCounter += 1;
+    debugAffinity(`[affinity] processed chunk ${affinityBatchChunkCounter} (${chunk.length} indices, remaining chunks ${affinityUpdateQueue.length})`);
+    processed += 1;
+  }
+  if (affinityUpdateQueue.length) {
+    scheduleAffinityBatch();
+  } else {
+    affinityBatchScheduled = false;
+    affinityBatchHandle = null;
+    debugAffinity(`[affinity] batch complete (processed ${affinityBatchProcessedTotal}/${affinityBatchQueuedTotal} indices across ${affinityBatchChunkCounter} chunks)`);
+    scheduleDraw();
+  }
+}
+
+let affinityTouchedMask = null;
+let affinityTouchedStamp = 1;
+let affinityTouchedList = new Uint32Array(0);
+
+function ensureAffinityTouchedStorage(length) {
+  if (!affinityTouchedMask || affinityTouchedMask.length !== length) {
+    affinityTouchedMask = new Uint32Array(length);
+    affinityTouchedStamp = 1;
+  }
+  if (!affinityTouchedList || affinityTouchedList.length < length) {
+    affinityTouchedList = new Uint32Array(length);
+  }
 }
 
 function draw() {
@@ -5582,11 +5734,21 @@ function drawAffinityGraphOverlay() {
   ctx.beginPath();
   for (let i = 0; i < segments.length; i += 1) {
     const seg = segments[i];
-    if (!seg || !seg.map) continue;
-    seg.map.forEach((coords) => {
-      ctx.moveTo(coords[0], coords[1]);
-      ctx.lineTo(coords[2], coords[3]);
-    });
+    const indices = seg && seg.indices;
+    if (!seg || !indices || indices.size === 0) continue;
+    const [dyRaw, dxRaw] = affinitySteps[i];
+    const dx = dxRaw | 0;
+    const dy = dyRaw | 0;
+    for (const index of indices) {
+      const x = index % affinityGraphInfo.width;
+      const y = (index / affinityGraphInfo.width) | 0;
+      const cx1 = x + 0.5;
+      const cy1 = y + 0.5;
+      const cx2 = x + dx + 0.5;
+      const cy2 = y + dy + 0.5;
+      ctx.moveTo(cx1, cy1);
+      ctx.lineTo(cx2, cy2);
+    }
   }
   ctx.stroke();
   ctx.restore();
@@ -6281,6 +6443,14 @@ function getSegmentationSettingsPayload() {
 }
 
 const overlayUpdateThrottleMs = 140;
+const DEBUG_AFFINITY = (typeof window !== 'undefined' && Boolean(window.__DEBUG_AFFINITY));
+
+function debugAffinity(message) {
+  if (!DEBUG_AFFINITY || typeof log !== 'function') {
+    return;
+  }
+  log(message);
+}
 let lastRebuildTime = 0;
 let INTERACTIVE_REBUILD_INTERVAL = 120;
 let lastRebuildDuration = 120;
@@ -7591,19 +7761,26 @@ if (affinityToggle) {
 if (affinityGraphToggle) {
   affinityGraphToggle.addEventListener('change', (evt) => {
     showAffinityGraph = Boolean(evt.target.checked);
-    if (showAffinityGraph) {
-      // Do not rebuild or mutate the affinity graph here; only (re)build segments if we already have values
-      if (affinityGraphInfo && !affinityGraphInfo.segments) {
-        buildAffinityGraphSegments();
+    debugAffinity('[affinity] toggle ' + (showAffinityGraph ? 'on' : 'off'));
+    if (webglOverlay && webglOverlay.enabled) {
+      const needsBuild = showAffinityGraph
+        && webglOverlay.needsGeometryRebuild
+        && affinityGraphInfo
+        && affinityGraphInfo.width > 0
+        && affinityGraphInfo.height > 0;
+      if (needsBuild) {
+        ensureWebglGeometry(affinityGraphInfo.width, affinityGraphInfo.height);
       }
-      if (webglOverlay && webglOverlay.enabled) {
-        webglOverlay.needsGeometryRebuild = true;
+      const visible = showAffinityGraph && webglOverlay.edgeCount > 0;
+      const alpha = visible
+        ? (Number.isFinite(webglOverlay.displayAlpha) ? webglOverlay.displayAlpha : 1)
+        : 0;
+      setOverlayCanvasVisibility(visible, alpha);
+      if (!visible) {
+        webglOverlay.displayAlpha = 0;
       }
-    } else {
-      clearWebglOverlaySurface();
     }
-    markAffinityGeometryDirty();
-    draw();
+    scheduleDraw();
     scheduleStateSave();
   });
 }
