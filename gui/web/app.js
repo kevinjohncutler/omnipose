@@ -218,7 +218,7 @@ maskCanvas.width = imgWidth;
 maskCanvas.height = imgHeight;
 const maskCtx = maskCanvas.getContext('2d');
 const maskData = maskCtx.createImageData(imgWidth, imgHeight);
-const maskValues = new Uint32Array(imgWidth * imgHeight);
+let maskValues = new Uint32Array(imgWidth * imgHeight);
 let maskHasNonZero = false;
 // Outline state bitmap (1 = boundary), used to modulate per-pixel alpha in mask rendering
 const outlineState = new Uint8Array(maskValues.length);
@@ -2377,6 +2377,8 @@ const paintingInitOptions = {
   updateAffinityGraphForIndices,
   rebuildLocalAffinityGraph,
   markAffinityGeometryDirty,
+  getAffinityGraphInfo: () => affinityGraphInfo,
+  getAffinitySteps: () => affinitySteps,
   hasLiveAffinityOverlay: () => Boolean(webglOverlay && webglOverlay.enabled && LIVE_AFFINITY_OVERLAY_UPDATES),
   isWebglPipelineActive,
   clearColorCaches,
@@ -2412,6 +2414,9 @@ const paintingInitOptions = {
     }
   },
   enqueueAffinityIndexBatch: (buffer, length) => enqueueAffinityIndexBatch(buffer, length),
+  onMaskBufferReplaced: (next) => {
+    maskValues = next;
+  },
 };
 let paintingInitApplied = false;
 function applyPaintingInit() {
@@ -3047,6 +3052,9 @@ function applyHistoryEntry(entry, useAfter) {
       }
     }
     maskHasNonZero = sawPositive;
+    if (paintingApi && typeof paintingApi.rebuildComponents === 'function') {
+      paintingApi.rebuildComponents();
+    }
     return;
   }
   for (let i = 0; i < idxs.length; i += 1) {
@@ -3070,6 +3078,9 @@ function applyHistoryEntry(entry, useAfter) {
     if (sequential) {
       maskHasNonZero = false;
     }
+  }
+  if (paintingApi && typeof paintingApi.rebuildComponents === 'function') {
+    paintingApi.rebuildComponents();
   }
 }
 
@@ -3144,6 +3155,9 @@ function performClearMasks({ recordHistory = true } = {}) {
     pushHistory(null, before, after);
   }
   maskValues.fill(0);
+  if (paintingApi && typeof paintingApi.rebuildComponents === 'function') {
+    paintingApi.rebuildComponents();
+  }
   maskHasNonZero = false;
   outlineState.fill(0);
   nColorActive = false;
@@ -5628,6 +5642,9 @@ function recomputeNColorFromCurrentMask(forceActive = false) {
               hasNonZero = true;
             }
           }
+          if (paintingApi && typeof paintingApi.rebuildComponents === 'function') {
+            paintingApi.rebuildComponents();
+          }
           maskHasNonZero = hasNonZero;
           nColorValues = null;
           nColorActive = true;
@@ -6743,6 +6760,9 @@ function applySegmentationMask(payload) {
     }
   } else {
     throw new Error('mask size mismatch (' + byteLength + ' bytes vs expected ' + expectedBytes + ')');
+  }
+  if (paintingApi && typeof paintingApi.rebuildComponents === 'function') {
+    paintingApi.rebuildComponents();
   }
   maskHasNonZero = hasNonZero;
   // Switching to a new mask implicitly leaves current color mode as-is; caller controls nColorActive.
