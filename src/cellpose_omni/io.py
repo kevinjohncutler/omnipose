@@ -565,6 +565,8 @@ def save_masks(images, masks, flows, file_names, png=True, tif=False,
     
     """
     if isinstance(masks, list):
+        if isinstance(file_names,str):
+            file_names = [file_names]
         for image, mask, flow, file_name in zip(images, masks, flows, file_names):
             save_masks(image, mask, flow, file_name, png=png, tif=tif, suffix=suffix, dir_above=dir_above,
                        save_flows=save_flows,save_outlines=save_outlines, outline_col=outline_col,
