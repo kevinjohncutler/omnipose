@@ -11,6 +11,8 @@
     pendingMaskFlush: false,
     componentTracker: null,
     originalOptions: null,
+    maskPipeline: null,
+    maskPipelineEnabled: false,
   };
 
   const wasmFillBase64 = 'AGFzbQEAAAABCAFgBH9/f38AAwIBAAUDAQABBxkCBm1lbW9yeQIADGZpbGxfaW5kaWNlcwAACjcBNQEDfwNAIAQgAk8NASABIARBAnRqKAIAIQUgACAFQQJ0aiEGIAYgAzYCACAEQQFqIQQMAAsL';
@@ -86,6 +88,13 @@
         /* ignore */
       }
     }
+    if (state.maskPipeline && typeof state.maskPipeline.onMaskBufferReplaced === 'function') {
+      try {
+        state.maskPipeline.onMaskBufferReplaced();
+      } catch (err) {
+        /* ignore */
+      }
+    }
   }
 
   function ensureWasmMemoryBytes(targetBytes) {
@@ -145,6 +154,9 @@
     fillWasmState.heapLimit = fillWasmState.memory.buffer.byteLength;
     fillWasmState.componentPool = [];
     updateMaskReference(fillWasmState.maskArray, true);
+    if (state.maskPipeline && typeof state.maskPipeline.onMaskBufferReplaced === 'function') {
+      state.maskPipeline.onMaskBufferReplaced();
+    }
     return fillWasmState.maskArray;
   }
 
@@ -187,6 +199,58 @@
       tagWasmArray(view, ptr, capacity);
       entry.indices = view;
     });
+  }
+
+  function maskPipelineActive() {
+    return Boolean(state.maskPipelineEnabled && state.maskPipeline);
+  }
+
+  function ensureMaskPipeline(ctx) {
+    if (!state.maskPipelineEnabled) {
+      return;
+    }
+    if (!state.maskPipeline) {
+      const factory = global.OmniMaskPipeline && typeof global.OmniMaskPipeline.createMaskPipeline === 'function'
+        ? global.OmniMaskPipeline.createMaskPipeline
+        : null;
+      if (factory) {
+        state.maskPipeline = factory({
+          logger: ctx && typeof ctx.log === 'function' ? ctx.log : null,
+          onAnomaly: ctx && typeof ctx.log === 'function'
+            ? (detail) => ctx.log('mask pipeline divergence', detail)
+            : null,
+        });
+      }
+    }
+    if (state.maskPipeline && ctx) {
+      state.maskPipeline.attachCtx(ctx);
+    }
+  }
+
+  function recordMaskPipelineMutation(kind, indices, beforeLabels, afterLabels, meta) {
+    if (!maskPipelineActive()) {
+      return;
+    }
+    try {
+      state.maskPipeline.applyDiff(kind, indices, beforeLabels, afterLabels, meta || null);
+    } catch (err) {
+      if (state.ctx && typeof state.ctx.log === 'function') {
+        state.ctx.log('mask pipeline mutation error', err);
+      }
+    }
+  }
+
+  function recordMaskPipelineNoop(meta) {
+    if (!maskPipelineActive()) {
+      return;
+    }
+    try {
+      state.maskPipeline.recordNoopFill(meta || null);
+    } catch (err) {
+      if (state.ctx && typeof state.ctx.log === 'function') {
+        state.ctx.log('mask pipeline noop error', err);
+      }
+    }
   }
 
   function ensureComponentArrayView(array) {
@@ -457,17 +521,28 @@
         const entry = this.components.get(id);
         const retained = entry ? entry.indices : null;
         this.unregisterComponent(entry);
-        if (!entry || !retained) {
-          return;
-        }
-        const arr = ensureComponentArrayView(retained);
-        for (let i = 0; i < arr.length; i += 1) {
-          const idx = arr[i] | 0;
-          if (idx < 0 || idx >= this.size) {
-            continue;
+        const arr = retained ? ensureComponentArrayView(retained) : null;
+        let cleared = false;
+        if (arr && arr.length) {
+          for (let i = 0; i < arr.length; i += 1) {
+            const idx = arr[i] | 0;
+            if (idx < 0 || idx >= this.size) {
+              continue;
+            }
+            this.ids[idx] = 0;
+            this.queuePendingIndex(idx);
           }
-          this.ids[idx] = 0;
-          this.queuePendingIndex(idx);
+          cleared = true;
+        }
+        if (!cleared && this.ids) {
+          const targetId = id | 0;
+          for (let i = 0; i < this.ids.length; i += 1) {
+            if ((this.ids[i] | 0) !== targetId) {
+              continue;
+            }
+            this.ids[i] = 0;
+            this.queuePendingIndex(i);
+          }
         }
       },
       processPending(ctx) {
@@ -589,8 +664,25 @@
         if (!id) {
           return null;
         }
-        const entry = this.components.get(id) || null;
-        if (entry && entry.indices) {
+        let entry = this.components.get(id) || null;
+        if (!entry || !entry.indices || entry.indices.length === 0) {
+          if (entry) {
+            this.removeComponent(id);
+          } else if (this.ids) {
+            this.ids[index] = 0;
+          }
+          this.queuePendingIndex(index);
+          this.processPending(ctx);
+          id = this.ids ? (this.ids[index] | 0) : 0;
+          if (!id) {
+            return null;
+          }
+          entry = this.components.get(id) || null;
+          if (!entry || !entry.indices || entry.indices.length === 0) {
+            return entry;
+          }
+        }
+        if (entry.indices) {
           entry.indices = ensureComponentArrayView(entry.indices);
         }
         return entry;
@@ -806,6 +898,57 @@
     return tracker;
   }
 
+  function collectComponentIndices(startIdx, targetLabel, tracker, ctx) {
+    const mask = ctx && ctx.maskValues ? ctx.maskValues : null;
+    if (!mask || startIdx < 0 || startIdx >= mask.length) {
+      return null;
+    }
+    const dims = ctx.getImageDimensions ? ctx.getImageDimensions() : { width: 0, height: 0 };
+    const width = dims.width | 0;
+    const height = dims.height | 0;
+    if (width <= 0 || height <= 0 || width * height !== mask.length) {
+      return null;
+    }
+    const steps = (targetLabel > 0 ? tracker.foregroundSteps : BACKGROUND_STEPS) || BACKGROUND_STEPS;
+    const total = mask.length | 0;
+    const queue = new Uint32Array(total);
+    const visited = new Uint8Array(total);
+    const collected = new Uint32Array(total);
+    let head = 0;
+    let tail = 0;
+    queue[tail++] = startIdx;
+    visited[startIdx] = 1;
+    let count = 0;
+    while (head < tail) {
+      const idx = queue[head++] | 0;
+      if ((mask[idx] | 0) !== targetLabel) {
+        continue;
+      }
+      collected[count++] = idx;
+      const x = idx % width;
+      const y = (idx / width) | 0;
+      for (let s = 0; s < steps.length; s += 1) {
+        const dy = steps[s][0] | 0;
+        const dx = steps[s][1] | 0;
+        const nx = x + dx;
+        const ny = y + dy;
+        if (nx < 0 || nx >= width || ny < 0 || ny >= height) {
+          continue;
+        }
+        const nidx = ny * width + nx;
+        if (visited[nidx]) {
+          continue;
+        }
+        visited[nidx] = 1;
+        queue[tail++] = nidx;
+      }
+    }
+    if (count === 0) {
+      return null;
+    }
+    return collected.subarray(0, count);
+  }
+
   function ensureCtx() {
     if (!state.ctx) {
       throw new Error('OmniPainting.init must be called before use');
@@ -858,6 +1001,10 @@
       onMaskBufferReplaced: null,
       floodRebuildThreshold: 0.35,
     }, options || {});
+    const globalFlag = (typeof globalThis !== 'undefined' && Object.prototype.hasOwnProperty.call(globalThis, '__OMNI_MASK_PIPELINE_V2__'))
+      ? Boolean(globalThis.__OMNI_MASK_PIPELINE_V2__)
+      : false;
+    state.maskPipelineEnabled = Boolean(originalOptions.enableMaskPipelineV2 || globalFlag);
     state.strokeChanges = null;
     state.paintQueue.length = 0;
     state.pendingAffinitySet = null;
@@ -883,6 +1030,7 @@
       state.componentTracker = createComponentTracker();
     }
     state.componentTracker.rebuild(state.ctx);
+    ensureMaskPipeline(state.ctx);
   }
 
   function beginStroke(point) {
@@ -949,7 +1097,7 @@
   }
 
 
-  function finalizeComponentFill(ctx, indices, paintLabel, beforeLabels, afterLabels, totalPixels) {
+  function finalizeComponentFill(ctx, indices, paintLabel, beforeLabels, afterLabels, totalPixels, meta) {
     if (!ctx || !indices || !indices.length) {
       return;
     }
@@ -958,13 +1106,15 @@
     if (count <= 0) {
       return;
     }
-    const idxArr = indices instanceof Uint32Array ? indices : (() => {
+    const sourceIndices = indices instanceof Uint32Array ? indices : (() => {
       const arr = new Uint32Array(count);
       for (let i = 0; i < count; i += 1) {
         arr[i] = indices[i] | 0;
       }
       return arr;
     })();
+    const idxArr = new Uint32Array(sourceIndices.length);
+    idxArr.set(sourceIndices);
     const before = beforeLabels instanceof Uint32Array ? beforeLabels : (() => {
       const arr = new Uint32Array(count);
       for (let i = 0; i < count; i += 1) {
@@ -982,6 +1132,11 @@
     if (typeof ctx.pushHistory === 'function') {
       ctx.pushHistory(idxArr, before, after);
     }
+    recordMaskPipelineMutation('fill', idxArr, before, after, {
+      paintLabel: paintLabel | 0,
+      count,
+      totalPixels,
+    });
     try {
       global.__pendingRelabelSelection = idxArr;
     } catch (err) {
@@ -994,8 +1149,11 @@
     const thresholdRaw = typeof ctx.floodRebuildThreshold === 'number' ? ctx.floodRebuildThreshold : 0.35;
     const threshold = Math.min(1, Math.max(0, thresholdRaw));
     const fraction = total > 0 ? count / total : 0;
-    const bulkUpdate = fillsAll || fraction >= threshold;
-    if (bulkUpdate) {
+    const touchesBorder = Boolean(meta && meta.touchesBorder);
+    const hugeComponent = Boolean(meta && Number(meta.componentSize) >= Math.max(5000, total * 0.5));
+    const bulkUpdate = fillsAll || fraction >= threshold || hugeComponent;
+    const bulkOrBorder = bulkUpdate || touchesBorder;
+    if (bulkOrBorder) {
       if (typeof ctx.rebuildLocalAffinityGraph === 'function') {
         ctx.rebuildLocalAffinityGraph();
       }
@@ -1041,19 +1199,27 @@
     if (typeof ctx.setMaskHasNonZero === 'function') {
       ctx.setMaskHasNonZero(Boolean(currentHasNonZero));
     }
-    if (bulkUpdate) {
+    const webglActive = typeof ctx.isWebglPipelineActive === 'function'
+      ? ctx.isWebglPipelineActive()
+      : false;
+    if (bulkOrBorder) {
       if (typeof ctx.markMaskTextureFullDirty === 'function') {
         ctx.markMaskTextureFullDirty();
       }
       if (typeof ctx.markOutlineTextureFullDirty === 'function') {
         ctx.markOutlineTextureFullDirty();
       }
-    } else if (typeof ctx.isWebglPipelineActive === 'function' && ctx.isWebglPipelineActive()) {
+    } else if (webglActive) {
       if (typeof ctx.markMaskIndicesDirty === 'function') {
         ctx.markMaskIndicesDirty(idxArr);
       }
     } else if (typeof ctx.markMaskIndicesDirty === 'function') {
       ctx.markMaskIndicesDirty(idxArr);
+    }
+    if (typeof ctx.applyMaskRedrawImmediate === 'function') {
+      ctx.applyMaskRedrawImmediate();
+    } else if (typeof ctx.redrawMaskCanvas === 'function') {
+      ctx.redrawMaskCanvas();
     }
     scheduleDeferredMaskUpdate();
     if (typeof ctx.scheduleStateSave === 'function') {
@@ -1130,6 +1296,9 @@
     if (typeof ctx.pushHistory === 'function') {
       ctx.pushHistory(indices, before, after);
     }
+    recordMaskPipelineMutation('brush-finalize', indices, before, after, {
+      count: indices.length,
+    });
     try {
       global.__pendingRelabelSelection = indices;
     } catch (err) {
@@ -1252,10 +1421,16 @@
       }
     });
     if (changed) {
-      if (state.componentTracker) {
-        const beforeLabels = new Uint32Array(changedIndices.length);
-        const afterLabels = new Uint32Array(changedIndices.length);
-        for (let i = 0; i < changedIndices.length; i += 1) {
+      let beforeLabels = null;
+      let afterLabels = null;
+      const ensureLabelArrays = () => {
+        if (beforeLabels && afterLabels) {
+          return;
+        }
+        const count = changedIndices.length;
+        beforeLabels = new Uint32Array(count);
+        afterLabels = new Uint32Array(count);
+        for (let i = 0; i < count; i += 1) {
           const idx = changedIndices[i];
           const beforeValue = state.strokeChanges && state.strokeChanges.has(idx)
             ? state.strokeChanges.get(idx)
@@ -1263,7 +1438,18 @@
           beforeLabels[i] = beforeValue | 0;
           afterLabels[i] = maskValues[idx] | 0;
         }
+      };
+      if (state.componentTracker) {
+        ensureLabelArrays();
         state.componentTracker.recordChanges(changedIndices, beforeLabels, afterLabels, ctx);
+      }
+      if (maskPipelineActive()) {
+        ensureLabelArrays();
+        recordMaskPipelineMutation('brush', changedIndices, beforeLabels, afterLabels, {
+          tool: typeof ctx.getTool === 'function' ? ctx.getTool() : 'brush',
+          paintLabel: paintLabel | 0,
+          strokeActive: state.isPainting,
+        });
       }
       if (state.isPainting) {
         if (!state.pendingAffinitySet) {
@@ -1303,6 +1489,10 @@
     const ctx = ensureCtx();
     const maskValues = ctx.maskValues;
     if (!maskValues || !point) {
+      state.lastFillResult = {
+        status: 'aborted',
+        abortReason: 'no-mask-or-point',
+      };
       return;
     }
     const dims = ctx.getImageDimensions ? ctx.getImageDimensions() : { width: 0, height: 0 };
@@ -1311,29 +1501,80 @@
     const sx = Math.round(point.x);
     const sy = Math.round(point.y);
     if (sx < 0 || sy < 0 || sx >= width || sy >= height) {
+      state.lastFillResult = {
+        status: 'aborted',
+        abortReason: 'point-out-of-bounds',
+      };
       return;
     }
     const startIdx = sy * width + sx;
     const targetLabel = maskValues[startIdx] | 0;
     const paintLabel = ctx.getCurrentLabel ? ctx.getCurrentLabel() : 0;
+    const fillResult = {
+      width,
+      height,
+      startIdx,
+      paintLabel,
+      targetLabel,
+      status: 'aborted',
+      fallbackTriggered: false,
+      runCount: 0,
+      runRows: 0,
+      componentSize: 0,
+      abortReason: null,
+    };
     if (targetLabel === paintLabel) {
+      fillResult.abortReason = 'same-label';
+      fillResult.status = 'noop';
+      state.lastFillResult = fillResult;
+      recordMaskPipelineNoop({
+        reason: 'same-label',
+        label: paintLabel | 0,
+      });
       return;
     }
     const tracker = state.componentTracker;
     if (!tracker) {
+      fillResult.abortReason = 'no-tracker';
+      state.lastFillResult = fillResult;
       return;
     }
-    const component = tracker.componentAt(startIdx, ctx);
+    let component = tracker.componentAt(startIdx, ctx);
     if (!component || !component.indices || component.indices.length === 0) {
+      fillResult.abortReason = 'empty-component';
+      state.lastFillResult = fillResult;
       return;
     }
     tracker.ensure(ctx);
     tracker.ensureSteps(ctx);
-    const indices = component.indices;
+    let indices = component.indices;
+    const bfsIndices = collectComponentIndices(startIdx, targetLabel, tracker, ctx);
+    if (bfsIndices && bfsIndices.length > indices.length) {
+      releaseComponentArray(component.indices);
+      component.indices = bfsIndices;
+      indices = bfsIndices;
+    }
     const size = indices.length;
     if (size === 0) {
+      fillResult.abortReason = 'empty-indices';
+      state.lastFillResult = fillResult;
       return;
     }
+    fillResult.componentSize = size;
+    const rowSet = new Set();
+    let touchesBorder = false;
+    for (let i = 0; i < size; i += 1) {
+      const idx = indices[i] | 0;
+      const row = width > 0 ? ((idx / width) | 0) : 0;
+      rowSet.add(row);
+      const col = width > 0 ? (idx % width) : 0;
+      if (row === 0 || row === (height - 1) || col === 0 || col === (width - 1)) {
+        touchesBorder = true;
+      }
+    }
+    fillResult.runRows = rowSet.size;
+    fillResult.touchesBorder = touchesBorder;
+    fillResult.runCount = size;
     const before = new Uint32Array(size);
     before.fill(targetLabel);
     const after = new Uint32Array(size);
@@ -1376,9 +1617,23 @@
         }
       }
     }
+    // Use the WASM fill helper so every pixel in the component is updated,
+    // even for very large “outside” regions that wrap the canvas.
     fillMaskWithIndices(indices, size, paintLabel);
     tracker.mergeFilledComponent(component, neighborIds, paintLabel, ctx);
-    finalizeComponentFill(ctx, indices, paintLabel, before, after, maskValues.length);
+    finalizeComponentFill(ctx, indices, paintLabel, before, after, maskValues.length, {
+      touchesBorder: fillResult.touchesBorder,
+      componentSize: fillResult.componentSize,
+      runCount: fillResult.runCount,
+    });
+    if (typeof ctx.markNeedsMaskRedraw === 'function') {
+      ctx.markNeedsMaskRedraw();
+    }
+    if (typeof ctx.requestPaintFrame === 'function') {
+      ctx.requestPaintFrame();
+    }
+    fillResult.status = 'ok';
+    state.lastFillResult = fillResult;
   }
   function pickColor(point) {
     const ctx = ensureCtx();
@@ -1425,6 +1680,28 @@
     state.componentTracker.rebuild(ctx);
   }
 
+  function debugForceMaskRefresh() {
+    if (!state.ctx) {
+      return false;
+    }
+    const ctx = state.ctx;
+    if (typeof ctx.markMaskTextureFullDirty === 'function') {
+      ctx.markMaskTextureFullDirty();
+    }
+    if (typeof ctx.markOutlineTextureFullDirty === 'function') {
+      ctx.markOutlineTextureFullDirty();
+    }
+    if (typeof ctx.applyMaskRedrawImmediate === 'function') {
+      ctx.applyMaskRedrawImmediate();
+    } else if (typeof ctx.redrawMaskCanvas === 'function') {
+      ctx.redrawMaskCanvas();
+    }
+    if (typeof ctx.requestPaintFrame === 'function') {
+      ctx.requestPaintFrame();
+    }
+    return true;
+  }
+
   const api = global.OmniPainting || {};
   Object.assign(api, {
     init,
@@ -1438,6 +1715,8 @@
     pickColor,
     labelAtPoint,
     rebuildComponents,
+    __debugGetState: () => state,
+    __debugForceMaskRefresh: debugForceMaskRefresh,
   });
   global.OmniPainting = api;
 })(typeof window !== 'undefined' ? window : globalThis);

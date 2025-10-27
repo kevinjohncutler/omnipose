@@ -25,17 +25,84 @@ def setup():
     import matplotlib.pyplot as plt
     import ipywidgets as widgets
     from IPython.display import display, HTML
-    from tqdm.notebook import tqdm # progress bars 
+    from tqdm.notebook import tqdm as notebook_tqdm  # progress bars
     
     # Custom CSS to center plots
+    # and make widget backgrounds transparent for VS Code
     display(HTML("""
     <style>
         .jp-OutputArea-output img {
             display: block;
             margin: 0 auto;
         }
+        .cell-output-ipywidget-background {
+            background-color: transparent !important;
+        }
+        .jp-OutputArea,
+        .jp-OutputArea-child,
+        .jp-OutputArea-output,
+        .jp-Cell-outputWrapper,
+        .jp-Cell-outputArea {
+            background-color: transparent !important;
+            border: none !important;
+            box-shadow: none !important;
+        }
+        :root {
+            --jp-widgets-color: var(--vscode-editor-foreground, currentColor);
+            --jp-widgets-font-size: var(--vscode-editor-font-size, inherit);
+        }
+
+        .widget-hprogress {
+            background-color: transparent !important;
+            border: none !important;
+            display: inline-flex !important;
+            justify-content: center;
+            align-items: center;
+        }
+        .widget-hprogress .p-ProgressBar,
+        .widget-hprogress .p-ProgressBar-track,
+        .widget-hprogress .widget-progress .progress,
+        .widget-hprogress .progress {
+            background-color: rgba(128, 128, 128, 0.5) !important;
+            border-radius: 6px !important;
+            border: none !important;
+            box-sizing: border-box;
+            overflow: hidden;
+        }
+        .widget-hprogress .progress-bar,
+        .widget-hprogress .p-ProgressBar-fill,
+        .widget-hprogress [role="progressbar"]::part(value) {
+            background-color: #8a8a8a !important;
+            border-radius: 6px !important;
+        }
     </style>
     """))
+
+    # Ensure notebook tqdm bars pick up the neutral grey fill + subtle track
+    def _patch_tqdm_progress():
+        if getattr(notebook_tqdm, "_omnipose_bar_styled", False):
+            return
+
+        default_fill = "#8a8a8a"
+        original_status_printer = notebook_tqdm.status_printer
+
+        def _status_printer(*args, **kwargs):
+            container = original_status_printer(*args, **kwargs)
+            try:
+                _, pbar, _ = container.children
+            except Exception:
+                return container
+
+            style = getattr(pbar, "style", None)
+            if style is not None:
+                style.bar_color = default_fill
+
+            return container
+
+        notebook_tqdm.status_printer = staticmethod(_status_printer)
+        notebook_tqdm._omnipose_bar_styled = True
+
+    _patch_tqdm_progress()
     
     # Inject into the global namespace of the notebook
     ipython = get_ipython()  # Get the IPython instance
@@ -43,6 +110,7 @@ def setup():
     ipython.user_global_ns['plt'] = plt
     ipython.user_global_ns['widgets'] = widgets
     ipython.user_global_ns['display'] = display
+    ipython.user_global_ns['tqdm'] = notebook_tqdm
 
     # Set matplotlib inline for Jupyter notebooks
     ipython.run_line_magic('matplotlib', 'inline')

@@ -24,6 +24,30 @@ const hasPrevImage = Boolean(CONFIG.hasPrev);
 const hasNextImage = Boolean(CONFIG.hasNext);
 let defaultPalette = [];
 let nColorPalette = [];
+const DEBUG_FILL_PERF = Boolean(
+  CONFIG.debugFillPerf
+  ?? CONFIG.debugFillPerformance
+  ?? false,
+);
+const ENABLE_MASK_PIPELINE_V2 = Boolean(
+  CONFIG.enableMaskPipelineV2
+  ?? CONFIG.maskPipelineV2
+  ?? false,
+);
+const DEBUG_STATE_SAVE = Boolean(
+  CONFIG.debugStateSave
+  ?? CONFIG.debugViewerState
+  ?? false,
+);
+if (typeof window !== 'undefined') {
+  window.__OMNI_FILL_DEBUG__ = DEBUG_FILL_PERF;
+  if (ENABLE_MASK_PIPELINE_V2) {
+    window.__OMNI_MASK_PIPELINE_V2__ = true;
+  }
+  if (DEBUG_STATE_SAVE) {
+    window.__OMNI_SAVE_DEBUG__ = true;
+  }
+}
 
 const OmniPointer = window.OmniPointer || {};
 const POINTER_OPTIONS = OmniPointer.POINTER_OPTIONS;
@@ -225,6 +249,8 @@ const outlineState = new Uint8Array(maskValues.length);
 let outlinesVisible = true; // future UI toggle can control this
 let stateSaveTimer = null;
 let stateDirty = false;
+let stateDirtySeq = 0;
+let lastSavedSeq = 0;
 let viewStateDirty = false;
 let isRestoringState = false;
 const imageInfo = document.getElementById('imageInfo');
@@ -241,6 +267,43 @@ let distanceOverlayImage = null;
 let distanceOverlaySource = null;
 let showFlowOverlay = false;
 let showDistanceOverlay = false;
+function stateDebugEnabled() {
+  if (DEBUG_STATE_SAVE) {
+    return true;
+  }
+  if (typeof window !== 'undefined' && window.__OMNI_SAVE_DEBUG__) {
+    return Boolean(window.__OMNI_SAVE_DEBUG__);
+  }
+  return false;
+}
+
+function formatStateDebugPart(part) {
+  if (part === null || part === undefined) {
+    return String(part);
+  }
+  if (typeof part === 'object') {
+    try {
+      return JSON.stringify(part);
+    } catch (_) {
+      return Object.prototype.toString.call(part);
+    }
+  }
+  return String(part);
+}
+
+function stateDebugLog(...parts) {
+  if (!stateDebugEnabled()) {
+    return;
+  }
+  const message = parts.map((part) => formatStateDebugPart(part)).join(' ');
+  try {
+    log('[state-save] ' + message);
+  } catch (err) {
+    if (typeof console !== 'undefined' && typeof console.debug === 'function') {
+      console.debug('[state-save]', message);
+    }
+  }
+}
 const DEFAULT_AFFINITY_STEPS = [
   [-1, -1],
   [-1, 0],
@@ -343,29 +406,49 @@ function applyMaskRedrawImmediate() {
   needsMaskRedraw = false;
 }
 
+function nextStateDirtySeq() {
+  stateDirtySeq += 1;
+  return stateDirtySeq;
+}
+
 function scheduleStateSave(delay = 600) {
   if (!sessionId || isRestoringState) {
+    stateDebugLog('skip schedule', { session: Boolean(sessionId), restoring: Boolean(isRestoringState) });
     return;
   }
   stateDirty = true;
+  const scheduledSeq = nextStateDirtySeq();
+  const delayMs = Math.max(150, delay | 0);
+  stateDebugLog('schedule', { seq: scheduledSeq, delay: delayMs, immediate: false });
   if (stateSaveTimer) {
     clearTimeout(stateSaveTimer);
   }
   stateSaveTimer = setTimeout(() => {
     stateSaveTimer = null;
-    saveViewerState().catch((err) => {
+    stateDebugLog('timer fire', { seq: scheduledSeq });
+    saveViewerState({ seq: scheduledSeq }).catch((err) => {
       console.warn('saveViewerState failed', err);
+      stateDebugLog('save error (scheduled)', { seq: scheduledSeq, message: err && err.message ? err.message : String(err) });
     });
-  }, Math.max(150, delay | 0));
+  }, delayMs);
 }
 
-async function saveViewerState({ immediate = false } = {}) {
+async function saveViewerState({ immediate = false, seq = null } = {}) {
   if (!sessionId) {
+    stateDebugLog('skip save (no session)', { immediate, seq });
     return false;
   }
   if (!stateDirty && !immediate) {
+    stateDebugLog('skip save (clean state)', { seq: stateDirtySeq, immediate });
     return true;
   }
+  const requestSeq = typeof seq === 'number' ? seq : stateDirtySeq;
+  stateDebugLog('save start', {
+    seq: requestSeq,
+    immediate,
+    dirtySeq: stateDirtySeq,
+    lastSavedSeq,
+  });
   const viewerState = collectViewerState();
   const payload = {
     sessionId,
@@ -377,7 +460,13 @@ async function saveViewerState({ immediate = false } = {}) {
     if (immediate && typeof navigator !== 'undefined' && navigator.sendBeacon) {
       const blob = new Blob([body], { type: 'application/json' });
       navigator.sendBeacon('/api/save_state', blob);
-      stateDirty = false;
+      lastSavedSeq = Math.max(lastSavedSeq, requestSeq);
+      if (requestSeq === stateDirtySeq) {
+        stateDirty = false;
+        stateDebugLog('state clean (beacon)', { seq: requestSeq });
+      } else {
+        stateDebugLog('stale beacon save', { seq: requestSeq, latest: stateDirtySeq });
+      }
       return true;
     }
     const response = await fetch('/api/save_state', {
@@ -389,11 +478,21 @@ async function saveViewerState({ immediate = false } = {}) {
     if (!response.ok) {
       throw new Error('HTTP ' + response.status);
     }
-    stateDirty = false;
+    lastSavedSeq = Math.max(lastSavedSeq, requestSeq);
+    if (requestSeq === stateDirtySeq) {
+      stateDirty = false;
+      stateDebugLog('state clean (fetch)', { seq: requestSeq, status: response.status });
+    } else {
+      stateDebugLog('stale fetch save', { seq: requestSeq, latest: stateDirtySeq, status: response.status });
+    }
     return true;
   } catch (err) {
     if (!immediate) {
       stateDirty = true;
+      stateDebugLog('save failed, state remains dirty', {
+        seq: requestSeq,
+        message: err && err.message ? err.message : String(err),
+      });
     }
     throw err;
   }
@@ -411,7 +510,7 @@ async function requestImageChange({ path = null, direction = null } = {}) {
   if (typeof direction === 'string' && direction) {
     payload.direction = direction;
   }
-  await saveViewerState({ immediate: true }).catch(() => {});
+  await saveViewerState({ immediate: true, seq: stateDirtySeq }).catch(() => {});
   try {
     const response = await fetch('/api/open_image', {
       method: 'POST',
@@ -2417,6 +2516,8 @@ const paintingInitOptions = {
   onMaskBufferReplaced: (next) => {
     maskValues = next;
   },
+  debugFillPerformance: () => DEBUG_FILL_PERF,
+  enableMaskPipelineV2: ENABLE_MASK_PIPELINE_V2,
 };
 let paintingInitApplied = false;
 function applyPaintingInit() {
@@ -3547,6 +3648,9 @@ function restoreViewerState(saved) {
   applyMaskRedrawImmediate();
   draw();
   stateDirty = false;
+  stateDirtySeq = 0;
+  lastSavedSeq = 0;
+  stateDebugLog('restore reset sequences');
   updateImageInfo();
 }
 
@@ -5064,20 +5168,38 @@ function updateOutlineForIndices(indicesSet) {
   if (!indicesSet || !indicesSet.size) {
     return;
   }
-  let changed = false;
+  const width = imgWidth | 0;
+  const height = imgHeight | 0;
+  const planeStride = width * height;
+  // Expand the update set by a 1-pixel halo to avoid leaving stale
+  // pixels along stair-step edges where connectivity flips at neighbors.
+  const expanded = new Set();
+  const push = (i) => { if (i >= 0 && i < planeStride) expanded.add(i | 0); };
   indicesSet.forEach((idx) => {
+    idx = idx | 0;
+    if (idx < 0 || idx >= planeStride) return;
+    const x = idx % width;
+    const y = (idx / width) | 0;
+    for (let dy = -1; dy <= 1; dy += 1) {
+      for (let dx = -1; dx <= 1; dx += 1) {
+        const nx = x + dx;
+        const ny = y + dy;
+        if (nx < 0 || nx >= width || ny < 0 || ny >= height) continue;
+        push(ny * width + nx);
+      }
+    }
+  });
+  let changed = false;
+  expanded.forEach((idx) => {
     const before = outlineState[idx];
     updateOutlineForIndex(idx);
-    if (outlineState[idx] !== before) {
-      changed = true;
-    }
+    if (outlineState[idx] !== before) changed = true;
   });
   if (changed) {
     if (isWebglPipelineActive()) {
-      const rectIndices = Array.from(indicesSet);
+      const rectIndices = Array.from(expanded);
       markOutlineIndicesDirty(rectIndices);
     } else {
-      // Refresh mask rendering to apply per-pixel alpha changes only if outline changed
       redrawMaskCanvas();
     }
   }
@@ -5276,6 +5398,15 @@ function updateAffinityGraphForIndices(indices) {
         }
       }
     }
+  }
+  // Recompute outline state for the touched region to avoid stale pixels
+  // along stair-step edges and ensure outline stays in sync with mask writes.
+  if (touchedCount > 0) {
+    const indicesSet = new Set();
+    for (let i = 0; i < touchedCount; i += 1) {
+      indicesSet.add(touchedList[i]);
+    }
+    updateOutlineForIndices(indicesSet);
   }
   affinityGraphNeedsLocalRebuild = false;
   for (let listIdx = 0; listIdx < touchedCount; listIdx += 1) {
@@ -7519,7 +7650,7 @@ window.addEventListener('keyup', (evt) => {
 if (sessionId) {
   window.addEventListener('beforeunload', () => {
     try {
-      saveViewerState({ immediate: true });
+      saveViewerState({ immediate: true, seq: stateDirtySeq });
     } catch (_) {
       /* ignore */
     }

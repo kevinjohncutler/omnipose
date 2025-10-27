@@ -850,13 +850,13 @@ def curve_filter(im,filterWidth=1.5):
     M = -(im_xx+im_yy)/2
 
     # compute principal curvatures
-    C1 = (M-np.sqrt(np.abs(M**2-G)));
-    C2 = (M+np.sqrt(np.abs(M**2-G)));
+    C1 = (M-np.sqrt(np.abs(M**2-G)))
+    C2 = (M+np.sqrt(np.abs(M**2-G)))
 
     
     # remove negative values
     G_ = G.copy()
-    G_[G<0] = 0;
+    G_[G<0] = 0
 
     M_ = M.copy()
     M_[M<0] = 0
