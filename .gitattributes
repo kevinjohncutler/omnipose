@@ -1,0 +1,5 @@
+# Strip outputs from every notebook by default
+*.ipynb  filter=nbstripout
+
+# Keep outputs for notebooks under docs/ (any depth)
+docs/**/*.ipynb  -filter -diff
