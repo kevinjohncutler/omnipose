@@ -177,6 +177,7 @@
   function tagWasmArray(array, ptr, capacity) {
     Object.defineProperty(array, '__wasmPtr', { value: ptr, configurable: true, enumerable: false });
     Object.defineProperty(array, '__capacity', { value: capacity, configurable: true, enumerable: false });
+    Object.defineProperty(array, '__length', { value: array.length | 0, configurable: true, enumerable: false, writable: true });
     return array;
   }
 
@@ -265,10 +266,16 @@
       return array;
     }
     const ptr = array.__wasmPtr | 0;
-    const len = array.length | 0;
-    const capacity = array.__capacity ? (array.__capacity | 0) : len;
+    const capacity = array.__capacity ? (array.__capacity | 0) : (array.length | 0);
+    const recorded = array.__length ? (array.__length | 0) : (array.length | 0);
+    const len = array.length && array.length > 0 ? (array.length | 0) : recorded || capacity;
+    if (!len || len < 0) {
+      return array;
+    }
     const refreshed = new Uint32Array(buffer, ptr, len);
-    return tagWasmArray(refreshed, ptr, capacity);
+    const tagged = tagWasmArray(refreshed, ptr, capacity);
+    tagged.__length = len;
+    return tagged;
   }
 
   function resetComponentStorage() {
@@ -384,6 +391,7 @@
         target.id = id;
         target.label = label;
         target.indices = ensured;
+        target.size = ensured.length | 0;
         this.components.set(id, target);
         let bucket = this.labelIndex.get(label);
         if (!bucket) {
@@ -522,27 +530,16 @@
         const retained = entry ? entry.indices : null;
         this.unregisterComponent(entry);
         const arr = retained ? ensureComponentArrayView(retained) : null;
-        let cleared = false;
-        if (arr && arr.length) {
-          for (let i = 0; i < arr.length; i += 1) {
-            const idx = arr[i] | 0;
-            if (idx < 0 || idx >= this.size) {
-              continue;
-            }
-            this.ids[idx] = 0;
-            this.queuePendingIndex(idx);
-          }
-          cleared = true;
+        if (!arr || !arr.length) {
+          throw new Error('Component tracker removed entry without indices');
         }
-        if (!cleared && this.ids) {
-          const targetId = id | 0;
-          for (let i = 0; i < this.ids.length; i += 1) {
-            if ((this.ids[i] | 0) !== targetId) {
-              continue;
-            }
-            this.ids[i] = 0;
-            this.queuePendingIndex(i);
+        for (let i = 0; i < arr.length; i += 1) {
+          const idx = arr[i] | 0;
+          if (idx < 0 || idx >= this.size) {
+            continue;
           }
+          this.ids[idx] = 0;
+          this.queuePendingIndex(idx);
         }
       },
       processPending(ctx) {
@@ -665,22 +662,11 @@
           return null;
         }
         let entry = this.components.get(id) || null;
+        if (entry && entry.indices) {
+          entry.indices = ensureComponentArrayView(entry.indices);
+        }
         if (!entry || !entry.indices || entry.indices.length === 0) {
-          if (entry) {
-            this.removeComponent(id);
-          } else if (this.ids) {
-            this.ids[index] = 0;
-          }
-          this.queuePendingIndex(index);
-          this.processPending(ctx);
-          id = this.ids ? (this.ids[index] | 0) : 0;
-          if (!id) {
-            return null;
-          }
-          entry = this.components.get(id) || null;
-          if (!entry || !entry.indices || entry.indices.length === 0) {
-            return entry;
-          }
+          throw new Error('Component tracker returned empty component');
         }
         if (entry.indices) {
           entry.indices = ensureComponentArrayView(entry.indices);
@@ -760,6 +746,14 @@
           }
         }
         affected.forEach((id) => {
+          const existing = this.components.get(id);
+          if (existing && existing.indices) {
+            existing.indices = ensureComponentArrayView(existing.indices);
+            existing.size = existing.indices.length | 0;
+            if (!existing.indices.length) {
+              throw new Error('component tracker empty component before removal');
+            }
+          }
           this.removeComponent(id);
         });
         this.processPending(ctx);
@@ -806,6 +800,9 @@
         }
         const prevLabel = component.label;
         let prevIndices = ensureComponentArrayView(component.indices);
+        if (!prevIndices || !prevIndices.length) {
+          throw new Error('component tracker encountered empty component before merge id=' + component.id + ' label=' + component.label);
+        }
         component.indices = prevIndices;
         let merged = prevIndices;
         let mergedLength = merged ? merged.length : 0;
@@ -815,10 +812,14 @@
             const entry = mergeList[i];
             const arr = ensureComponentArrayView(entry.indices);
             entry.indices = arr;
-            total += arr.length;
+            entry.size = arr.length | 0;
+            total += entry.size;
           }
           const next = borrowComponentBuffer(total);
           prevIndices = ensureComponentArrayView(prevIndices);
+          if (!prevIndices || !prevIndices.length) {
+            throw new Error('component tracker merge empty prevIndices id=' + component.id + ' label=' + component.label);
+          }
           component.indices = prevIndices;
           if (mergedLength > 0 && prevIndices) {
             next.set(prevIndices.subarray(0, mergedLength), 0);
@@ -828,9 +829,13 @@
             const entry = mergeList[i];
             const arr = ensureComponentArrayView(entry.indices);
             entry.indices = arr;
-            if (arr && arr.length) {
-              next.set(arr.subarray(0, arr.length), offset);
-              offset += arr.length;
+            const copyLen = entry.size | 0;
+            if (copyLen > 0) {
+              if ((offset + copyLen) > next.length) {
+                throw new Error('component tracker merge overflow id=' + component.id);
+              }
+              next.set(arr.subarray(0, copyLen), offset);
+              offset += copyLen;
             }
           }
           merged = next;
@@ -864,7 +869,11 @@
         }
         component.id = id;
         component.label = label;
+        if (!merged || !merged.length) {
+          throw new Error('component tracker merge created empty buffer id=' + component.id + ' label=' + label);
+        }
         component.indices = merged;
+        component.size = merged.length | 0;
         this.registerComponent(id, label, merged, component);
         for (let i = 0; i < mergeList.length; i += 1) {
           const entry = mergeList[i];
@@ -1146,17 +1155,8 @@
       ? totalPixels
       : (maskValues && maskValues.length ? maskValues.length : count);
     const fillsAll = total > 0 && count === total;
-    const thresholdRaw = typeof ctx.floodRebuildThreshold === 'number' ? ctx.floodRebuildThreshold : 0.35;
-    const threshold = Math.min(1, Math.max(0, thresholdRaw));
-    const fraction = total > 0 ? count / total : 0;
-    const touchesBorder = Boolean(meta && meta.touchesBorder);
-    const hugeComponent = Boolean(meta && Number(meta.componentSize) >= Math.max(5000, total * 0.5));
-    const bulkUpdate = fillsAll || fraction >= threshold || hugeComponent;
-    const bulkOrBorder = bulkUpdate || touchesBorder;
-    if (bulkOrBorder) {
-      if (typeof ctx.rebuildLocalAffinityGraph === 'function') {
-        ctx.rebuildLocalAffinityGraph();
-      }
+    if (typeof ctx.rebuildLocalAffinityGraph === 'function') {
+      ctx.rebuildLocalAffinityGraph();
     } else if (typeof ctx.updateAffinityGraphForIndices === 'function') {
       ctx.updateAffinityGraphForIndices(idxArr);
     }
@@ -1199,22 +1199,11 @@
     if (typeof ctx.setMaskHasNonZero === 'function') {
       ctx.setMaskHasNonZero(Boolean(currentHasNonZero));
     }
-    const webglActive = typeof ctx.isWebglPipelineActive === 'function'
-      ? ctx.isWebglPipelineActive()
-      : false;
-    if (bulkOrBorder) {
-      if (typeof ctx.markMaskTextureFullDirty === 'function') {
-        ctx.markMaskTextureFullDirty();
-      }
-      if (typeof ctx.markOutlineTextureFullDirty === 'function') {
-        ctx.markOutlineTextureFullDirty();
-      }
-    } else if (webglActive) {
-      if (typeof ctx.markMaskIndicesDirty === 'function') {
-        ctx.markMaskIndicesDirty(idxArr);
-      }
-    } else if (typeof ctx.markMaskIndicesDirty === 'function') {
-      ctx.markMaskIndicesDirty(idxArr);
+    if (typeof ctx.markMaskTextureFullDirty === 'function') {
+      ctx.markMaskTextureFullDirty();
+    }
+    if (typeof ctx.markOutlineTextureFullDirty === 'function') {
+      ctx.markOutlineTextureFullDirty();
     }
     if (typeof ctx.applyMaskRedrawImmediate === 'function') {
       ctx.applyMaskRedrawImmediate();

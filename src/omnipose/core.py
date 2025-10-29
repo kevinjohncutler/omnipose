@@ -72,6 +72,13 @@ try:
 except ModuleNotFoundError:
     HDBSCAN_ENABLED = False
 
+try:
+    from opensimplex import OpenSimplex
+    OPEN_SIMPLEX_ENABLED = True
+except ModuleNotFoundError:
+    OpenSimplex = None
+    OPEN_SIMPLEX_ENABLED = False
+
 import sys
 from .logger import setup_logger
 omnipose_logger = setup_logger('core')
@@ -2414,8 +2421,21 @@ def random_crop_warp(img, Y, tyx, v1, v2, nchan, rescale, scale_range, gamma_ran
         # ds = scale_range/2
         # scale = np.random.uniform(low=1-ds,high=1+ds,size=dim) #anisotropic scaling 
         # scale = np.random.uniform(low=1/scale_range,high=scale_range,size=dim) #anisotropic scaling 
+        
         eps = 1e-8
-        scale = np.random.triangular(left=1/(scale_range+eps), mode=1, right=scale_range+eps, size=dim) # weight to 1
+        # scale = np.random.triangular(left=1/(scale_range+eps), mode=1, right=scale_range+eps, size=dim) # weight to 1
+        
+        # this version gives much mro eweight to downsampling than upsampling
+        mean_target = 1.0
+        a = 1.0 / (scale_range + eps)
+        b = scale_range + eps
+
+        alpha = 1 # controls how skewed the distribution is 
+        m = (mean_target - a) / (b - a)
+        beta = alpha * (1.0 - m) / m
+        scale = a + (b - a) * np.random.beta(alpha, beta, size=dim)
+
+
         # I need to make sure the scaling does not apply to time dimension...
         if rescale is not None:
             scale *= 1. / rescale
@@ -2523,25 +2543,66 @@ def random_crop_warp(img, Y, tyx, v1, v2, nchan, rescale, scale_range, gamma_ran
         
         # some augmentations I only want on half of the time
         # both for speed and because I want the network to see relatively raw images 
-        aug_choices = np.random.choice([0,1],6) # faster to preallocate 
+        aug_choices = np.random.choice([0,1],7) # faster to preallocate 
         
-        # gamma agumentation - simulates different contrast, the most important and preserves fine structure 
-        gamma = np.random.triangular(left=gamma_range[0], mode=1, right=gamma_range[1])
+
         if augment:
+            # TODO: make a tool to preview how a given dataset will be augmented with these settings
+            # could be useful for debugging and for users to understand what is happening
+
+            # gamma agumentation - simulates different contrast, the most important and preserves fine structure 
+            gamma = np.random.triangular(left=gamma_range[0], mode=1, right=gamma_range[1])
             imgi[k] = imgi[k] ** gamma
 
+            # low-frequency illumination augmentation to mimic uneven backgrounds
+            if OPEN_SIMPLEX_ENABLED and aug_choices[0]:    
+            # if 1:
+                simplex = OpenSimplex(seed=np.random.randint(0, 2**31)) # deterministic seed from global numpy RNG 
+                spatial_shape = tyx[-2:]
+          
+                # get the average cell diamter in pixels to set frequency scale
+                # we don't want to automatially insert features smaller than the cells themselves
+                mean_obj_diam = diameters(lbl)
+                freq_jitter = np.random.triangular(left=1, mode=1.0, right=10.0) # should turn this into user-configurable range
+                fs = mean_obj_diam * freq_jitter
+                coords = [np.arange(0, s, dtype=np.float32) / fs for s in spatial_shape[::-1]]
+                illum_field = utils.rescale( simplex.noise2array(*coords)) # get to 0-1
+
+                # if this is allowed to go to 1, if becomes flat field
+                # take square root so that the background value itself is triangular distribution (background is roughtly min_factor**2)
+                min_factor = np.random.triangular(left=0, mode=0, right=1) **.5
+                # min_factor = .5 **.5 
+                # min_factor = .01**.5
+
+                multiplier = min_factor + (1.0 - min_factor) * illum_field # sets range to [min_factor, 1]
+                # multiplier = illum_field
+
+
+                if imgi[k].ndim > 2:
+                    multiplier = multiplier[np.newaxis, ...]
+                multiplier = np.broadcast_to(multiplier, imgi[k].shape).astype(np.float32)
+
+                # interpolate between original image and illum field
+                imgi[k] = (imgi[k] + min_factor) / (imgi[k].max() + min_factor) * multiplier # make the floor min_factor
+  
+
+                # print('fs', fs, mean_obj_diam, freq_jitter,min_factor, imgi[k].max(), imgi[k].min())
+                # print(imgi[k].min(),imgi[k].max())
+
+
+
             # defocus augmentation (inaccurate, but effective)
-            if aug_choices[0]:
+            if aug_choices[1]:
                 imgi[k] = gaussian_filter(imgi[k],np.random.uniform(0,2))
             
             # percentile clipping augmentation
-            if aug_choices[1]:
+            if aug_choices[2]:
                 dp = .1 # changed this from 10 to .1, as usual pipleine uses 0.01, 10 was way too high for some images 
                 dpct = np.random.triangular(left=0, mode=0, right=dp, size=2) # weighted toward 0
                 imgi[k] = utils.normalize99(imgi[k],upper=100-dpct[0],lower=dpct[1])
 
             # noise augmentation
-            if SKIMAGE_ENABLED and aug_choices[2]:
+            if SKIMAGE_ENABLED and aug_choices[3]:
                 var_range = 1e-2
                 var = np.random.triangular(left=1e-8, mode=1e-8, right=var_range, size=1)
                 # imgi[k] = random_noise(utils.rescale(imgi[k]), mode="poisson")#, seed=None, clip=True)
@@ -2552,15 +2613,18 @@ def random_crop_warp(img, Y, tyx, v1, v2, nchan, rescale, scale_range, gamma_ran
                 # imgi[k] = utils.add_gaussian_noise(imgi[k],0,var)
                 
             # bit depth augmentation
-            if aug_choices[3]:
-                bit_shift = int(np.random.triangular(left=0, mode=8, right=14))
+            if aug_choices[4]:
+                # we convert to 16 bit and then right shift by 0-14 bits
+                # at the most extreme, that turns 16 bit into 2 bits, so we have 4 levels
+                # changed the mode from 8 to 10 to push toward more typical low-quality images
+                bit_shift = int(np.random.triangular(left=0, mode=10, right=14))
                 im = utils.to_16_bit(imgi[k])
                 # imgi[k] = utils.normalize99(im>>bit_shift)
                 imgi[k] = utils.rescale(im>>bit_shift)
                 
             # edge / line artifact augmentation
             # omnipose was hallucinating stuff at boundaries
-            if aug_choices[4]:
+            if aug_choices[5]:
                 # border_mask = np.zeros(tyx, dtype=bool)
                 # border_mask = binary_dilation(border_mask, border_value=1, iterations=1)
                 # imgi[k][border_mask] = 1
@@ -2571,7 +2635,7 @@ def random_crop_warp(img, Y, tyx, v1, v2, nchan, rescale, scale_range, gamma_ran
             
             # set some pixels randomly to 0 or 1         
             # much faster than random_noise s&p 
-            if aug_choices[5]:
+            if aug_choices[6]:
                 indices = np.random.rand(*tyx) < 0.001
                 imgi[k][indices] = np.random.choice([0, 1], size=np.count_nonzero(indices))
 

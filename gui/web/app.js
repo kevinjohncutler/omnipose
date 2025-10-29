@@ -59,7 +59,9 @@ if (!POINTER_OPTIONS || !createPointerState) {
 }
 
 const RAD_TO_DEG = 180 / Math.PI;
-const USE_WEBGL_PIPELINE = CONFIG.useWebglPipeline ?? false;
+// Force the WebGL pipeline on for every build; the legacy canvas renderer is
+// intentionally disabled so we exercise a single code path everywhere.
+const USE_WEBGL_PIPELINE = true;
 const MAIN_WEBGL_CONTEXT_ATTRIBUTES = {
   alpha: true,
   antialias: true,
@@ -84,6 +86,9 @@ const canvas = document.getElementById('canvas');
 let gl = null;
 let ctx = null;
 const webglPipelineRequested = USE_WEBGL_PIPELINE && typeof WebGL2RenderingContext !== 'undefined';
+if (!webglPipelineRequested) {
+  throw new Error('WebGL2 support is required: the legacy canvas renderer has been retired');
+}
 if (canvas && webglPipelineRequested) {
   try {
     gl = canvas.getContext('webgl2', MAIN_WEBGL_CONTEXT_ATTRIBUTES);
@@ -2473,6 +2478,7 @@ const paintingInitOptions = {
   markMaskIndicesDirty,
   markMaskTextureFullDirty,
   markOutlineTextureFullDirty,
+  markOutlineIndicesDirty,
   updateAffinityGraphForIndices,
   rebuildLocalAffinityGraph,
   markAffinityGeometryDirty,
