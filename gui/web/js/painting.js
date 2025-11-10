@@ -16,6 +16,7 @@
     debugGridApplied: false,
     debugGridPending: false,
     finalizeCallCount: 0,
+    componentTrackerDirty: false,
   };
 
   function isGridLoggingEnabled() {
@@ -38,16 +39,16 @@
     }
   }
 
-  const ENABLE_DEBUG_GRID_MASK = (() => {
-    if (typeof globalThis === 'undefined') {
-      return true;
-    }
-    if (Object.prototype.hasOwnProperty.call(globalThis, '__OMNI_FORCE_GRID_MASK__')) {
-      return Boolean(globalThis.__OMNI_FORCE_GRID_MASK__);
-    }
-    globalThis.__OMNI_FORCE_GRID_MASK__ = true;
+const ENABLE_DEBUG_GRID_MASK = (() => {
+  if (typeof globalThis === 'undefined') {
     return true;
-  })();
+  }
+  if (Object.prototype.hasOwnProperty.call(globalThis, '__OMNI_FORCE_GRID_MASK__')) {
+    return Boolean(globalThis.__OMNI_FORCE_GRID_MASK__);
+  }
+  globalThis.__OMNI_FORCE_GRID_MASK__ = true;
+  return true;
+})();
 
   state.debugGridPending = ENABLE_DEBUG_GRID_MASK;
 
@@ -259,6 +260,23 @@
     if (total !== (width * height)) {
       return;
     }
+    const backgroundLabel = (typeof globalThis !== 'undefined'
+      && globalThis.__OMNI_DEBUG__
+      && typeof globalThis.__OMNI_DEBUG__.gridBackgroundLabel === 'number')
+      ? (globalThis.__OMNI_DEBUG__.gridBackgroundLabel | 0)
+      : DEBUG_GRID_BACKGROUND_LABEL;
+    if (typeof globalThis !== 'undefined') {
+      globalThis.__OMNI_DEBUG__ = globalThis.__OMNI_DEBUG__ || {};
+      globalThis.__OMNI_DEBUG__.gridBackgroundLabel = backgroundLabel;
+      globalThis.__OMNI_DEBUG__.gridLineLabel = DEBUG_GRID_LINE_LABEL;
+    }
+    if (backgroundLabel !== 0) {
+      for (let i = 0; i < mask.length; i += 1) {
+        if ((mask[i] | 0) === 0) {
+          mask[i] = backgroundLabel;
+        }
+      }
+    }
     const targetDivisionsX = 7;
     const targetDivisionsY = 7;
     const lineThickness = Math.max(1, Math.round(Math.min(width, height) / 120));
@@ -269,7 +287,7 @@
       if (idx < 0 || idx >= total) {
         return;
       }
-      if ((mask[idx] | 0) === 1) {
+      if ((mask[idx] | 0) === DEBUG_GRID_LINE_LABEL) {
         return;
       }
       indexSet.add(idx);
@@ -312,8 +330,8 @@
       const prev = mask[idx] | 0;
       indices[cursor] = idx | 0;
       before[cursor] = prev;
-      after[cursor] = 1;
-      mask[idx] = 1;
+      after[cursor] = DEBUG_GRID_LINE_LABEL;
+      mask[idx] = DEBUG_GRID_LINE_LABEL;
       cursor += 1;
     });
     if (typeof ctx.setMaskHasNonZero === 'function') {
@@ -1309,6 +1327,7 @@
       state.componentTracker = createComponentTracker();
     }
     state.componentTracker.rebuild(state.ctx);
+    state.componentTrackerDirty = false;
     ensureMaskPipeline(state.ctx);
   }
 
@@ -1408,11 +1427,12 @@
     };
   }
 
-  function notifyMaskDirty(ctx, idxArr) {
+  function notifyMaskDirty(ctx, idxArr, options) {
     if (!ctx) {
       return;
     }
-    if (typeof ctx.markMaskIndicesDirty === 'function') {
+    const useIncremental = Boolean(options && options.incremental);
+    if (useIncremental && typeof ctx.markMaskIndicesDirty === 'function') {
       try {
         ctx.markMaskIndicesDirty(idxArr);
       } catch (err) {
@@ -1420,7 +1440,7 @@
           ctx.log('debug grid markMaskIndicesDirty failed: ' + err);
         }
       }
-    } else if (typeof globalThis === 'object' && globalThis.__OMNI_DEBUG__) {
+    } else if (useIncremental && typeof globalThis === 'object' && globalThis.__OMNI_DEBUG__) {
       globalThis.__OMNI_DEBUG__.missingMaskDirty = (globalThis.__OMNI_DEBUG__.missingMaskDirty || 0) + 1;
     }
     if (typeof ctx.markMaskTextureFullDirty === 'function') {
@@ -1432,7 +1452,7 @@
         }
       }
     }
-    if (typeof ctx.markOutlineIndicesDirty === 'function') {
+    if (useIncremental && typeof ctx.markOutlineIndicesDirty === 'function') {
       try {
         ctx.markOutlineIndicesDirty(idxArr);
       } catch (err) {
@@ -1440,7 +1460,7 @@
           ctx.log('debug grid markOutlineIndicesDirty failed: ' + err);
         }
       }
-    } else if (typeof globalThis === 'object' && globalThis.__OMNI_DEBUG__) {
+    } else if (useIncremental && typeof globalThis === 'object' && globalThis.__OMNI_DEBUG__) {
       globalThis.__OMNI_DEBUG__.missingOutlineDirty = (globalThis.__OMNI_DEBUG__.missingOutlineDirty || 0) + 1;
     }
     if (typeof ctx.markOutlineTextureFullDirty === 'function') {
@@ -1536,21 +1556,6 @@
         maskValues[idx] = after[i] | 0;
       }
     }
-    const debugHighlightRect = meta && Number.isFinite(meta.imageWidth) && Number.isFinite(meta.imageHeight)
-      ? boundingRectFromIndices(idxArr, meta.imageWidth | 0, meta.imageHeight | 0)
-      : null;
-    const debugApi = typeof global.__OMNI_DEBUG__ === 'object' ? global.__OMNI_DEBUG__ : null;
-    const highlightEnabled = debugApi && Object.prototype.hasOwnProperty.call(debugApi, 'enableFillHighlight')
-      ? Boolean(debugApi.enableFillHighlight)
-      : false;
-    if (debugHighlightRect && highlightEnabled
-      && debugApi && typeof debugApi.highlightFillRect === 'function') {
-      try {
-        debugApi.highlightFillRect(debugHighlightRect);
-      } catch (_) {
-        /* ignore */
-      }
-    }
     if (typeof ctx.pushHistory === 'function') {
       ctx.pushHistory(idxArr, before, after);
     }
@@ -1594,23 +1599,24 @@
       ? totalPixels
       : (maskValues && maskValues.length ? maskValues.length : count);
     const fillsAll = total > 0 && count === total;
-    let affinityUpdated = false;
-    if (typeof ctx.updateAffinityGraphForIndices === 'function') {
-      try {
-        ctx.updateAffinityGraphForIndices(idxArr);
-        affinityUpdated = true;
-      } catch (err) {
-        if (typeof ctx.log === 'function') {
-          ctx.log('debug grid updateAffinityGraphForIndices failed: ' + err);
-        }
-      }
-    }
-    if (!affinityUpdated && typeof ctx.rebuildLocalAffinityGraph === 'function') {
+    let affinityRebuilt = false;
+    const shouldRebuildAffinity = count > 0 && typeof ctx.rebuildLocalAffinityGraph === 'function';
+    if (shouldRebuildAffinity) {
       try {
         ctx.rebuildLocalAffinityGraph();
+        affinityRebuilt = true;
       } catch (err) {
         if (typeof ctx.log === 'function') {
           ctx.log('debug grid rebuildLocalAffinityGraph failed: ' + err);
+        }
+      }
+    }
+    if (!affinityRebuilt && typeof ctx.updateAffinityGraphForIndices === 'function') {
+      try {
+        ctx.updateAffinityGraphForIndices(idxArr);
+      } catch (err) {
+        if (typeof ctx.log === 'function') {
+          ctx.log('debug grid updateAffinityGraphForIndices failed: ' + err);
         }
       }
     }
@@ -1910,8 +1916,12 @@
         }
       };
       if (state.componentTracker) {
-        ensureLabelArrays();
-        state.componentTracker.recordChanges(changedIndices, beforeLabels, afterLabels, ctx);
+        if (LIVE_COMPONENT_TRACKER_BRUSH_UPDATES) {
+          ensureLabelArrays();
+          state.componentTracker.recordChanges(changedIndices, beforeLabels, afterLabels, ctx);
+        } else {
+          state.componentTrackerDirty = true;
+        }
       }
       if (maskPipelineActive()) {
         ensureLabelArrays();
@@ -2008,6 +2018,10 @@
       fillResult.abortReason = 'no-tracker';
       state.lastFillResult = fillResult;
       return;
+    }
+    if (state.componentTrackerDirty && typeof tracker.rebuild === 'function') {
+      tracker.rebuild(ctx);
+      state.componentTrackerDirty = false;
     }
     let component = tracker.componentAt(startIdx, ctx);
     if (!component || !component.indices || component.indices.length === 0) {
@@ -2188,6 +2202,7 @@
       state.componentTracker = createComponentTracker();
     }
     state.componentTracker.rebuild(ctx);
+    state.componentTrackerDirty = false;
   }
 
   function debugForceMaskRefresh() {
@@ -2309,8 +2324,7 @@
       applyDebugGridIfNeeded(true);
     }
   };
-  global.__OMNI_DEBUG__.setFillHighlightEnabled = (value) => {
-    const next = Boolean(value);
-    global.__OMNI_DEBUG__.enableFillHighlight = next;
-  };
 })(typeof window !== 'undefined' ? window : globalThis);
+const LIVE_COMPONENT_TRACKER_BRUSH_UPDATES = false;
+const DEBUG_GRID_BACKGROUND_LABEL = 2;
+const DEBUG_GRID_LINE_LABEL = 1;

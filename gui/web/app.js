@@ -44,7 +44,7 @@ if (typeof window !== 'undefined') {
   const forceGridMask = Boolean(
     CONFIG.debugForceGridMask
     ?? window.__OMNI_FORCE_GRID_MASK__
-    ?? true,
+    ?? false,
   );
   window.__OMNI_FORCE_GRID_MASK__ = forceGridMask;
   if (ENABLE_MASK_PIPELINE_V2) {

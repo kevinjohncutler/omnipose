@@ -2548,7 +2548,10 @@ def random_crop_warp(img, Y, tyx, v1, v2, nchan, rescale, scale_range, gamma_ran
         # print('aa', img[k].min(), img[k].max())
         # imgi[k] = do_warp(utils.rescale(img[k]), M_inv, tyx, order=1, offset=offset, mode=mode)
         has_foreground = np.any(lbl)
-        nvals = len(fastremap.unique(img[k])) # number of unqiue values in the image 
+        if np.issubdtype(img[k].dtype, np.integer):
+            nvals = len(fastremap.unique(img[k])) # number of unique values in the image 
+        else:
+            nvals = len(np.unique(img[k])) # floats must fall back to numpy.unique
         raw_bits = int(np.ceil(np.log2(max(nvals, 1))))
 
         if has_foreground:
