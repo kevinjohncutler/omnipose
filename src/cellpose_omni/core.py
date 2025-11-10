@@ -14,6 +14,7 @@ from omnipose.plot import rgb_flow
 
 import omnipose
 from omnipose.gpu import use_gpu, get_device
+from contextlib import nullcontext
 
 # from multiprocessing import Pool, cpu_count
 # from functools import partial
@@ -844,39 +845,146 @@ class UnetModel():
         return cell_threshold, boundary_threshold
 
     # import gc 
-    def _train_step(self, x, lbl):
-        # X = self._to_device(x)
-        X = x.clone() # is this necessary? 
-        self.optimizer.zero_grad()
-        # https://towardsdatascience.com/optimize-pytorch-performance-for-speed-and-memory-efficiency-2022-84f453916ea6
-        # self.optimizer.zero_grad(set_to_none=True) does nothing 
-        self.net.train() # must put into train mode
+    # def _train_step(self, x, lbl):
+    #     # X = self._to_device(x)
+    #     X = x.clone() # is this necessary? 
+    #     self.optimizer.zero_grad()
+    #     # https://towardsdatascience.com/optimize-pytorch-performance-for-speed-and-memory-efficiency-2022-84f453916ea6
+    #     # self.optimizer.zero_grad(set_to_none=True) does nothing 
+    #     self.net.train() # must put into train mode
         
-        if self.autocast:
-            with autocast(): 
-                y = self.net(X)[0]
-                del X
-                loss, raw_loss = self.loss_fn(lbl,y)
-                del lbl, y 
+    #     if self.autocast:
+    #         with autocast(): 
+    #             y = self.net(X)[0]
+    #             del X
+    #             loss, raw_loss = self.loss_fn(lbl,y)
+    #             del lbl, y 
                 
-            self.scaler.scale(loss).backward()
-            self.scaler.step(self.optimizer) 
-            self.scaler.update()
-        else:
-            y = self.net(X)[0]
-            del X
-            loss, raw_loss = self.loss_fn(lbl,y)
-            del lbl, y
+    #         self.scaler.scale(loss).backward()
+    #         self.scaler.step(self.optimizer) 
+    #         self.scaler.update()
+    #     else:
+    #         y = self.net(X)[0]
+    #         del X
+    #         loss, raw_loss = self.loss_fn(lbl,y)
+    #         del lbl, y
             
-            loss.backward()
-            # clipping the norm of the gradients helps stabilize training with background images
-            total_norm = torch.nn.utils.clip_grad_norm_(self.net.parameters(), max_norm=1.0)
-            # print(f'pre-clip L2-norm = {total_norm:.2f}')
-            self.optimizer.step()
+    #         loss.backward()
+    #         # clipping the norm of the gradients helps stabilize training with background images
+    #         # this does it in-place, returns the norm pre-clip for logging if desired
+    #         pre_clip_norm = torch.nn.utils.clip_grad_norm_(self.net.parameters(), max_norm=1.0)
+    #         # print(f'pre-clip L2-norm = {pre_clip_norm:.2f}')
+    #         self.optimizer.step()
             
-        train_loss = raw_loss.detach() #* len(x) # added detach, probably redundant but trying to fix memory leak 
+    #     train_loss = raw_loss.detach() #* len(x) # added detach, probably redundant but trying to fix memory leak 
 
-        # gc.collect()
+    #     # gc.collect()
+    #     return train_loss
+
+    def _train_step(self, x, lbl, symmetry_weight=1):
+        def sample_op():
+            # sequence of single-axis flips; avoids permutations to target pure reflections
+            return [tuple(-1 if i == axis else 1 for i in range(self.dim))
+                    for axis in range(self.dim)]
+
+        def inverse_perm(perm):
+            inv = [0] * len(perm)
+            for i, p in enumerate(perm):
+                inv[p] = i
+            return tuple(inv)
+
+        def spatial_axes(tensor):
+            start = tensor.ndim - self.dim
+            return list(range(start, tensor.ndim))
+
+        def apply_spatial_transform(tensor, perm, flips):
+            if self.dim == 0:
+                return tensor
+            total_dims = tensor.ndim
+            spatial = list(range(total_dims - self.dim, total_dims))
+            permuted = [spatial[i] for i in perm]
+            order = list(range(total_dims - self.dim)) + permuted
+            tensor = tensor.permute(order)
+            flip_axes = [total_dims - self.dim + i for i, s in enumerate(flips) if s == -1]
+            return torch.flip(tensor, dims=flip_axes) if flip_axes else tensor
+
+        def undo_spatial_transform(tensor, perm, flips):
+            if self.dim == 0:
+                return tensor
+            total_dims = tensor.ndim
+            spatial = list(range(total_dims - self.dim, total_dims))
+            flip_axes = [total_dims - self.dim + i for i, s in enumerate(flips) if s == -1]
+            if flip_axes:
+                tensor = torch.flip(tensor, dims=flip_axes)
+            inv = inverse_perm(perm)
+            permuted = [spatial[i] for i in inv]
+            order = list(range(total_dims - self.dim)) + permuted
+            return tensor.permute(order)
+
+        def realign_flow_channels(flow, perm, flips):
+            if self.dim == 0:
+                return flow
+            inv = inverse_perm(perm)
+            flow = flow[:, list(inv), ...]
+            for ax, s in enumerate(flips):
+                if s == -1:
+                    flow[:, ax] = -flow[:, ax]
+            return flow
+
+        def align_prediction(pred, perm, flips):
+            pred = undo_spatial_transform(pred, perm, flips)
+            if self.dim:
+                pred[:, :self.dim] = realign_flow_channels(pred[:, :self.dim], perm, flips)
+            return pred
+
+        def forward_with_symmetry(batch):
+            y_main = self.net(batch)[0]
+            if symmetry_weight <= 0 or self.dim < 1:
+                return y_main, torch.zeros([], device=self.device)
+            sym_losses = []
+            for flips in sample_op():
+                perm = tuple(range(self.dim))
+                batch_sym = apply_spatial_transform(batch, perm, flips)
+                y_sym = self.net(batch_sym)[0]
+                y_sym = align_prediction(y_sym, perm, flips)
+                # keep both branches “honest” by letting gradients flow through each, no detach on y_main
+                sym_losses.append(self.MSELoss(y_sym, y_main))
+            sym_loss = torch.stack(sym_losses).mean()
+            return y_main, sym_loss
+
+        amp_ctx = autocast if self.autocast else nullcontext
+        scaler = self.scaler if self.autocast else None
+
+        def backward_and_step(total_loss):
+            if scaler:
+                scaled = scaler.scale(total_loss)
+                scaled.backward()
+                scaler.unscale_(self.optimizer)
+            else:
+                total_loss.backward()
+
+            torch.nn.utils.clip_grad_norm_(self.net.parameters(), max_norm=1.0)
+
+            if scaler:
+                scaler.step(self.optimizer)
+                scaler.update()
+            else:
+                self.optimizer.step()
+
+        X = x.clone()
+        self.optimizer.zero_grad()
+        self.net.train()
+
+        with amp_ctx():
+            y, sym_loss = forward_with_symmetry(X)
+            del X
+            loss, raw_loss = self.loss_fn(lbl, y, ext_loss=sym_loss)
+            # print(loss,sym_loss)
+            # loss = loss + symmetry_weight * sym_loss
+
+        backward_and_step(loss)
+
+        train_loss = raw_loss.detach()
         return train_loss
 
     def _test_eval(self, x, lbl):
@@ -1079,6 +1187,16 @@ class UnetModel():
             torch.multiprocessing.set_start_method('fork', force=True) 
             training_set = omnipose.data.train_set(train_data, train_labels, train_links, **kwargs)       
 
+            if num_workers > 0:
+                core_logger.info('>>>> Warming up dataloader transforms (compiling JIT kernels once on parent).')
+                np_state = np.random.get_state()
+                torch_state = torch.get_rng_state()
+                try:
+                    _ = training_set[0]
+                finally:
+                    np.random.set_state(np_state)
+                    torch.set_rng_state(torch_state)
+
             # reproducible batches 
             torch.manual_seed(42)
             
@@ -1102,6 +1220,7 @@ class UnetModel():
                 pin_memory=True,
                 persistent_workers=True,
                 prefetch_factor=8,
+                worker_init_fn=training_set.worker_init_fn,
             )
             
             train_loader = torch.utils.data.DataLoader(training_set, **params)
@@ -1325,4 +1444,3 @@ class UnetModel():
         self.net.mkldnn = self.mkldnn
 
         return file_name
-

@@ -41,6 +41,12 @@ const DEBUG_STATE_SAVE = Boolean(
 );
 if (typeof window !== 'undefined') {
   window.__OMNI_FILL_DEBUG__ = DEBUG_FILL_PERF;
+  const forceGridMask = Boolean(
+    CONFIG.debugForceGridMask
+    ?? window.__OMNI_FORCE_GRID_MASK__
+    ?? true,
+  );
+  window.__OMNI_FORCE_GRID_MASK__ = forceGridMask;
   if (ENABLE_MASK_PIPELINE_V2) {
     window.__OMNI_MASK_PIPELINE_V2__ = true;
   }
@@ -127,6 +133,8 @@ const AFFINITY_DRAW_LOG_INTERVAL = 30;
 let affinityDrawLogCounter = 0;
 let webglUnavailableNotified = false;
 const dropOverlay = document.getElementById('dropOverlay');
+let debugFillOverlay = null;
+let debugFillOverlayHideTimer = null;
 if (viewer) {
   viewer.setAttribute('tabindex', '0');
   const focusViewer = () => {
@@ -140,6 +148,18 @@ if (viewer) {
   viewer.addEventListener('touchstart', focusViewer, { passive: true });
   viewer.addEventListener('pointerdown', focusViewer);
   focusViewer();
+  debugFillOverlay = document.createElement('div');
+  Object.assign(debugFillOverlay.style, {
+    position: 'absolute',
+    border: '2px solid rgba(0, 196, 255, 0.85)',
+    background: 'rgba(0, 196, 255, 0.2)',
+    pointerEvents: 'none',
+    zIndex: 60,
+    display: 'none',
+    opacity: '0',
+    transition: 'opacity 0.2s ease',
+  });
+  viewer.appendChild(debugFillOverlay);
 }
 if (canvas) {
   canvas.setAttribute('tabindex', '0');
@@ -261,6 +281,8 @@ let isRestoringState = false;
 const imageInfo = document.getElementById('imageInfo');
 let webglPipeline = null;
 let webglPipelineReady = false;
+let pendingMaskTextureFull = false;
+let pendingOutlineTextureFull = false;
 const maskDirtyRegions = [];
 const outlineDirtyRegions = [];
 let maskTextureFullDirty = false;
@@ -357,8 +379,36 @@ const USE_COALESCED_EVENTS = true;
 const THROTTLE_DRAW_DURING_PAINT = true;
 let paintingFrameScheduled = false;
 let needsMaskRedraw = false;
+const DEBUG_COUNTERS = {
+  draw: 0,
+  requestPaintFrame: 0,
+  flushMaskTextureUpdates: 0,
+  applyMaskRedrawImmediate: 0,
+};
+const DEBUG_DIRTY_TRACKER = {
+  maskCalls: 0,
+  maskLastCount: 0,
+  maskLastRect: null,
+  maskFullDirtyTransitions: 0,
+  maskPendingRegions: 0,
+  maskUploads: 0,
+  maskLastUploadRect: null,
+  outlineCalls: 0,
+  outlineLastCount: 0,
+  outlineLastRect: null,
+  outlineFullDirtyTransitions: 0,
+  outlinePendingRegions: 0,
+  outlineUploads: 0,
+  outlineLastUploadRect: null,
+  flushCalls: 0,
+  lastFlushUsedFullMask: false,
+  lastFlushMaskRegions: 0,
+  lastFlushUsedFullOutline: false,
+  lastFlushOutlineRegions: 0,
+};
 
 function requestPaintFrame() {
+  DEBUG_COUNTERS.requestPaintFrame += 1;
   if (!THROTTLE_DRAW_DURING_PAINT) {
     if (typeof paintingApi.flushPendingAffinityUpdates === 'function') {
       paintingApi.flushPendingAffinityUpdates();
@@ -400,6 +450,7 @@ function isWebglPipelineActive() {
 }
 
 function applyMaskRedrawImmediate() {
+  DEBUG_COUNTERS.applyMaskRedrawImmediate += 1;
   if (!needsMaskRedraw) {
     return;
   }
@@ -664,24 +715,55 @@ function appendDirtyRect(list, rect) {
 }
 
 function markMaskTextureFullDirty() {
+  DEBUG_DIRTY_TRACKER.maskFullDirtyTransitions += 1;
   if (!isWebglPipelineActive()) {
+    pendingMaskTextureFull = true;
+    needsMaskRedraw = true;
     return;
   }
+  pendingMaskTextureFull = false;
   maskTextureFullDirty = true;
   maskDirtyRegions.length = 0;
+  DEBUG_DIRTY_TRACKER.maskPendingRegions = 0;
   needsMaskRedraw = true;
 }
 
 function markOutlineTextureFullDirty() {
+  DEBUG_DIRTY_TRACKER.outlineFullDirtyTransitions += 1;
   if (!isWebglPipelineActive()) {
+    pendingOutlineTextureFull = true;
+    needsMaskRedraw = true;
     return;
   }
+  pendingOutlineTextureFull = false;
   outlineTextureFullDirty = true;
   outlineDirtyRegions.length = 0;
+  DEBUG_DIRTY_TRACKER.outlinePendingRegions = 0;
   needsMaskRedraw = true;
 }
 
+function applyPendingFullTextureUpdates() {
+  if (!isWebglPipelineActive()) {
+    return;
+  }
+  if (pendingMaskTextureFull) {
+    pendingMaskTextureFull = false;
+    maskTextureFullDirty = true;
+    maskDirtyRegions.length = 0;
+    needsMaskRedraw = true;
+  }
+  if (pendingOutlineTextureFull) {
+    pendingOutlineTextureFull = false;
+    outlineTextureFullDirty = true;
+    outlineDirtyRegions.length = 0;
+    needsMaskRedraw = true;
+  }
+}
+
 function markMaskIndicesDirty(indices) {
+  DEBUG_DIRTY_TRACKER.maskCalls += 1;
+  DEBUG_DIRTY_TRACKER.maskLastCount = indices && typeof indices.length === 'number' ? (indices.length | 0) : 0;
+  DEBUG_DIRTY_TRACKER.maskLastRect = null;
   if (!isWebglPipelineActive()) {
     redrawMaskCanvas();
     return;
@@ -694,6 +776,7 @@ function markMaskIndicesDirty(indices) {
   if (!rect) {
     return;
   }
+  DEBUG_DIRTY_TRACKER.maskLastRect = Object.assign({}, rect);
   const area = rect.width * rect.height;
   const totalArea = Math.max(1, imgWidth * imgHeight);
   if (area >= totalArea * 0.8) {
@@ -701,10 +784,14 @@ function markMaskIndicesDirty(indices) {
     return;
   }
   appendDirtyRect(maskDirtyRegions, rect);
+  DEBUG_DIRTY_TRACKER.maskPendingRegions = maskDirtyRegions.length;
   needsMaskRedraw = true;
 }
 
 function markOutlineIndicesDirty(indices) {
+  DEBUG_DIRTY_TRACKER.outlineCalls += 1;
+  DEBUG_DIRTY_TRACKER.outlineLastCount = indices && typeof indices.length === 'number' ? (indices.length | 0) : 0;
+  DEBUG_DIRTY_TRACKER.outlineLastRect = null;
   if (!isWebglPipelineActive()) {
     redrawMaskCanvas();
     return;
@@ -717,6 +804,7 @@ function markOutlineIndicesDirty(indices) {
   if (!rect) {
     return;
   }
+  DEBUG_DIRTY_TRACKER.outlineLastRect = Object.assign({}, rect);
   const area = rect.width * rect.height;
   const totalArea = Math.max(1, imgWidth * imgHeight);
   if (area >= totalArea * 0.8) {
@@ -724,6 +812,7 @@ function markOutlineIndicesDirty(indices) {
     return;
   }
   appendDirtyRect(outlineDirtyRegions, rect);
+  DEBUG_DIRTY_TRACKER.outlinePendingRegions = outlineDirtyRegions.length;
   needsMaskRedraw = true;
 }
 
@@ -784,6 +873,8 @@ function uploadMaskRegion(rect) {
   gl.bindTexture(gl.TEXTURE_2D, webglPipeline.maskTexture);
   gl.texSubImage2D(gl.TEXTURE_2D, 0, rect.x, rect.y, rect.width, rect.height, gl.RG, gl.UNSIGNED_BYTE, buffer.subarray(0, area * 2));
   gl.bindTexture(gl.TEXTURE_2D, null);
+  DEBUG_DIRTY_TRACKER.maskUploads += 1;
+  DEBUG_DIRTY_TRACKER.maskLastUploadRect = Object.assign({}, rect);
 }
 
 function uploadOutlineRegion(rect) {
@@ -808,6 +899,8 @@ function uploadOutlineRegion(rect) {
   gl.bindTexture(gl.TEXTURE_2D, webglPipeline.outlineTexture);
   gl.texSubImage2D(gl.TEXTURE_2D, 0, rect.x, rect.y, rect.width, rect.height, gl.RED, gl.UNSIGNED_BYTE, buffer.subarray(0, area));
   gl.bindTexture(gl.TEXTURE_2D, null);
+  DEBUG_DIRTY_TRACKER.outlineUploads += 1;
+  DEBUG_DIRTY_TRACKER.outlineLastUploadRect = Object.assign({}, rect);
 }
 
 function uploadFullMaskTexture() {
@@ -821,6 +914,8 @@ function uploadFullMaskTexture() {
     height: imgHeight,
   });
   maskTextureFullDirty = false;
+  DEBUG_DIRTY_TRACKER.maskUploads += 1;
+  DEBUG_DIRTY_TRACKER.maskLastUploadRect = { x: 0, y: 0, width: imgWidth, height: imgHeight };
 }
 
 function uploadFullOutlineTexture() {
@@ -834,33 +929,50 @@ function uploadFullOutlineTexture() {
     height: imgHeight,
   });
   outlineTextureFullDirty = false;
+  DEBUG_DIRTY_TRACKER.outlineUploads += 1;
+  DEBUG_DIRTY_TRACKER.outlineLastUploadRect = { x: 0, y: 0, width: imgWidth, height: imgHeight };
 }
 
 function flushMaskTextureUpdates() {
+  DEBUG_COUNTERS.flushMaskTextureUpdates += 1;
+  DEBUG_DIRTY_TRACKER.flushCalls += 1;
+  applyPendingFullTextureUpdates();
   if (!isWebglPipelineActive()) {
     return;
   }
   if (!webglPipeline || !webglPipeline.gl) {
     return;
   }
+  const usedFullMask = maskTextureFullDirty;
+  const usedFullOutline = outlineTextureFullDirty;
+  const maskRegionsBefore = maskDirtyRegions.length;
+  const outlineRegionsBefore = outlineDirtyRegions.length;
   if (maskTextureFullDirty) {
     uploadFullMaskTexture();
     maskDirtyRegions.length = 0;
+    DEBUG_DIRTY_TRACKER.maskPendingRegions = 0;
   } else {
     for (let i = 0; i < maskDirtyRegions.length; i += 1) {
       uploadMaskRegion(maskDirtyRegions[i]);
     }
     maskDirtyRegions.length = 0;
+    DEBUG_DIRTY_TRACKER.maskPendingRegions = 0;
   }
   if (outlineTextureFullDirty) {
     uploadFullOutlineTexture();
     outlineDirtyRegions.length = 0;
+    DEBUG_DIRTY_TRACKER.outlinePendingRegions = 0;
   } else {
     for (let i = 0; i < outlineDirtyRegions.length; i += 1) {
       uploadOutlineRegion(outlineDirtyRegions[i]);
     }
     outlineDirtyRegions.length = 0;
+    DEBUG_DIRTY_TRACKER.outlinePendingRegions = 0;
   }
+  DEBUG_DIRTY_TRACKER.lastFlushUsedFullMask = usedFullMask;
+  DEBUG_DIRTY_TRACKER.lastFlushMaskRegions = maskRegionsBefore;
+  DEBUG_DIRTY_TRACKER.lastFlushUsedFullOutline = usedFullOutline;
+  DEBUG_DIRTY_TRACKER.lastFlushOutlineRegions = outlineRegionsBefore;
 }
 
 const PIPELINE_VERTEX_SHADER = `#version 300 es
@@ -1140,8 +1252,11 @@ const texCoords = new Float32Array([
     }
   }
   webglPipelineReady = true;
+  applyPendingFullTextureUpdates();
   markMaskTextureFullDirty();
   markOutlineTextureFullDirty();
+  applyMaskRedrawImmediate();
+  draw();
   ensureWebglOverlayReady();
   if (flowOverlayImage && flowOverlayImage.complete) {
     updateOverlayTexture('flow', flowOverlayImage);
@@ -2526,6 +2641,109 @@ const paintingInitOptions = {
   enableMaskPipelineV2: ENABLE_MASK_PIPELINE_V2,
 };
 let paintingInitApplied = false;
+let debugGridBootstrapped = false;
+
+function logDebugGridStatus(reason) {
+  if (!paintingApi || typeof paintingApi.__debugGetState !== 'function') {
+    return;
+  }
+  try {
+    const state = paintingApi.__debugGetState();
+    const ctx = state && state.ctx;
+    if (!ctx || !ctx.maskValues) {
+      console.log('[debug-grid]', reason, 'no ctx/mask');
+      return;
+    }
+    const mask = ctx.maskValues;
+    let nonZero = 0;
+    for (let i = 0; i < mask.length; i += 1) {
+      if ((mask[i] | 0) > 0) {
+        nonZero += 1;
+      }
+    }
+    console.log('[debug-grid]', reason, {
+      total: mask.length,
+      nonZero,
+      trackerReady: Boolean(state.componentTracker && state.componentTracker.components),
+      affinityInfo: typeof window.__OMNI_DEBUG__ === 'object' && window.__OMNI_DEBUG__
+        && typeof window.__OMNI_DEBUG__.getAffinityInfo === 'function'
+        ? window.__OMNI_DEBUG__.getAffinityInfo()
+        : null,
+    });
+  } catch (err) {
+    console.log('[debug-grid]', reason, 'error', err);
+  }
+}
+
+function ensureDebugGridBootstrap() {
+  if (!window.__OMNI_FORCE_GRID_MASK__ || debugGridBootstrapped) {
+    return;
+  }
+  if (!paintingApi || typeof paintingApi.__debugGetState !== 'function') {
+    return;
+  }
+  const paintingState = paintingApi.__debugGetState();
+  if (!paintingState || !paintingState.ctx) {
+    return;
+  }
+  const ctx = paintingState.ctx;
+  const execute = () => {
+    if (paintingState.componentTracker && typeof paintingState.componentTracker.rebuild === 'function') {
+      try {
+        paintingState.componentTracker.rebuild(ctx);
+      } catch (err) {
+        log('debug grid tracker bootstrap failed', err);
+      }
+    }
+    try {
+      rebuildLocalAffinityGraph();
+    } catch (err) {
+      log('debug grid affinity bootstrap failed', err);
+    }
+    if (typeof markAffinityGeometryDirty === 'function') {
+      markAffinityGeometryDirty();
+    }
+    markMaskTextureFullDirty();
+    markOutlineTextureFullDirty();
+    needsMaskRedraw = true;
+    if (typeof ctx.scheduleStateSave === 'function') {
+      try {
+        ctx.scheduleStateSave();
+      } catch (err) {
+        log('debug grid bootstrap scheduleStateSave failed', err);
+      }
+    }
+    try {
+      requestPaintFrame();
+    } catch (err) {
+      if (err && /nColorActive/.test(String(err))) {
+        if (typeof setTimeout === 'function') {
+          setTimeout(() => {
+            try { requestPaintFrame(); } catch (_) { /* ignore */ }
+          }, 0);
+        }
+      } else {
+        throw err;
+      }
+    }
+    if (window.__OMNI_DEBUG__) {
+      window.__OMNI_DEBUG__.gridBootstrapCompleted = true;
+    }
+  };
+  debugGridBootstrapped = true;
+  if (typeof setTimeout === 'function') {
+    setTimeout(execute, 0);
+    setTimeout(() => logDebugGridStatus('post-bootstrap'), 1000);
+  } else if (typeof requestAnimationFrame === 'function') {
+    requestAnimationFrame(() => {
+      execute();
+      logDebugGridStatus('post-bootstrap-ra');
+    });
+  } else {
+    execute();
+    logDebugGridStatus('post-bootstrap-sync');
+  }
+}
 function applyPaintingInit() {
   if (paintingInitApplied) {
     return true;
@@ -2536,6 +2754,11 @@ function applyPaintingInit() {
   try {
     paintingApi.init(paintingInitOptions);
     paintingInitApplied = true;
+    if (typeof setTimeout === 'function') {
+      setTimeout(() => ensureDebugGridBootstrap(), 0);
+    } else {
+      ensureDebugGridBootstrap();
+    }
   } catch (err) {
     console.warn('OmniPainting init failed', err);
   }
@@ -2556,6 +2779,115 @@ if (!applyPaintingInit()) {
       applyPaintingInit();
     },
   });
+}
+
+if (typeof window !== 'undefined') {
+  window.__OMNI_DEBUG__ = window.__OMNI_DEBUG__ || {};
+  window.__OMNI_DEBUG__.walkGridFill = async function walkGridFill(options = {}) {
+    const painting = window.OmniPainting;
+    if (!painting || typeof painting.__debugGetState !== 'function') {
+      throw new Error('OmniPainting debug state unavailable');
+    }
+    const state = painting.__debugGetState();
+    const ctx = state.ctx;
+    if (!ctx || !ctx.maskValues || typeof ctx.getImageDimensions !== 'function') {
+      throw new Error('Painting context missing required helpers');
+    }
+    const dims = ctx.getImageDimensions();
+    const width = dims.width | 0;
+    const height = dims.height | 0;
+    if (options.forceGrid && typeof painting.__debugApplyGridIfNeeded === 'function') {
+      painting.__debugApplyGridIfNeeded(true);
+      await new Promise((resolve) => setTimeout(resolve, options.settleDelay || 50));
+    }
+    const mask = ctx.maskValues;
+    const visited = new Set();
+    const components = [];
+    for (let y = 0; y < height; y += 1) {
+      for (let x = 0; x < width; x += 1) {
+        const idx = y * width + x;
+        if ((mask[idx] | 0) !== 0 || visited.has(idx)) {
+          continue;
+        }
+        const comp = [];
+        const queue = [idx];
+        visited.add(idx);
+        while (queue.length) {
+          const current = queue.pop();
+          if ((mask[current] | 0) !== 0) {
+            continue;
+          }
+          comp.push(current);
+          const cx = current % width;
+          const cy = (current / width) | 0;
+          const neighbors = [
+            cy > 0 ? current - width : -1,
+            cy < height - 1 ? current + width : -1,
+            cx > 0 ? current - 1 : -1,
+            cx < width - 1 ? current + 1 : -1,
+          ];
+          for (const n of neighbors) {
+            if (n >= 0 && !visited.has(n)) {
+              visited.add(n);
+              queue.push(n);
+            }
+          }
+        }
+        if (comp.length) {
+          components.push(comp);
+        }
+      }
+    }
+    const fastMode = Boolean(options.fast || options.instant || options.noDelay);
+    const delay = fastMode
+      ? 0
+      : (Number.isFinite(options.delay) ? Math.max(0, options.delay) : 35);
+    const useAnimationFrameDelay = !fastMode && delay <= 0 && typeof requestAnimationFrame === 'function';
+    const results = [];
+    for (let tile = 0; tile < components.length; tile += 1) {
+      const comp = components[tile];
+      const sampleIdx = comp[Math.floor(comp.length / 2)] | 0;
+      const sx = sampleIdx % width;
+      const sy = (sampleIdx / width) | 0;
+      const maskBefore = ctx.maskValues[sampleIdx] | 0;
+      ctx.setCurrentLabel(1);
+      painting.floodFill({ x: sx, y: sy });
+      if (fastMode && typeof requestAnimationFrame === 'function') {
+        await new Promise((resolve) => requestAnimationFrame(() => resolve()));
+      } else if (!fastMode) {
+        if (useAnimationFrameDelay) {
+          await new Promise((resolve) => requestAnimationFrame(() => resolve()));
+        } else {
+          await new Promise((resolve) => setTimeout(resolve, delay));
+        }
+      }
+      let failures = 0;
+      for (let i = 0; i < comp.length; i += 1) {
+        const idx = comp[i] | 0;
+        if ((ctx.maskValues[idx] | 0) !== 1) {
+          failures += 1;
+        }
+      }
+      const lastResult = painting.__debugGetState().lastFillResult;
+      const entry = {
+        tile,
+        componentSize: comp.length,
+        sample: { x: sx, y: sy, idx: sampleIdx },
+        failures,
+        lastFill: lastResult ? Object.assign({}, lastResult) : null,
+        finalizeCount: state && typeof state.finalizeCallCount === 'number'
+          ? state.finalizeCallCount
+          : null,
+        maskBefore,
+      };
+      console.log('[debug-walk-grid]', entry);
+      results.push(entry);
+      if (failures > 0) {
+        break;
+      }
+    }
+    return results;
+  };
 }
 window.OmniInteractions = window.OmniInteractions || {};
 const interactionsApi = window.OmniInteractions;
@@ -3530,6 +3862,13 @@ function restoreViewerState(saved) {
       maskValues.fill(0);
       maskHasNonZero = false;
     }
+    if (window.OmniPainting && typeof window.OmniPainting.__debugApplyGridIfNeeded === 'function') {
+      try {
+        window.OmniPainting.__debugApplyGridIfNeeded(false);
+      } catch (err) {
+        console.warn('debug grid reapply after restore failed', err);
+      }
+    }
     if (saved.outline) {
       const outlineBytes = decodeBase64ToUint8(saved.outline);
       if (outlineBytes.length === outlineState.length) {
@@ -3644,6 +3983,7 @@ function restoreViewerState(saved) {
     isRestoringState = false;
   }
   rebuildLocalAffinityGraph();
+  logDebugGridStatus('after-restore');
   if (webglOverlay && webglOverlay.enabled) {
     webglOverlay.needsGeometryRebuild = true;
   }
@@ -5034,6 +5374,13 @@ function rebuildLocalAffinityGraph() {
   };
   buildAffinityGraphSegments();
   rebuildOutlineFromAffinity();
+  if (typeof window !== 'undefined' && window.__OMNI_DEBUG__) {
+    window.__OMNI_DEBUG__.lastLocalAffinityBuild = {
+      stepCount: affinitySteps.length | 0,
+      hasValues: Boolean(values && values.length),
+      nonZero: values ? values.some((v) => v !== 0) : false,
+    };
+  }
   if (webglOverlay && webglOverlay.enabled) {
     webglOverlay.needsGeometryRebuild = true;
   }
@@ -5709,6 +6056,7 @@ function ensureAffinityTouchedStorage(length) {
 }
 
 function draw() {
+  DEBUG_COUNTERS.draw += 1;
   if (shuttingDown) {
     return;
   }
@@ -5943,6 +6291,33 @@ function imageToScreen(point) {
   };
 }
 
+
+function showDebugFillOverlay(rect) {
+  if (!debugFillOverlay || !rect) {
+    return;
+  }
+  const topLeft = imageToScreen({ x: rect.x, y: rect.y });
+  const bottomRight = imageToScreen({ x: rect.x + rect.width, y: rect.y + rect.height });
+  const width = Math.max(1, bottomRight.x - topLeft.x);
+  const height = Math.max(1, bottomRight.y - topLeft.y);
+  debugFillOverlay.style.display = 'block';
+  debugFillOverlay.style.opacity = '1';
+  debugFillOverlay.style.transform = `translate(${topLeft.x}px, ${topLeft.y}px)`;
+  debugFillOverlay.style.width = `${width}px`;
+  debugFillOverlay.style.height = `${height}px`;
+  if (debugFillOverlayHideTimer) {
+    clearTimeout(debugFillOverlayHideTimer);
+  }
+  debugFillOverlayHideTimer = setTimeout(() => {
+    debugFillOverlay.style.opacity = '0';
+    debugFillOverlayHideTimer = setTimeout(() => {
+      if (debugFillOverlay) {
+        debugFillOverlay.style.display = 'none';
+      }
+    }, 220);
+  }, 150);
+}
+
 function resolveGestureOrigin(evt) {
   if (!canvas) {
     return { x: 0, y: 0 };
@@ -6110,6 +6485,17 @@ function generateSinebowPalette(size, offset = 0) {
 defaultPalette = generateSinebowPalette(Math.max(colorTable.length || 0, 256), 0.0);
 // N-color palette is large enough; groups come from backend ncolor.label
 nColorPalette = generateSinebowPalette(Math.max(colorTable.length || 0, 1024), 0.35);
+
+let nColorActive = false;
+let nColorValues = null; // per-pixel group IDs for N-color display only
+// Single authoritative mask buffer: maskValues always holds instance labels.
+const rawColorMap = new Map();
+const nColorColorMap = new Map();
+// Legacy assignment structures retained but unused with single-buffer model
+const nColorAssignments = new Map();
+const nColorColorToLabel = new Map();
+let nColorMaxColorId = 0;
+let lastLabelBeforeNColor = null;
 
 function hashColorForLabel(label) {
   const golden = 0.61803398875;
@@ -6608,16 +6994,6 @@ function debugAffinity(message) {
 let lastRebuildTime = 0;
 let INTERACTIVE_REBUILD_INTERVAL = 120;
 let lastRebuildDuration = 120;
-let nColorActive = false;
-let nColorValues = null; // per-pixel group IDs for N-color display only
-// Single authoritative mask buffer: maskValues always holds instance labels.
-const rawColorMap = new Map();
-const nColorColorMap = new Map();
-// Legacy assignment structures retained but unused with single-buffer model
-const nColorAssignments = new Map();
-const nColorColorToLabel = new Map();
-let nColorMaxColorId = 0;
-let lastLabelBeforeNColor = null;
 
 // Incremental painting pipeline
 // immediate redraw path (no incremental mask pipeline)
@@ -8048,4 +8424,174 @@ window.addEventListener('beforeunload', () => {
   shuttingDown = true;
   clearLogQueue();
 });
+
+if (typeof window !== 'undefined') {
+  window.__OMNI_DEBUG__ = window.__OMNI_DEBUG__ || {};
+  window.__OMNI_DEBUG__.getCounters = () => ({
+    draw: DEBUG_COUNTERS.draw,
+    requestPaintFrame: DEBUG_COUNTERS.requestPaintFrame,
+    flushMaskTextureUpdates: DEBUG_COUNTERS.flushMaskTextureUpdates,
+    applyMaskRedrawImmediate: DEBUG_COUNTERS.applyMaskRedrawImmediate,
+  });
+  window.__OMNI_DEBUG__.resetCounters = () => {
+    DEBUG_COUNTERS.draw = 0;
+    DEBUG_COUNTERS.requestPaintFrame = 0;
+    DEBUG_COUNTERS.flushMaskTextureUpdates = 0;
+    DEBUG_COUNTERS.applyMaskRedrawImmediate = 0;
+  };
+  window.__OMNI_DEBUG__.initializeWebglPipelineResources = (imageSource = null) => {
+    initializeWebglPipelineResources(imageSource);
+  };
+  window.__OMNI_DEBUG__.markMaskTextureFullDirty = () => {
+    markMaskTextureFullDirty();
+  };
+  window.__OMNI_DEBUG__.markOutlineTextureFullDirty = () => {
+    markOutlineTextureFullDirty();
+  };
+  window.__OMNI_DEBUG__.applyMaskRedrawImmediate = () => {
+    applyMaskRedrawImmediate();
+  };
+  window.__OMNI_DEBUG__.requestPaintFrame = () => {
+    requestPaintFrame();
+  };
+  window.__OMNI_DEBUG__.draw = () => {
+    draw();
+  };
+  window.__OMNI_DEBUG__.isWebglPipelineActive = () => isWebglPipelineActive();
+  window.__OMNI_DEBUG__.getMaskUploadState = () => ({
+    isWebglPipelineActive: isWebglPipelineActive(),
+    webglPipelineReady,
+    needsMaskRedraw,
+    maskTextureFullDirty,
+    pendingMaskTextureFull,
+    maskDirtyRegionCount: maskDirtyRegions.length,
+    maskDirtyRegionsPreview: maskDirtyRegions.slice(0, 6),
+    outlineTextureFullDirty,
+    pendingOutlineTextureFull,
+    outlineDirtyRegionCount: outlineDirtyRegions.length,
+    outlineDirtyRegionsPreview: outlineDirtyRegions.slice(0, 6),
+  });
+  window.__OMNI_DEBUG__.collectFillDiagnostics = (index = null) => {
+    const painting = window.OmniPainting;
+    const state = painting && typeof painting.__debugGetState === 'function'
+      ? painting.__debugGetState()
+      : null;
+    const ctx = state ? state.ctx : null;
+    const startIdx = Number.isFinite(index)
+      ? (index | 0)
+      : (state && state.lastFillResult ? state.lastFillResult.startIdx | 0 : null);
+    const maskValue = (ctx && Number.isFinite(startIdx) && startIdx >= 0 && startIdx < ctx.maskValues.length)
+      ? ctx.maskValues[startIdx] | 0
+      : null;
+    const undoStack = window.OmniHistory && typeof window.OmniHistory.getUndoStack === 'function'
+      ? window.OmniHistory.getUndoStack()
+      : [];
+    const latestUndo = undoStack && undoStack.length ? undoStack[undoStack.length - 1] : null;
+    const report = {
+      index: startIdx,
+      maskValue,
+      lastFillResult: state ? state.lastFillResult || null : null,
+      latestUndo: latestUndo
+        ? {
+          indicesLength: latestUndo.indices ? latestUndo.indices.length : 0,
+          beforeSample: latestUndo.before ? latestUndo.before[0] : null,
+          afterSample: latestUndo.after ? latestUndo.after[0] : null,
+        }
+        : null,
+      counters: window.__OMNI_DEBUG__.getCounters ? window.__OMNI_DEBUG__.getCounters() : null,
+      uploadState: window.__OMNI_DEBUG__.getMaskUploadState ? window.__OMNI_DEBUG__.getMaskUploadState() : null,
+      forceGridMask: Boolean(window.__OMNI_FORCE_GRID_MASK__),
+    dirtyTracker: Object.assign({}, DEBUG_DIRTY_TRACKER),
+    ctxFlags: ctx
+      ? {
+        hasMarkMaskTextureFullDirty: typeof ctx.markMaskTextureFullDirty === 'function',
+        hasMarkOutlineTextureFullDirty: typeof ctx.markOutlineTextureFullDirty === 'function',
+        hasMarkNeedsMaskRedraw: typeof ctx.markNeedsMaskRedraw === 'function',
+        hasRequestPaintFrame: typeof ctx.requestPaintFrame === 'function',
+        hasMarkMaskIndicesDirty: typeof ctx.markMaskIndicesDirty === 'function',
+        hasMarkOutlineIndicesDirty: typeof ctx.markOutlineIndicesDirty === 'function',
+        isWebglPipelineActive: typeof ctx.isWebglPipelineActive === 'function'
+          ? Boolean(ctx.isWebglPipelineActive())
+          : null,
+      }
+      : null,
+      viewerState: {
+        maskVisible,
+        maskOpacity,
+        outlinesVisible,
+        imageVisible,
+        showFlowOverlay,
+        showDistanceOverlay,
+        scale: viewState.scale,
+        offsetX: viewState.offsetX,
+        offsetY: viewState.offsetY,
+        rotation: viewState.rotation,
+      },
+    paintingDiagnostics: {
+      missingMaskDirty: (typeof globalThis === 'object' && globalThis.__OMNI_DEBUG__)
+        ? (globalThis.__OMNI_DEBUG__.missingMaskDirty || 0)
+        : 0,
+      missingOutlineDirty: (typeof globalThis === 'object' && globalThis.__OMNI_DEBUG__)
+        ? (globalThis.__OMNI_DEBUG__.missingOutlineDirty || 0)
+        : 0,
+    },
+      finalizeCallCount: state && typeof state.finalizeCallCount === 'number'
+        ? state.finalizeCallCount
+        : 0,
+      finalizeHistory: (typeof globalThis === 'object' && globalThis.__OMNI_DEBUG__ && globalThis.__OMNI_DEBUG__.finalizeHistory)
+        ? globalThis.__OMNI_DEBUG__.finalizeHistory.slice(-8)
+        : null,
+  };
+    console.log('[debug-fill-report]', report);
+    return report;
+  };
+  window.__OMNI_DEBUG__.summarizeDirtyRegions = () => ({
+    maskDirtyRegionCount: maskDirtyRegions.length,
+    maskDirtyRegions: maskDirtyRegions.map((rect) => Object.assign({}, rect)),
+    outlineDirtyRegionCount: outlineDirtyRegions.length,
+    outlineDirtyRegions: outlineDirtyRegions.map((rect) => Object.assign({}, rect)),
+    needsMaskRedraw,
+    maskTextureFullDirty,
+    outlineTextureFullDirty,
+    dirtyTracker: Object.assign({}, DEBUG_DIRTY_TRACKER),
+  });
+  window.__OMNI_DEBUG__.getDirtyTracker = () => Object.assign({}, DEBUG_DIRTY_TRACKER);
+  window.__OMNI_DEBUG__.highlightFillRect = (rect) => {
+    showDebugFillOverlay(rect);
+  };
+  window.__OMNI_DEBUG__.hashColor = (label) => {
+    const golden = 0.61803398875;
+    const t = ((label * golden) % 1 + 1) % 1;
+    const angle = Math.PI * 2 * t;
+    const r = Math.sin(angle) * 0.5 + 0.5;
+    const g = Math.sin(angle + 2.09439510239) * 0.5 + 0.5;
+    const b = Math.sin(angle + 4.18879020479) * 0.5 + 0.5;
+    return [Math.round(r * 255), Math.round(g * 255), Math.round(b * 255)];
+  };
+  window.__OMNI_DEBUG__.resetWebglPipeline = () => {
+    if (webglPipeline && webglPipeline.gl) {
+      try {
+        webglPipeline.gl.bindVertexArray(null);
+      } catch (_) {
+        /* ignore */
+      }
+    }
+    webglPipeline = null;
+    webglPipelineReady = false;
+    pendingMaskTextureFull = false;
+    pendingOutlineTextureFull = false;
+    maskTextureFullDirty = false;
+    outlineTextureFullDirty = false;
+    maskDirtyRegions.length = 0;
+    outlineDirtyRegions.length = 0;
+    needsMaskRedraw = false;
+  };
+  window.__OMNI_DEBUG__.getAffinityInfo = () => ({
+    hasGraph: Boolean(affinityGraphInfo && affinityGraphInfo.values && affinityGraphInfo.values.length),
+    stepCount: affinityGraphInfo ? affinityGraphInfo.stepCount | 0 : 0,
+    nonZeroEdges: affinityGraphInfo && affinityGraphInfo.values ? affinityGraphInfo.values.some((v) => v !== 0) : false,
+    showAffinityGraph,
+    lastLocalAffinityBuild: window.__OMNI_DEBUG__.lastLocalAffinityBuild || null,
+  });
+}
 // no incremental rebuild method; geometry rebuilds in ensureWebglGeometry

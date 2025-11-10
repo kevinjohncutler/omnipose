@@ -1,3 +1,4 @@
+import os
 import torch
 import numpy as np
 import time
@@ -468,8 +469,16 @@ class train_set(torch.utils.data.Dataset):
 
     
     def worker_init_fn(self,worker_id):
-        worker_seed = torch.initial_seed() % 2**32
+        # keep seeding deterministic and clamp worker BLAS threads to 1 so each process
+        # stays single-threaded (avoids CPU thrash when DataLoader spins up many workers)
+        worker_seed = torch.initial_seed() % 2**32  # derive reproducible per-worker seed from torch's RNG, convert from 64-bit to 32-bit
         np.random.seed(worker_seed)
+        torch.set_num_threads(1)
+        torch.set_num_interop_threads(1)
+        os.environ["OMP_NUM_THREADS"] = "1"
+        os.environ["MKL_NUM_THREADS"] = "1"
+        os.environ["OPENBLAS_NUM_THREADS"] = "1"
+        os.environ["NUMEXPR_NUM_THREADS"] = "1"
         
         
     def __len__(self):

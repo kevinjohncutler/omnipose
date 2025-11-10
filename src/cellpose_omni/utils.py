@@ -394,7 +394,7 @@ def stitch3D(masks, stitch_threshold=0.25):
 
 # merged diameter functions
 def diameters(masks, omni=False, dist_threshold=1):
-    if omni and OMNI_INSTALLED: #new distance-field-derived diameter (aggrees with cicle but more general)
+    if omni and OMNI_INSTALLED: #new distance-field-derived diameter (agrees with circle but more general)
         return omnipose.core.diameters(masks), None
     else: #original 'equivalent area circle' diameter
         _, counts = np.unique(np.int32(masks), return_counts=True)

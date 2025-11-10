@@ -1489,13 +1489,13 @@ class CellposeModel(UnetModel):
         return (*ret,)
 
         
-    def loss_fn(self, lbl, y):
+    def loss_fn(self, lbl, y, ext_loss=0):
         """ 
         loss function between true labels lbl and prediction y 
         This is the one used to train the instance segmentation network. 
         
         """
-        loss = omnipose.core.loss(self, lbl, y)
+        loss = omnipose.core.loss(self, lbl, y, ext_loss=ext_loss)
         # if self.omni and OMNI_INSTALLED: #loss function for omnipose fields
         #     loss = omnipose.core.loss(self, lbl, y)
         # else: # original loss function 

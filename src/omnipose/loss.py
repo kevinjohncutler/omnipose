@@ -34,7 +34,7 @@ class BatchMeanMSE(torch.nn.Module):
         per_elem = self.mse(pred, target)
         if weight is not None:
             per_elem = per_elem * weight
-        per_sample = per_elem.view(per_elem.size(0), -1).mean(dim=1)
+        per_sample = per_elem.reshape(per_elem.size(0), -1).mean(dim=1)
         return per_sample.mean()
 
 
@@ -51,7 +51,7 @@ class BatchMeanBSE(torch.nn.Module):
 
     def forward(self, pred, target):
         per_elem = self.bce(pred, target)              # shape (B, …)
-        per_sample = per_elem.view(per_elem.size(0), -1).mean(dim=1)
+        per_sample = per_elem.reshape(per_elem.size(0), -1).mean(dim=1)
         return per_sample.mean()
       
 

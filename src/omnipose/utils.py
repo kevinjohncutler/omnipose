@@ -719,7 +719,8 @@ def normalize_image(im, mask, target=0.5, foreground=False,
                     iterations=1, scale=1, channel_axis=0, per_channel=True):
     """
     Normalize image by rescaling from 0 to 1 and then adjusting gamma to bring 
-    average background to specified value (0.5 by default).
+    average background to specified value (0.5 by default). This is what I call
+    semantic gamma normalization.
     
     Parameters
     ----------
@@ -803,6 +804,71 @@ def normalize_image(im, mask, target=0.5, foreground=False,
     # im = np.exp(np.log(im+1e-8) * np.log(target) / (np.log(source_target)))    
     # im = np.power(im,np.log(target) / np.log(source_target))
     return np.moveaxis(im, -1, channel_axis).squeeze()
+
+
+
+def adjust_contrast_masked(
+    img: np.ndarray,
+    masks: np.ndarray,
+    r_target: float = 1.10,
+    plo: float = .01,
+    phi: float = 99.99,
+    clip_output: bool = True,
+):
+    """
+    Single-call masked contrast adjustment.
+    - Anchors a,b from background/foreground percentiles.
+    - Applies gamma so mean_fg/mean_bg ≈ r_target on the anchored image.
+    - Identity when current ratio already ≈ r_target or when dynamic range collapses.
+
+    Returns (img_out, gamma, anchors)
+    """
+    x = np.asarray(img, dtype=np.float32)
+    m = np.asarray(masks).astype(bool)
+    bg = ~m
+    fg = m
+
+    # Fallback if masks are degenerate
+    if fg.sum() == 0 or bg.sum() == 0:
+        return x.copy(), 1.0, (float(np.min(x)), float(np.max(x)))
+
+    # Mask-aware anchors: low from bg, high from fg
+    a = np.percentile(x[bg], plo)
+    b = np.percentile(x[fg], phi)
+    if not np.isfinite(a) or not np.isfinite(b) or b <= a:
+        # Fallback anchors if percentiles are ill-posed
+        a = float(np.min(x))
+        b = float(np.max(x) + 1e-12)
+
+    # Anchor-normalize to [0,1]
+    j = (x - a) / (b - a)
+    j = np.clip(j, 0.0, 1.0)
+
+    # Current fg/bg mean ratio on anchored image
+    m_fg = float(j[fg].mean())
+    m_bg = float(j[bg].mean() + 1e-12)
+    r = m_fg / m_bg
+
+    # If r_target direction conflicts with data, coerce toward identity
+    # Example: if r < 1 but r_target > 1, or vice versa, use identity.
+    if (r >= 1.0 and r_target < 1.0) or (r <= 1.0 and r_target > 1.0):
+        return j.copy(), 1.0, (a, b)
+
+    # If already close, identity
+    if abs(np.log(max(r, 1e-12))) < 1e-8 or abs((r - r_target) / max(r_target, 1e-12)) < 1e-3:
+        y = j
+        gamma = 1.0
+    else:
+        # Closed-form gamma on anchored intensities
+        gamma = float(np.log(max(r_target, 1e-12)) / np.log(max(r, 1e-12)))
+        # Clamp gamma to sane bounds
+        gamma = float(np.clip(gamma, 0.2, 5.0))
+        y = np.power(j, gamma)
+
+    if clip_output:
+        y = np.clip(y, 0.0, 1.0)
+
+    return y.astype(np.float32), gamma, (float(a), float(b))
 
 import torch
 from scipy.ndimage import binary_erosion

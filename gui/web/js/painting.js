@@ -13,7 +13,43 @@
     originalOptions: null,
     maskPipeline: null,
     maskPipelineEnabled: false,
+    debugGridApplied: false,
+    debugGridPending: false,
+    finalizeCallCount: 0,
   };
+
+  function isGridLoggingEnabled() {
+    if (typeof globalThis !== 'object' || !globalThis.__OMNI_DEBUG__) {
+      return false;
+    }
+    return Boolean(globalThis.__OMNI_DEBUG__.gridLogs);
+  }
+
+  function logDebugGrid(ctx, message, payload) {
+    if (!isGridLoggingEnabled()) {
+      return;
+    }
+    if (ctx && typeof ctx.log === 'function') {
+      ctx.log(message, payload);
+    } else if (typeof console !== 'undefined' && typeof console.debug === 'function') {
+      console.debug(message, payload);
+    } else if (typeof console !== 'undefined' && typeof console.log === 'function') {
+      console.log(message, payload);
+    }
+  }
+
+  const ENABLE_DEBUG_GRID_MASK = (() => {
+    if (typeof globalThis === 'undefined') {
+      return true;
+    }
+    if (Object.prototype.hasOwnProperty.call(globalThis, '__OMNI_FORCE_GRID_MASK__')) {
+      return Boolean(globalThis.__OMNI_FORCE_GRID_MASK__);
+    }
+    globalThis.__OMNI_FORCE_GRID_MASK__ = true;
+    return true;
+  })();
+
+  state.debugGridPending = ENABLE_DEBUG_GRID_MASK;
 
   const wasmFillBase64 = 'AGFzbQEAAAABCAFgBH9/f38AAwIBAAUDAQABBxkCBm1lbW9yeQIADGZpbGxfaW5kaWNlcwAACjcBNQEDfwNAIAQgAk8NASABIARBAnRqKAIAIQUgACAFQQJ0aiEGIAYgAzYCACAEQQFqIQQMAAsL';
 
@@ -69,6 +105,11 @@
     if (ctx) {
       ctx.maskValues = array;
     }
+    const bufferChanged = prev !== array;
+    if (ENABLE_DEBUG_GRID_MASK && bufferChanged) {
+      state.debugGridApplied = false;
+      state.debugGridPending = true;
+    }
     if (state.originalOptions) {
       state.originalOptions.maskValues = array;
     }
@@ -94,6 +135,9 @@
       } catch (err) {
         /* ignore */
       }
+    }
+    if (ENABLE_DEBUG_GRID_MASK && (bufferChanged || forceNotify)) {
+      applyDebugGridIfNeeded(false);
     }
   }
 
@@ -200,6 +244,229 @@
       tagWasmArray(view, ptr, capacity);
       entry.indices = view;
     });
+  }
+
+  function seedDebugGridMask(ctx, width, height) {
+    if (!ctx || !ctx.maskValues || width <= 0 || height <= 0) {
+      return;
+    }
+    if (typeof globalThis !== 'undefined') {
+      globalThis.__OMNI_DEBUG__ = globalThis.__OMNI_DEBUG__ || {};
+      globalThis.__OMNI_DEBUG__.gridSeedAttempts = (globalThis.__OMNI_DEBUG__.gridSeedAttempts || 0) + 1;
+    }
+    const mask = ctx.maskValues;
+    const total = mask.length | 0;
+    if (total !== (width * height)) {
+      return;
+    }
+    const targetDivisionsX = 7;
+    const targetDivisionsY = 7;
+    const lineThickness = Math.max(1, Math.round(Math.min(width, height) / 120));
+    const columnStride = Math.max(lineThickness, Math.floor(width / targetDivisionsX));
+    const rowStride = Math.max(lineThickness, Math.floor(height / targetDivisionsY));
+    const indexSet = new Set();
+    const markIndex = (idx) => {
+      if (idx < 0 || idx >= total) {
+        return;
+      }
+      if ((mask[idx] | 0) === 1) {
+        return;
+      }
+      indexSet.add(idx);
+    };
+    const paintVerticalBand = (x) => {
+      for (let t = 0; t < lineThickness && (x + t) < width; t += 1) {
+        const col = x + t;
+        for (let y = 0; y < height; y += 1) {
+          markIndex(y * width + col);
+        }
+      }
+    };
+    const paintHorizontalBand = (y) => {
+      for (let t = 0; t < lineThickness && (y + t) < height; t += 1) {
+        const rowIndex = (y + t) * width;
+        for (let x = 0; x < width; x += 1) {
+          markIndex(rowIndex + x);
+        }
+      }
+    };
+    paintVerticalBand(0);
+    paintVerticalBand(width - lineThickness);
+    paintHorizontalBand(0);
+    paintHorizontalBand(height - lineThickness);
+    for (let x = columnStride; x < width; x += columnStride) {
+      paintVerticalBand(x);
+    }
+    for (let y = rowStride; y < height; y += rowStride) {
+      paintHorizontalBand(y);
+    }
+    if (!indexSet.size) {
+      return;
+    }
+    const count = indexSet.size | 0;
+    const indices = new Uint32Array(count);
+    const before = new Uint32Array(count);
+    const after = new Uint32Array(count);
+    let cursor = 0;
+    indexSet.forEach((idx) => {
+      const prev = mask[idx] | 0;
+      indices[cursor] = idx | 0;
+      before[cursor] = prev;
+      after[cursor] = 1;
+      mask[idx] = 1;
+      cursor += 1;
+    });
+    if (typeof ctx.setMaskHasNonZero === 'function') {
+      ctx.setMaskHasNonZero(true);
+    }
+    if (typeof ctx.markMaskTextureFullDirty === 'function') {
+      ctx.markMaskTextureFullDirty();
+    }
+    if (typeof ctx.markOutlineTextureFullDirty === 'function') {
+      ctx.markOutlineTextureFullDirty();
+    }
+    if (typeof ctx.markNeedsMaskRedraw === 'function') {
+      ctx.markNeedsMaskRedraw();
+    }
+    if (typeof ctx.applyMaskRedrawImmediate === 'function') {
+      try {
+        ctx.applyMaskRedrawImmediate();
+      } catch (_) {
+        /* ignore */
+      }
+    } else if (typeof ctx.requestPaintFrame === 'function') {
+      ctx.requestPaintFrame();
+    }
+    const finalizeSeed = () => {
+      if (!ctx || !ctx.maskValues) {
+        return;
+      }
+      try {
+        fillMaskWithIndices(indices, count, 1);
+      } catch (err) {
+        if (typeof ctx.log === 'function') {
+          ctx.log('debug grid fillMaskWithIndices failed: ' + err);
+        }
+      }
+      if (state.componentTracker) {
+        try {
+          state.componentTracker.rebuild(ctx);
+        } catch (err) {
+          if (typeof ctx.log === 'function') {
+            ctx.log('debug grid tracker rebuild failed: ' + err);
+          }
+        }
+      }
+      finalizeComponentFill(ctx, indices, 1, before, after, mask.length, {
+        seedKind: 'debug-grid',
+        paintLabel: 1,
+        count,
+        imageWidth: width,
+        imageHeight: height,
+      }, null);
+        logDebugGrid(ctx, '[debug-grid] finalizeSeed applied', { count });
+      if (typeof ctx.applyMaskRedrawImmediate === 'function') {
+        try {
+          ctx.applyMaskRedrawImmediate();
+        } catch (err) {
+          if (typeof ctx.log === 'function') {
+            ctx.log('debug grid applyMaskRedrawImmediate failed: ' + err);
+          }
+        }
+      } else if (typeof ctx.requestPaintFrame === 'function') {
+        ctx.requestPaintFrame();
+      }
+    };
+    if (typeof setTimeout === 'function') {
+      setTimeout(finalizeSeed, 0);
+    } else if (typeof requestAnimationFrame === 'function') {
+      requestAnimationFrame(() => finalizeSeed());
+    } else {
+      finalizeSeed();
+    }
+    state.debugGridApplied = true;
+    state.debugGridPending = false;
+    return count;
+  }
+
+  function applyDebugGridIfNeeded(force = false) {
+    if (!ENABLE_DEBUG_GRID_MASK) {
+      return false;
+    }
+    if (!state.ctx || !state.ctx.maskValues || !state.ctx.getImageDimensions) {
+      return false;
+    }
+    if (!force && !state.debugGridPending) {
+      return false;
+    }
+    const dims = state.ctx.getImageDimensions();
+    const width = dims && Number.isFinite(dims.width) ? (dims.width | 0) : 0;
+    const height = dims && Number.isFinite(dims.height) ? (dims.height | 0) : 0;
+    if (width <= 0 || height <= 0) {
+      return false;
+    }
+    const mask = state.ctx.maskValues;
+    if (!force) {
+      let hasNonZero = false;
+      for (let i = 0; i < mask.length; i += 1) {
+        if ((mask[i] | 0) > 0) {
+          hasNonZero = true;
+          break;
+        }
+      }
+      if (hasNonZero) {
+        logDebugGrid(state.ctx, '[debug-grid] mask already non-zero; skipping seed');
+        state.debugGridPending = false;
+        state.debugGridApplied = false;
+        return false;
+      }
+    }
+    const appliedCount = seedDebugGridMask(state.ctx, width, height) | 0;
+    state.debugGridApplied = appliedCount > 0;
+    state.debugGridPending = false;
+    if (appliedCount > 0) {
+      logDebugGrid(state.ctx, '[debug-grid] seeded grid', { width, height, count: appliedCount });
+    }
+    scheduleGridPersistenceCheck();
+    return true;
+  }
+
+  function scheduleGridPersistenceCheck() {
+    if (!ENABLE_DEBUG_GRID_MASK) {
+      return;
+    }
+    if (!state.ctx || !state.ctx.maskValues) {
+      return;
+    }
+    let remainingChecks = 10;
+    const check = () => {
+      if (!state.ctx || !state.ctx.maskValues) {
+        return;
+      }
+      const mask = state.ctx.maskValues;
+      const step = Math.max(1, Math.floor(mask.length / 4096));
+      let hasNonZero = false;
+      for (let i = 0; i < mask.length; i += step) {
+        if ((mask[i] | 0) > 0) {
+          hasNonZero = true;
+          break;
+        }
+      }
+      if (!hasNonZero && state.debugGridApplied) {
+        state.debugGridApplied = false;
+        state.debugGridPending = true;
+        if (typeof state.ctx.log === 'function') {
+        logDebugGrid(state.ctx, '[debug-grid] detected cleared mask; reapplying seed');
+        }
+        applyDebugGridIfNeeded(true);
+        return;
+      }
+      if (remainingChecks > 0) {
+        remainingChecks -= 1;
+        setTimeout(check, 500);
+      }
+    };
+    setTimeout(check, 500);
   }
 
   function maskPipelineActive() {
@@ -1035,6 +1302,9 @@
       }
       updateMaskReference(wasmMask, true);
     }
+    if (ENABLE_DEBUG_GRID_MASK) {
+      applyDebugGridIfNeeded(false);
+    }
     if (!state.componentTracker) {
       state.componentTracker = createComponentTracker();
     }
@@ -1106,9 +1376,119 @@
   }
 
 
-  function finalizeComponentFill(ctx, indices, paintLabel, beforeLabels, afterLabels, totalPixels, meta) {
-    if (!ctx || !indices || !indices.length) {
+  function boundingRectFromIndices(indices, width, height) {
+    if (!indices || !indices.length || !Number.isFinite(width) || !Number.isFinite(height) || width <= 0 || height <= 0) {
+      return null;
+    }
+    const total = width * height;
+    let minX = width;
+    let minY = height;
+    let maxX = -1;
+    let maxY = -1;
+    for (let i = 0; i < indices.length; i += 1) {
+      const idx = indices[i] | 0;
+      if (idx < 0 || idx >= total) {
+        continue;
+      }
+      const y = (idx / width) | 0;
+      const x = idx - y * width;
+      if (x < minX) minX = x;
+      if (x > maxX) maxX = x;
+      if (y < minY) minY = y;
+      if (y > maxY) maxY = y;
+    }
+    if (maxX < minX || maxY < minY) {
+      return null;
+    }
+    return {
+      x: minX,
+      y: minY,
+      width: (maxX - minX + 1),
+      height: (maxY - minY + 1),
+    };
+  }
+
+  function notifyMaskDirty(ctx, idxArr) {
+    if (!ctx) {
       return;
+    }
+    if (typeof ctx.markMaskIndicesDirty === 'function') {
+      try {
+        ctx.markMaskIndicesDirty(idxArr);
+      } catch (err) {
+        if (typeof ctx.log === 'function') {
+          ctx.log('debug grid markMaskIndicesDirty failed: ' + err);
+        }
+      }
+    } else if (typeof globalThis === 'object' && globalThis.__OMNI_DEBUG__) {
+      globalThis.__OMNI_DEBUG__.missingMaskDirty = (globalThis.__OMNI_DEBUG__.missingMaskDirty || 0) + 1;
+    }
+    if (typeof ctx.markMaskTextureFullDirty === 'function') {
+      try {
+        ctx.markMaskTextureFullDirty();
+      } catch (err) {
+        if (typeof ctx.log === 'function') {
+          ctx.log('debug grid markMaskTextureFullDirty fallback failed: ' + err);
+        }
+      }
+    }
+    if (typeof ctx.markOutlineIndicesDirty === 'function') {
+      try {
+        ctx.markOutlineIndicesDirty(idxArr);
+      } catch (err) {
+        if (typeof ctx.log === 'function') {
+          ctx.log('debug grid markOutlineIndicesDirty failed: ' + err);
+        }
+      }
+    } else if (typeof globalThis === 'object' && globalThis.__OMNI_DEBUG__) {
+      globalThis.__OMNI_DEBUG__.missingOutlineDirty = (globalThis.__OMNI_DEBUG__.missingOutlineDirty || 0) + 1;
+    }
+    if (typeof ctx.markOutlineTextureFullDirty === 'function') {
+      try {
+        ctx.markOutlineTextureFullDirty();
+      } catch (err) {
+        if (typeof ctx.log === 'function') {
+          ctx.log('debug grid markOutlineTextureFullDirty fallback failed: ' + err);
+        }
+      }
+    }
+    if (typeof ctx.markNeedsMaskRedraw === 'function') {
+      try {
+        ctx.markNeedsMaskRedraw();
+      } catch (err) {
+        if (typeof ctx.log === 'function') {
+          ctx.log('debug grid markNeedsMaskRedraw failed: ' + err);
+        }
+      }
+    }
+    if (typeof ctx.applyMaskRedrawImmediate === 'function') {
+      ctx.applyMaskRedrawImmediate();
+    } else if (typeof ctx.redrawMaskCanvas === 'function') {
+      ctx.redrawMaskCanvas();
+    }
+    if (typeof ctx.requestPaintFrame === 'function') {
+      try {
+        ctx.requestPaintFrame();
+      } catch (err) {
+        if (typeof ctx.log === 'function') {
+          ctx.log('debug grid requestPaintFrame failed: ' + err);
+        }
+      }
+    }
+  }
+
+
+  function finalizeComponentFill(
+    ctx,
+    indices,
+    paintLabel,
+    beforeLabels,
+    afterLabels,
+    totalPixels,
+    meta,
+  ) {
+    if (!ctx || !indices || !indices.length) {
+      return false;
     }
     const maskValues = ctx.maskValues;
     const count = indices.length | 0;
@@ -1124,6 +1504,18 @@
     })();
     const idxArr = new Uint32Array(sourceIndices.length);
     idxArr.set(sourceIndices);
+    state.finalizeCallCount = (state.finalizeCallCount || 0) + 1;
+    if (typeof global.__OMNI_DEBUG__ === 'object') {
+      const history = global.__OMNI_DEBUG__.finalizeHistory || (global.__OMNI_DEBUG__.finalizeHistory = []);
+      history.push({
+        count: state.finalizeCallCount,
+        size: idxArr.length,
+        label: paintLabel | 0,
+      });
+      if (history.length > 64) {
+        history.shift();
+      }
+    }
     const before = beforeLabels instanceof Uint32Array ? beforeLabels : (() => {
       const arr = new Uint32Array(count);
       for (let i = 0; i < count; i += 1) {
@@ -1138,6 +1530,27 @@
       }
       return arr;
     })();
+    for (let i = 0; i < idxArr.length; i += 1) {
+      const idx = idxArr[i] | 0;
+      if (idx >= 0 && idx < maskValues.length) {
+        maskValues[idx] = after[i] | 0;
+      }
+    }
+    const debugHighlightRect = meta && Number.isFinite(meta.imageWidth) && Number.isFinite(meta.imageHeight)
+      ? boundingRectFromIndices(idxArr, meta.imageWidth | 0, meta.imageHeight | 0)
+      : null;
+    const debugApi = typeof global.__OMNI_DEBUG__ === 'object' ? global.__OMNI_DEBUG__ : null;
+    const highlightEnabled = debugApi && Object.prototype.hasOwnProperty.call(debugApi, 'enableFillHighlight')
+      ? Boolean(debugApi.enableFillHighlight)
+      : false;
+    if (debugHighlightRect && highlightEnabled
+      && debugApi && typeof debugApi.highlightFillRect === 'function') {
+      try {
+        debugApi.highlightFillRect(debugHighlightRect);
+      } catch (_) {
+        /* ignore */
+      }
+    }
     if (typeof ctx.pushHistory === 'function') {
       ctx.pushHistory(idxArr, before, after);
     }
@@ -1146,6 +1559,32 @@
       count,
       totalPixels,
     });
+    if (typeof ctx.log === 'function') {
+      const sampleIdx = idxArr.length ? idxArr[0] : -1;
+      const beforeSample = sampleIdx >= 0 ? before[0] : null;
+      const afterSample = sampleIdx >= 0 ? after[0] : null;
+      const maskSampleAfter = sampleIdx >= 0 ? (maskValues[sampleIdx] | 0) : null;
+      ctx.log('[debug-fill]', {
+        sampleIdx,
+        before: beforeSample,
+        after: afterSample,
+        maskSampleAfter,
+        paintLabel,
+        count,
+      });
+      if (sampleIdx >= 0 && maskSampleAfter !== (paintLabel | 0)) {
+        ctx.log('[debug-fill-mismatch]', {
+          sampleIdx,
+          maskSampleAfter,
+          paintLabel,
+          count,
+        });
+        for (let i = 0; i < idxArr.length; i += 1) {
+          const idx = idxArr[i] | 0;
+          maskValues[idx] = paintLabel | 0;
+        }
+      }
+    }
     try {
       global.__pendingRelabelSelection = idxArr;
     } catch (err) {
@@ -1155,13 +1594,34 @@
       ? totalPixels
       : (maskValues && maskValues.length ? maskValues.length : count);
     const fillsAll = total > 0 && count === total;
-    if (typeof ctx.rebuildLocalAffinityGraph === 'function') {
-      ctx.rebuildLocalAffinityGraph();
-    } else if (typeof ctx.updateAffinityGraphForIndices === 'function') {
-      ctx.updateAffinityGraphForIndices(idxArr);
+    let affinityUpdated = false;
+    if (typeof ctx.updateAffinityGraphForIndices === 'function') {
+      try {
+        ctx.updateAffinityGraphForIndices(idxArr);
+        affinityUpdated = true;
+      } catch (err) {
+        if (typeof ctx.log === 'function') {
+          ctx.log('debug grid updateAffinityGraphForIndices failed: ' + err);
+        }
+      }
+    }
+    if (!affinityUpdated && typeof ctx.rebuildLocalAffinityGraph === 'function') {
+      try {
+        ctx.rebuildLocalAffinityGraph();
+      } catch (err) {
+        if (typeof ctx.log === 'function') {
+          ctx.log('debug grid rebuildLocalAffinityGraph failed: ' + err);
+        }
+      }
     }
     if (typeof ctx.clearColorCaches === 'function') {
-      ctx.clearColorCaches();
+      try {
+        ctx.clearColorCaches();
+      } catch (err) {
+        if (typeof ctx.log === 'function') {
+          ctx.log('debug grid clearColorCaches failed: ' + err);
+        }
+      }
     }
     let currentHasNonZero = typeof ctx.getMaskHasNonZero === 'function'
       ? ctx.getMaskHasNonZero()
@@ -1197,22 +1657,36 @@
       currentHasNonZero = hasNonZero;
     }
     if (typeof ctx.setMaskHasNonZero === 'function') {
-      ctx.setMaskHasNonZero(Boolean(currentHasNonZero));
+      try {
+        ctx.setMaskHasNonZero(Boolean(currentHasNonZero));
+      } catch (err) {
+        if (typeof ctx.log === 'function') {
+          ctx.log('debug grid setMaskHasNonZero failed: ' + err);
+        }
+      }
     }
-    if (typeof ctx.markMaskTextureFullDirty === 'function') {
-      ctx.markMaskTextureFullDirty();
-    }
-    if (typeof ctx.markOutlineTextureFullDirty === 'function') {
-      ctx.markOutlineTextureFullDirty();
-    }
-    if (typeof ctx.applyMaskRedrawImmediate === 'function') {
-      ctx.applyMaskRedrawImmediate();
-    } else if (typeof ctx.redrawMaskCanvas === 'function') {
-      ctx.redrawMaskCanvas();
+    const skipViewerNotify = meta && meta.skipViewerNotify;
+    if (!skipViewerNotify) {
+      notifyMaskDirty(ctx, idxArr);
+      if (typeof ctx.requestPaintFrame === 'function') {
+        try {
+          ctx.requestPaintFrame();
+        } catch (err) {
+          if (typeof ctx.log === 'function') {
+            ctx.log('debug grid requestPaintFrame failed: ' + err);
+          }
+        }
+      }
     }
     scheduleDeferredMaskUpdate();
     if (typeof ctx.scheduleStateSave === 'function') {
-      ctx.scheduleStateSave();
+      try {
+        ctx.scheduleStateSave();
+      } catch (err) {
+        if (typeof ctx.log === 'function') {
+          ctx.log('debug grid scheduleStateSave failed: ' + err);
+        }
+      }
     }
     const pendingPayload = typeof ctx.getPendingSegmentationPayload === 'function'
       ? ctx.getPendingSegmentationPayload()
@@ -1243,6 +1717,7 @@
         }
       }
     }
+    return true;
   }
 
   function flushPendingAffinityUpdates() {
@@ -1311,7 +1786,13 @@
       ctx.redrawMaskCanvas();
     }
     if (typeof ctx.scheduleStateSave === 'function') {
-      ctx.scheduleStateSave();
+      try {
+        ctx.scheduleStateSave();
+      } catch (err) {
+        if (typeof ctx.log === 'function') {
+          ctx.log('debug grid scheduleStateSave failed: ' + err);
+        }
+      }
     }
     const pendingPayload = typeof ctx.getPendingSegmentationPayload === 'function'
       ? ctx.getPendingSegmentationPayload()
@@ -1536,14 +2017,24 @@
     }
     tracker.ensure(ctx);
     tracker.ensureSteps(ctx);
-    let indices = component.indices;
     const bfsIndices = collectComponentIndices(startIdx, targetLabel, tracker, ctx);
-    if (bfsIndices && bfsIndices.length > indices.length) {
-      releaseComponentArray(component.indices);
-      component.indices = bfsIndices;
-      indices = bfsIndices;
+    let indices = null;
+    if (bfsIndices && bfsIndices.length) {
+      const borrowed = borrowComponentBuffer(bfsIndices.length);
+      borrowed.set(bfsIndices);
+      if (component.indices && component.indices !== borrowed && typeof component.indices.__wasmPtr === 'number') {
+        releaseComponentArray(component.indices);
+      }
+      component.indices = borrowed;
+      component.size = borrowed.length | 0;
+      indices = borrowed;
+    } else {
+      const ensured = ensureComponentArrayView(component.indices);
+      component.indices = ensured;
+      component.size = ensured ? (ensured.length | 0) : 0;
+      indices = ensured;
     }
-    const size = indices.length;
+    const size = indices && indices.length ? (indices.length | 0) : 0;
     if (size === 0) {
       fillResult.abortReason = 'empty-indices';
       state.lastFillResult = fillResult;
@@ -1568,6 +2059,7 @@
     before.fill(targetLabel);
     const after = new Uint32Array(size);
     after.fill(paintLabel);
+    const finalizeIndices = new Uint32Array(indices);
     const componentId = component.id || (tracker.componentIdAt ? tracker.componentIdAt(indices[0] | 0) : 0);
     const shouldCheckNeighbors = tracker.labelHasOtherComponents
       ? tracker.labelHasOtherComponents(paintLabel, componentId)
@@ -1610,16 +2102,45 @@
     // even for very large “outside” regions that wrap the canvas.
     fillMaskWithIndices(indices, size, paintLabel);
     tracker.mergeFilledComponent(component, neighborIds, paintLabel, ctx);
-    finalizeComponentFill(ctx, indices, paintLabel, before, after, maskValues.length, {
+    const finalizedPrimary = finalizeComponentFill(ctx, finalizeIndices, paintLabel, before, after, maskValues.length, {
       touchesBorder: fillResult.touchesBorder,
       componentSize: fillResult.componentSize,
       runCount: fillResult.runCount,
+      imageWidth: width,
+      imageHeight: height,
+      skipViewerNotify: true,
     });
-    if (typeof ctx.markNeedsMaskRedraw === 'function') {
-      ctx.markNeedsMaskRedraw();
+    if (finalizedPrimary) {
+      notifyMaskDirty(ctx, finalizeIndices);
+    } else {
+      notifyMaskDirty(ctx, indices);
     }
-    if (typeof ctx.requestPaintFrame === 'function') {
-      ctx.requestPaintFrame();
+    const verify = collectComponentIndices(startIdx, 0, tracker, ctx);
+    if (verify && verify.length) {
+      const verifyBefore = new Uint32Array(verify.length);
+      const verifyAfter = new Uint32Array(verify.length);
+      for (let i = 0; i < verify.length; i += 1) {
+        const idx = verify[i] | 0;
+        verifyBefore[i] = 0;
+        verifyAfter[i] = paintLabel | 0;
+        if (idx >= 0 && idx < maskValues.length) {
+          maskValues[idx] = paintLabel | 0;
+        }
+      }
+      const verifyClone = new Uint32Array(verify);
+      const finalizedVerify = finalizeComponentFill(ctx, verifyClone, paintLabel, verifyBefore, verifyAfter, maskValues.length, {
+        fallback: true,
+        touchesBorder: fillResult.touchesBorder,
+        componentSize: verify.length,
+        imageWidth: width,
+        imageHeight: height,
+      });
+      if (finalizedVerify) {
+        notifyMaskDirty(ctx, verifyClone);
+      } else {
+        notifyMaskDirty(ctx, verify);
+      }
+      fillResult.fallbackTriggered = true;
     }
     fillResult.status = 'ok';
     state.lastFillResult = fillResult;
@@ -1675,10 +2196,22 @@
     }
     const ctx = state.ctx;
     if (typeof ctx.markMaskTextureFullDirty === 'function') {
-      ctx.markMaskTextureFullDirty();
+      try {
+        ctx.markMaskTextureFullDirty();
+      } catch (err) {
+        if (typeof ctx.log === 'function') {
+          ctx.log('debug grid markMaskTextureFullDirty failed: ' + err);
+        }
+      }
     }
     if (typeof ctx.markOutlineTextureFullDirty === 'function') {
-      ctx.markOutlineTextureFullDirty();
+      try {
+        ctx.markOutlineTextureFullDirty();
+      } catch (err) {
+        if (typeof ctx.log === 'function') {
+          ctx.log('debug grid markOutlineTextureFullDirty failed: ' + err);
+        }
+      }
     }
     if (typeof ctx.applyMaskRedrawImmediate === 'function') {
       ctx.applyMaskRedrawImmediate();
@@ -1686,7 +2219,13 @@
       ctx.redrawMaskCanvas();
     }
     if (typeof ctx.requestPaintFrame === 'function') {
-      ctx.requestPaintFrame();
+      try {
+        ctx.requestPaintFrame();
+      } catch (err) {
+        if (typeof ctx.log === 'function') {
+          ctx.log('debug grid requestPaintFrame failed: ' + err);
+        }
+      }
     }
     return true;
   }
@@ -1706,6 +2245,72 @@
     rebuildComponents,
     __debugGetState: () => state,
     __debugForceMaskRefresh: debugForceMaskRefresh,
+    __debugApplyGridIfNeeded: (force = false) => applyDebugGridIfNeeded(Boolean(force)),
+    __debugCollectComponent(startIdx, targetLabel) {
+      const ctx = ensureCtx();
+      const mask = ctx && ctx.maskValues ? ctx.maskValues : null;
+      if (!mask || !mask.length || typeof startIdx !== 'number') {
+        return null;
+      }
+      const dims = ctx.getImageDimensions ? ctx.getImageDimensions() : { width: 0, height: 0 };
+      const width = dims.width | 0;
+      const height = dims.height | 0;
+      const total = mask.length | 0;
+      const idx = startIdx | 0;
+      if (idx < 0 || idx >= total) {
+        return null;
+      }
+      const label = typeof targetLabel === 'number' ? (targetLabel | 0) : (mask[idx] | 0);
+      const indices = collectComponentIndices(idx, label, state.componentTracker, ctx);
+      if (!indices || !indices.length) {
+        return {
+          index: idx,
+          label,
+          size: 0,
+        };
+      }
+      let minX = width;
+      let maxX = -1;
+      let minY = height;
+      let maxY = -1;
+      for (let i = 0; i < indices.length; i += 1) {
+        const compIdx = indices[i] | 0;
+        const y = (compIdx / width) | 0;
+        const x = compIdx - y * width;
+        if (x < minX) minX = x;
+        if (x > maxX) maxX = x;
+        if (y < minY) minY = y;
+        if (y > maxY) maxY = y;
+      }
+      return {
+        index: idx,
+        label,
+        size: indices.length,
+        bounds: {
+          minX,
+          maxX,
+          minY,
+          maxY,
+        },
+        sample: Array.from(indices.slice(0, Math.min(indices.length, 16))),
+      };
+    },
   });
   global.OmniPainting = api;
+  global.__OMNI_DEBUG__ = global.__OMNI_DEBUG__ || {};
+  global.__OMNI_DEBUG__.setGridLoggingEnabled = (value) => {
+    global.__OMNI_DEBUG__.gridLogs = Boolean(value);
+  };
+  global.__OMNI_DEBUG__.setForceGridMask = (value) => {
+    const next = Boolean(value);
+    global.__OMNI_FORCE_GRID_MASK__ = next;
+    state.debugGridPending = next;
+    if (next) {
+      applyDebugGridIfNeeded(true);
+    }
+  };
+  global.__OMNI_DEBUG__.setFillHighlightEnabled = (value) => {
+    const next = Boolean(value);
+    global.__OMNI_DEBUG__.enableFillHighlight = next;
+  };
 })(typeof window !== 'undefined' ? window : globalThis);

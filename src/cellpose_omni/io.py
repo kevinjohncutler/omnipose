@@ -165,10 +165,11 @@ def imwrite(filename, arr, **kwargs):
     Save an image to file using imagecodecs for encoding.
     
     Supported extensions (besides .tif/.tiff and .npy):
-      - .png: uses imagecodecs.png_encode (accepts 'compression')
-      - .jpg, .jpeg, .jp2: uses imagecodecs.jpeg_encode (accepts 'quality')
-      - .webp: uses imagecodecs.webp_encode (accepts 'quality'; note that quality values above 100 are interpreted as lossless)
+      - .png: uses imagecodecs.png_encode (accepts 'level' for compression)
+      - .jpg, .jpeg, .jp2: uses imagecodecs.jpeg_encode (accepts 'level', analogous to JPEG quality)
+      - .webp: uses imagecodecs.webp_encode (accepts 'level'; 'quality' is kept as a backwards compatible alias)
       - .jxl: uses imagecodecs.jpegxl_encode (accepts 'quality', 'effort', 'distance', 'decoding_speed')
+      - .bmp: uses imagecodecs.bmp_encode (no extra parameters; always lossless)
     For other extensions, PNG encoding is used as a fallback.
     
     Note: Unlike OpenCV, imagecodecs expects normal RGB/RGBA (not BGR/BGRA) channel ordering.
@@ -192,8 +193,15 @@ def imwrite(filename, arr, **kwargs):
         level = kwargs.pop('level', 95)
         encoded = imagecodecs.jpeg_encode(arr, level=level, **kwargs)
     elif ext == '.webp':
-        quality = kwargs.pop('quality', 0)
-        encoded = imagecodecs.webp_encode(arr, quality=quality, **kwargs)
+        # imagecodecs expects 'level'; accept legacy 'quality' and map it over.
+        level = kwargs.pop('level', None)
+        quality = kwargs.pop('quality', None)
+        if quality is not None and level is None:
+            level = quality
+        if level is not None:
+            encoded = imagecodecs.webp_encode(arr, level=level, **kwargs)
+        else:
+            encoded = imagecodecs.webp_encode(arr, **kwargs)
     elif ext == '.jxl':
         effort = kwargs.pop('effort', 1)
         distance = kwargs.pop('distance', 1.0)
@@ -201,6 +209,8 @@ def imwrite(filename, arr, **kwargs):
                                             effort=effort,
                                             distance=distance,
                                             **kwargs)
+    elif ext == '.bmp':
+        encoded = imagecodecs.bmp_encode(arr, **kwargs)
     else:
         # For unsupported extensions, default to PNG.
         encoded = imagecodecs.png_encode(arr, **kwargs)

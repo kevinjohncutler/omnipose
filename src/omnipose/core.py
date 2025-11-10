@@ -2496,7 +2496,7 @@ def random_crop_warp(img, Y, tyx, v1, v2, nchan, rescale, scale_range, gamma_ran
     # check to make sure the region contains at enough cell pixels; if not, retry
     # cellpx = np.sum(lbl>0)
     
-    # I used to recursively search for a crop that contained at least 10% cell pixels, 
+    # Past behavior was to recursively search for a crop that contained at least 10% cell pixels, 
     # to avoid the case where the crop is all background. This would mess up flow and I 
     # reasoned that we never want to train on just background. However, the new code handles
     # background just fine and so this is no longer necessary.
@@ -2538,39 +2538,86 @@ def random_crop_warp(img, Y, tyx, v1, v2, nchan, rescale, scale_range, gamma_ran
     
     # each augmentation is now on 50% of the time to ensure that the network also gets to see "raw" images (raw meaning just warped)
     imgi = np.zeros((nchan,)+tyx, np.float32)
+
+    # might need to think more carefully about augmentation for blank fovs with low contrast / bit depth
+    # rescaling boosts banding or artifacts to the same range as real signal
+    # however, preventing autoscaling at this stage only goes so far if the image has alrady been rescaled... which is often the case for annotations
+    # What we can do isntead is detect if there is any foreground in the label image, and then also detect how many unique integers are being used, and use this information to guide our rescaling.
+
     for k in range(nchan):
-        imgi[k] = do_warp(utils.rescale(img[k]), M_inv, tyx, order=1, offset=offset, mode=mode)
+        # print('aa', img[k].min(), img[k].max())
+        # imgi[k] = do_warp(utils.rescale(img[k]), M_inv, tyx, order=1, offset=offset, mode=mode)
+        has_foreground = np.any(lbl)
+        nvals = len(fastremap.unique(img[k])) # number of unqiue values in the image 
+        raw_bits = int(np.ceil(np.log2(max(nvals, 1))))
+
+        if has_foreground:
+            arr = utils.rescale(img[k])
+        else:
+            maxv = np.iinfo(img[k].dtype).max if np.issubdtype(img[k].dtype, np.integer) else 1.0
+            # print('a',maxv)
+            arr = img[k].astype(np.float32) / maxv
+            if nvals < maxv // 100 and arr.max()==1.0:
+                # low bit depth image without foreground
+                # do not rescale to full 0-1 range, will exaggerate banding/artifacts
+                arr *= (nvals / maxv) * 10 # boost the signal a bit, but not all the way to 1.0; guranteed not to exceed 1/10 here since 1/100th is the cutoff
+                # print('low bit depth image detected, nvals:', nvals, 'maxv:', maxv, 'scaling to', arr.max(), img[k].max())
+
+
+        imgi[k] = do_warp(arr, M_inv, tyx, order=1, offset=offset, mode=mode)
         
         # some augmentations I only want on half of the time
         # both for speed and because I want the network to see relatively raw images 
-        aug_choices = np.random.choice([0,1],7) # faster to preallocate 
+        aug_choices = np.random.choice([0,1],8) # faster to preallocate 
         
-
         if augment:
+        # if 0:
             # TODO: make a tool to preview how a given dataset will be augmented with these settings
             # could be useful for debugging and for users to understand what is happening
 
-            # gamma agumentation - simulates different contrast, the most important and preserves fine structure 
-            gamma = np.random.triangular(left=gamma_range[0], mode=1, right=gamma_range[1])
-            imgi[k] = imgi[k] ** gamma
+
+            # defocus augmentation (inaccurate, but effective)
+            if aug_choices[1]:
+                imgi[k] = gaussian_filter(imgi[k],np.random.uniform(0,np.sqrt(2))) # was up to 2, but that was too extreme
+
+            
+            # percentile clipping augmentation
+            if aug_choices[2] and has_foreground:
+                dp = .1 # changed this from 10 to .1, as usual pipleine uses 0.01, 10 was way too high for some images 
+                dpct = np.random.triangular(left=0, mode=0, right=dp, size=2) # weighted toward 0
+                imgi[k] = utils.normalize99(imgi[k],upper=100-dpct[0],lower=dpct[1])
+
 
             # low-frequency illumination augmentation to mimic uneven backgrounds
-            if OPEN_SIMPLEX_ENABLED and aug_choices[0]:    
-            # if 1:
-                simplex = OpenSimplex(seed=np.random.randint(0, 2**31)) # deterministic seed from global numpy RNG 
-                spatial_shape = tyx[-2:]
-          
-                # get the average cell diamter in pixels to set frequency scale
-                # we don't want to automatially insert features smaller than the cells themselves
-                mean_obj_diam = diameters(lbl)
-                freq_jitter = np.random.triangular(left=1, mode=1.0, right=10.0) # should turn this into user-configurable range
-                fs = mean_obj_diam * freq_jitter
-                coords = [np.arange(0, s, dtype=np.float32) / fs for s in spatial_shape[::-1]]
-                illum_field = utils.rescale( simplex.noise2array(*coords)) # get to 0-1
+            if aug_choices[0] and has_foreground: 
+            # if 1:   
 
-                # if this is allowed to go to 1, if becomes flat field
+                if aug_choices[7] or not OPEN_SIMPLEX_ENABLED:
+                # if 0: 
+                    # extreme case: gradient illumination 
+                    # choose a random axis 
+                    axis = np.random.randint(0,dim)
+                    coords = [np.arange(0, s, dtype=np.float32) for s in tyx[::-1]]
+                    illum_field = coords[axis]
+                    illum_field = (illum_field - illum_field.min()) / (illum_field.max() - illum_field.min())
+                else:
+                    simplex = OpenSimplex(seed=np.random.randint(0, 2**31)) # deterministic seed from global numpy RNG 
+                    spatial_shape = tyx[-2:]
+            
+                    # get the average cell diamter in pixels to set frequency scale
+                    # we don't want to automatially insert features smaller than the cells themselves
+                    mean_obj_diam = 2*diameters(lbl) if np.any(lbl) else 1.0
+                    freq_jitter = np.random.triangular(left=1, mode=1.0, right=10.0) # should turn this into user-configurable range
+                    fs = mean_obj_diam * freq_jitter
+                    coords = [np.arange(0, s, dtype=np.float32) / fs for s in spatial_shape[::-1]]
+                    illum_field = utils.rescale( simplex.noise2array(*coords)) # get to 0-1
+
+                # if this is allowed to go to 1, becomes flat field
                 # take square root so that the background value itself is triangular distribution (background is roughtly min_factor**2)
                 min_factor = np.random.triangular(left=0, mode=0, right=1) **.5
+                # min_factor = (np.random.triangular(left=0, mode=.9, right=1)) **.5 
+
+
                 # min_factor = .5 **.5 
                 # min_factor = .01**.5
 
@@ -2588,36 +2635,35 @@ def random_crop_warp(img, Y, tyx, v1, v2, nchan, rescale, scale_range, gamma_ran
 
                 # print('fs', fs, mean_obj_diam, freq_jitter,min_factor, imgi[k].max(), imgi[k].min())
                 # print(imgi[k].min(),imgi[k].max())
+            # if has_foreground:
+            #     imgi[k] = utils.adjust_contrast_masked(imgi[k]+.5, lbl, 1)[0] # rescale after illumination change
 
 
-
-            # defocus augmentation (inaccurate, but effective)
-            if aug_choices[1]:
-                imgi[k] = gaussian_filter(imgi[k],np.random.uniform(0,2))
-            
-            # percentile clipping augmentation
-            if aug_choices[2]:
-                dp = .1 # changed this from 10 to .1, as usual pipleine uses 0.01, 10 was way too high for some images 
-                dpct = np.random.triangular(left=0, mode=0, right=dp, size=2) # weighted toward 0
-                imgi[k] = utils.normalize99(imgi[k],upper=100-dpct[0],lower=dpct[1])
-
+            # print('mm',imgi[k].min(), imgi[k].max())
             # noise augmentation
             if SKIMAGE_ENABLED and aug_choices[3]:
                 var_range = 1e-2
                 var = np.random.triangular(left=1e-8, mode=1e-8, right=var_range, size=1)
                 # imgi[k] = random_noise(utils.rescale(imgi[k]), mode="poisson")#, seed=None, clip=True)
                 # poisson is super slow... np.random.posson is faster
-                # also posson alwasy gave the same noise, which is very bad... this is 
+                # also poisson always gave the same noise, which is very bad...
                 # but gaussian speckle is MUCH faster,<1ms vs >4ms 
                 imgi[k] = random_noise(imgi[k], mode='speckle',var=var)
                 # imgi[k] = utils.add_gaussian_noise(imgi[k],0,var)
                 
             # bit depth augmentation
-            if aug_choices[4]:
+            if aug_choices[4] and has_foreground:
                 # we convert to 16 bit and then right shift by 0-14 bits
                 # at the most extreme, that turns 16 bit into 2 bits, so we have 4 levels
                 # changed the mode from 8 to 10 to push toward more typical low-quality images
-                bit_shift = int(np.random.triangular(left=0, mode=10, right=14))
+
+                min_bits = 3  # keep ≥8 gray levels from the source
+                max_shift = max(0, min(14, raw_bits - min_bits))
+                if max_shift:
+                    bit_shift = int(np.random.triangular(0, max_shift//2, max_shift))
+                else:
+                    bit_shift = 0
+                # bit_shift = int(np.random.triangular(left=0, mode=10, right=14))
                 im = utils.to_16_bit(imgi[k])
                 # imgi[k] = utils.normalize99(im>>bit_shift)
                 imgi[k] = utils.rescale(im>>bit_shift)
@@ -2625,10 +2671,6 @@ def random_crop_warp(img, Y, tyx, v1, v2, nchan, rescale, scale_range, gamma_ran
             # edge / line artifact augmentation
             # omnipose was hallucinating stuff at boundaries
             if aug_choices[5]:
-                # border_mask = np.zeros(tyx, dtype=bool)
-                # border_mask = binary_dilation(border_mask, border_value=1, iterations=1)
-                # imgi[k][border_mask] = 1
-
                 border_inds = utils.border_indices(tyx)
                 imgi[k].flat[border_inds] *= np.random.uniform(0,1)
                 
@@ -2640,10 +2682,22 @@ def random_crop_warp(img, Y, tyx, v1, v2, nchan, rescale, scale_range, gamma_ran
                 imgi[k][indices] = np.random.choice([0, 1], size=np.count_nonzero(indices))
 
 
+            # gamma agumentation - simulates different contrast, the most important and preserves fine structure 
+            # now at the end so that other augmentations are also affected by it
+            gamma = np.random.triangular(left=gamma_range[0], mode=1, right=gamma_range[1])
+            imgi[k] = imgi[k] ** gamma
+
+
+            # now augment overall normalization
+            # this was a really bad idea! 
+            # imgi[k] *= np.random.triangular(left=0.5, mode=1.0, right=1.5)
+
+
         
     # Moved to the end because it conflicted with the recursion. 
     # Also, flipping the crop is ultimately equivalent and slightly faster.         
     # We now flip along every axis (randomly); could make do_flip a list to avoid some axes if needed
+    # also this seems unecessary, since the crop itself is random... but maybe not?
     if do_flip:
         for d in range(1,dim+1):
             if np.random.choice([0,1]):
@@ -2691,7 +2745,7 @@ def scale_to_tenths(x, max_gain=10):
     sf  = torch.clamp(sf, 1/max_gain, max_gain)   # cap between 0.1× and 10×
     return x * sf
 
-def loss(self, lbl, y):
+def loss(self, lbl, y, ext_loss=0):
     """ Loss function for Omnipose.
     Parameters
     --------------
@@ -2810,6 +2864,8 @@ def loss(self, lbl, y):
         
         # print(', '.join([str(l.item()) for l in losses]))
         # print('flow', maxF, minF, veci.max(), veci.min())
+
+        losses += ext_loss if isinstance(ext_loss, list) else [ext_loss] # add the external losses if any so they get scaled too
         
         # rescaling dynamically seems to work really well, but I might want to add momentum to it
         # that is, slowly change the weight factors by averaging over the last few batches

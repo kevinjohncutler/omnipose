@@ -287,6 +287,10 @@ def argmin_cdist(X, labels, distance_values):
     return torch.tensor(argmin_indices, device=X.device), adjusted_summed_distances_all
 
 def get_medoids(labels,do_skel=True,return_dists=False):
+    """Get medoid coordinates and labels from label mask.
+    """
+    # TODO: see if this can be sped up
+
     if do_skel:
         masks = skeletonize(labels)
         dists = np.ones_like(labels)        
@@ -326,9 +330,8 @@ def get_medoids(labels,do_skel=True,return_dists=False):
             
         
         if return_dists:
-            dists = dists.cpu().numpy()
-            inner_dists = np.zeros(masks.shape,dtype=dists.dtype)
-            inner_dists[tuple(sort_coords.T)] = dists
+            inner_dists = np.zeros(masks.shape,dtype=dists_arr.dtype)
+            inner_dists[tuple(sort_coords.T)] = dists_arr
             return medoids, mlabels, inner_dists
         else:
             return medoids, mlabels
@@ -1517,7 +1520,9 @@ def find_highest_density_box(label_matrix, box_size):
 
     return tuple(slices)
     
-def create_pill_mask(R, L, f = np.sqrt(2)):
+# def create_pill_mask(R, L, f = np.sqrt(2)):
+def create_pill_mask(R, L, f = 1):
+
     # Determine the size of the image
     height = 2 * R# +2 for 1px boundary at top and bottom
     width = L + 2*R  # +2 for 1px boundary on left and right
