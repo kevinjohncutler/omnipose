@@ -1,8 +1,8 @@
 (function initOmniPainting(global) {
   'use strict';
 
-  const state = {
-    ctx: null,
+const state = {
+  ctx: null,
     strokeChanges: null,
     paintQueue: [],
     pendingAffinitySet: null,
@@ -15,9 +15,23 @@
     maskPipelineEnabled: false,
     debugGridApplied: false,
     debugGridPending: false,
-    finalizeCallCount: 0,
-    componentTrackerDirty: false,
-  };
+  finalizeCallCount: 0,
+  componentTrackerDirty: false,
+  backgroundLabel: 0,
+};
+
+const LIVE_COMPONENT_TRACKER_BRUSH_UPDATES = false;
+const DEBUG_GRID_BACKGROUND_LABEL = 2;
+const DEBUG_GRID_LINE_LABEL = 1;
+
+  function isBackgroundLabel(value) {
+    const label = value | 0;
+    if (label === 0) return true;
+    if (state.backgroundLabel && label === (state.backgroundLabel | 0)) {
+      return true;
+    }
+    return false;
+  }
 
   function isGridLoggingEnabled() {
     if (typeof globalThis !== 'object' || !globalThis.__OMNI_DEBUG__) {
@@ -270,6 +284,7 @@ const ENABLE_DEBUG_GRID_MASK = (() => {
       globalThis.__OMNI_DEBUG__.gridBackgroundLabel = backgroundLabel;
       globalThis.__OMNI_DEBUG__.gridLineLabel = DEBUG_GRID_LINE_LABEL;
     }
+    state.backgroundLabel = backgroundLabel;
     if (backgroundLabel !== 0) {
       for (let i = 0; i < mask.length; i += 1) {
         if ((mask[i] | 0) === 0) {
@@ -1203,7 +1218,7 @@ const ENABLE_DEBUG_GRID_MASK = (() => {
     if (width <= 0 || height <= 0 || width * height !== mask.length) {
       return null;
     }
-    const steps = (targetLabel > 0 ? tracker.foregroundSteps : BACKGROUND_STEPS) || BACKGROUND_STEPS;
+    const steps = (!isBackgroundLabel(targetLabel) ? tracker.foregroundSteps : BACKGROUND_STEPS) || BACKGROUND_STEPS;
     const total = mask.length | 0;
     const queue = new Uint32Array(total);
     const visited = new Uint8Array(total);
@@ -1431,8 +1446,10 @@ const ENABLE_DEBUG_GRID_MASK = (() => {
     if (!ctx) {
       return;
     }
-    const useIncremental = Boolean(options && options.incremental);
-    if (useIncremental && typeof ctx.markMaskIndicesDirty === 'function') {
+    const forceFull = Boolean(options && options.full);
+    const hasIndices = Array.isArray(idxArr) || idxArr instanceof Uint32Array || idxArr instanceof Uint16Array;
+    const canMarkMask = !forceFull && hasIndices && idxArr.length && typeof ctx.markMaskIndicesDirty === 'function';
+    if (canMarkMask) {
       try {
         ctx.markMaskIndicesDirty(idxArr);
       } catch (err) {
@@ -1440,10 +1457,7 @@ const ENABLE_DEBUG_GRID_MASK = (() => {
           ctx.log('debug grid markMaskIndicesDirty failed: ' + err);
         }
       }
-    } else if (useIncremental && typeof globalThis === 'object' && globalThis.__OMNI_DEBUG__) {
-      globalThis.__OMNI_DEBUG__.missingMaskDirty = (globalThis.__OMNI_DEBUG__.missingMaskDirty || 0) + 1;
-    }
-    if (typeof ctx.markMaskTextureFullDirty === 'function') {
+    } else if (typeof ctx.markMaskTextureFullDirty === 'function') {
       try {
         ctx.markMaskTextureFullDirty();
       } catch (err) {
@@ -1452,7 +1466,8 @@ const ENABLE_DEBUG_GRID_MASK = (() => {
         }
       }
     }
-    if (useIncremental && typeof ctx.markOutlineIndicesDirty === 'function') {
+    const canMarkOutline = !forceFull && hasIndices && idxArr.length && typeof ctx.markOutlineIndicesDirty === 'function';
+    if (canMarkOutline) {
       try {
         ctx.markOutlineIndicesDirty(idxArr);
       } catch (err) {
@@ -1460,10 +1475,7 @@ const ENABLE_DEBUG_GRID_MASK = (() => {
           ctx.log('debug grid markOutlineIndicesDirty failed: ' + err);
         }
       }
-    } else if (useIncremental && typeof globalThis === 'object' && globalThis.__OMNI_DEBUG__) {
-      globalThis.__OMNI_DEBUG__.missingOutlineDirty = (globalThis.__OMNI_DEBUG__.missingOutlineDirty || 0) + 1;
-    }
-    if (typeof ctx.markOutlineTextureFullDirty === 'function') {
+    } else if (typeof ctx.markOutlineTextureFullDirty === 'function') {
       try {
         ctx.markOutlineTextureFullDirty();
       } catch (err) {
@@ -1599,8 +1611,13 @@ const ENABLE_DEBUG_GRID_MASK = (() => {
       ? totalPixels
       : (maskValues && maskValues.length ? maskValues.length : count);
     const fillsAll = total > 0 && count === total;
+    const rebuildThreshold = ctx && typeof ctx.floodRebuildThreshold === 'number'
+      ? Math.min(1, Math.max(0, ctx.floodRebuildThreshold))
+      : 0.35;
+    const largeFill = fillsAll
+      || (total > 0 && rebuildThreshold > 0 && count >= total * rebuildThreshold);
     let affinityRebuilt = false;
-    const shouldRebuildAffinity = count > 0 && typeof ctx.rebuildLocalAffinityGraph === 'function';
+    const shouldRebuildAffinity = largeFill && typeof ctx.rebuildLocalAffinityGraph === 'function';
     if (shouldRebuildAffinity) {
       try {
         ctx.rebuildLocalAffinityGraph();
@@ -1611,7 +1628,9 @@ const ENABLE_DEBUG_GRID_MASK = (() => {
         }
       }
     }
-    if (!affinityRebuilt && typeof ctx.updateAffinityGraphForIndices === 'function') {
+    const shouldUpdateAffinity = !affinityRebuilt
+      && typeof ctx.updateAffinityGraphForIndices === 'function';
+    if (shouldUpdateAffinity) {
       try {
         ctx.updateAffinityGraphForIndices(idxArr);
       } catch (err) {
@@ -2325,6 +2344,3 @@ const ENABLE_DEBUG_GRID_MASK = (() => {
     }
   };
 })(typeof window !== 'undefined' ? window : globalThis);
-const LIVE_COMPONENT_TRACKER_BRUSH_UPDATES = false;
-const DEBUG_GRID_BACKGROUND_LABEL = 2;
-const DEBUG_GRID_LINE_LABEL = 1;

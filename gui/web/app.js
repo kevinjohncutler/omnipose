@@ -384,6 +384,7 @@ const DEBUG_COUNTERS = {
   requestPaintFrame: 0,
   flushMaskTextureUpdates: 0,
   applyMaskRedrawImmediate: 0,
+  affinityUpdateLastMs: 0,
 };
 const DEBUG_DIRTY_TRACKER = {
   maskCalls: 0,
@@ -2801,12 +2802,24 @@ if (typeof window !== 'undefined') {
       await new Promise((resolve) => setTimeout(resolve, options.settleDelay || 50));
     }
     const mask = ctx.maskValues;
+    const resolvedTargetLabel = Number.isFinite(options.targetLabel)
+      ? (options.targetLabel | 0)
+      : ((window.__OMNI_DEBUG__ && typeof window.__OMNI_DEBUG__.gridBackgroundLabel === 'number')
+        ? window.__OMNI_DEBUG__.gridBackgroundLabel | 0
+        : 0);
+    const targetLabel = resolvedTargetLabel;
+    const paintLabel = Number.isFinite(options.paintLabel)
+      ? (options.paintLabel | 0)
+      : 1;
+    if (targetLabel === paintLabel) {
+      throw new Error('walkGridFill paintLabel matches targetLabel; choose a different paintLabel.');
+    }
     const visited = new Set();
     const components = [];
     for (let y = 0; y < height; y += 1) {
       for (let x = 0; x < width; x += 1) {
         const idx = y * width + x;
-        if ((mask[idx] | 0) !== 0 || visited.has(idx)) {
+        if ((mask[idx] | 0) !== targetLabel || visited.has(idx)) {
           continue;
         }
         const comp = [];
@@ -2814,7 +2827,7 @@ if (typeof window !== 'undefined') {
         visited.add(idx);
         while (queue.length) {
           const current = queue.pop();
-          if ((mask[current] | 0) !== 0) {
+          if ((mask[current] | 0) !== targetLabel) {
             continue;
           }
           comp.push(current);
@@ -2843,28 +2856,53 @@ if (typeof window !== 'undefined') {
       ? 0
       : (Number.isFinite(options.delay) ? Math.max(0, options.delay) : 35);
     const useAnimationFrameDelay = !fastMode && delay <= 0 && typeof requestAnimationFrame === 'function';
+    const documentHidden = typeof document !== 'undefined'
+      && typeof document.visibilityState === 'string'
+      && document.visibilityState === 'hidden';
+    const waitForFrame = () => new Promise((resolve) => {
+      if (typeof requestAnimationFrame === 'function') {
+        let settled = false;
+        const finish = () => {
+          if (settled) {
+            return;
+          }
+          settled = true;
+          resolve();
+        };
+        requestAnimationFrame(() => finish());
+        // Fallback in case RAF never fires (hidden tabs / throttled timers)
+        setTimeout(finish, 32);
+        return;
+      }
+      setTimeout(resolve, 0);
+    });
+    const waitForDelay = (ms) => new Promise((resolve) => setTimeout(resolve, Math.max(0, ms | 0)));
     const results = [];
+    const wantsVisualFastUpdates = fastMode
+      && !(options.visual === false || options.visualize === false);
     for (let tile = 0; tile < components.length; tile += 1) {
       const comp = components[tile];
       const sampleIdx = comp[Math.floor(comp.length / 2)] | 0;
       const sx = sampleIdx % width;
       const sy = (sampleIdx / width) | 0;
       const maskBefore = ctx.maskValues[sampleIdx] | 0;
-      ctx.setCurrentLabel(1);
+      ctx.setCurrentLabel(paintLabel);
       painting.floodFill({ x: sx, y: sy });
-      if (fastMode && typeof requestAnimationFrame === 'function') {
-        await new Promise((resolve) => requestAnimationFrame(() => resolve()));
-      } else if (!fastMode) {
-        if (useAnimationFrameDelay) {
-          await new Promise((resolve) => requestAnimationFrame(() => resolve()));
-        } else {
-          await new Promise((resolve) => setTimeout(resolve, delay));
+      if (fastMode) {
+        if (wantsVisualFastUpdates && !documentHidden) {
+          await waitForFrame();
         }
+      } else if (useAnimationFrameDelay) {
+        await waitForFrame();
+      } else if (delay > 0) {
+        await waitForDelay(delay);
+      } else {
+        await waitForFrame();
       }
       let failures = 0;
       for (let i = 0; i < comp.length; i += 1) {
         const idx = comp[i] | 0;
-        if ((ctx.maskValues[idx] | 0) !== 1) {
+        if ((ctx.maskValues[idx] | 0) !== paintLabel) {
           failures += 1;
         }
       }
@@ -5575,6 +5613,10 @@ function rebuildOutlineFromAffinity() {
 }
 
 function updateAffinityGraphForIndices(indices) {
+  if (!showAffinityGraph) {
+    affinityGraphNeedsLocalRebuild = true;
+    return;
+  }
   if (!indices || !indices.length) {
     rebuildLocalAffinityGraph();
     return;
@@ -5781,8 +5823,9 @@ function updateAffinityGraphForIndices(indices) {
   if (!webglOverlay || !webglOverlay.enabled || !LIVE_AFFINITY_OVERLAY_UPDATES) {
     markAffinityGeometryDirty();
   }
+  const updateEnd = typeof performance !== 'undefined' && performance.now ? performance.now() : Date.now();
+  DEBUG_COUNTERS.affinityUpdateLastMs = updateEnd - updateStart;
   if (DEBUG_AFFINITY) {
-    const updateEnd = typeof performance !== 'undefined' && performance.now ? performance.now() : Date.now();
     debugAffinity(`[affinity] incremental update complete (touched=${touchedCount}, outlineChanged=${outlineChanged}, ${Math.round(updateEnd - updateStart)}ms)`);
   }
 }
@@ -8295,6 +8338,9 @@ if (affinityGraphToggle) {
   affinityGraphToggle.addEventListener('change', (evt) => {
     showAffinityGraph = Boolean(evt.target.checked);
     debugAffinity('[affinity] toggle ' + (showAffinityGraph ? 'on' : 'off'));
+    if (showAffinityGraph && affinityGraphNeedsLocalRebuild) {
+      rebuildLocalAffinityGraph();
+    }
     if (webglOverlay && webglOverlay.enabled) {
       const needsBuild = showAffinityGraph
         && webglOverlay.needsGeometryRebuild
@@ -8432,12 +8478,14 @@ if (typeof window !== 'undefined') {
     requestPaintFrame: DEBUG_COUNTERS.requestPaintFrame,
     flushMaskTextureUpdates: DEBUG_COUNTERS.flushMaskTextureUpdates,
     applyMaskRedrawImmediate: DEBUG_COUNTERS.applyMaskRedrawImmediate,
+    affinityUpdateLastMs: DEBUG_COUNTERS.affinityUpdateLastMs,
   });
   window.__OMNI_DEBUG__.resetCounters = () => {
     DEBUG_COUNTERS.draw = 0;
     DEBUG_COUNTERS.requestPaintFrame = 0;
     DEBUG_COUNTERS.flushMaskTextureUpdates = 0;
     DEBUG_COUNTERS.applyMaskRedrawImmediate = 0;
+    DEBUG_COUNTERS.affinityUpdateLastMs = 0;
   };
   window.__OMNI_DEBUG__.initializeWebglPipelineResources = (imageSource = null) => {
     initializeWebglPipelineResources(imageSource);
@@ -8556,6 +8604,37 @@ if (typeof window !== 'undefined') {
     dirtyTracker: Object.assign({}, DEBUG_DIRTY_TRACKER),
   });
   window.__OMNI_DEBUG__.getDirtyTracker = () => Object.assign({}, DEBUG_DIRTY_TRACKER);
+  window.__OMNI_DEBUG__.summarizeAffinityGraph = () => {
+    if (!affinityGraphInfo || !affinityGraphInfo.values) {
+      return {
+        hasGraph: false,
+        showAffinityGraph,
+      };
+    }
+    const { values, stepCount, width, height } = affinityGraphInfo;
+    const planeStride = width * height;
+    const counts = new Array(stepCount).fill(0);
+    for (let step = 0; step < stepCount; step += 1) {
+      const offset = step * planeStride;
+      let count = 0;
+      for (let i = 0; i < planeStride; i += 1) {
+        if (values[offset + i]) {
+          count += 1;
+        }
+      }
+      counts[step] = count;
+    }
+    const totalEdges = counts.reduce((sum, c) => sum + c, 0);
+    return {
+      hasGraph: true,
+      showAffinityGraph,
+      width,
+      height,
+      stepCount,
+      totalEdges,
+      counts,
+    };
+  };
   window.__OMNI_DEBUG__.highlightFillRect = (rect) => {
     showDebugFillOverlay(rect);
   };
