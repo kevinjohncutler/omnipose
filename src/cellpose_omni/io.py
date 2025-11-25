@@ -809,5 +809,6 @@ def adjust_file_path(file_path):
         home_dir = os.path.expanduser('~')
         adjusted_path = re.sub(r'^/Volumes', home_dir, file_path)
     else:
-        raise ValueError(f"Unsupported operating system: {system}")
+        print(f"No defined transformation for {system}")
+        adjusted_path = file_path
     return adjusted_path
