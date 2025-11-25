@@ -993,10 +993,24 @@ def imshow(imgs, figsize=2, ax=None, hold=False, titles=None, title_size=8, spac
         if title_size is None:
             title_size = figsize / len(imgs) * text_scale
 
+        # normalize figsize so figure() gets a 2-tuple of numbers
+        if isinstance(figsize, (list, tuple, np.ndarray)):
+            if len(figsize) >= 2:
+                fig_w, fig_h = float(figsize[0]), float(figsize[1])
+            elif len(figsize) == 1:
+                fig_w = fig_h = float(figsize[0])
+            else:
+                fig_w = fig_h = 2.0
+        else:
+            # scalar: scale width by number of panels like original behavior
+            fig_w = float(figsize) * len(imgs)
+            fig_h = float(figsize)
+        figsize_list = (fig_w, fig_h)
+
         # Create figure + subplots for multiple images
         fig, axes = figure(
             nrow=1, ncol=len(imgs),
-            figsize=(figsize * len(imgs), figsize),
+            figsize=figsize_list,
             dpi=dpi,
             frameon=False,
             facecolor=[0, 0, 0, 0]
@@ -1014,8 +1028,12 @@ def imshow(imgs, figsize=2, ax=None, hold=False, titles=None, title_size=8, spac
     # Otherwise, just one image
     # -------------------------------------------------------------
     else:
-        if not isinstance(figsize, (list, tuple)):
+        if not isinstance(figsize, (list, tuple, np.ndarray)):
             figsize = (figsize, figsize)
+        elif len(figsize) == 2:
+            figsize = (figsize[0], figsize[1])
+        else:
+            figsize = (figsize[0], figsize[0])
         if title_size is None:
             title_size = figsize[0] * text_scale
 

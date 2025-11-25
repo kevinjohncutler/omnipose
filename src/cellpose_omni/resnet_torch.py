@@ -30,7 +30,7 @@ def batchconv(in_channels, out_channels, kernel_size, dim, dilation, relu=True):
     if relu:
         layers.append(nn.ReLU(inplace=True))
     layers.append(ConvND(in_channels, out_channels, kernel_size, padding=padding, dilation=dilation, 
-                         padding_mode='reflect'))
+                         padding_mode='reflect')) # this padding mode is not supported by mkldnn 
 
 
     return nn.Sequential(*layers)
@@ -92,8 +92,8 @@ class resup(nn.Module):
         # print(y.shape)
         # print(style.shape)
         # print('\n')
-        x = self.proj(x) + self.conv[1](style, self.conv[0](x) + y, mkldnn=mkldnn) # use conv_0 and conv_1, first fonvolution + skip connection
-        x = x + self.conv[3](style, self.conv[2](style, x, mkldnn=mkldnn), mkldnn=mkldnn) # use conv_2 and conv_3, additional residual connections
+        x = self.proj(x) + self.conv[1](style, self.conv[0](x) + y, mkldnn=False) # use conv_0 and conv_1, first fonvolution + skip connection
+        x = x + self.conv[3](style, self.conv[2](style, x, mkldnn=False), mkldnn=False) # use conv_2 and conv_3, additional residual connections
         return x
 
         
@@ -138,11 +138,7 @@ class batchconvstyle(nn.Module):
         for k in range(self.dim):
             feat = feat.unsqueeze(-1)
             
-        if mkldnn:
-            x = x.to_dense()
-            y = (x + feat).to_mkldnn()
-        else:
-            y = x + feat
+        y = x + feat
         y = self.conv(y)
         return y
     
@@ -246,12 +242,9 @@ class upsample(nn.Module):
         for n in range(len(self.up)):  # Iterate through all layers
             idx = -(n + 1)  # Convert to negative index
             if n > 0:  # Skip upsampling for the first layer
-                if mkldnn:
-                    x = self.upsampling(x.to_dense()).to_mkldnn()
-                else:
-                    x = cp.checkpoint(self.upsampling, x) if self.checkpoint else self.upsampling(x)
+                x = cp.checkpoint(self.upsampling, x) if self.checkpoint else self.upsampling(x)
             
-            x = cp.checkpoint(self.up[idx], x, xd[idx], style, mkldnn) if self.checkpoint else self.up[idx](x, xd[idx], style, mkldnn=mkldnn)
+            x = cp.checkpoint(self.up[idx], x, xd[idx], style, False) if self.checkpoint else self.up[idx](x, xd[idx], style, mkldnn=False)
             
         return x
         
@@ -290,7 +283,7 @@ class CPnet(nn.Module):
         self.residual_on = residual_on
         self.style_on = style_on
         self.concatenation = concatenation
-        self.mkldnn = mkldnn if mkldnn is not None else False
+        self.mkldnn = False
         # self.downsample = downsample(nbase, sz, residual_on=residual_on, kernel_size=self.kernel_size, dim=self.dim)
         self.downsample = downsample(self)
         
@@ -318,22 +311,17 @@ class CPnet(nn.Module):
     
     # @autocast() #significant decrease in GPU memory usage (e.g. 19.8GB vs 11.8GB for a particular test run)
     def forward(self, data):
-        if self.mkldnn:
-            data = data.to_mkldnn()
         T0 = self.downsample(data)
         # T0 = cp.checkpoint(self.downsample,data) #casues a warning but appears to work, 11 to 8 GB! 
         
-        if self.mkldnn:
-            style = self.make_style(T0[-1].to_dense()) 
-        else:
-            style = self.make_style(T0[-1])
-            style = cp.checkpoint(self.make_style,T0[-1]) if self.checkpoint else self.make_style(T0[-1])
+        style = self.make_style(T0[-1])
+        style = cp.checkpoint(self.make_style,T0[-1]) if self.checkpoint else self.make_style(T0[-1])
             
         style0 = style
         if not self.style_on:
             style = style * 0
         
-        T0 = self.upsample(style, T0, self.mkldnn)
+        T0 = self.upsample(style, T0, False)
         # T0 = cp.checkpoint(self.upsample, style, T0, self.mkldnn) #not working
         
         if self.do_dropout:
@@ -342,10 +330,6 @@ class CPnet(nn.Module):
         # T0 = self.output(T0)
         T0 = cp.checkpoint(self.output,T0) if self.checkpoint else self.output(T0) #only  small reduction, 300MB
         
-        if self.mkldnn:
-            T0 = T0.to_dense()    
-
-
         # cellpose now uses a T1 as well, not sure why to return what is before the upscaling 
         
         return T0, style0
@@ -404,5 +388,4 @@ class CPnet(nn.Module):
                 self.load_state_dict(state_dict, strict=False)
             except Exception as e:
                 print('failed to load model', e)
-
 

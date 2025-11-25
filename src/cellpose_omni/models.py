@@ -25,6 +25,7 @@ import ncolor
 
 from torchvf.numerics import interp_vf, ivp_solver
 
+
 # from torchvf.utils import cluster
 
 # _MODEL_URL = 'https://www.cellpose.org/models'
@@ -405,7 +406,8 @@ class CellposeModel(UnetModel):
             if not MXNET_ENABLED:
                 use_torch = True
         self.torch = use_torch
-        # print('torch is', torch) # duplicated in unetmodel claass
+
+        # print('torch is', torch) # duplicated in unetmodel class
         if isinstance(pretrained_model, np.ndarray):
             pretrained_model = list(pretrained_model)
         elif isinstance(pretrained_model, str):

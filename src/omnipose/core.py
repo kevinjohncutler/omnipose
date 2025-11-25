@@ -1384,9 +1384,8 @@ def compute_masks(dP, dist, affinity_graph=None, bd=None, p=None, coords=None, i
     augmented_affinity: float32, ND array
         concatenated coordinates and affinity graph, hence (d+1,3**d,npix)
     """
-    # print('aaa',affinity_seg, suppress)
 
-    # do everything in padded arrays for boundary/affinity functions 
+    # do everything in padded arrays for boundary/affinity functions - not needed anymore?
     pad = 0 ##
     # pad = 1 ##
     # print('pad',pad)
@@ -1534,6 +1533,7 @@ def compute_masks(dP, dist, affinity_graph=None, bd=None, p=None, coords=None, i
 
                         # print('p',final_points.shape, initial_points.shape)
                         # if we can keep the points and predictions on GPU, we could make this a lot faster...
+                        # especially if we can optmize euler+affinity together
                         affinity_graph = _get_affinity_torch(initial_points, 
                                                             final_points, 
                                                             dP_pad, #<<<<<<<<<<< add support for other options here 
@@ -1546,13 +1546,10 @@ def compute_masks(dP, dist, affinity_graph=None, bd=None, p=None, coords=None, i
                                                             niter,
                                                             )
                         affinity_graph = affinity_graph.squeeze().cpu().numpy()
-                        # print(affinity_graph.shape,affinity_graph[(Ellipsis,)+tuple(coords)].shape)
                         affinity_graph = affinity_graph[(Ellipsis,)+tuple(coords)]
                     
                     
                     # despur really not needed anymore, handled by the affinity grpah torch version
-                    
-                    
                     # elif despur:
                         # if it is passed in, we need the neigh_inds to compute masks 
                         # (though eventually we will want this to also be in parallel on GPU...)
@@ -1605,7 +1602,7 @@ def compute_masks(dP, dist, affinity_graph=None, bd=None, p=None, coords=None, i
                                       use_gpu=use_gpu) ### just get_masks
 
         # flow thresholding factored out of get_masks
-        # still could be useful for boundaries! Need to put in the self-contact boundaries as input <<<<<<
+        # still could be useful for boundaries! TODO: Need to put in the self-contact boundaries as input <<<<<<
         # also can now turn on for do_3D... 
         
         if not do_3D: 
@@ -1808,6 +1805,8 @@ def divergence(f,sp=None):
         
     """
     num_dims = len(f)
+    if any(f.shape[1+i] < 2 for i in range(num_dims-1)):
+        return np.zeros_like(f[0])
     return np.ufunc.reduce(np.add, [np.gradient(f[i], axis=i) for i in range(num_dims)])
 
 
@@ -3464,6 +3463,13 @@ def divergence_torch(y):
         Shape ``(B, *spatial)`` - divergence of ``y``.
     """
     B, D, *spatial = y.shape
+
+    # Guard against degenerate spatial dims that are too small for gradient
+    # computation (edge_order >= 1). When any spatial dimension is < 2 the
+    # divergence is undefined; return zeros to avoid runtime errors and keep
+    # CPU/GPU parity checks focused on the network output.
+    if any(s < 2 for s in spatial):
+        return torch.zeros((B, *spatial), dtype=y.dtype, device=y.device)
     if y.device.type == 'cpu':
         # Allocate output once and fill in-place
         div = torch.zeros((B, *spatial), dtype=y.dtype, device=y.device)

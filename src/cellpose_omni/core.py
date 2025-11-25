@@ -36,7 +36,6 @@ MXNET_ENABLED = False
 import torch
 from torch.amp import autocast, GradScaler
 from torch import nn
-from torch.utils import mkldnn as mkldnn_utils
 from .resnet_torch import torch_GPU, torch_CPU, CPnet, ARM, empty_cache
 # torch.serialization.add_safe_globals(CPnet)
 
@@ -112,7 +111,8 @@ class UnetModel():
         self.unet = True
                 
         self.torch = use_torch
-        self.mkldnn = None
+        # mkldnn support is disabled (not numerically aligned with CUDA); keep flag false
+        self.mkldnn = False
         
         self.gpu = gpu 
         
@@ -125,8 +125,6 @@ class UnetModel():
             self.gpu = self.device.type=='mps' if ARM else self.device.type=='cuda'
 
         
-        if use_torch and not self.gpu:
-            self.mkldnn = check_mkl(self.torch)
         self.pretrained_model = pretrained_model
         self.diam_mean = diam_mean
 
@@ -165,7 +163,7 @@ class UnetModel():
                               residual_on=residual_on, 
                               style_on=style_on,
                               concatenation=concatenation,
-                              mkldnn=self.mkldnn, 
+                              mkldnn=False, 
                               dim=self.dim, 
                               checkpoint=self.checkpoint,
                               dropout=self.dropout,
@@ -363,18 +361,11 @@ class UnetModel():
         X = self._to_device(x)
         if self.torch:
             self.net.eval()
-                    
-            if self.mkldnn:
-                self.net = mkldnn_utils.to_mkldnn(self.net)
             with torch.no_grad():
                 y, style = self.net(X)
         else:
             y, style = self.net(X)
         del X 
-        
-        if self.mkldnn:
-            self.net.to(torch_CPU)
-            
         if to_numpy:
             y = self._from_device(y)
             style = self._from_device(style)
@@ -1440,7 +1431,7 @@ class UnetModel():
             else:
                 file_name = save_path
 
-        # reset to mkldnn if available
-        self.net.mkldnn = self.mkldnn
+        # mkldnn disabled; keep torch path consistent
+        self.net.mkldnn = False
 
         return file_name

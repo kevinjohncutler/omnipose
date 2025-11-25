@@ -21,7 +21,6 @@ if ARM:
 # import torch after setting env variables 
 import torch
 
-
 # ARM = torch.backends.mps.is_available() and ARM
 # torch_GPU = torch.device('mps') if ARM else torch.device('cuda')
 # torch_CPU = torch.device('cpu')
