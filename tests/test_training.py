@@ -27,14 +27,17 @@ def test_training():
     model_path = None
     models_dir = os.path.join(save_dir, "models")
     for file_name in os.listdir(models_dir):
+        if file_name.startswith("._"):
+            continue  # macOS resource forks; not valid checkpoints
         if file_name.endswith("epoch_1"):
             model_path = os.path.join(models_dir, file_name)
             break
 
     assert model_path is not None, "Model checkpoint for epoch 1 not saved"
 
-    model_file = torch.load(model_path, weights_only=True)
+    # The training checkpoint includes optimizer + metadata objects, so weights_only=True
+    # (used for pure state_dict loads in the main pipeline) cannot decode it.
+    model_file = torch.load(model_path, weights_only=False, map_location="cpu")
+
     assert isinstance(model_file, dict), "Loaded model file is not a dictionary"
     assert any(key.startswith('downsample') or key.startswith('output') for key in model_file.keys()), "State dict does not contain weights values"
-
-
