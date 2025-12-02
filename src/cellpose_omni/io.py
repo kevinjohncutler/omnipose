@@ -795,6 +795,8 @@ def adjust_file_path(file_path):
     Adjust the file path based on the operating system.
     On macOS, replace '/home/user' with '/Volumes'.
     On Linux, replace '/Volumes' with the home directory path.
+    On Windows, map either '/home/user' or '/Volumes' to the user home and
+    normalize separators to the platform default.
 
     Args:
         file_path (str): The original file path.
@@ -808,6 +810,12 @@ def adjust_file_path(file_path):
     elif system == 'Linux':  # Linux
         home_dir = os.path.expanduser('~')
         adjusted_path = re.sub(r'^/Volumes', home_dir, file_path)
+    elif system == 'Windows':  # Windows
+        home_dir = os.path.expanduser('~')
+        # Map WSL-like or macOS-style mounts to the Windows home and clean slashes.
+        adjusted_path = re.sub(r'^/home/[^/]+', home_dir, file_path)
+        adjusted_path = re.sub(r'^/Volumes', home_dir, adjusted_path)
+        adjusted_path = os.path.normpath(adjusted_path)
     else:
         print(f"No defined transformation for {system}")
         adjusted_path = file_path
