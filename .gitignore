@@ -14,6 +14,7 @@ omnipose.egg-info
 *.so
 
 # macOS
+._*
 .DS_Store
 
 # Distribution / packaging

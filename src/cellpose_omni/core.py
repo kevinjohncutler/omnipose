@@ -1479,4 +1479,15 @@ class UnetModel():
         # mkldnn disabled; keep torch path consistent
         self.net.mkldnn = False
 
+        # Explicitly delete DataLoader and iterator, then collect garbage to clean up workers
+        try:
+            del train_loader
+        except Exception:
+            pass
+        try:
+            del loader_iter
+        except Exception:
+            pass
+        import gc
+        gc.collect()
         return file_name
