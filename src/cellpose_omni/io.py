@@ -813,8 +813,9 @@ def adjust_file_path(file_path):
     elif system == 'Windows':  # Windows
         home_dir = os.path.expanduser('~')
         # Map WSL-like or macOS-style mounts to the Windows home and clean slashes.
-        adjusted_path = re.sub(r'^/home/[^/]+', home_dir, file_path)
-        adjusted_path = re.sub(r'^/Volumes', home_dir, adjusted_path)
+        replace_with_home = lambda _match: home_dir
+        adjusted_path = re.sub(r'^/home/[^/]+', replace_with_home, file_path)
+        adjusted_path = re.sub(r'^/Volumes', replace_with_home, adjusted_path)
         adjusted_path = os.path.normpath(adjusted_path)
     else:
         print(f"No defined transformation for {system}")
