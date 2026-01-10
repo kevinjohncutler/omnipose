@@ -961,6 +961,7 @@ class CellposeModel(UnetModel):
                                                                             inds,
                                                                             supporting_inds,
                                                                             niter,
+                                                                            device=self.device
                                                                             )
 
                     # cast to CPU for compute_masks

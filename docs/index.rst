@@ -75,3 +75,8 @@ For support, submit an `issue`_ on the Omnipose repo. For more on the workings o
                     diameter
                     gamma
                     logo
+
+.. toctree::
+    :hidden:
+
+    readme_full

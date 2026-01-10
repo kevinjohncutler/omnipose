@@ -1544,6 +1544,7 @@ def compute_masks(dP, dist, affinity_graph=None, bd=None, p=None, coords=None, i
                                                             inds,
                                                             supporting_inds,
                                                             niter,
+                                                            device=device # would default to torch GPU otherwise?
                                                             )
                         affinity_graph = affinity_graph.squeeze().cpu().numpy()
                         affinity_graph = affinity_graph[(Ellipsis,)+tuple(coords)]

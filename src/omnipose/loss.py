@@ -190,6 +190,7 @@ class AffinityLoss(torch.nn.Module):
                                                 self.inds,
                                                 self.supporting_inds,
                                                 niter,
+                                                device=self.device
                                                 )
             ags.append(affinity_graph*1.0)
             
