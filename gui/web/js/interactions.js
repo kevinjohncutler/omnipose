@@ -287,9 +287,6 @@
       }
       const worldPoint = context.screenToImage(state.pendingPanPointer);
       setHoverState(worldPoint, state.pendingPanPointer);
-      if (typeof context.updateHoverInfo === 'function') {
-        context.updateHoverInfo(worldPoint);
-      }
       state.hoverUpdatePending = false;
       state.pendingHoverScreenPoint = null;
       state.pendingHoverHasPreview = false;
@@ -358,7 +355,8 @@
     }
 
     if (panUpdated) {
-      requestContextDraw(context, { immediate: true });
+      requestContextDraw(context);
+      renderHoverPreview();
     }
   }
 

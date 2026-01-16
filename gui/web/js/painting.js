@@ -55,13 +55,13 @@ const DEBUG_GRID_LINE_LABEL = 1;
 
 const ENABLE_DEBUG_GRID_MASK = (() => {
   if (typeof globalThis === 'undefined') {
-    return true;
+    return false;
   }
   if (Object.prototype.hasOwnProperty.call(globalThis, '__OMNI_FORCE_GRID_MASK__')) {
     return Boolean(globalThis.__OMNI_FORCE_GRID_MASK__);
   }
-  globalThis.__OMNI_FORCE_GRID_MASK__ = true;
-  return true;
+  globalThis.__OMNI_FORCE_GRID_MASK__ = false;
+  return false;
 })();
 
   state.debugGridPending = ENABLE_DEBUG_GRID_MASK;

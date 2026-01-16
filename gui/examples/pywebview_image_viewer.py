@@ -486,7 +486,7 @@ class Segmenter:
         mask_uint32 = np.ascontiguousarray(mask.astype(np.uint32, copy=False))
         flow_components = self._extract_flows(flows)
         self._cache = self._build_cache(arr, flow_components, parsed, merged_options, mask_uint32.shape)
-        ncolor_mask = self._compute_ncolor_mask(mask_uint32)
+        ncolor_mask = self._compute_ncolor_mask(mask_uint32, expand=True)
         if self._cache is None:
             self._cache = {}
         cache = self._cache
@@ -534,7 +534,7 @@ class Segmenter:
             dim=cache["dim"],
         )
         mask_uint32 = np.ascontiguousarray(mask.astype(np.uint32, copy=False))
-        ncolor_mask = self._compute_ncolor_mask(mask_uint32)
+        ncolor_mask = self._compute_ncolor_mask(mask_uint32, expand=True)
         cache["mask"] = mask_uint32
         cache["ncolor_mask"] = ncolor_mask
         cache["mask_shape"] = tuple(mask_uint32.shape)
@@ -767,7 +767,7 @@ class Segmenter:
     #         return mask_int
     #     return relabeled
 
-    def _compute_ncolor_mask(self, mask: np.ndarray) -> Optional[np.ndarray]:
+    def _compute_ncolor_mask(self, mask: np.ndarray, *, expand: bool = True) -> Optional[np.ndarray]:
         try:
             import ncolor
         except ImportError:
@@ -776,10 +776,12 @@ class Segmenter:
             return None
         mask_int = np.asarray(mask, dtype=np.int32)
         try:
-            # Match show_segmentation usage: prefer deeper search over expand
-            labeled, ngroups = ncolor.label(mask_int, max_depth=20, return_n=True)
+            labeled, ngroups = ncolor.label(mask_int, max_depth=20, expand=expand, return_n=True)
         except TypeError:
-            labeled = ncolor.label(mask_int, max_depth=20)
+            try:
+                labeled = ncolor.label(mask_int, max_depth=20, expand=expand)
+            except TypeError:
+                labeled = ncolor.label(mask_int, max_depth=20)
             ngroups = int(np.unique(labeled[labeled > 0]).size)
         labeled_uint32 = np.ascontiguousarray(labeled.astype(np.uint32, copy=False))
         print(f"[ncolor] groups={ngroups}")
@@ -1060,7 +1062,11 @@ def render_index(
             f"    <div id=\"app\">\n{layout_markup}\n    </div>",
         )
     config_json = json.dumps(config).replace('</', '<\/')
-    config_script = f"<script>window.__OMNI_CONFIG__ = {config_json}; window.__OMNI_WEBGL_LOGGING__ = true;</script>"
+    debug_webgl = bool(config.get("debugWebgl"))
+    config_script = (
+        f"<script>window.__OMNI_CONFIG__ = {config_json}; "
+        f"window.__OMNI_WEBGL_LOGGING__ = {json.dumps(debug_webgl)};</script>"
+    )
     capture_script = CAPTURE_LOG_SCRIPT.strip()
     capture_script = "    " + capture_script.replace("\n", "\n    ")
     css_links = list(CSS_LINKS)
@@ -1389,7 +1395,8 @@ class DebugAPI:
             mask = arr.reshape((height, width)).astype(np.int32, copy=False)
         except Exception as exc:
             return {"error": f"decode failed: {exc}"}
-        ncm = _SEGMENTER._compute_ncolor_mask(mask)
+        expand = bool(payload.get("expand", True))
+        ncm = _SEGMENTER._compute_ncolor_mask(mask, expand=expand)
         if ncm is None:
             return {"nColorMask": None}
         try:

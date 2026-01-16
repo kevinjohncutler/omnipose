@@ -2651,7 +2651,9 @@ def random_crop_warp(img, Y, tyx, v1, v2, nchan, rescale, scale_range, gamma_ran
                 # poisson is super slow... np.random.posson is faster
                 # also poisson always gave the same noise, which is very bad...
                 # but gaussian speckle is MUCH faster,<1ms vs >4ms 
-                imgi[k] = random_noise(imgi[k], mode='speckle',var=var)
+                noise = np.random.normal(0.0, float(np.sqrt(var)), size=imgi[k].shape).astype(np.float32)
+                imgi[k] = imgi[k] + imgi[k] * noise
+                imgi[k] = np.clip(imgi[k], 0, 1)
                 # imgi[k] = utils.add_gaussian_noise(imgi[k],0,var)
                 
             # bit depth augmentation

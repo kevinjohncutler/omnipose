@@ -55,6 +55,11 @@
         </div>
         <div class="control toggle-group">
           <label class="toggle">
+            <input type="checkbox" id="autoNColorToggle" checked />
+            <span class="toggle-switch"></span>
+            <span class="toggle-label">N-Color Masks</span>
+          </label>
+          <label class="toggle">
             <input type="checkbox" id="clusterToggle" checked />
             <span class="toggle-switch"></span>
             <span class="toggle-label">Enable Clustering</span>
@@ -114,10 +119,7 @@
             <span class="toggle-label">Show Masks</span>
           </label>
         </div>
-        <div id="colorMode">Mask Colors: Palette (toggle with 'N')</div>
-        <div id="maskLabel">Mask Label: 1</div>
-        <div id="toolInfo">Tool: Brush (B=Brush, G=Fill, I=Picker)</div>
-        <div id="maskVisibility">Mask Layer: On (toggle with 'M')</div>
+        
         <div id="hoverInfo" class="status">Y: --, X: --, Val: --</div>
         <div class="hint">
           Use B/G/I to switch tools, [ ] to resize brush, digits 0-9 set label. Hold Space to pan, scroll to zoom, W/S to traverse directory.

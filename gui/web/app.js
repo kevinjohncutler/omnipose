@@ -16,10 +16,32 @@ const initialBrushRadius = CONFIG.brushRadius ?? 6;
 const sessionId = CONFIG.sessionId || null;
 const currentImagePath = CONFIG.imagePath || null;
 const currentImageName = CONFIG.imageName || null;
+const localStateKey = `OMNI_VIEWER_STATE:${CONFIG.imagePath || CONFIG.imageName || 'default'}`;
+
+function loadLocalViewerState() {
+  if (typeof window === 'undefined' || !window.localStorage) {
+    return null;
+  }
+  try {
+    const raw = window.localStorage.getItem(localStateKey);
+    if (!raw) {
+      return null;
+    }
+    const parsed = JSON.parse(raw);
+    if (!parsed || typeof parsed !== 'object') {
+      return null;
+    }
+    delete parsed.imageVisible;
+    delete parsed.maskVisible;
+    return parsed;
+  } catch (_) {
+    return null;
+  }
+}
 const directoryEntries = Array.isArray(CONFIG.directoryEntries) ? CONFIG.directoryEntries : [];
 const directoryIndex = typeof CONFIG.directoryIndex === 'number' ? CONFIG.directoryIndex : null;
 const directoryPath = CONFIG.directoryPath || null;
-const savedViewerState = CONFIG.savedViewerState || null;
+const savedViewerState = CONFIG.savedViewerState || loadLocalViewerState();
 const hasPrevImage = Boolean(CONFIG.hasPrev);
 const hasNextImage = Boolean(CONFIG.hasNext);
 let defaultPalette = [];
@@ -41,11 +63,11 @@ const DEBUG_STATE_SAVE = Boolean(
 );
 if (typeof window !== 'undefined') {
   window.__OMNI_FILL_DEBUG__ = DEBUG_FILL_PERF;
-  const forceGridMask = Boolean(
-    CONFIG.debugForceGridMask
-    ?? window.__OMNI_FORCE_GRID_MASK__
-    ?? false,
-  );
+  const hasConfigForceGrid = Object.prototype.hasOwnProperty.call(CONFIG, 'debugForceGridMask');
+  const hasWindowForceGrid = Object.prototype.hasOwnProperty.call(window, '__OMNI_FORCE_GRID_MASK__');
+  const forceGridMask = hasConfigForceGrid
+    ? Boolean(CONFIG.debugForceGridMask)
+    : (hasWindowForceGrid ? Boolean(window.__OMNI_FORCE_GRID_MASK__) : false);
   window.__OMNI_FORCE_GRID_MASK__ = forceGridMask;
   if (ENABLE_MASK_PIPELINE_V2) {
     window.__OMNI_MASK_PIPELINE_V2__ = true;
@@ -507,6 +529,13 @@ async function saveViewerState({ immediate = false, seq = null } = {}) {
     lastSavedSeq,
   });
   const viewerState = collectViewerState();
+  if (typeof window !== 'undefined' && window.localStorage) {
+    try {
+      window.localStorage.setItem(localStateKey, JSON.stringify(viewerState));
+    } catch (_) {
+      /* ignore */
+    }
+  }
   const payload = {
     sessionId,
     imagePath: currentImagePath,
@@ -1010,6 +1039,7 @@ uniform float u_flowVisible;
 uniform float u_flowOpacity;
 uniform float u_distanceVisible;
 uniform float u_distanceOpacity;
+uniform float u_colorOffset;
 
 vec3 sinebow(float t) {
   float angle = 6.28318530718 * fract(t);
@@ -1021,7 +1051,7 @@ vec3 sinebow(float t) {
 
 vec3 hashColor(float label) {
   float golden = 0.61803398875;
-  float t = fract(label * golden);
+  float t = fract(label * golden + u_colorOffset);
   return sinebow(t);
 }
 
@@ -1185,6 +1215,7 @@ const texCoords = new Float32Array([
     distanceSampler: gl.getUniformLocation(program, 'u_distanceSampler'),
     distanceVisible: gl.getUniformLocation(program, 'u_distanceVisible'),
     distanceOpacity: gl.getUniformLocation(program, 'u_distanceOpacity'),
+    colorOffset: gl.getUniformLocation(program, 'u_colorOffset'),
   };
   gl.useProgram(program);
   gl.uniform1i(uniforms.baseSampler, 0);
@@ -1448,6 +1479,7 @@ function drawWebglFrame() {
   pipelineGl.uniform1f(uniforms.maskVisible, maskVisible ? 1 : 0);
   pipelineGl.uniform1f(uniforms.imageVisible, imageVisible ? 1 : 0);
   pipelineGl.uniform1f(uniforms.outlinesVisible, outlinesVisible ? 1 : 0);
+  pipelineGl.uniform1f(uniforms.colorOffset, 0.0);
   pipelineGl.uniform1f(uniforms.flowVisible, showFlowOverlay && flowOverlayImage && flowOverlayImage.complete ? 1 : 0);
   pipelineGl.uniform1f(uniforms.flowOpacity, 0.7);
   pipelineGl.uniform1f(uniforms.distanceVisible, showDistanceOverlay && distanceOverlayImage && distanceOverlayImage.complete ? 1 : 0);
@@ -2126,8 +2158,10 @@ document.addEventListener('pointerdown', (evt) => {
   }
 });
 
-window.addEventListener('blur', () => {
-  touchPointers.clear();
+function handleWindowBlur() {
+  if (touchPointers && typeof touchPointers.clear === 'function') {
+    touchPointers.clear();
+  }
   pinchState = null;
   panPointerId = null;
   pointerState.resetPen();
@@ -2142,7 +2176,7 @@ window.addEventListener('blur', () => {
       dropdownOpenId = null;
     }
   }
-});
+}
 
 document.addEventListener('mouseleave', (evt) => {
   if (!evt.relatedTarget && !evt.toElement) {
@@ -2341,13 +2375,6 @@ if (brushSizeInput) {
 if (brushKernelModeSelect) {
   brushKernelModeSelect.value = brushKernelMode;
 }
-document.querySelectorAll('[data-slider-id]').forEach((root) => {
-  registerSlider(root);
-});
-document.querySelectorAll('[data-dropdown-id]').forEach((root) => {
-  registerDropdown(root);
-});
-updateBrushControls();
 
 window.addEventListener('resize', () => {
   if (dropdownOpenId) {
@@ -2385,6 +2412,8 @@ const histogramCanvas = document.getElementById('histogram');
 const histRangeLabel = document.getElementById('histRange');
 const hoverInfo = document.getElementById('hoverInfo');
 const fpsDisplay = document.getElementById('fpsDisplay');
+const hoverValueDisplay = document.getElementById('hoverValueDisplay');
+const hoverCoordDisplay = document.getElementById('hoverCoordDisplay');
 const maskOpacitySlider = document.getElementById('maskOpacity');
 const maskOpacityInput = document.getElementById('maskOpacityInput');
 const maskThresholdSlider = document.getElementById('maskThresholdSlider');
@@ -2398,10 +2427,19 @@ const flowOverlayToggle = document.getElementById('flowOverlayToggle');
 const distanceOverlayToggle = document.getElementById('distanceOverlayToggle');
 const imageVisibilityToggle = document.getElementById('imageVisibilityToggle');
 const maskVisibilityToggle = document.getElementById('maskVisibilityToggle');
+const autoNColorToggle = document.getElementById('autoNColorToggle');
 const toolStopButtons = Array.from(document.querySelectorAll('.tool-stop'));
 const TOOL_MODE_ORDER = ['draw', 'erase', 'fill', 'picker'];
 const PREVIEW_TOOL_TYPES = new Set(['brush', 'erase']);
 const CROSSHAIR_TOOL_TYPES = new Set(['brush', 'erase', 'fill', 'picker']);
+
+document.querySelectorAll('[data-slider-id]').forEach((root) => {
+  registerSlider(root);
+});
+document.querySelectorAll('[data-dropdown-id]').forEach((root) => {
+  registerDropdown(root);
+});
+updateBrushControls();
 
 if (labelValueInput) {
   labelValueInput.addEventListener('change', (evt) => {
@@ -2490,7 +2528,9 @@ const viewState = { scale: 1.0, offsetX: 0.0, offsetY: 0.0, rotation: 0.0 };
 let maskVisible = true;
 let imageVisible = true;
 let currentLabel = 1;
-updateLabelControls();
+if (savedViewerState && typeof savedViewerState.currentLabel === 'number' && savedViewerState.currentLabel > 0) {
+  currentLabel = savedViewerState.currentLabel;
+}
 let originalImageData = null;
 let isPanning = false;
 let isPainting = false;
@@ -2539,6 +2579,7 @@ let clusterEnabled = typeof CONFIG.cluster === 'boolean' ? CONFIG.cluster : true
 let affinitySegEnabled = typeof CONFIG.affinitySeg === 'boolean' ? CONFIG.affinitySeg : true;
 let userAdjustedScale = false;
 const touchPointers = new Map();
+window.addEventListener('blur', handleWindowBlur);
 const brushTapHistory = { pen: 0, mouse: 0 };
 const brushTapLastPos = { pen: null, mouse: null };
 let brushTapUndoBaseline = null;
@@ -2637,6 +2678,31 @@ const paintingInitOptions = {
   enqueueAffinityIndexBatch: (buffer, length) => enqueueAffinityIndexBatch(buffer, length),
   onMaskBufferReplaced: (next) => {
     maskValues = next;
+    if (!next || !next.length) {
+      return;
+    }
+    if (affinityGraphSource === 'remote') {
+      return;
+    }
+    if (!maskHasNonZero) {
+      return;
+    }
+    const lastBuild = typeof window !== 'undefined' && window.__OMNI_DEBUG__
+      ? window.__OMNI_DEBUG__.lastLocalAffinityBuild
+      : null;
+    const localGraphEmpty = Boolean(lastBuild && lastBuild.hasValues && lastBuild.nonZero === false);
+    const missingGraph = !affinityGraphInfo || !affinityGraphInfo.values || !affinityGraphInfo.stepCount;
+    if (!localGraphEmpty && !missingGraph) {
+      return;
+    }
+    affinityGraphNeedsLocalRebuild = true;
+    if (showAffinityGraph || affinitySegEnabled) {
+      try {
+        rebuildLocalAffinityGraph();
+      } catch (err) {
+        log('affinity rebuild after mask buffer replace failed', err);
+      }
+    }
   },
   debugFillPerformance: () => DEBUG_FILL_PERF,
   enableMaskPipelineV2: ENABLE_MASK_PIPELINE_V2,
@@ -2645,6 +2711,9 @@ let paintingInitApplied = false;
 let debugGridBootstrapped = false;
 
 function logDebugGridStatus(reason) {
+  if (!window.__OMNI_DEBUG__ || !window.__OMNI_DEBUG__.gridLogs) {
+    return;
+  }
   if (!paintingApi || typeof paintingApi.__debugGetState !== 'function') {
     return;
   }
@@ -3138,9 +3207,10 @@ function updateCursor() {
 }
 
 function updateMaskLabel() {
-  if (!maskLabel) return;
-  const prefix = nColorActive ? 'Mask Group' : 'Mask Label';
-  maskLabel.textContent = prefix + ': ' + currentLabel;
+  if (maskLabel) {
+    const prefix = nColorActive ? 'Mask Group' : 'Mask Label';
+    maskLabel.textContent = prefix + ': ' + currentLabel;
+  }
   updateLabelControls();
 }
 
@@ -3165,7 +3235,14 @@ function updateLabelControls() {
   }
   labelValueInput.value = String(currentLabel);
   if (currentLabel > 0) {
-    const rgb = hashColorForLabel(currentLabel);
+    let rgb = null;
+    if (typeof nColorActive !== 'undefined' && typeof rawColorMap !== 'undefined') {
+      rgb = nColorActive
+        ? getNColorLabelColor(currentLabel)
+        : getRawLabelColor(currentLabel);
+    } else {
+      rgb = hashColorForLabel(currentLabel, 0.0);
+    }
     if (Array.isArray(rgb) && rgb.length >= 3) {
       const [r, g, b] = rgb;
       const color = 'rgb(' + (r | 0) + ', ' + (g | 0) + ', ' + (b | 0) + ')';
@@ -3185,6 +3262,9 @@ function updateLabelControls() {
 }
 
 function updateMaskVisibilityLabel() {
+  if (!maskVisibility) {
+    return;
+  }
   maskVisibility.textContent = 'Mask Layer: ' + (maskVisible ? 'On' : 'Off') + " (toggle with 'M')";
 }
 
@@ -3389,7 +3469,7 @@ function setMaskOpacity(value, { silent = false } = {}) {
     if (!isWebglPipelineActive()) {
       redrawMaskCanvas();
     }
-    draw();
+    scheduleDraw();
     scheduleStateSave();
   }
 }
@@ -3641,6 +3721,14 @@ function performClearMasks({ recordHistory = true } = {}) {
   nColorValues = null;
   clearColorCaches();
   clearAffinityGraphData();
+  if (window.__OMNI_FORCE_GRID_MASK__ && window.OmniPainting
+    && typeof window.OmniPainting.__debugApplyGridIfNeeded === 'function') {
+    try {
+      window.OmniPainting.__debugApplyGridIfNeeded(true);
+    } catch (err) {
+      console.warn('debug grid reapply after clear masks failed', err);
+    }
+  }
   if (webglOverlay && webglOverlay.enabled) {
     webglOverlay.needsGeometryRebuild = true;
   }
@@ -3873,7 +3961,6 @@ function collectViewerState() {
     tool,
     brushDiameter,
     maskVisible,
-    imageVisible,
     nColorActive,
     nColorValues: nColorActive && nColorValues ? base64FromUint32(nColorValues) : null,
     clusterEnabled,
@@ -3923,7 +4010,6 @@ function restoreViewerState(saved) {
     );
     if (typeof saved.currentLabel === 'number') {
       currentLabel = saved.currentLabel;
-      updateMaskLabel();
     }
     if (typeof saved.maskOpacity === 'number') {
       maskOpacity = saved.maskOpacity;
@@ -3948,18 +4034,15 @@ function restoreViewerState(saved) {
     if (typeof saved.brushDiameter === 'number') {
       setBrushDiameter(saved.brushDiameter, false);
     }
-    if (typeof saved.tool === 'string') {
-      setTool(saved.tool);
-    }
+    eraseActive = false;
+    erasePreviousLabel = null;
+    setTool('brush');
     if (typeof saved.maskVisible === 'boolean') {
       maskVisible = saved.maskVisible;
       if (maskVisibilityToggle) {
         maskVisibilityToggle.checked = maskVisible;
       }
       updateMaskVisibilityLabel();
-    }
-    if (typeof saved.imageVisible === 'boolean') {
-      setImageVisible(saved.imageVisible, { silent: true });
     }
     if (typeof saved.clusterEnabled === 'boolean') {
       setClusterEnabled(saved.clusterEnabled, { silent: true });
@@ -3991,17 +4074,23 @@ function restoreViewerState(saved) {
           nColorValues = decoded;
           nColorActive = true;
         } else {
-          nColorActive = false;
+          nColorActive = true;
           nColorValues = null;
         }
       } catch (err) {
         console.warn('Failed to restore nColor state', err);
-        nColorActive = false;
+        nColorActive = true;
         nColorValues = null;
       }
-    } else {
+    } else if (typeof saved.nColorActive === 'boolean') {
       nColorActive = false;
       nColorValues = null;
+    } else {
+      nColorActive = true;
+      nColorValues = null;
+    }
+    if (!Number.isFinite(currentLabel) || currentLabel <= 0) {
+      currentLabel = 1;
     }
     updateColorModeLabel();
     updateMaskLabel();
@@ -4010,12 +4099,14 @@ function restoreViewerState(saved) {
     updateBrushControls();
     if (flowOverlayToggle) flowOverlayToggle.checked = showFlowOverlay;
     if (distanceOverlayToggle) distanceOverlayToggle.checked = showDistanceOverlay;
+    if (autoNColorToggle) autoNColorToggle.checked = nColorActive;
     if (isWebglPipelineActive()) {
       markMaskTextureFullDirty();
       markOutlineTextureFullDirty();
     } else {
       redrawMaskCanvas();
     }
+    updateToolButtons();
     markAffinityGeometryDirty();
   } finally {
     isRestoringState = false;
@@ -4031,6 +4122,7 @@ function restoreViewerState(saved) {
   needsMaskRedraw = true;
   applyMaskRedrawImmediate();
   draw();
+  scheduleAffinityRebuildIfStale('restore');
   stateDirty = false;
   stateDirtySeq = 0;
   lastSavedSeq = 0;
@@ -5204,7 +5296,7 @@ function drawAffinityGraphWebgl() {
   const alphaScale = t * t * (3 - 2 * t);
   const clampedAlpha = Math.max(0, Math.min(1, alphaScale));
   webglOverlay.displayAlpha = clampedAlpha;
-  if (typeof window !== 'undefined') {
+  if (DEBUG_AFFINITY && typeof window !== 'undefined') {
     const prev = Number.isFinite(window.__debugAlpha) ? window.__debugAlpha : NaN;
     if (!Number.isFinite(prev) || Math.abs(prev - clampedAlpha) > 0.01) {
       console.log('[affinity] alphaScale', clampedAlpha.toFixed(4), 'zoom', s.toFixed(3), 'minEdgePx', minEdgePx.toFixed(3));
@@ -5279,6 +5371,65 @@ function clearAffinityGraphData() {
   }
   clearWebglOverlaySurface();
   markAffinityGeometryDirty();
+}
+
+let affinityRebuildScheduled = false;
+
+function sampledHasNonZero(values) {
+  if (!values || values.length === 0) {
+    return false;
+  }
+  const step = Math.max(1, Math.floor(values.length / 4096));
+  for (let i = 0; i < values.length; i += step) {
+    if ((values[i] | 0) !== 0) {
+      return true;
+    }
+  }
+  return false;
+}
+
+function scheduleAffinityRebuildIfStale(reason) {
+  if (affinityRebuildScheduled) {
+    return;
+  }
+  affinityRebuildScheduled = true;
+  const schedule = typeof requestAnimationFrame === 'function'
+    ? requestAnimationFrame
+    : (cb) => setTimeout(cb, 0);
+  schedule(() => {
+    affinityRebuildScheduled = false;
+    if (!maskValues || !maskValues.length) {
+      return;
+    }
+    if (affinityGraphSource === 'remote') {
+      return;
+    }
+    if (!showAffinityGraph && !affinitySegEnabled) {
+      return;
+    }
+    let maskNonZero = maskHasNonZero;
+    if (!maskNonZero) {
+      maskNonZero = sampledHasNonZero(maskValues);
+    }
+    if (!maskNonZero) {
+      return;
+    }
+    const lastBuild = typeof window !== 'undefined' && window.__OMNI_DEBUG__
+      ? window.__OMNI_DEBUG__.lastLocalAffinityBuild
+      : null;
+    const localGraphEmpty = Boolean(lastBuild && lastBuild.hasValues && lastBuild.nonZero === false);
+    if (!localGraphEmpty && affinityGraphInfo && affinityGraphInfo.values) {
+      if (sampledHasNonZero(affinityGraphInfo.values)) {
+        return;
+      }
+    }
+    affinityGraphNeedsLocalRebuild = true;
+    try {
+      rebuildLocalAffinityGraph();
+    } catch (err) {
+      log('affinity rebuild after stale graph (' + reason + ') failed', err);
+    }
+  });
 }
 
 function applyAffinityGraphPayload(payload) {
@@ -6115,7 +6266,9 @@ function draw() {
       needsMaskRedraw = false;
     }
     drawWebglFrame();
-    drawBrushPreview(getHoverPoint());
+    if (!isPanning) {
+      drawBrushPreview(getHoverPoint());
+    }
     if (!loggedPixelSample && canvas.width > 0 && canvas.height > 0) {
       loggedPixelSample = true;
       hideLoadingOverlay();
@@ -6152,7 +6305,7 @@ function recomputeNColorFromCurrentMask(forceActive = false) {
       const buf = maskValues.buffer.slice(maskValues.byteOffset, maskValues.byteOffset + maskValues.byteLength);
       const bytes = new Uint8Array(buf);
       const b64 = base64FromUint8(bytes);
-      const payload = { mask: b64, width: imgWidth, height: imgHeight };
+      const payload = { mask: b64, width: imgWidth, height: imgHeight, expand: true };
       const applyMapping = (obj) => {
         try {
           if (!obj || !obj.nColorMask) { resolve(false); return; }
@@ -6529,7 +6682,7 @@ defaultPalette = generateSinebowPalette(Math.max(colorTable.length || 0, 256), 0
 // N-color palette is large enough; groups come from backend ncolor.label
 nColorPalette = generateSinebowPalette(Math.max(colorTable.length || 0, 1024), 0.35);
 
-let nColorActive = false;
+let nColorActive = true;
 let nColorValues = null; // per-pixel group IDs for N-color display only
 // Single authoritative mask buffer: maskValues always holds instance labels.
 const rawColorMap = new Map();
@@ -6540,9 +6693,9 @@ const nColorColorToLabel = new Map();
 let nColorMaxColorId = 0;
 let lastLabelBeforeNColor = null;
 
-function hashColorForLabel(label) {
+function hashColorForLabel(label, offset = 0.0) {
   const golden = 0.61803398875;
-  const t = ((label * golden) % 1 + 1) % 1;
+  const t = ((label * golden + offset) % 1 + 1) % 1;
   const base = sinebowColor(t);
   return [base[0], base[1], base[2]];
 }
@@ -6552,16 +6705,24 @@ function clearColorCaches() {
   nColorColorMap.clear();
 }
 
-function getColorFromMap(label, map) {
+function getColorFromMap(label, map, offset = 0.0) {
   if (label <= 0) {
     return null;
   }
   let rgb = map.get(label);
   if (!rgb) {
-    rgb = hashColorForLabel(label);
+    rgb = hashColorForLabel(label, offset);
     map.set(label, rgb);
   }
   return rgb;
+}
+
+function getRawLabelColor(label) {
+  return getColorFromMap(label, rawColorMap, 0.0);
+}
+
+function getNColorLabelColor(label) {
+  return getColorFromMap(label, nColorColorMap, 0.0);
 }
 
 function getDisplayColor(index) {
@@ -6569,9 +6730,9 @@ function getDisplayColor(index) {
   if (rawLabel <= 0) return null;
   if (nColorActive && nColorValues && nColorValues.length === maskValues.length) {
     const groupId = nColorValues[index] | 0;
-    if (groupId > 0) return getColorFromMap(groupId, nColorColorMap);
+    if (groupId > 0) return getNColorLabelColor(groupId);
   }
-  return getColorFromMap(rawLabel, rawColorMap);
+  return getRawLabelColor(rawLabel);
 }
 
 function collectLabelsFromMask(sourceMask) {
@@ -6861,14 +7022,18 @@ function handleHistogramPointerUp(evt) {
 }
 
 function updateHoverInfo(point) {
-  if (!hoverInfo) {
-    cursorInsideImage = false;
-    updateCursor();
-    return;
-  }
+  const valueTarget = hoverValueDisplay || hoverInfo;
+  const coordTarget = hoverCoordDisplay || hoverInfo;
   if (!point || !originalImageData) {
     cursorInsideImage = false;
-    hoverInfo.textContent = 'Y: --, X: --, Val: --';
+    if (valueTarget) {
+      valueTarget.textContent = 'Val: --';
+    }
+    if (coordTarget && coordTarget !== valueTarget) {
+      coordTarget.textContent = 'Y: --, X: --';
+    } else if (coordTarget) {
+      coordTarget.textContent = 'Y: --, X: --, Val: --';
+    }
     updateCursor();
     return;
   }
@@ -6876,14 +7041,31 @@ function updateHoverInfo(point) {
   const y = Math.round(point.y);
   if (x < 0 || y < 0 || x >= imgWidth || y >= imgHeight) {
     cursorInsideImage = false;
-    hoverInfo.textContent = 'Y: --, X: --, Val: --';
+    if (valueTarget) {
+      valueTarget.textContent = 'Val: --';
+    }
+    if (coordTarget && coordTarget !== valueTarget) {
+      coordTarget.textContent = 'Y: --, X: --';
+    } else if (coordTarget) {
+      coordTarget.textContent = 'Y: --, X: --, Val: --';
+    }
     updateCursor();
     return;
   }
   const idx = (y * imgWidth + x) * 4;
-  const value = originalImageData.data[idx];
+  const r = originalImageData.data[idx];
+  const g = originalImageData.data[idx + 1];
+  const b = originalImageData.data[idx + 2];
+  const value = CONFIG.isRgb ? `${r}, ${g}, ${b}` : r;
   cursorInsideImage = true;
-  hoverInfo.textContent = 'Y: ' + y + ', X: ' + x + ', Val: ' + value;
+  if (valueTarget) {
+    valueTarget.textContent = 'Val: ' + value;
+  }
+  if (coordTarget && coordTarget !== valueTarget) {
+    coordTarget.textContent = 'Y: ' + y + ', X: ' + x;
+  } else if (coordTarget) {
+    coordTarget.textContent = 'Y: ' + y + ', X: ' + x + ', Val: ' + value;
+  }
   updateCursor();
 }
 
@@ -6962,6 +7144,7 @@ function toggleColorMode() {
       } catch (_) { currentLabel = 1; }
       updateMaskLabel();
       updateColorModeLabel();
+      if (autoNColorToggle) autoNColorToggle.checked = nColorActive;
       draw();
       scheduleStateSave();
     });
@@ -6999,6 +7182,7 @@ function toggleColorMode() {
       } catch (_) { currentLabel = 1; }
       updateMaskLabel();
       updateColorModeLabel();
+      if (autoNColorToggle) autoNColorToggle.checked = nColorActive;
       draw();
       scheduleStateSave();
     })
@@ -7394,6 +7578,15 @@ async function runSegmentation() {
       throw new Error(payload.error);
     }
     applySegmentationMask(payload);
+    if (nColorActive) {
+      const ok = await recomputeNColorFromCurrentMask(true);
+      if (!ok) {
+        console.warn('Auto N-color mapping failed');
+      }
+      updateColorModeLabel();
+      updateMaskLabel();
+      scheduleStateSave();
+    }
     setSegmentStatus('Segmentation complete.');
   } catch (err) {
     console.error(err);
@@ -7655,15 +7848,19 @@ canvas.addEventListener('pointermove', (evt) => {
             const rotationDegrees = delta * RAD_TO_DEG;
             const deadzone = Math.max(pointerState.options.touch.rotationDeadzoneDegrees || 0, 0);
             if (pinchState.lastLoggedRotation === undefined || Math.abs(rotationDegrees - pinchState.lastLoggedRotation) >= Math.max(1, deadzone * 2)) {
-              log('pinch rotation raw=' + rotationDegrees.toFixed(2) + ' deg');
-              pinchState.lastLoggedRotation = rotationDegrees;
+              if (DEBUG_AFFINITY) {
+                log('pinch rotation raw=' + rotationDegrees.toFixed(2) + ' deg');
+                pinchState.lastLoggedRotation = rotationDegrees;
+              }
             }
             const applyRotation = Math.abs(rotationDegrees) >= deadzone;
             viewState.rotation = applyRotation
               ? normalizeAngle(pinchState.startRotation + delta)
               : pinchState.startRotation;
             if (applyRotation) {
-              log('pinch rotation applied delta=' + rotationDegrees.toFixed(2) + ' deg total=' + (viewState.rotation * RAD_TO_DEG).toFixed(2));
+              if (DEBUG_AFFINITY) {
+                log('pinch rotation applied delta=' + rotationDegrees.toFixed(2) + ' deg total=' + (viewState.rotation * RAD_TO_DEG).toFixed(2));
+              }
               viewStateDirty = true;
             }
           }
@@ -7690,20 +7887,11 @@ canvas.addEventListener('pointermove', (evt) => {
       return;
     }
     if (isPanning && evt.pointerId === panPointerId) {
-      const dx = pointer.x - lastPoint.x;
-      const dy = pointer.y - lastPoint.y;
-      viewState.offsetX += dx;
-      viewState.offsetY += dy;
-      lastPoint = pointer;
-      scheduleDraw();
-      const worldPoint = screenToImage(pointer);
-      setHoverState(worldPoint, pointer);
-      updateHoverInfo(worldPoint);
-      renderHoverPreview();
-      clearInteractionPending();
-      evt.preventDefault();
-      setCursorHold(dotCursorCss);
-      viewStateDirty = true;
+      queuePanPointer({ x: pointer.x, y: pointer.y });
+      schedulePointerFrame();
+      if (typeof evt.preventDefault === 'function') {
+        evt.preventDefault();
+      }
       return;
     }
   }
@@ -8127,9 +8315,11 @@ function initialize() {
       updateHistoryButtons();
       applyMaskRedrawImmediate();
       draw();
+      scheduleAffinityRebuildIfStale('initialize');
     }
     resizeCanvas();
     updateBrushControls();
+    updateToolButtons();
     updateImageInfo();
     updateHistoryButtons();
   };
@@ -8201,11 +8391,20 @@ if (brushKernelModeSelect) {
   });
 }
 
-updateMaskLabel();
+if (!savedViewerState) {
+  updateMaskLabel();
+  updateToolButtons();
+} else {
+  // Avoid flashing a default label/tool before restore completes.
+  if (labelValueInput) {
+    labelValueInput.value = '';
+  }
+}
 updateMaskVisibilityLabel();
 updateToolInfo();
 updateBrushControls();
 updateColorModeLabel();
+if (autoNColorToggle) autoNColorToggle.checked = nColorActive;
 updateHoverInfo(null);
 if (segmentButton) {
   segmentButton.addEventListener('click', () => {
@@ -8406,6 +8605,17 @@ if (maskVisibilityToggle) {
     updateMaskVisibilityLabel();
     draw();
     scheduleStateSave();
+  });
+}
+if (autoNColorToggle) {
+  autoNColorToggle.addEventListener('change', (evt) => {
+    const wantsNColor = Boolean(evt.target.checked);
+    if (wantsNColor !== nColorActive) {
+      toggleColorMode();
+    } else {
+      autoNColorToggle.checked = nColorActive;
+      scheduleStateSave();
+    }
   });
 }
 if (maskOpacitySlider) {
