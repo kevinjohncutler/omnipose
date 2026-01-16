@@ -102,6 +102,13 @@ const MAIN_WEBGL_CONTEXT_ATTRIBUTES = {
 
 const supportsGestureEvents = typeof window !== 'undefined'
   && (typeof window.GestureEvent === 'function' || 'ongesturestart' in window);
+const isIOSDevice = typeof navigator !== 'undefined' && (
+  /iPad|iPhone|iPod/.test(navigator.userAgent)
+  || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1)
+);
+const isSafariWebKit = typeof navigator !== 'undefined'
+  && /AppleWebKit/.test(navigator.userAgent)
+  && !/Chrome|CriOS|Edg|Firefox|FxiOS/.test(navigator.userAgent);
 const pointerOptionsOverride = CONFIG.pointerOptions || {};
 const pointerState = createPointerState({
   stylus: { ...POINTER_OPTIONS.stylus, ...(pointerOptionsOverride.stylus || {}) },
@@ -1807,6 +1814,10 @@ function registerSlider(root) {
   }
   if (type === 'dual' && inputs.length < 2) {
     console.warn(`slider ${id} configured as dual but only one range input found`);
+    return;
+  }
+  if (isIOSDevice && isSafariWebKit) {
+    root.classList.add('slider-native');
     return;
   }
 
