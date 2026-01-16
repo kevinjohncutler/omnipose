@@ -1814,13 +1814,10 @@ function registerSlider(root) {
   const track = document.createElement('div');
   track.className = 'slider-track';
   root.appendChild(track);
-  const fill = document.createElement('div');
-  fill.className = 'slider-fill';
-  track.appendChild(fill);
   const thumbs = inputs.map(() => {
     const thumb = document.createElement('div');
     thumb.className = 'slider-thumb';
-    track.appendChild(thumb);
+    root.appendChild(thumb);
     return thumb;
   });
 
@@ -1830,7 +1827,6 @@ function registerSlider(root) {
     root,
     inputs,
     track,
-    fill,
     thumbs,
     activePointer: null,
     activeThumb: null,
@@ -1853,17 +1849,16 @@ function registerSlider(root) {
       const maxPercent = valueToPercent(maxInput);
       const left = (minPercent * 100).toFixed(3) + '%';
       const rightPercent = (maxPercent * 100).toFixed(3) + '%';
-      const width = Math.max(0, (maxPercent - minPercent) * 100).toFixed(3) + '%';
-      entry.fill.style.left = left;
-      entry.fill.style.width = width;
+      entry.track.style.setProperty('--slider-fill-start', left);
+      entry.track.style.setProperty('--slider-fill-end', rightPercent);
       entry.thumbs[0].style.left = left;
       entry.thumbs[1].style.left = rightPercent;
     } else {
       const input = entry.inputs[0];
       const percent = valueToPercent(input);
       const position = (percent * 100).toFixed(3) + '%';
-      entry.fill.style.left = '0%';
-      entry.fill.style.width = position;
+      entry.track.style.setProperty('--slider-fill-start', '0%');
+      entry.track.style.setProperty('--slider-fill-end', position);
       entry.thumbs[0].style.left = position;
     }
   };
