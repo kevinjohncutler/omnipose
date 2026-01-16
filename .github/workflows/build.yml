@@ -17,7 +17,7 @@ jobs:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, macos-latest, windows-latest] # macos-13 (intel) did not work because it requires a different version of pytorch
-        python-version: ["3.9", "3.12"] #, "3.13"] python v 3.13 did not work for the 3 OS tested. TODO: fix this
+        python-version: ["3.10", "3.12"] #, "3.13"] python v 3.13 did not work for the 3 OS tested. TODO: fix this
 
     steps:
     - uses: actions/checkout@v4
