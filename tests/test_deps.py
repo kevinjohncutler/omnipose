@@ -130,8 +130,15 @@ root2dist = {k.lower(): [d.lower() for d in v] for k, v in _DISTMAP_RAW.items()}
 
 resolved: set[str] = set()
 
+ALIAS_ROOTS = {
+    "skimage": "scikit-image",
+}
+
 for root in third_party:
     root_lc = root.lower()
+    if root_lc in ALIAS_ROOTS:
+        resolved.add(normalize(ALIAS_ROOTS[root_lc]))
+        continue
     mapped = root2dist.get(root_lc, [])
 
     if mapped:

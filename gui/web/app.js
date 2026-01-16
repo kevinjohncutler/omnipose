@@ -1818,7 +1818,6 @@ function registerSlider(root) {
   }
   if (isIOSDevice && isSafariWebKit) {
     root.classList.add('slider-native');
-    return;
   }
 
   root.innerHTML = '';

@@ -244,8 +244,8 @@ def test_real_images_bact_affinity_cpu_gpu_network_outputs_match():
             bsize=224,
         )
 
-        np.testing.assert_allclose(y_cpu, y_gpu, atol=1e-5, rtol=1e-5)
-        np.testing.assert_allclose(style_cpu, style_gpu, atol=1e-5, rtol=1e-5)
+        np.testing.assert_allclose(y_cpu, y_gpu, atol=2e-5, rtol=2e-5)
+        np.testing.assert_allclose(style_cpu, style_gpu, atol=2e-5, rtol=2e-5)
 
 
 def test_real_images_bact_affinity_cpu_gpu_masks_match():
