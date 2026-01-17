@@ -12,6 +12,8 @@
 # documentation root, use os.path.abspath to make it absolute, like shown here.
 #
 import sys, os, re
+import subprocess
+from pathlib import Path
 # Disable Numba JIT during doc builds—avoids compilation errors when
 # Sphinx imports modules that use @njit functions.
 # os.environ.setdefault("NUMBA_DISABLE_JIT", "1")
@@ -23,6 +25,12 @@ conf_dir = os.path.dirname(__file__)
 sys.path.insert(0, os.path.abspath(os.path.join(conf_dir, '..', 'src', 'omnipose')))
 sys.path.insert(0, os.path.abspath(os.path.join(conf_dir, '..', 'src')))
 sys.path.insert(0, os.path.abspath(os.path.join(conf_dir, '..')))
+
+# Avoid docutils traverse deprecation warning crash in Sphinx 8 + myst-nb.
+from docutils import nodes
+def _traverse_no_warn(self, *args, **kwargs):
+    return self.findall(*args, **kwargs)
+nodes.Node.traverse = _traverse_no_warn
 
 # Add all the modules that can't be installed in the RTD environment
 from dependencies import install_deps, gui_deps, distributed_deps
@@ -46,6 +54,37 @@ def strip_versions(dep_list):
 
 # Apply the corrected function to autodoc_mock_imports
 autodoc_mock_imports = strip_versions(autodoc_mock_imports)
+autodoc_mock_imports = [
+    dep for dep in autodoc_mock_imports
+    if dep not in {"numpy", "matplotlib"}
+]
+autodoc_mock_imports += ["colour"]
+
+# Pre-mock heavy dependencies for automodapi imports.
+from unittest.mock import MagicMock
+from types import ModuleType
+
+def _mock_module(name: str) -> None:
+    parts = name.split(".")
+    for i in range(1, len(parts) + 1):
+        sub = ".".join(parts[:i])
+        if sub in sys.modules:
+            continue
+        mod = ModuleType(sub)
+        mod.__getattr__ = lambda _name: MagicMock()
+        sys.modules[sub] = mod
+        if i > 1:
+            parent = sys.modules[".".join(parts[:i - 1])]
+            setattr(parent, parts[i - 1], mod)
+
+for dep in autodoc_mock_imports:
+    if "-" in dep:
+        continue
+    _mock_module(dep)
+
+# Common submodules imported at module import time.
+for dep in ("numba.core", "numba.core.errors", "scipy.ndimage", "tqdm.auto"):
+    _mock_module(dep)
 
 # pygments
 sys.path.append(os.path.abspath(os.path.join(conf_dir, "_pygments")))
@@ -116,6 +155,15 @@ extensions = [
     # 'sphinxcontrib.fulltoc'
 ]
 
+# Avoid autodoc warnings for mocked module attributes.
+autodoc_default_options = {
+    "exclude-members": "nn",
+}
+
+MINIMAL_DOCS = os.environ.get("OMNIPOSE_DOCS_MINIMAL") == "1"
+if MINIMAL_DOCS:
+    extensions = [ext for ext in extensions if not ext.startswith("sphinx_automodapi")]
+
 
 
 # autoapi_dirs = ['../omnipose']
@@ -170,7 +218,44 @@ html_extra_path = ['_templates/seo.html']
 # List of patterns, relative to source directory, that match files and
 # directories to ignore when looking for source files.
 # This pattern also affects html_static_path and html_extra_path.
-exclude_patterns = ['build', '_build', '**.ipynb_checkpoints', 'links.rst', 'sinebow.rst']
+exclude_patterns = [
+    'build',
+    '_build',
+    '**.ipynb_checkpoints',
+    'links.rst',
+    'sinebow.rst',
+    '._*',
+    '**/._*',
+]
+if MINIMAL_DOCS:
+    exclude_patterns.extend(['api/**', 'readme_full.rst'])
+
+# Exclude untracked docs sources so local scratch files are ignored by RTD.
+def _git_tracked_paths(repo_root: Path):
+    try:
+        output = subprocess.check_output(["git", "ls-files", "-z"], cwd=repo_root)
+    except Exception:
+        return None
+    tracked = set()
+    for raw in output.decode().split("\0"):
+        if raw:
+            tracked.add(Path(raw))
+    return tracked
+
+docs_dir = Path(__file__).resolve().parent
+repo_root = docs_dir.parent
+tracked_paths = _git_tracked_paths(repo_root)
+if tracked_paths:
+    source_suffixes = {".rst", ".md", ".ipynb"}
+    api_generated_dir = docs_dir / "api" / "api"
+    for path in docs_dir.rglob("*"):
+        if not path.is_file() or path.suffix not in source_suffixes:
+            continue
+        if api_generated_dir in path.parents:
+            continue
+        rel_repo = path.relative_to(repo_root)
+        if rel_repo not in tracked_paths:
+            exclude_patterns.append(path.relative_to(docs_dir).as_posix())
 rst_epilog =""
 # Read link all targets from file
 with open('links.rst') as f:
@@ -497,4 +582,3 @@ html_sidebars = {
         "ethicalads.html",
     ]
 }
-

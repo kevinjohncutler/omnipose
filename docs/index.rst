@@ -79,4 +79,5 @@ For support, submit an `issue`_ on the Omnipose repo. For more on the workings o
 .. toctree::
     :hidden:
 
-    readme_full
+    timelapses
+    train_via_notebook

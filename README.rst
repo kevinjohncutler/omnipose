@@ -1,4 +1,5 @@
-.. include:: /sinebow.rst
+Omnipose
+========
 
 .. raw:: html
 

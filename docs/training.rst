@@ -161,6 +161,7 @@ You can use :bash:`--pretrained_model None` to train from scratch or :bash:`--pr
 
 
 .. _Diameter and the Size Model:
+
 :header-2:`Diameter and the Size Model`
 ---------------------------------------
 
@@ -208,5 +209,5 @@ To train the ``bact_phase_omni`` model from scratch using the same parameters fr
 ------------------------------
 
 .. include:: ../README.rst
-   :start-after: 3D Omnipose
+   :start-after: .. _3d-omnipose:
    :end-before: To evaluate Omnipose models on 3D data

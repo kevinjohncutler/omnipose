@@ -29,7 +29,7 @@ nucleus is blue and save the output as a png (using default diameter
 
 .. code-block:: 
 
-    omnipose --dir <img_dir> --pretrained_model cyto –-chan 2 --chan2 3 --save_png
+    omnipose --dir <img_dir> --pretrained_model cyto --chan 2 --chan2 3 --save_png
 
 
 To do the same segmentation as in
@@ -39,8 +39,8 @@ flows and outlines, run:
 
 .. code-block:: 
 
-    omnipose --dir <img_dir> –-use_gpu --pretrained_model bact_phase_omni \ 
-             –-save_flows  –-save_outlines --save_tif –-in_folders 
+    omnipose --dir <img_dir> --use_gpu --pretrained_model bact_phase_omni \ 
+             --save_flows  --save_outlines --save_tif --in_folders 
 
 
 Rescaling for the ``*bact*`` models is disabled by default, but setting
@@ -58,7 +58,7 @@ There are some optional settings you should consider:
 
 .. code-block:: 
 
-    –-dir_above –-in_folders –-save_tifs –-save_flows –-save_outlines –-save_ncolor –-no_npy 
+    --dir_above --in_folders --save_tifs --save_flows --save_outlines --save_ncolor --no_npy 
 
 
 The ``--no_npy`` command just gets rid of the ``.npy`` output that many

@@ -22,14 +22,14 @@
           </div>
         </div>
         <div class="control">
-          <button id="segmentButton">Segment (Omnipose)</button>
+          <button id="segmentButton" class="accent-button">Segment (Omnipose)</button>
           <div id="segmentStatus" class="status"></div>
         </div>
         <div class="control">
-          <button id="clearMasksButton" title="Clear all masks (Cmd/Ctrl+X)">Clear Masks</button>
+          <button id="clearMasksButton" class="accent-button" title="Clear all masks (Cmd/Ctrl+X)">Clear Masks</button>
         </div>
         <div class="control">
-          <button id="clearCacheButton" title="Clear viewer cache and reload">Clear Cache &amp; Reload</button>
+          <button id="clearCacheButton" class="accent-button" title="Clear viewer cache and reload">Clear Cache &amp; Reload</button>
         </div>
         <div class="control slider-inline">
           <label for="maskThresholdSlider">Mask</label>
@@ -87,26 +87,8 @@
             <span class="toggle-label">Distance Overlay</span>
           </label>
         </div>
-        <div class="control">
-          <label for="brushKernelMode">Brush Kernel</label>
-          <div class="dropdown" data-dropdown-id="brushKernelMode">
-            <select id="brushKernelMode">
-              <option value="smooth">Interpolated (continuous)</option>
-              <option value="snapped">Snapped (integer)</option>
-            </select>
-          </div>
-        </div>
-        <div class="control slider-inline">
-          <label for="maskOpacity">Mask Opacity</label>
-          <div class="slider-row">
-            <div class="slider" data-slider-id="maskOpacity" data-slider-type="single">
-              <input type="range" id="maskOpacity" min="0" max="1" step="0.01" value="0.8" />
-            </div>
-            <div class="number-field" data-number-id="maskOpacityInput">
-              <input type="number" id="maskOpacityInput" min="0" max="1" step="0.01" value="0.80" />
-            </div>
-          </div>
-        </div>
+        
+        
         <div class="control toggle-group" id="layerVisibilityControls">
           <label class="toggle">
             <input type="checkbox" id="imageVisibilityToggle" checked />

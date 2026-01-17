@@ -150,8 +150,8 @@ def unaugment_tiles_ND(y, inds, unet=False):
     ----------
 
     y: float32
-        array of shape (ntiles, nchan, *DIMS)
-        where nchan = (*DP,distance) (and boundary if nlasses=3)
+        array of shape (ntiles, nchan, DIMS)
+        where nchan = (DP, distance) (and boundary if nlasses=3)
 
     unet: bool (optional, False)
         whether or not unet output or cellpose output
@@ -1169,7 +1169,8 @@ def precompute_valid_mask(shape, steps, device=None):
 
     Returns
     -------
-    valid : torch.BoolTensor        # shape (K, 1, *shape)
+    valid : torch.BoolTensor
+        shape (K, 1, shape)
     """
     dim   = len(shape)
     step  = torch.as_tensor(steps, dtype=torch.int64, device=device)  # (K, dim)
@@ -1520,17 +1521,21 @@ def get_steps(dim):
     """
     Get a symmetrical list of all 3**N points in a hypercube represented
     by a list of all possible sequences of -1, 0, and 1 in ND.
-    
-    1D: [[-1],[0],[1]]
-    2D: [[-1, -1],
-         [-1,  0],
-         [-1,  1],
-         [ 0, -1],
-         [ 0,  0],
-         [ 0,  1],
-         [ 1, -1],
-         [ 1,  0],
-         [ 1,  1]]
+
+    Examples
+    --------
+    .. code-block:: text
+
+        1D: [[-1], [0], [1]]
+        2D: [[-1, -1],
+             [-1,  0],
+             [-1,  1],
+             [ 0, -1],
+             [ 0,  0],
+             [ 0,  1],
+             [ 1, -1],
+             [ 1,  0],
+             [ 1,  1]]
     
     The opposite pixel at index i is always found at index -(i+1). The number
     of possible face, edge, vertex, etc. connections grows exponentially with

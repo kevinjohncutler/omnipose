@@ -36,6 +36,7 @@ for a solid introduction and figure notebooks for more advanced examples.
     Specify :py:`nclasses` and :py:`nchan` if you encounter any issues in the model initialization (see :ref:`pretrained-models`). 
 
 .. _channels:
+
 :header-2:`Channels`
 --------------------
 
@@ -142,7 +143,6 @@ greater than or equal to the ``stitch_threshold``.
 3D segmentation ignores the ``flow_threshold`` because we did not find that
 it helped to filter out false positives in our test 3D cell volume. Instead, 
 we found that setting ``min_size`` is a good way to remove false positives.
-
 
 
 

@@ -188,7 +188,7 @@ class Cellpose():
             invert image pixel intensity before running network (if True, image is also normalized)
 
         normalize: bool (optional, default True)
-                normalize data so 0.0=1st percentile and 1.0=99th percentile of image intensities in each channel
+            normalize data so 0.0=1st percentile and 1.0=99th percentile of image intensities in each channel
 
         diameter: float (optional, default 30.)
             if set to None, then diameter is automatically estimated if size model is loaded
@@ -215,8 +215,8 @@ class Cellpose():
             run dynamics at original image size (will be slower but create more accurate boundaries)
 
         interp: bool (optional, default True)
-                interpolate during 2D dynamics (not available in 3D) 
-                (in previous versions it was False)
+            interpolate during 2D dynamics (not available in 3D) 
+            (in previous versions it was False)
 
         flow_threshold: float (optional, default 0.4)
             flow error threshold (all cells with errors below threshold are kept) (not used for 3D)
@@ -231,7 +231,7 @@ class Cellpose():
             use mask_threshold instead
 
         min_size: int (optional, default 15)
-                minimum number of pixels per mask, can turn off with -1
+            minimum number of pixels per mask, can turn off with -1
 
         stitch_threshold: float (optional, default 0.0)
             if stitch_threshold>0.0 and not do_3D and equal image sizes, masks are stitched in 3D to return volume segmentation
@@ -560,129 +560,24 @@ class CellposeModel(UnetModel):
              progress=None, show_progress=True, 
              omni=False, calc_trace=False, verbose=False, transparency=False, 
              loop_run=False, model_loaded=False,hysteresis=True):
-        """
-            Evaluation for CellposeModel. Segment list of images x, or 4D array - Z x nchan x Y x X
+        """Evaluation for CellposeModel.
 
-            Parameters
-            ----------
-            x: list or array of images
-                can be list of 2D/3D/4D images, or array of 2D/3D/4D images
-
-            batch_size: int (optional, default 8)
-                number of 224x224 patches to run simultaneously on the GPU
-                (can make smaller or bigger depending on GPU memory usage)
-
-            channels: list (optional, default None)
-                list of channels, either of length 2 or of length number of images by 2.
-                First element of list is the channel to segment (0=grayscale, 1=red, 2=green, 3=blue).
-                Second element of list is the optional nuclear channel (0=none, 1=red, 2=green, 3=blue).
-                For instance, to segment grayscale images, input [0,0]. To segment images with cells
-                in green and nuclei in blue, input [2,3]. To segment one grayscale image and one
-                image with cells in green and nuclei in blue, input [[0,0], [2,3]].
-
-            channel_axis: int (optional, default None)
-                if None, channels dimension is attempted to be automatically determined
-
-            z_axis: int (optional, default None)
-                if None, z dimension is attempted to be automatically determined
-
-            normalize: bool (default, True)
-                normalize data so 0.0=1st percentile and 1.0=99th percentile of image intensities in each channel
-
-            invert: bool (optional, default False)
-                invert image pixel intensity before running network
-
-            rescale: float (optional, default None)
-                resize factor for each image, if None, set to 1.0
-
-            diameter: float (optional, default None)
-                diameter for each image (only used if rescale is None), 
-                if diameter is None, set to diam_mean
-
-            do_3D: bool (optional, default False)
-                set to True to run 3D segmentation on 4D image input
-
-            anisotropy: float (optional, default None)
-                for 3D segmentation, optional rescaling factor (e.g. set to 2.0 if Z is sampled half as dense as X or Y)
-
-            net_avg: bool (optional, default True)
-                runs the 4 built-in networks and averages them if True, runs one network if False
-
-            augment: bool (optional, default False)
-                tiles image with overlapping tiles and flips overlapped regions to augment
-
-            tile: bool (optional, default True)
-                tiles image to ensure GPU/CPU memory usage limited (recommended)
-
-            tile_overlap: float (optional, default 0.1)
-                fraction of overlap of tiles when computing flows
-
-            resample: bool (optional, default True)
-                run dynamics at original image size (will be slower but create more accurate boundaries)
-
-            interp: bool (optional, default True)
-                interpolate during 2D dynamics (not available in 3D) 
-                (in previous versions it was False)
-
-            flow_threshold: float (optional, default 0.4)
-                flow error threshold (all cells with errors below threshold are kept) (not used for 3D)
-
-            mask_threshold: float (optional, default 0.0)
-                all pixels with value above threshold kept for masks, decrease to find more and larger masks
-
-            dist_threshold: float (optional, default None) DEPRECATED
-                use mask_threshold instead
-
-            cellprob_threshold: float (optional, default None) DEPRECATED
-                use mask_threshold instead
-
-            compute_masks: bool (optional, default True)
-                Whether or not to compute dynamics and return masks.
-                This is set to False when retrieving the styles for the size model.
-
-            min_size: int (optional, default 15)
-                minimum number of pixels per mask, can turn off with -1
-
-            stitch_threshold: float (optional, default 0.0)
-                if stitch_threshold>0.0 and not do_3D, masks are stitched in 3D to return volume segmentation
-
-            progress: pyqt progress bar (optional, default None)
-                to return progress bar status to GUI
-                
-            omni: bool (optional, default False)
-                use omnipose mask reconstruction features
-            
-            calc_trace: bool (optional, default False)
-                calculate pixel traces and return as part of the flow
-                
-            verbose: bool (optional, default False)
-                turn on additional output to logs for debugging 
-            
-            transparency: bool (optional, default False)
-                modulate flow opacity by magnitude instead of brightness (can use flows on any color background) 
-            
-            loop_run: bool (optional, default False)
-                internal variable for determining if model has been loaded, stops model loading in loop over images
-
-            model_loaded: bool (optional, default False)
-                internal variable for determining if model has been loaded, used in __main__.py
-
-            Returns
-            -------
-            masks: list of 2D arrays, or single 3D array (if do_3D=True)
-                labelled image, where 0=no masks; 1,2,...=mask labels
-
-            flows: list of lists 2D arrays, or list of 3D arrays (if do_3D=True)
-                flows[k][0] = 8-bit RGb phase plot of flow field
-                flows[k][1] = flows at each pixel
-                flows[k][2] = scalar cell probability (Cellpose) or distance transform (Omnipose)
-                flows[k][3] = boundary output (nonempty for Omnipose)
-                flows[k][4] = final pixel locations after Euler integration 
-                flows[k][5] = pixel traces (nonempty for calc_trace=True)
-
-            styles: list of 1D arrays of length 64, or single 1D array (if do_3D=True)
-                style vector summarizing each image, also used to estimate size of objects in image
-
+        Parameters
+        ----------
+        x : list or array
+            List or array of 2D/3D/4D images.
+        batch_size : int, optional
+            Number of 224x224 patches to run simultaneously on the GPU.
+        channels : list, optional
+            Channel specification (see Cellpose docs).
+        channel_axis : int, optional
+            Channel axis, inferred if None.
+        z_axis : int, optional
+            Z axis, inferred if None.
+        normalize : bool, optional
+            Normalize intensities to 1st/99th percentiles.
+        invert : bool, optional
+            Invert image pixel intensity before running network.
         """
         
         if cellprob_threshold is not None or dist_threshold is not None:
@@ -1726,54 +1621,7 @@ class SizeModel():
     def eval(self, x, channels=None, channel_axis=None, 
              normalize=True, invert=False, augment=False, tile=False,
              batch_size=8, progress=None, interp=True, omni=False):
-        """ Evaluation for SizeModel. Use images x to produce style or use style input to predict size of objects in image.
-
-            Object size estimation is done in two steps:
-            1. use a linear regression model to predict size from style in image
-            2. resize image to predicted size and run CellposeModel to get output masks.
-                Take the median object size of the predicted masks as the final predicted size.
-
-            Parameters
-            -------------------
-
-            x: list or array of images
-                can be list of 2D/3D images, or array of 2D/3D images
-
-            channels: list (optional, default None)
-                list of channels, either of length 2 or of length number of images by 2.
-                First element of list is the channel to segment (0=grayscale, 1=red, 2=green, 3=blue).
-                Second element of list is the optional nuclear channel (0=none, 1=red, 2=green, 3=blue).
-                For instance, to segment grayscale images, input [0,0]. To segment images with cells
-                in green and nuclei in blue, input [2,3]. To segment one grayscale image and one
-                image with cells in green and nuclei in blue, input [[0,0], [2,3]].
-
-            channel_axis: int (optional, default None)
-                if None, channels dimension is attempted to be automatically determined
-
-            normalize: bool (default, True)
-                normalize data so 0.0=1st percentile and 1.0=99th percentile of image intensities in each channel
-
-            invert: bool (optional, default False)
-                invert image pixel intensity before running network
-
-            augment: bool (optional, default False)
-                tiles image with overlapping tiles and flips overlapped regions to augment
-
-            tile: bool (optional, default True)
-                tiles image to ensure GPU/CPU memory usage limited (recommended)
-
-            progress: pyqt progress bar (optional, default None)
-                to return progress bar status to GUI
-
-            Returns
-            -------
-            diam: array, float
-                final estimated diameters from images x or styles style after running both steps
-
-            diam_style: array, float
-                estimated diameters from style alone
-
-        """
+        """Estimate object size from image styles."""
         
         if isinstance(x, list):
             diams, diams_style = [], []

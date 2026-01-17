@@ -707,17 +707,21 @@ def get_steps(dim):
     """
     Get a symmetrical list of all 3**N points in a hypercube represented
     by a list of all possible sequences of -1, 0, and 1 in ND.
-    
-    1D: [[-1],[0],[1]]
-    2D: [[-1, -1],
-         [-1,  0],
-         [-1,  1],
-         [ 0, -1],
-         [ 0,  0],
-         [ 0,  1],
-         [ 1, -1],
-         [ 1,  0],
-         [ 1,  1]]
+
+    Examples
+    --------
+    .. code-block:: text
+
+        1D: [[-1], [0], [1]]
+        2D: [[-1, -1],
+             [-1,  0],
+             [-1,  1],
+             [ 0, -1],
+             [ 0,  0],
+             [ 0,  1],
+             [ 1, -1],
+             [ 1,  0],
+             [ 1,  1]]
     
     The opposite pixel at index i is always found at index -(i+1). The number
     of possible face, edge, vertex, etc. connections grows exponentially with

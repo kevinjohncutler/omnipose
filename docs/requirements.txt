@@ -2,12 +2,13 @@ sphinx_copybutton
 sphinx_automodapi
 sphinx_design 
 sphinx-argparse 
-myst_nb
+myst_nb>=1.2
 furo 
-sphinx>=8          # first version with official docutils 0.21 support
+sphinx>=8          # requires myst_nb>=1.2 for Sphinx 8 Path support
 sphinx-rtd-theme>=3  # theme release that relaxed the upper docutils bound
 sphinx-autodoc-typehints>=3   # extension release that fixes traverse() call
 matplotlib
+numpy
 
 # Local package installation
 # -e . 

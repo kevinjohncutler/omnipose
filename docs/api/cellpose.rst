@@ -7,6 +7,7 @@
 .. automodule:: cellpose_omni.models
 
 .. automodsumm:: cellpose_omni.models
+    :skip: nn
     :toctree: api
 
 :header-2:`cellpose_omni.io`
@@ -48,7 +49,6 @@
 .. automodsumm:: cellpose_omni.transforms
     :functions-only:
     :toctree: api
-
 
 
 

@@ -73,14 +73,19 @@ def check_dir(path):
 def load_links(filename):
     """
     Read a txt or csv file with label links. 
-    These should look like::
+    These should look like:
+
+    .. code-block:: text
+
         1,2 
         1,3
         4,7
         6,19
         ...
         
-    Returns: 
+    Returns
+    -------
+    set
         Links as a set of tuples. 
     """
     if filename is not None and os.path.exists(filename):
@@ -170,6 +175,7 @@ def imwrite(filename, arr, **kwargs):
       - .webp: uses imagecodecs.webp_encode (accepts 'level'; 'quality' is kept as a backwards compatible alias)
       - .jxl: uses imagecodecs.jpegxl_encode (accepts 'quality', 'effort', 'distance', 'decoding_speed')
       - .bmp: uses imagecodecs.bmp_encode (no extra parameters; always lossless)
+
     For other extensions, PNG encoding is used as a fallback.
     
     Note: Unlike OpenCV, imagecodecs expects normal RGB/RGBA (not BGR/BGRA) channel ordering.
@@ -702,7 +708,7 @@ def save_masks(images, masks, flows, file_names, png=True, tif=False,
         imwrite(os.path.join(flowdir, basename + '_dP' + suffix + '.tif'), flows[1]) 
     
 def save_server(parent=None, filename=None):
-    """ Uploads a *_seg.npy file to the bucket.
+    """ Uploads a ``*_seg.npy`` file to the bucket.
     
     Parameters
     ----------------

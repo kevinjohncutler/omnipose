@@ -61,6 +61,27 @@
             </div>
           </div>
         </div>
+        <div class="brush-panel control">
+          <div class="control-heading">Label Opacity</div>
+          <div class="brush-slider slider-inline">
+            <div class="slider" data-slider-id="maskOpacity" data-slider-type="single">
+              <input type="range" id="maskOpacity" min="0" max="1" step="0.01" value="0.8" />
+            </div>
+            <div class="number-field" data-number-id="maskOpacityInput">
+              <input type="number" id="maskOpacityInput" min="0" max="1" step="0.01" value="0.80" />
+            </div>
+          </div>
+        </div>
+<div class="control">
+          <label for="brushKernelMode">Brush Kernel</label>
+          <div class="dropdown" data-dropdown-id="brushKernelMode">
+            <select id="brushKernelMode">
+              <option value="smooth">Interpolated (continuous)</option>
+              <option value="snapped">Snapped (integer)</option>
+            </select>
+          </div>
+        </div>
+
         <div class="label-panel control">
           <label class="label-panel-title" for="labelValueInput">Label</label>
           <div class="label-panel-row label-stepper">

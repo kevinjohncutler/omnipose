@@ -14,7 +14,7 @@
   /* Override these icon URLs with your preferred assets under /static/icons/ */
   --label-icon-decrement: url('/static/icons/minus.svg');
   --label-icon-increment: url('/static/icons/plus.svg');
-  --label-stepper-size: var(--control-height);
+  --label-stepper-size: var(--slider-track-height);
 }
 
 .label-panel-title {
@@ -23,6 +23,7 @@
   letter-spacing: 0.05em;
   text-transform: uppercase;
   color: var(--panel-text-color);
+  background: transparent;
   opacity: 0.8;
   margin: 0;
 }
@@ -38,12 +39,13 @@
 .label-stepper button {
   width: var(--label-stepper-size);
   height: var(--label-stepper-size);
-  border-radius: 12px;
+  border-radius: calc(var(--slider-track-height) / 2);
   border: 1px solid var(--control-border);
-  background: var(--control-input-surface);
+  background: transparent;
   backdrop-filter: blur(var(--control-blur));
   -webkit-backdrop-filter: blur(var(--control-blur));
   color: var(--panel-text-color);
+  background: transparent;
   font-size: 0.85rem;
   line-height: 1;
   display: flex;
@@ -67,10 +69,11 @@
   flex: 1;
   min-width: 0;
   height: var(--label-stepper-size);
-  border-radius: 12px;
+  border-radius: calc(var(--slider-track-height) / 2);
   border: 1px solid var(--control-border);
-  background: var(--control-input-surface);
+  background: transparent;
   color: var(--panel-text-color);
+  background: transparent;
   padding: 0 12px;
   font-size: 0.95rem;
   outline: none;
@@ -119,12 +122,13 @@
   flex: 1 1 0;
   min-width: 0;
   height: 36px;
-  border-radius: 12px;
+  border-radius: calc(var(--slider-track-height) / 2);
   border: 1px solid var(--control-border);
-  background: var(--control-input-surface);
+  background: transparent;
   backdrop-filter: blur(var(--control-blur));
   -webkit-backdrop-filter: blur(var(--control-blur));
   color: var(--panel-text-color);
+  background: transparent;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -196,14 +200,7 @@
 }
 
 .tool-panel-heading {
-  text-transform: uppercase;
-  font-size: 0.68rem;
-  letter-spacing: 0.2em;
-  text-align: left;
-  color: var(--panel-text-color);
-  opacity: 0.7;
   margin: 0;
-  font-weight: 600;
 }
 
 .tool-buttons {
@@ -217,23 +214,24 @@
 .tool-stop {
   width: 46px;
   height: 46px;
-  border-radius: 12px;
+  border-radius: calc(var(--slider-track-height) / 2);
   border: 1px solid var(--control-border);
-  background: var(--control-input-surface);
+  background: transparent;
   backdrop-filter: blur(var(--control-blur));
   -webkit-backdrop-filter: blur(var(--control-blur));
   display: flex;
   align-items: center;
   justify-content: center;
   color: var(--panel-text-color);
+  background: transparent;
   cursor: pointer;
   transition: transform 0.18s ease, border-color 0.18s ease, background 0.18s ease, box-shadow 0.18s ease;
 }
 
 .tool-stop[data-active="true"] {
   border-color: var(--accent-color);
-  color: var(--accent-color);
-  background: var(--control-input-surface);
+  color: var(--accent-ink, #161616);
+  background: var(--accent-color);
   box-shadow: none;
   transform: none;
 }

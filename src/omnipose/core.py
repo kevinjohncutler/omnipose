@@ -2751,25 +2751,25 @@ def scale_to_tenths(x, max_gain=10):
     return x * sf
 
 def loss(self, lbl, y, ext_loss=0):
-    """ Loss function for Omnipose.
+    """Loss function for Omnipose.
+
     Parameters
-    --------------
-    lbl: ND-array, float
-        transformed labels in array [nimg x nchan x xy[0] x xy[1]]
-        lbl[:,0] cell masks
-        lbl[:,1] thresholded mask layer
-        lbl[:,2] boundary field
-        lbl[:,3] smooth distance field 
-        lbl[:,4] boundary-emphasizing weights
-        lbl[:,5:] flow components 
-    
-    y:  ND-tensor, float
-        network predictions, with dimension D, these are:
-        y[:,:D] flow field components at 0,1,...,D-1
-        y[:,D] distance fields at D
-        y[:,D+1] boundary fields at D+1
-    
-    """   
+    ----------
+    lbl : ND-array, float
+        Transformed labels in array [nimg x nchan x xy[0] x xy[1]].
+        - ``lbl[:,0]`` cell masks
+        - ``lbl[:,1]`` thresholded mask layer
+        - ``lbl[:,2]`` boundary field
+        - ``lbl[:,3]`` smooth distance field
+        - ``lbl[:,4]`` boundary-emphasizing weights
+        - ``lbl[:,5:]`` flow components
+
+    y : ND-tensor, float
+        Network predictions, with dimension D:
+        - ``y[:,:D]`` flow field components at 0,1,...,D-1
+        - ``y[:,D]`` distance fields at D
+        - ``y[:,D+1]`` boundary fields at D+1
+    """
     
     cellmask = lbl[:,1]>0
     if self.nclasses==1: # semantic segmentation, generalize to logits 

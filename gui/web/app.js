@@ -237,6 +237,44 @@ function rgbToCss(rgb) {
   return 'rgb(' + (rgb[0] | 0) + ', ' + (rgb[1] | 0) + ', ' + (rgb[2] | 0) + ')';
 }
 
+function parseCssColor(value) {
+  if (!value || typeof value !== 'string') {
+    return null;
+  }
+  const trimmed = value.trim();
+  if (trimmed.startsWith('#')) {
+    const hex = trimmed.slice(1);
+    if (hex.length === 3) {
+      return [
+        parseInt(hex[0] + hex[0], 16),
+        parseInt(hex[1] + hex[1], 16),
+        parseInt(hex[2] + hex[2], 16),
+      ];
+    }
+    if (hex.length === 6) {
+      return [
+        parseInt(hex.slice(0, 2), 16),
+        parseInt(hex.slice(2, 4), 16),
+        parseInt(hex.slice(4, 6), 16),
+      ];
+    }
+  }
+  const match = trimmed.match(/rgba?\(([^)]+)\)/i);
+  if (match) {
+    const parts = match[1].split(',').map((part) => Number(part.trim()));
+    if (parts.length >= 3 && parts.every((val) => Number.isFinite(val))) {
+      return parts.slice(0, 3).map((val) => Math.max(0, Math.min(255, val)));
+    }
+  }
+  return null;
+}
+
+function readableTextColor(rgb) {
+  const [r, g, b] = rgb;
+  const luminance = (0.2126 * r + 0.7152 * g + 0.0722 * b) / 255;
+  return luminance > 0.62 ? 'rgba(20, 20, 20, 0.86)' : '#f6f6f6';
+}
+
 function lightenRgb(rgb, amount = 0.25) {
   const clampChannel = (value) => Math.max(0, Math.min(255, value));
   const mix = (a, b) => Math.round(a + (b - a) * amount);
@@ -253,8 +291,10 @@ function updateAccentColorsFromRgb(rgb) {
   }
   const base = rgbToCss(rgb);
   const hover = rgbToCss(lightenRgb(rgb));
+  const ink = readableTextColor(rgb);
   rootStyleWrite.setProperty('--accent-color', base);
   rootStyleWrite.setProperty('--accent-hover', hover);
+  rootStyleWrite.setProperty('--accent-ink', ink);
   accentColor = base;
   if (typeof renderHistogram === 'function') {
     renderHistogram();
@@ -267,6 +307,10 @@ function resetAccentColors() {
   }
   rootStyleWrite.setProperty('--accent-color', accentColorDefault);
   rootStyleWrite.setProperty('--accent-hover', accentHoverDefault);
+  const parsed = parseCssColor(accentColorDefault);
+  if (parsed) {
+    rootStyleWrite.setProperty('--accent-ink', readableTextColor(parsed));
+  }
   accentColor = accentColorDefault;
   if (typeof renderHistogram === 'function') {
     renderHistogram();
@@ -1850,7 +1894,19 @@ function updateNativeRangeFill(input) {
     return;
   }
   const percent = valueToPercent(input);
-  input.style.setProperty('--slider-fill-end', (percent * 100).toFixed(3) + '%');
+  const root = input.closest('.slider');
+  if (!root) {
+    return;
+  }
+  const trackRadius = parseFloat(getComputedStyle(root).getPropertyValue('--slider-track-radius'))
+    || Math.round(root.clientHeight / 2);
+  const usable = Math.max(0, root.clientWidth - trackRadius * 2);
+  const fillPx = Math.round(usable * percent);
+  root.style.setProperty('--slider-fill-px', `${fillPx}px`);
+  const knob = root.querySelector('.slider-native-knob');
+  if (knob) {
+    knob.style.left = `${trackRadius + fillPx}px`;
+  }
 }
 
 function registerSlider(root) {
@@ -1869,14 +1925,21 @@ function registerSlider(root) {
   }
   if (isIOSDevice && isSafariWebKit) {
     root.classList.add('slider-native');
-    const applyNativeFill = (input) => {
-      const percent = valueToPercent(input);
-      input.style.setProperty('--slider-fill-end', (percent * 100).toFixed(3) + '%');
-    };
+    if (!root.querySelector('.slider-native-track')) {
+      const track = document.createElement('div');
+      track.className = 'slider-native-track';
+      const fill = document.createElement('div');
+      fill.className = 'slider-native-fill';
+      track.appendChild(fill);
+      const knob = document.createElement('div');
+      knob.className = 'slider-native-knob';
+      root.appendChild(track);
+      root.appendChild(knob);
+    }
     inputs.forEach((input) => {
-      applyNativeFill(input);
-      input.addEventListener('input', () => applyNativeFill(input));
-      input.addEventListener('change', () => applyNativeFill(input));
+      updateNativeRangeFill(input);
+      input.addEventListener('input', () => updateNativeRangeFill(input));
+      input.addEventListener('change', () => updateNativeRangeFill(input));
     });
     return;
   }
@@ -1927,10 +1990,14 @@ function registerSlider(root) {
     } else {
       const input = entry.inputs[0];
       const percent = valueToPercent(input);
-      const position = (percent * 100).toFixed(3) + '%';
-      entry.track.style.setProperty('--slider-fill-start', '0%');
-      entry.track.style.setProperty('--slider-fill-end', position);
-      entry.thumbs[0].style.left = position;
+      const trackStyle = getComputedStyle(entry.track);
+      const trackRadius = parseFloat(trackStyle.getPropertyValue('--slider-track-radius'))
+        || Math.round(entry.track.clientHeight / 2);
+      const usable = Math.max(0, entry.track.clientWidth - trackRadius * 2);
+      const fillPx = Math.round(usable * percent);
+      entry.track.style.setProperty('--slider-fill-px', `${fillPx}px`);
+      entry.track.style.setProperty('--slider-track-radius', `${trackRadius}px`);
+      entry.thumbs[0].style.left = `${trackRadius + fillPx}px`;
     }
   };
 
@@ -3336,8 +3403,7 @@ function updateLabelControls() {
     if (Array.isArray(rgb) && rgb.length >= 3) {
       const [r, g, b] = rgb;
       const color = 'rgb(' + (r | 0) + ', ' + (g | 0) + ', ' + (b | 0) + ')';
-      const luminance = (0.2126 * r + 0.7152 * g + 0.0722 * b) / 255;
-      const textColor = luminance > 0.62 ? 'rgba(20, 20, 20, 0.86)' : '#f6f6f6';
+      const textColor = readableTextColor([r, g, b]);
       labelValueInput.style.setProperty('background', color);
       labelValueInput.style.setProperty('border-color', 'rgba(0, 0, 0, 0.18)');
       labelValueInput.style.setProperty('color', textColor);
