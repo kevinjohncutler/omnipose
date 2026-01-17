@@ -17,17 +17,6 @@
   --label-stepper-size: var(--slider-track-height);
 }
 
-.label-panel-title {
-  font-size: 0.78rem;
-  font-weight: 600;
-  letter-spacing: 0.05em;
-  text-transform: uppercase;
-  color: var(--panel-text-color);
-  background: transparent;
-  opacity: 0.8;
-  margin: 0;
-}
-
 .label-stepper {
   display: flex;
   align-items: center;
@@ -196,10 +185,6 @@
 
 #labelValueInput::-webkit-inner-spin-button {
   -webkit-appearance: none;
-  margin: 0;
-}
-
-.tool-panel-heading {
   margin: 0;
 }
 

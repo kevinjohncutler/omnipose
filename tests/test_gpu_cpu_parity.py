@@ -481,6 +481,9 @@ def test_bact_affinity_single_channel_no_tiling_cpu_gpu_match():
             continue
         if ac.dtype.kind not in {"i", "u", "f"}:
             continue
+        if ac.size == 0 or ag.size == 0:
+            assert ac.size == ag.size
+            continue
         if ac.dtype.kind in {"i", "u"}:
             diff = np.abs(ac.astype(np.int16) - ag.astype(np.int16))
             assert diff.max() <= 1

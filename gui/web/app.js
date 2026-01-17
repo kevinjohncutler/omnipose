@@ -2561,6 +2561,7 @@ const distanceOverlayToggle = document.getElementById('distanceOverlayToggle');
 const imageVisibilityToggle = document.getElementById('imageVisibilityToggle');
 const maskVisibilityToggle = document.getElementById('maskVisibilityToggle');
 const autoNColorToggle = document.getElementById('autoNColorToggle');
+const brushKernelToggle = document.getElementById('brushKernelToggle');
 const toolStopButtons = Array.from(document.querySelectorAll('.tool-stop'));
 const TOOL_MODE_ORDER = ['draw', 'erase', 'fill', 'picker'];
 const PREVIEW_TOOL_TYPES = new Set(['brush', 'erase']);
@@ -2597,6 +2598,7 @@ document.querySelectorAll('[data-dropdown-id]').forEach((root) => {
   registerDropdown(root);
 });
 updateBrushControls();
+updateKernelToggle();
 
 if (labelValueInput) {
   labelValueInput.addEventListener('change', (evt) => {
@@ -3879,7 +3881,6 @@ function performClearMasks({ recordHistory = true } = {}) {
   }
   maskHasNonZero = false;
   outlineState.fill(0);
-  nColorActive = false;
   nColorValues = null;
   clearColorCaches();
   clearAffinityGraphData();
@@ -3923,6 +3924,14 @@ function promptClearMasks({ skipConfirm = false } = {}) {
   return performClearMasks({ recordHistory: true });
 }
 
+
+function updateKernelToggle() {
+  if (!brushKernelToggle) {
+    return;
+  }
+  brushKernelToggle.checked = brushKernelMode === BRUSH_KERNEL_MODES.SNAPPED;
+}
+
 function setBrushKernelMode(nextMode) {
   const normalized = nextMode === BRUSH_KERNEL_MODES.SNAPPED
     ? BRUSH_KERNEL_MODES.SNAPPED
@@ -3935,6 +3944,7 @@ function setBrushKernelMode(nextMode) {
     brushKernelModeSelect.value = brushKernelMode;
     refreshDropdown('brushKernelMode');
   }
+  updateKernelToggle();
   log('brush kernel mode set to ' + brushKernelMode);
   drawBrushPreview(getHoverPoint());
 }
@@ -7727,13 +7737,26 @@ async function requestSegmentation() {
   return response.json();
 }
 
+
+function setSegmentButtonLoading(active) {
+  if (!segmentButton) {
+    return;
+  }
+  if (active) {
+    segmentButton.setAttribute('data-loading', 'true');
+  } else {
+    segmentButton.removeAttribute('data-loading');
+  }
+}
+
 async function runSegmentation() {
   if (!segmentButton || isSegmenting) {
     return;
   }
   isSegmenting = true;
   segmentButton.disabled = true;
-  setSegmentStatus('Running segmentation…');
+  setSegmentButtonLoading(true);
+  setSegmentStatus('');
   try {
     const raw = await requestSegmentation();
     const payload = typeof raw === 'string' ? JSON.parse(raw) : raw;
@@ -7758,6 +7781,7 @@ async function runSegmentation() {
   } finally {
     isSegmenting = false;
     segmentButton.disabled = false;
+    setSegmentButtonLoading(false);
     if (pendingMaskRebuild && segmentationUpdateTimer === null && canRebuildMask) {
       triggerMaskRebuild().catch((error) => {
         console.error(error);
@@ -8551,6 +8575,12 @@ brushSizeInput.addEventListener('change', (evt) => {
 if (brushKernelModeSelect) {
   brushKernelModeSelect.addEventListener('change', (evt) => {
     setBrushKernelMode(evt.target.value);
+  });
+}
+if (brushKernelToggle) {
+  brushKernelToggle.addEventListener('change', (evt) => {
+    const nextMode = evt.target.checked ? BRUSH_KERNEL_MODES.SNAPPED : BRUSH_KERNEL_MODES.SMOOTH;
+    setBrushKernelMode(nextMode);
   });
 }
 

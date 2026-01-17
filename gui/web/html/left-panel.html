@@ -30,7 +30,7 @@
           </div>
         </div>
         <div class="tool-panel">
-          <div class="tool-panel-heading">Tools</div>
+          <div class="tool-panel-heading control-heading">Tools</div>
           <div class="tool-buttons" title="Shortcuts: Cmd/Ctrl+1..4">
             <button type="button" class="tool-stop" data-mode="draw" title="Draw (B)">
               <span class="tool-icon tool-icon-draw" aria-hidden="true"></span>
@@ -72,18 +72,25 @@
             </div>
           </div>
         </div>
-<div class="control">
-          <label for="brushKernelMode">Brush Kernel</label>
+        <div class="control">
+          <div class="control-heading">Brush Kernel</div>
+          <label class="toggle" title="Snap exact kernel to pixel grid (on) or interpolate circle onto local grid (off, default)">
+            <input type="checkbox" id="brushKernelToggle" />
+            <span class="toggle-switch"></span>
+            <span class="toggle-label">Snap</span>
+          </label>
+          <!--
           <div class="dropdown" data-dropdown-id="brushKernelMode">
             <select id="brushKernelMode">
               <option value="smooth">Interpolated (continuous)</option>
               <option value="snapped">Snapped (integer)</option>
             </select>
           </div>
+          -->
         </div>
 
         <div class="label-panel control">
-          <label class="label-panel-title" for="labelValueInput">Label</label>
+          <div class="control-heading">Label</div>
           <div class="label-panel-row label-stepper">
             <button type="button" id="labelStepDown" aria-label="Decrement label">
               <span class="label-icon label-icon-decrement" aria-hidden="true"></span>

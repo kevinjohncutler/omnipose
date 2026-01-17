@@ -773,3 +773,76 @@ button:not(:disabled):hover {
     margin-top: 3px;
   }
 }
+
+
+.kernel-toggle {
+  display: flex;
+  width: 100%;
+  background: var(--slider-track-bg);
+  box-shadow: inset 0 0 0 1px var(--slider-track-border);
+  border-radius: calc(var(--slider-track-height) / 2);
+  overflow: hidden;
+}
+
+.kernel-option {
+  position: relative;
+  z-index: 1;
+  flex: 1;
+  height: var(--slider-track-height);
+  border: none;
+  background: transparent;
+  color: var(--panel-text-color);
+  font-size: 0.85rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  cursor: pointer;
+  transition: background 0.2s ease, color 0.2s ease;
+}
+
+.kernel-option[data-active='true'] {
+  color: var(--accent-ink, #161616);
+}
+
+.kernel-option:focus-visible {
+  outline: 2px solid var(--accent-color);
+  outline-offset: 2px;
+}
+
+#segmentStatus {
+  display: none;
+}
+
+#segmentButton {
+  position: relative;
+  overflow: hidden;
+}
+
+#segmentButton::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: rgba(255, 255, 255, 0.18);
+  opacity: 0;
+  transition: opacity 0.2s ease;
+}
+
+#segmentButton[data-loading='true']::before {
+  opacity: 1;
+  animation: segmentLoading 1.1s ease-in-out infinite;
+}
+
+@keyframes segmentLoading {
+  0% {
+    transform: translateX(-80%);
+    opacity: 0.2;
+  }
+  50% {
+    transform: translateX(0%);
+    opacity: 0.55;
+  }
+  100% {
+    transform: translateX(80%);
+    opacity: 0.2;
+  }
+}
