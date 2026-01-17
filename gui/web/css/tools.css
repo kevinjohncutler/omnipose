@@ -55,7 +55,12 @@
 }
 
 .label-stepper button:hover {
-  border-color: var(--accent-hover);
+  border-color: rgba(255, 255, 255, 0.28);
+}
+
+.label-stepper button:active {
+  border-color: rgba(200, 200, 200, 0.55);
+  background: rgba(160, 160, 160, 0.24);
 }
 
 .label-stepper input[type="number"] {

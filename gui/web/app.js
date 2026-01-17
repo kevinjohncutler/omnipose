@@ -195,6 +195,7 @@ if (canvas) {
 }
 const dpr = window.devicePixelRatio || 1;
 const rootStyle = window.getComputedStyle(document.documentElement);
+const rootStyleWrite = document.documentElement && document.documentElement.style ? document.documentElement.style : null;
 const sidebarWidthRaw = rootStyle.getPropertyValue('--sidebar-width');
 const sidebarWidthValue = Number.parseFloat(sidebarWidthRaw || '');
 const sidebarWidthDefault = Number.isFinite(sidebarWidthValue) ? Math.max(0, sidebarWidthValue) : 260;
@@ -231,7 +232,49 @@ function getViewportSize() {
     leftInset,
   };
 }
-const accentColor = (rootStyle.getPropertyValue('--accent-color') || '#d8a200').trim();
+
+function rgbToCss(rgb) {
+  return 'rgb(' + (rgb[0] | 0) + ', ' + (rgb[1] | 0) + ', ' + (rgb[2] | 0) + ')';
+}
+
+function lightenRgb(rgb, amount = 0.25) {
+  const clampChannel = (value) => Math.max(0, Math.min(255, value));
+  const mix = (a, b) => Math.round(a + (b - a) * amount);
+  return [
+    clampChannel(mix(rgb[0], 255)),
+    clampChannel(mix(rgb[1], 255)),
+    clampChannel(mix(rgb[2], 255)),
+  ];
+}
+
+function updateAccentColorsFromRgb(rgb) {
+  if (!rootStyleWrite || !Array.isArray(rgb) || rgb.length < 3) {
+    return;
+  }
+  const base = rgbToCss(rgb);
+  const hover = rgbToCss(lightenRgb(rgb));
+  rootStyleWrite.setProperty('--accent-color', base);
+  rootStyleWrite.setProperty('--accent-hover', hover);
+  accentColor = base;
+  if (typeof renderHistogram === 'function') {
+    renderHistogram();
+  }
+}
+
+function resetAccentColors() {
+  if (!rootStyleWrite) {
+    return;
+  }
+  rootStyleWrite.setProperty('--accent-color', accentColorDefault);
+  rootStyleWrite.setProperty('--accent-hover', accentHoverDefault);
+  accentColor = accentColorDefault;
+  if (typeof renderHistogram === 'function') {
+    renderHistogram();
+  }
+}
+const accentColorDefault = (rootStyle.getPropertyValue('--accent-color') || '#d8a200').trim();
+const accentHoverDefault = (rootStyle.getPropertyValue('--accent-hover') || '#f3c54a').trim();
+let accentColor = accentColorDefault;
 const histogramWindowColor = (rootStyle.getPropertyValue('--histogram-window-color') || 'rgba(140, 140, 140, 0.35)').trim();
 const panelTextColor = (rootStyle.getPropertyValue('--panel-text-color') || '#f4f4f4').trim();
 // Custom cursor assets and override control
@@ -1802,6 +1845,14 @@ function pointerPercent(evt, container) {
   return clamp(ratio, 0, 1);
 }
 
+function updateNativeRangeFill(input) {
+  if (!input || !(isIOSDevice && isSafariWebKit)) {
+    return;
+  }
+  const percent = valueToPercent(input);
+  input.style.setProperty('--slider-fill-end', (percent * 100).toFixed(3) + '%');
+}
+
 function registerSlider(root) {
   const id = root.dataset.sliderId || root.dataset.slider || root.id;
   if (!id) {
@@ -1818,6 +1869,15 @@ function registerSlider(root) {
   }
   if (isIOSDevice && isSafariWebKit) {
     root.classList.add('slider-native');
+    const applyNativeFill = (input) => {
+      const percent = valueToPercent(input);
+      input.style.setProperty('--slider-fill-end', (percent * 100).toFixed(3) + '%');
+    };
+    inputs.forEach((input) => {
+      applyNativeFill(input);
+      input.addEventListener('input', () => applyNativeFill(input));
+      input.addEventListener('change', () => applyNativeFill(input));
+    });
     return;
   }
 
@@ -2438,6 +2498,30 @@ const toolStopButtons = Array.from(document.querySelectorAll('.tool-stop'));
 const TOOL_MODE_ORDER = ['draw', 'erase', 'fill', 'picker'];
 const PREVIEW_TOOL_TYPES = new Set(['brush', 'erase']);
 const CROSSHAIR_TOOL_TYPES = new Set(['brush', 'erase', 'fill', 'picker']);
+
+if (savedViewerState) {
+  if (brushSizeSlider && typeof savedViewerState.brushDiameter === 'number') {
+    brushSizeSlider.value = String(savedViewerState.brushDiameter);
+    updateNativeRangeFill(brushSizeSlider);
+  }
+  if (maskOpacitySlider && typeof savedViewerState.maskOpacity === 'number') {
+    maskOpacitySlider.value = Number(savedViewerState.maskOpacity).toFixed(2);
+    updateNativeRangeFill(maskOpacitySlider);
+  }
+  if (maskThresholdSlider && typeof savedViewerState.maskThreshold === 'number') {
+    maskThresholdSlider.value = Number(savedViewerState.maskThreshold).toFixed(1);
+    updateNativeRangeFill(maskThresholdSlider);
+  }
+  if (flowThresholdSlider && typeof savedViewerState.flowThreshold === 'number') {
+    flowThresholdSlider.value = Number(savedViewerState.flowThreshold).toFixed(1);
+    updateNativeRangeFill(flowThresholdSlider);
+  }
+  if (gammaSlider && typeof savedViewerState.gamma === 'number') {
+    const sliderValue = Math.round(savedViewerState.gamma * 100);
+    gammaSlider.value = String(Math.min(600, Math.max(10, sliderValue)));
+    updateNativeRangeFill(gammaSlider);
+  }
+}
 
 document.querySelectorAll('[data-slider-id]').forEach((root) => {
   registerSlider(root);
@@ -3258,6 +3342,7 @@ function updateLabelControls() {
       labelValueInput.style.setProperty('border-color', 'rgba(0, 0, 0, 0.18)');
       labelValueInput.style.setProperty('color', textColor);
       labelValueInput.style.setProperty('caret-color', textColor);
+      updateAccentColorsFromRgb(rgb);
       return;
     }
   }
@@ -3265,6 +3350,7 @@ function updateLabelControls() {
   labelValueInput.style.removeProperty('border-color');
   labelValueInput.style.removeProperty('color');
   labelValueInput.style.removeProperty('caret-color');
+  resetAccentColors();
 }
 
 function updateMaskVisibilityLabel() {
@@ -3421,6 +3507,7 @@ function selectToolMode(mode) {
 function updateBrushControls() {
   if (brushSizeSlider) {
     brushSizeSlider.value = String(brushDiameter);
+    updateNativeRangeFill(brushSizeSlider);
     refreshSlider('brushSizeSlider');
   }
   if (brushSizeInput) {
@@ -3450,6 +3537,7 @@ function setBrushDiameter(nextDiameter, fromUser = false) {
 function syncMaskOpacityControls() {
   if (maskOpacitySlider) {
     maskOpacitySlider.value = maskOpacity.toFixed(2);
+    updateNativeRangeFill(maskOpacitySlider);
     refreshSlider('maskOpacity');
   }
   if (maskOpacityInput && document.activeElement !== maskOpacityInput) {
@@ -3486,6 +3574,7 @@ function updateMaskThresholdLabel() {
 function syncMaskThresholdControls() {
   if (maskThresholdSlider) {
     maskThresholdSlider.value = maskThreshold.toFixed(1);
+    updateNativeRangeFill(maskThresholdSlider);
     refreshSlider('maskThreshold');
   }
   if (maskThresholdInput && document.activeElement !== maskThresholdInput) {
@@ -3519,6 +3608,7 @@ function updateFlowThresholdLabel() {
 function syncFlowThresholdControls() {
   if (flowThresholdSlider) {
     flowThresholdSlider.value = flowThreshold.toFixed(1);
+    updateNativeRangeFill(flowThresholdSlider);
     refreshSlider('flowThreshold');
   }
   if (flowThresholdInput && document.activeElement !== flowThresholdInput) {
@@ -6642,6 +6732,7 @@ function syncGammaControls() {
   if (gammaSlider) {
     const sliderValue = Math.round(currentGamma * 100);
     gammaSlider.value = String(Math.min(600, Math.max(10, sliderValue)));
+    updateNativeRangeFill(gammaSlider);
     refreshSlider('gamma');
   }
   if (gammaInput) {
