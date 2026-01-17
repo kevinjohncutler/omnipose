@@ -2646,7 +2646,7 @@ def random_crop_warp(img, Y, tyx, v1, v2, nchan, rescale, scale_range, gamma_ran
             # noise augmentation
             if SKIMAGE_ENABLED and aug_choices[3]:
                 var_range = 1e-2
-                var = np.random.triangular(left=1e-8, mode=1e-8, right=var_range, size=1)
+                var = float(np.random.triangular(left=1e-8, mode=1e-8, right=var_range))
                 # imgi[k] = random_noise(utils.rescale(imgi[k]), mode="poisson")#, seed=None, clip=True)
                 # poisson is super slow... np.random.posson is faster
                 # also poisson always gave the same noise, which is very bad...

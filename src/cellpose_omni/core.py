@@ -1420,6 +1420,12 @@ class UnetModel():
             tic = time.time()
             epochtime[epoch] = tic
             if epoch % de == 0:
+                epoch_window = epochtime[max(0, epoch-3):max(1, epoch)]
+                if epoch_window.size > 1:
+                    avg_epoch = float(np.mean(np.diff(epoch_window)))
+                else:
+                    avg_epoch = 0.0
+                avg_data = float(np.mean(datatime[-3:])) if datatime else 0.0
                 core_logger.info(
                     ("Train epoch: {} | "
                     "Time: {:.2f}min | "
@@ -1435,8 +1441,8 @@ class UnetModel():
                            0 if epoch==epoch0 else (tic-toc) / (epoch-epoch0), # time spent in this epoch 
                            # nbatch,
                            # (tic-t0) / (epoch+1), # average time per epoch 
-                           0 if epoch==epoch0 else np.mean(np.diff(epochtime[max(0,epoch-3):max(1,epoch)])),
-                           np.mean(datatime[-3:]), # average time spent loading fata for last 3 epochs 
+                           0 if epoch==epoch0 else avg_epoch,
+                           avg_data, # average time spent loading data for last 3 epochs 
                            train_loss, #/batch_size, # average loss over this batch 
                            lsum/nsum) # average loss over this epoch 
                 )
