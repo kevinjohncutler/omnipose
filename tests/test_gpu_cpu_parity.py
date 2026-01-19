@@ -387,6 +387,9 @@ def test_affinity_full_eval_masks_and_flows_match_no_tiling():
             continue
         if ac.dtype.kind == "O" or ag.dtype.kind == "O":
             continue
+        if ac.size == 0 or ag.size == 0:
+            assert ac.size == ag.size
+            continue
         if ac.dtype.kind in {"i", "u"}:
             diff = np.abs(ac.astype(np.int16) - ag.astype(np.int16))
             assert diff.max() <= 1  # allow single LSB drift in rendered RGB

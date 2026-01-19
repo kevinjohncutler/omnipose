@@ -54,9 +54,13 @@
   }
 
   function getBrushKernelCenter(x, y) {
-    return ctx().getBrushKernelMode() === getModes().SNAPPED
-      ? { x: Math.round(x), y: Math.round(y) }
-      : { x, y };
+    if (ctx().getBrushKernelMode() === getModes().SNAPPED) {
+      return {
+        x: Math.round(x - 0.5) + 0.5,
+        y: Math.round(y - 0.5) + 0.5,
+      };
+    }
+    return { x, y };
   }
 
   function enumerateBrushPixels(rawCenterX, rawCenterY) {
@@ -260,9 +264,7 @@
     if (point) {
       let circleCenter = null;
       const snappedMode = context.getBrushKernelMode() === getModes().SNAPPED;
-      const snappedCenter = snappedMode
-        ? { x: Math.round(point.x - 0.5) + 0.5, y: Math.round(point.y - 0.5) + 0.5 }
-        : null;
+      const snappedCenter = snappedMode ? getBrushKernelCenter(point.x, point.y) : null;
       if (!crosshairOnly && context.previewToolTypes && context.previewToolTypes.has(context.getTool())) {
         const pixels = enumerateBrushPixels(point.x, point.y);
         if (pixels.length) {
