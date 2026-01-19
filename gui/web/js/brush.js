@@ -259,13 +259,15 @@
     }
     if (point) {
       let circleCenter = null;
+      const snappedMode = context.getBrushKernelMode() === getModes().SNAPPED;
+      const snappedCenter = snappedMode
+        ? { x: Math.round(point.x - 0.5) + 0.5, y: Math.round(point.y - 0.5) + 0.5 }
+        : null;
       if (!crosshairOnly && context.previewToolTypes && context.previewToolTypes.has(context.getTool())) {
         const pixels = enumerateBrushPixels(point.x, point.y);
         if (pixels.length) {
           const kernelCenter = getBrushKernelCenter(point.x, point.y);
-          circleCenter = (context.getBrushKernelMode() === getModes().SNAPPED)
-            ? { x: kernelCenter.x + 0.5, y: kernelCenter.y + 0.5 }
-            : { x: kernelCenter.x, y: kernelCenter.y };
+          circleCenter = snappedMode ? snappedCenter : { x: kernelCenter.x, y: kernelCenter.y };
           const radius = (toNumber(context.getBrushDiameter(), 1) - 1) / 2;
           previewCtx.save();
           context.applyViewTransform(previewCtx, { includeDpr: true });
@@ -292,7 +294,9 @@
       const wantCrosshair = Boolean(context.isCrosshairEnabled && context.isCrosshairEnabled()) || crosshairOnly;
       if (wantCrosshair) {
         const crosshairHalf = 0.25;
-        const crossPoint = circleCenter && !crosshairOnly ? circleCenter : { x: point.x, y: point.y };
+        const crossPoint = (circleCenter && !crosshairOnly)
+          ? circleCenter
+          : (snappedMode && snappedCenter ? snappedCenter : { x: point.x, y: point.y });
         previewCtx.save();
         context.applyViewTransform(previewCtx, { includeDpr: true });
         const scale = Math.max(context.getViewState().scale || 1, 0.0001);

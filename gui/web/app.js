@@ -3397,7 +3397,7 @@ function updateLabelControls() {
     let rgb = null;
     if (typeof nColorActive !== 'undefined' && typeof rawColorMap !== 'undefined') {
       rgb = nColorActive
-        ? getNColorLabelColor(currentLabel)
+        ? getNColorLabelColor(nColorLabelToGroup.get(currentLabel) || currentLabel)
         : getRawLabelColor(currentLabel);
     } else {
       rgb = hashColorForLabel(currentLabel, 0.0);
@@ -3882,6 +3882,7 @@ function performClearMasks({ recordHistory = true } = {}) {
   maskHasNonZero = false;
   outlineState.fill(0);
   nColorValues = null;
+  nColorLabelToGroup.clear();
   clearColorCaches();
   clearAffinityGraphData();
   if (window.__OMNI_FORCE_GRID_MASK__ && window.OmniPainting
@@ -4261,6 +4262,7 @@ function restoreViewerState(saved) {
       nColorActive = true;
       nColorValues = null;
     }
+    rebuildNColorLabelMap();
     if (!Number.isFinite(currentLabel) || currentLabel <= 0) {
       currentLabel = 1;
     }
@@ -6469,7 +6471,7 @@ function base64FromUint8(bytes) {
   return btoa(binary);
 }
 
-// Recompute N-color mapping from the CURRENT client mask and overwrite labels with group IDs.
+// Recompute N-color mapping from the CURRENT client mask for display grouping.
 function recomputeNColorFromCurrentMask(forceActive = false) {
   return new Promise((resolve) => {
     try {
@@ -6487,20 +6489,9 @@ function recomputeNColorFromCurrentMask(forceActive = false) {
           const arr = new Uint8Array(buffer);
           for (let i = 0; i < bin.length; i += 1) arr[i] = bin.charCodeAt(i);
           const groups = new Uint32Array(buffer);
-          // Overwrite maskValues with group IDs; no separate overlay state
-          let hasNonZero = false;
-          for (let i = 0; i < groups.length; i += 1) {
-            maskValues[i] = groups[i];
-            if (groups[i] > 0) {
-              hasNonZero = true;
-            }
-          }
-          if (paintingApi && typeof paintingApi.rebuildComponents === 'function') {
-            paintingApi.rebuildComponents();
-          }
-          maskHasNonZero = hasNonZero;
-          nColorValues = null;
+          nColorValues = groups;
           nColorActive = true;
+          rebuildNColorLabelMap();
           clearColorCaches();
           if (isWebglPipelineActive()) {
             markMaskTextureFullDirty();
@@ -6860,6 +6851,7 @@ let nColorValues = null; // per-pixel group IDs for N-color display only
 // Single authoritative mask buffer: maskValues always holds instance labels.
 const rawColorMap = new Map();
 const nColorColorMap = new Map();
+const nColorLabelToGroup = new Map();
 // Legacy assignment structures retained but unused with single-buffer model
 const nColorAssignments = new Map();
 const nColorColorToLabel = new Map();
@@ -6919,10 +6911,24 @@ function collectLabelsFromMask(sourceMask) {
   return Array.from(seen).sort((a, b) => a - b);
 }
 
+function rebuildNColorLabelMap() {
+  nColorLabelToGroup.clear();
+  if (!nColorValues || nColorValues.length !== maskValues.length) {
+    return;
+  }
+  for (let i = 0; i < maskValues.length; i += 1) {
+    const label = maskValues[i] | 0;
+    const group = nColorValues[i] | 0;
+    if (label > 0 && group > 0 && !nColorLabelToGroup.has(label)) {
+      nColorLabelToGroup.set(label, group);
+    }
+  }
+}
 
 function resetNColorAssignments() {
   nColorAssignments.clear();
   nColorColorToLabel.clear();
+  nColorLabelToGroup.clear();
   nColorMaxColorId = 0;
 }
 
@@ -7294,27 +7300,13 @@ function updateColorModeLabel() {
 
 function toggleColorMode() {
   if (!nColorActive) {
-    // ON: compute groups from current mask and write into maskValues.
+    // ON: compute groups from current mask for display.
     lastLabelBeforeNColor = currentLabel;
     const prevLabel = currentLabel | 0;
     recomputeNColorFromCurrentMask(true).then((ok) => {
       if (!ok) console.warn('N-color mapping failed');
       // Repaint outlines with new palette without changing the graph
       rebuildOutlineFromAffinity();
-      // Preserve currentLabel if valid in group space; otherwise default to 1
-      try {
-        let maxGroup = 0;
-        for (let i = 0, n = maskValues.length; i < n; i += Math.max(1, Math.floor(n / 2048))) {
-          const g = maskValues[i] | 0; if (g > maxGroup) maxGroup = g;
-        }
-        // Fallback full scan if sample returned 0
-        if (maxGroup === 0) {
-          for (let i = 0; i < maskValues.length; i += 1) { const g = maskValues[i] | 0; if (g > maxGroup) maxGroup = g; }
-        }
-        if (!(prevLabel >= 1 && prevLabel <= maxGroup)) {
-          currentLabel = maxGroup >= 1 ? 1 : 0;
-        }
-      } catch (_) { currentLabel = 1; }
       updateMaskLabel();
       updateColorModeLabel();
       if (autoNColorToggle) autoNColorToggle.checked = nColorActive;
@@ -7323,45 +7315,22 @@ function toggleColorMode() {
     });
     return;
   }
-  // OFF: relabel by affinity using current groups; result is instance labels
-  try { window.__pendingRelabelSelection = null; } catch (_) {}
-  const prevLabel = currentLabel | 0;
-  relabelFromAffinity()
-    .then((ok) => {
-      if (!ok) console.warn('relabel_from_affinity failed during N-color OFF');
-      nColorActive = false;
-      clearColorCaches();
-      if (isWebglPipelineActive()) {
-        markMaskTextureFullDirty();
-        markOutlineTextureFullDirty();
-      } else {
-        redrawMaskCanvas();
-      }
-      // Do not modify the affinity graph when toggling OFF
-      // Preserve currentLabel if still present; else default to 1
-      try {
-        let found = false;
-        if (prevLabel > 0) {
-          for (let i = 0; i < maskValues.length; i += Math.max(1, Math.floor(maskValues.length / 2048))) {
-            if ((maskValues[i] | 0) === prevLabel) { found = true; break; }
-          }
-          if (!found) {
-            for (let i = 0; i < maskValues.length; i += 1) { if ((maskValues[i] | 0) === prevLabel) { found = true; break; } }
-          }
-        }
-        if (!found) {
-          currentLabel = 1;
-        }
-      } catch (_) { currentLabel = 1; }
-      updateMaskLabel();
-      updateColorModeLabel();
-      if (autoNColorToggle) autoNColorToggle.checked = nColorActive;
-      draw();
-      scheduleStateSave();
-    })
-    .catch((err) => {
-      console.warn('N-color OFF relabel failed', err);
-    });
+  // OFF: leave instance labels untouched, disable N-color display
+  nColorActive = false;
+  nColorValues = null;
+  nColorLabelToGroup.clear();
+  clearColorCaches();
+  if (isWebglPipelineActive()) {
+    markMaskTextureFullDirty();
+    markOutlineTextureFullDirty();
+  } else {
+    redrawMaskCanvas();
+  }
+  updateMaskLabel();
+  updateColorModeLabel();
+  if (autoNColorToggle) autoNColorToggle.checked = nColorActive;
+  draw();
+  scheduleStateSave();
 }
 
 // buildLinksFromCurrentGraph removed: we keep a single connectivity source based on raw labels only
