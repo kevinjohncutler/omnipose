@@ -33,6 +33,9 @@ setup(
       'pytest'
     ],
     include_package_data=True,
+    package_data={
+      "cellpose_omni.gui.assets": ["*.png", "*.svg"],
+    },
     classifiers=[
         "Programming Language :: Python :: 3",
         "Operating System :: OS Independent",

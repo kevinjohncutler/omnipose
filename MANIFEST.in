@@ -1,8 +1,40 @@
 include README.rst
 include LICENSE
-include dependencies.py
+include pyproject.toml
+include setup.py
+
 recursive-include src *
-include docs/requirements.txt
+
+prune docs
+prune scripts
+prune gui
+prune plugins
+prune pyinstaller
+prune tests
+
+# keep minimal GUI/doc assets needed at runtime/examples
+recursive-include gui *.png *.svg
+include docs/_static/ecoli_phase_GT.png
 recursive-include docs/test_files *
+prune .github
+
+exclude build.yml
+exclude deploy.yml
+exclude .readthedocs.yaml
+exclude .readthedocs.yml
+exclude .gitignore
+exclude .gitattributes
+exclude .gitmodules
+exclude omnipose_mac_environment.yml
+exclude test_omni.py
 
 
+global-exclude *.pyc
+global-exclude *.pyo
+global-exclude *.pyd
+global-exclude *.nbi
+global-exclude *.nbc
+global-exclude ._*
+global-exclude .DS_Store
+global-exclude */__pycache__/*
+global-exclude */.ipynb_checkpoints/*
