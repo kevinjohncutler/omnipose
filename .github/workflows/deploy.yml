@@ -9,6 +9,8 @@ jobs:
   docs:
     name: Build docs
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
 
     steps:
     - name: Checkout
@@ -34,6 +36,9 @@ jobs:
     runs-on: ubuntu-latest
     needs: docs
     if: startsWith(github.ref, 'refs/tags/v')
+    permissions:
+      contents: read
+      id-token: write
     steps:
     - name: Checkout
       uses: actions/checkout@v4
@@ -46,13 +51,10 @@ jobs:
     - name: Install build tools
       run: |
         python -m pip install --upgrade pip --no-cache-dir
-        pip install --no-cache-dir build twine setuptools setuptools_scm wheel
+        pip install --no-cache-dir build setuptools setuptools_scm wheel
 
     - name: Build distribution
       run: python -m build --sdist --wheel
 
     - name: Publish to PyPI
-      env:
-        TWINE_USERNAME: __token__
-        TWINE_PASSWORD: ${{ secrets.TWINE_API_KEY }}
-      run: python -m twine upload dist/*
+      uses: pypa/gh-action-pypi-publish@release/v1
