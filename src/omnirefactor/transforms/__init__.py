@@ -985,6 +985,31 @@ def _image_resizer(img, resize=512, to_uint8=False):
     return img
 
 
+# Override legacy normalize helpers with shared implementations from transforms/.
+from .modules import get_module
+from .normalize import rescale, safe_divide
+from .vector import torch_norm
+from .augment import rotate
+from .normalize import (
+    adjust_contrast_masked,
+    auto_chunked_quantile,
+    bin_counts,
+    compute_density,
+    compute_quantiles,
+    gamma_normalize,
+    localnormalize,
+    localnormalize_GPU,
+    normalize99,
+    normalize99_hist,
+    normalize_field,
+    normalize_image,
+    pnormalize,
+    qnorm,
+    quantile_rescale,
+    searchsorted,
+)
+
+
 def original_random_rotate_and_resize(X, Y=None, scale_range=1., xy = (224,224), 
                              do_flip=True, rescale=None, unet=False):
     """ augmentation by random rotation and resizing
