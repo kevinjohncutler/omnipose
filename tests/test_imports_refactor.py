@@ -14,7 +14,6 @@ if str(TESTS_DIR) not in sys.path:
 from _git_helpers import REPO_ROOT as _REPO_ROOT, is_git_tracked as _is_git_tracked
 
 _SKIP_GUI = os.environ.get("OMNIREF_SKIP_GUI_TESTS", "1") != "0"
-_ENFORCE_GIT = os.environ.get("OMNIREF_ENFORCE_GIT_TRACKED", "0") == "1"
 
 modules = [
     module_name
@@ -52,8 +51,6 @@ def test_member_access(module_name, member_name):
 def test_module_source_tracked(module_name):
     if _REPO_ROOT is None:
         pytest.skip("Not inside a Git repository")
-    if not _ENFORCE_GIT:
-        pytest.skip("Git tracking enforcement disabled")
 
     module = importlib.import_module(module_name)
     src = getattr(module, "__file__", None)

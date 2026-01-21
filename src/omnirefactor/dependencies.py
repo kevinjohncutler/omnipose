@@ -23,7 +23,6 @@ install_deps = ['numba>=0.61.0', # let numba control numpy version
                 'tifffile', # might be dependency of aicsimageio, so not needed explicitly 
                 'fastremap',
                 'cmap', 
-                'colour-science', # called "colour" when importing, but "colour-science" on pypi
                 'dbscan', # almost 2x faster than sklearn dbscan!
                 'pyinstrument',
                 'imagecodecs', # should be able to get rid of a lot of cv2 
@@ -32,8 +31,6 @@ install_deps = ['numba>=0.61.0', # let numba control numpy version
                 'opt_einsum', # for faster einsum, not sure if needed long term
                 
                 'dask',
-                'dask-image',
-                'scikit-learn',
                 ]
 
 # notes: Numpy 2 is close, networkit might be the last dependency needed to upgrade 
@@ -48,8 +45,8 @@ gui_deps = [
         'darkdetect',
         'qtawesome',
         'pyopengl',
-        'imageio'
+        'imageio',
+        'pywebview'
         ]
 
 distributed_deps = [] # moved to main deps
-

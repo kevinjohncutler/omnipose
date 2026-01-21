@@ -512,14 +512,15 @@ def _train_net(self, train_data, train_labels, train_links, test_data=None, test
             generator=gen
         )
         params = dict(
-            batch_sampler=batch_sampler,            
+            batch_sampler=batch_sampler,
             collate_fn=training_set.collate_fn,
             num_workers=num_workers,
-            pin_memory=True,
-            persistent_workers=True,
-            prefetch_factor=8,
+            pin_memory=num_workers > 0,
+            persistent_workers=num_workers > 0,
             worker_init_fn=training_set.worker_init_fn,
         )
+        if num_workers > 0:
+            params["prefetch_factor"] = 8
         
         train_loader = torch.utils.data.DataLoader(training_set, **params)
 

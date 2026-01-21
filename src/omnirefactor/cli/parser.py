@@ -156,6 +156,8 @@ def get_arg_parser():
                                default=100, type=int, help="number of epochs to skip between saves. Default: %(default)s")
     training_args.add_argument("--save_each", action="store_true",
                                help="save the model under a different filename per --save_every epoch for later comparsion")
+    training_args.add_argument("--no_save", action="store_true",
+                               help="disable saving trained model checkpoints")
     training_args.add_argument("--RAdam", action="store_true", help="use RAdam instead of SGD")
     training_args.add_argument("--allow_blank_masks", action="store_true",
                                help="allow training on images with no masks (default is to skip these images)")

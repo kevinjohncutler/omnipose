@@ -1,0 +1,25 @@
+[build-system]
+requires = ["setuptools>=61", "wheel", "setuptools_scm", "numba"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "omnirefactor"
+# specify these in setup.py
+
+dynamic = ["version",
+           "description",
+           "readme",
+           "authors",
+           "classifiers",
+           "dependencies",
+           "optional-dependencies"]
+
+[project.scripts]
+omnirefactor = "omnirefactor.__main__:main"
+
+[tool.pytest.ini_options]
+testpaths     = ["tests"]
+norecursedirs = ["trash"]
+filterwarnings = [
+  "ignore::DeprecationWarning:networkit.profiling.profiling"
+]
