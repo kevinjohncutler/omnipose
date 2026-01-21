@@ -1,0 +1,6 @@
+
+some of these already solved 
+// 1. the undo on double tap requires two undos to work, not one
+// 2. affinity graph is back to making the ipad lag really, really slow. I think we fixed this before but I guess it got lost in a rollback. 
+// 3. On magic trackpad, I think there is a force touch. we could use this to trigger a flood fill int he same way double tap does. 
+// 4. save state on reload is broken again 
