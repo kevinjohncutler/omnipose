@@ -1001,6 +1001,13 @@ class UnetModel():
 
             torch.nn.utils.clip_grad_norm_(self.net.parameters(), max_norm=1.0)
 
+            for name, param in self.net.named_parameters():
+                if param.grad is None:
+                    continue
+                if not torch.isfinite(param.grad).all():
+                    core_logger.error("Non-finite grad detected in %s", name)
+                    raise RuntimeError(f"Non-finite gradient in {name}")
+
             if scaler:
                 scaler.step(self.optimizer)
                 scaler.update()
@@ -1017,6 +1024,10 @@ class UnetModel():
             loss, raw_loss = self.loss_fn(lbl, y, ext_loss=sym_loss)
             # print(loss,sym_loss)
             # loss = loss + symmetry_weight * sym_loss
+
+        if not torch.isfinite(loss):
+            core_logger.error("Non-finite loss detected during training step")
+            raise RuntimeError("Non-finite loss during training step")
 
         backward_and_step(loss)
 

@@ -387,7 +387,20 @@ let maskValues = new Uint32Array(imgWidth * imgHeight);
 let maskHasNonZero = false;
 // Outline state bitmap (1 = boundary), used to modulate per-pixel alpha in mask rendering
 const outlineState = new Uint8Array(maskValues.length);
-let outlinesVisible = true; // future UI toggle can control this
+const MASK_DISPLAY_MODES = {
+  OUTLINED: 'outlined',
+  SOLID: 'solid',
+  OUTLINE: 'outline',
+};
+let maskDisplayMode = MASK_DISPLAY_MODES.OUTLINED;
+let outlinesVisible = true; // derives from maskDisplayMode
+
+function normalizeMaskDisplayMode(value) {
+  if (value === MASK_DISPLAY_MODES.SOLID || value === MASK_DISPLAY_MODES.OUTLINE) {
+    return value;
+  }
+  return MASK_DISPLAY_MODES.OUTLINED;
+}
 let stateSaveTimer = null;
 let stateDirty = false;
 let stateDirtySeq = 0;
@@ -1128,6 +1141,7 @@ uniform sampler2D u_distanceSampler;
 uniform float u_maskOpacity;
 uniform float u_maskVisible;
 uniform float u_outlinesVisible;
+uniform float u_maskStyle;
 uniform float u_imageVisible;
 uniform float u_flowVisible;
 uniform float u_flowOpacity;
@@ -1163,9 +1177,14 @@ void main() {
     float label = low + high * 256.0;
     if (label > 0.5) {
       float alpha = clamp(u_maskOpacity, 0.0, 1.0);
+      float outline = 0.0;
       if (u_outlinesVisible > 0.5) {
         float outlineSample = texture(u_outlineSampler, v_texCoord).r;
-        float outline = outlineSample > 0.5 ? 1.0 : 0.0;
+        outline = outlineSample > 0.5 ? 1.0 : 0.0;
+      }
+      if (u_maskStyle > 1.5) {
+        alpha = alpha * outline;
+      } else if (u_maskStyle < 0.5 && u_outlinesVisible > 0.5) {
         alpha = mix(alpha * 0.5, alpha, outline);
       }
       vec3 maskColor = hashColor(label);
@@ -1303,6 +1322,7 @@ const texCoords = new Float32Array([
     maskVisible: gl.getUniformLocation(program, 'u_maskVisible'),
     imageVisible: gl.getUniformLocation(program, 'u_imageVisible'),
     outlinesVisible: gl.getUniformLocation(program, 'u_outlinesVisible'),
+    maskStyle: gl.getUniformLocation(program, 'u_maskStyle'),
     flowSampler: gl.getUniformLocation(program, 'u_flowSampler'),
     flowVisible: gl.getUniformLocation(program, 'u_flowVisible'),
     flowOpacity: gl.getUniformLocation(program, 'u_flowOpacity'),
@@ -1573,7 +1593,11 @@ function drawWebglFrame() {
   pipelineGl.uniform1f(uniforms.maskVisible, maskVisible ? 1 : 0);
   pipelineGl.uniform1f(uniforms.imageVisible, imageVisible ? 1 : 0);
   pipelineGl.uniform1f(uniforms.outlinesVisible, outlinesVisible ? 1 : 0);
-  pipelineGl.uniform1f(uniforms.colorOffset, 0.0);
+  const maskStyleValue = maskDisplayMode === MASK_DISPLAY_MODES.SOLID
+    ? 1
+    : (maskDisplayMode === MASK_DISPLAY_MODES.OUTLINE ? 2 : 0);
+  pipelineGl.uniform1f(uniforms.maskStyle, maskStyleValue);
+  pipelineGl.uniform1f(uniforms.colorOffset, nColorActive ? 0.0 : 0.0);
   pipelineGl.uniform1f(uniforms.flowVisible, showFlowOverlay && flowOverlayImage && flowOverlayImage.complete ? 1 : 0);
   pipelineGl.uniform1f(uniforms.flowOpacity, 0.7);
   pipelineGl.uniform1f(uniforms.distanceVisible, showDistanceOverlay && distanceOverlayImage && distanceOverlayImage.complete ? 1 : 0);
@@ -2148,6 +2172,9 @@ function openDropdown(entry) {
   entry.root.dataset.open = 'true';
   positionDropdown(entry);
   entry.button.setAttribute('aria-expanded', 'true');
+  if (entry.menuWrapper) {
+    entry.menuWrapper.focus({ preventScroll: true });
+  }
   if (entry.menu) {
     entry.menu.setAttribute('aria-hidden', 'false');
   }
@@ -2207,6 +2234,7 @@ function registerDropdown(root) {
   const menuWrapper = document.createElement('div');
   menuWrapper.className = 'dropdown-menu-wrap';
   menuWrapper.appendChild(menu);
+  menuWrapper.tabIndex = -1;
   root.appendChild(menuWrapper);
 
   const entry = {
@@ -2217,42 +2245,120 @@ function registerDropdown(root) {
     menu,
     menuWrapper,
     options: originalOptions,
+    loop: root.dataset.loop === 'true' ? { size: 5, mode: 'loop' } : null,
   };
 
-  const applySelection = () => {
+    const applySelection = () => {
     const selectedOption = select.options[select.selectedIndex];
     button.textContent = selectedOption ? selectedOption.textContent : 'Select';
     menu.querySelectorAll('.dropdown-option').forEach((child) => {
-      child.dataset.selected = child.dataset.value === select.value ? 'true' : 'false';
+      const isSelected = child.dataset.value === select.value;
+      child.dataset.selected = isSelected ? 'true' : 'false';
+      const color = isSelected ? 'var(--accent-ink, #161616)' : 'var(--panel-text-color)';
+      child.style.setProperty('color', color, 'important');
     });
   };
 
-  const buildMenu = () => {
-    menu.innerHTML = '';
-    entry.options.forEach((opt) => {
-      const item = document.createElement('div');
-      item.className = 'dropdown-option';
-      item.dataset.value = opt.value;
-      item.textContent = opt.label;
-      item.setAttribute('role', 'option');
+  const buildOption = (opt) => {
+    const item = document.createElement('div');
+    item.className = 'dropdown-option';
+    item.dataset.value = opt.value;
+    item.textContent = opt.label;
+    item.setAttribute('role', 'option');
+    if (opt.disabled) {
+      item.setAttribute('aria-disabled', 'true');
+      item.style.opacity = '0.45';
+      item.style.pointerEvents = 'none';
+    }
+    item.addEventListener('pointerdown', (evt) => {
+      evt.preventDefault();
       if (opt.disabled) {
-        item.setAttribute('aria-disabled', 'true');
-        item.style.opacity = '0.45';
-        item.style.pointerEvents = 'none';
+        return;
       }
-      item.addEventListener('pointerdown', (evt) => {
-        evt.preventDefault();
-        if (opt.disabled) {
-          return;
-        }
-        select.value = opt.value;
-        select.dispatchEvent(new Event('change', { bubbles: true }));
-        applySelection();
-        closeDropdown(entry);
-      });
-      menu.appendChild(item);
+      select.value = opt.value;
+      select.dispatchEvent(new Event('change', { bubbles: true }));
+      applySelection();
+      closeDropdown(entry);
     });
+    return item;
+  };
+
+    const buildMenu = () => {
+    menu.innerHTML = '';
+    const opts = entry.options || [];
+    const loopEnabled = Boolean(entry.loop && entry.loop.mode === 'loop');
+    if (loopEnabled && opts.length) {
+      const loopOptions = opts.filter((opt) => opt.value !== '__add__');
+      const addOption = opts.find((opt) => opt.value === '__add__');
+      const size = entry.loop.size || 5;
+      const half = Math.floor(size / 2);
+      const total = loopOptions.length;
+      const currentIndex = Math.max(0, loopOptions.findIndex((opt) => opt.value === select.value));
+      for (let i = -half; i <= half; i += 1) {
+        const idx = total > 0 ? (currentIndex + i + total) % total : 0;
+        const opt = loopOptions[idx];
+        if (!opt) continue;
+        menu.appendChild(buildOption(opt));
+      }
+      if (addOption) {
+        const addRow = buildOption(addOption);
+        addRow.classList.add('dropdown-add');
+        menu.appendChild(addRow);
+      }
+      const footer = document.createElement('div');
+      footer.className = 'dropdown-footer';
+      const count = document.createElement('span');
+      count.className = 'dropdown-count';
+      count.textContent = total ? `${total} models` : '0 models';
+      const toggleBtn = document.createElement('button');
+      toggleBtn.type = 'button';
+      toggleBtn.className = 'dropdown-expand';
+      toggleBtn.textContent = 'Show all';
+      toggleBtn.addEventListener('click', (evt) => {
+        evt.preventDefault();
+        entry.loop.mode = 'full';
+        buildMenu();
+      });
+      footer.appendChild(count);
+      footer.appendChild(toggleBtn);
+      menu.appendChild(footer);
+    } else {
+      opts.forEach((opt) => {
+        menu.appendChild(buildOption(opt));
+      });
+      if (entry.loop) {
+        const footer = document.createElement('div');
+        footer.className = 'dropdown-footer';
+        const count = document.createElement('span');
+        count.className = 'dropdown-count';
+        count.textContent = opts.filter((opt) => opt.value !== '__add__').length + ' models';
+        const toggleBtn = document.createElement('button');
+        toggleBtn.type = 'button';
+        toggleBtn.className = 'dropdown-expand';
+        toggleBtn.textContent = 'Show less';
+        toggleBtn.addEventListener('click', (evt) => {
+          evt.preventDefault();
+          entry.loop.mode = 'loop';
+          buildMenu();
+        });
+        footer.appendChild(count);
+        footer.appendChild(toggleBtn);
+        menu.appendChild(footer);
+      }
+    }
     applySelection();
+  };
+
+  const shiftSelection = (delta) => {
+    if (!entry.loop || entry.loop.mode !== 'loop') return;
+    const loopOptions = entry.options.filter((opt) => opt.value !== '__add__');
+    if (!loopOptions.length) return;
+    const currentIndex = Math.max(0, loopOptions.findIndex((opt) => opt.value === select.value));
+    const nextIndex = (currentIndex + delta + loopOptions.length) % loopOptions.length;
+    const nextValue = loopOptions[nextIndex].value;
+    select.value = nextValue;
+    select.dispatchEvent(new Event('change', { bubbles: true }));
+    buildMenu();
   };
 
   button.addEventListener('click', () => {
@@ -2260,7 +2366,97 @@ function registerDropdown(root) {
   });
 
   select.addEventListener('change', () => {
-    applySelection();
+    if (entry.loop) {
+      buildMenu();
+    } else {
+      applySelection();
+    }
+  });
+
+  if (entry.loop) {
+    let wheelVelocity = 0;
+    let wheelAccumulator = 0;
+    let wheelAnimating = false;
+    let wheelLastTime = 0;
+    let wheelRaf = 0;
+
+    const getStepPx = () => {
+      const styles = getComputedStyle(menuWrapper);
+      const raw = styles.getPropertyValue('--slider-track-height')
+        || getComputedStyle(document.documentElement).getPropertyValue('--slider-track-height');
+      const parsed = parseFloat(raw);
+      return Number.isFinite(parsed) && parsed > 0 ? parsed : 32;
+    };
+
+    const animateWheel = (ts) => {
+      if (!entry.loop || entry.loop.mode !== 'loop') {
+        wheelAnimating = false;
+        wheelVelocity = 0;
+        wheelAccumulator = 0;
+        return;
+      }
+      if (!wheelLastTime) {
+        wheelLastTime = ts;
+      }
+      const dt = Math.min(48, ts - wheelLastTime);
+      wheelLastTime = ts;
+      const friction = Math.pow(0.9, dt / 16);
+      wheelVelocity *= friction;
+      wheelAccumulator += wheelVelocity * (dt / 16);
+
+      const stepPx = getStepPx();
+      while (Math.abs(wheelAccumulator) >= stepPx) {
+        const direction = wheelAccumulator > 0 ? 1 : -1;
+        shiftSelection(direction);
+        wheelAccumulator -= direction * stepPx;
+      }
+
+      if (Math.abs(wheelVelocity) < 0.05) {
+        wheelAnimating = false;
+        wheelVelocity = 0;
+        wheelAccumulator = 0;
+        wheelLastTime = 0;
+        return;
+      }
+      wheelRaf = requestAnimationFrame(animateWheel);
+    };
+
+    menuWrapper.addEventListener('wheel', (evt) => {
+      if (!entry.loop || entry.loop.mode !== 'loop') {
+        return;
+      }
+      evt.preventDefault();
+      wheelVelocity += evt.deltaY * 0.6;
+      if (!wheelAnimating) {
+        wheelAnimating = true;
+        wheelLastTime = 0;
+        wheelRaf = requestAnimationFrame(animateWheel);
+      }
+    }, { passive: false });
+  }
+  menuWrapper.addEventListener('keydown', (evt) => {
+    if (evt.key === 'ArrowDown' || evt.key === 'ArrowUp') {
+      evt.preventDefault();
+      const delta = evt.key === 'ArrowDown' ? 1 : -1;
+      if (entry.loop && entry.loop.mode === 'loop') {
+        shiftSelection(delta);
+        return;
+      }
+      const opts = entry.options.filter((opt) => !opt.disabled);
+      if (!opts.length) return;
+      const currentIndex = Math.max(0, opts.findIndex((opt) => opt.value === select.value));
+      const nextIndex = Math.min(opts.length - 1, Math.max(0, currentIndex + delta));
+      const nextValue = opts[nextIndex].value;
+      select.value = nextValue;
+      select.dispatchEvent(new Event('change', { bubbles: true }));
+      applySelection();
+      return;
+    }
+    if (evt.key === 'Enter') {
+      evt.preventDefault();
+      closeDropdown(entry);
+      return;
+    }
   });
 
   buildMenu();
@@ -2270,9 +2466,15 @@ function registerDropdown(root) {
   dropdownRegistry.set(id, entry);
 }
 
+
 function refreshDropdown(id) {
   const entry = dropdownRegistry.get(id);
-  if (entry && typeof entry.applySelection === 'function') {
+  if (!entry) return;
+  if (entry.loop && typeof entry.buildMenu === 'function') {
+    entry.buildMenu();
+    return;
+  }
+  if (typeof entry.applySelection === 'function') {
     entry.applySelection();
   }
 }
@@ -2543,6 +2745,10 @@ const colorMode = document.getElementById('colorMode');
 const gammaInput = document.getElementById('gammaInput');
 const histogramCanvas = document.getElementById('histogram');
 const histRangeLabel = document.getElementById('histRange');
+const segmentationModelSelect = document.getElementById('segmentationModel');
+const segmentationModelFile = document.getElementById('segmentationModelFile');
+const niterSlider = document.getElementById('niterSlider');
+const niterInput = document.getElementById('niterInput');
 const hoverInfo = document.getElementById('hoverInfo');
 const fpsDisplay = document.getElementById('fpsDisplay');
 const hoverValueDisplay = document.getElementById('hoverValueDisplay');
@@ -2562,6 +2768,14 @@ const imageVisibilityToggle = document.getElementById('imageVisibilityToggle');
 const maskVisibilityToggle = document.getElementById('maskVisibilityToggle');
 const autoNColorToggle = document.getElementById('autoNColorToggle');
 const brushKernelToggle = document.getElementById('brushKernelToggle');
+const systemRamEl = document.getElementById('systemRam');
+const systemCpuEl = document.getElementById('systemCpu');
+const systemGpuEl = document.getElementById('systemGpu');
+const useGpuToggle = document.getElementById('useGpuToggle');
+const maskStyleToggle = document.getElementById('maskStyleToggle');
+const maskStyleButtons = maskStyleToggle
+  ? Array.from(maskStyleToggle.querySelectorAll('.kernel-option'))
+  : [];
 const toolStopButtons = Array.from(document.querySelectorAll('.tool-stop'));
 const TOOL_MODE_ORDER = ['draw', 'erase', 'fill', 'picker'];
 const PREVIEW_TOOL_TYPES = new Set(['brush', 'erase']);
@@ -2584,10 +2798,18 @@ if (savedViewerState) {
     flowThresholdSlider.value = Number(savedViewerState.flowThreshold).toFixed(1);
     updateNativeRangeFill(flowThresholdSlider);
   }
+  if (typeof savedViewerState.maskDisplayMode === 'string') {
+    maskDisplayMode = normalizeMaskDisplayMode(savedViewerState.maskDisplayMode);
+    outlinesVisible = maskDisplayMode !== MASK_DISPLAY_MODES.SOLID;
+  }
   if (gammaSlider && typeof savedViewerState.gamma === 'number') {
     const sliderValue = Math.round(savedViewerState.gamma * 100);
     gammaSlider.value = String(Math.min(600, Math.max(10, sliderValue)));
     updateNativeRangeFill(gammaSlider);
+  }
+  if (niterSlider && typeof savedViewerState.niter === 'number') {
+    niterSlider.value = String(savedViewerState.niter | 0);
+    updateNativeRangeFill(niterSlider);
   }
 }
 
@@ -2715,6 +2937,13 @@ let histogramData = null;
 let windowLow = 0;
 let windowHigh = 255;
 let currentGamma = 1.0;
+const NITER_MIN = 0;
+const NITER_MAX = 400;
+let niter = clamp(
+  typeof CONFIG.niter === 'number' ? CONFIG.niter : 200,
+  NITER_MIN,
+  NITER_MAX,
+);
 let histDragTarget = null;
 let histDragOffset = 0;
 let cursorInsideCanvas = false;
@@ -2729,6 +2958,25 @@ let maskThreshold = clamp(
   MASK_THRESHOLD_MIN,
   MASK_THRESHOLD_MAX,
 );
+const DEFAULT_SEGMENTATION_MODEL = 'bact_phase_affinity';
+const SEGMENTATION_MODELS = [
+  'bact_phase_omni',
+  'bact_fluor_omni',
+  'worm_omni',
+  'worm_bact_omni',
+  'worm_high_res_omni',
+  'cyto2_omni',
+  'bact_phase_cp',
+  'bact_fluor_cp',
+  'plant_cp',
+  'worm_cp',
+  'plant_omni',
+  'bact_phase_affinity',
+];
+let segmentationModel = typeof CONFIG.model === 'string'
+  ? CONFIG.model
+  : DEFAULT_SEGMENTATION_MODEL;
+let customSegmentationModelPath = null;
 let flowThreshold = clamp(
   typeof CONFIG.flowThreshold === 'number' ? CONFIG.flowThreshold : 0,
   FLOW_THRESHOLD_MIN,
@@ -2855,7 +3103,7 @@ const paintingInitOptions = {
       return;
     }
     affinityGraphNeedsLocalRebuild = true;
-    if (showAffinityGraph || affinitySegEnabled) {
+    if (showAffinityGraph || affinitySegEnabled || outlinesVisible) {
       try {
         rebuildLocalAffinityGraph();
       } catch (err) {
@@ -3355,6 +3603,10 @@ function updateCursor() {
     canvas.style.cursor = cursorOverride;
     return;
   }
+  if (!cursorInsideCanvas) {
+    canvas.style.cursor = 'default';
+    return;
+  }
   // Prefer dot cursor during any interaction
   if (isPanning || spacePan || gestureState) {
     canvas.style.cursor = dotCursorCss;
@@ -3397,7 +3649,7 @@ function updateLabelControls() {
     let rgb = null;
     if (typeof nColorActive !== 'undefined' && typeof rawColorMap !== 'undefined') {
       rgb = nColorActive
-        ? getNColorLabelColor(nColorLabelToGroup.get(currentLabel) || currentLabel)
+        ? getNColorLabelColor(currentLabel)
         : getRawLabelColor(currentLabel);
     } else {
       rgb = hashColorForLabel(currentLabel, 0.0);
@@ -3673,6 +3925,36 @@ function setMaskThreshold(value, { silent = false } = {}) {
 function updateFlowThresholdLabel() {
 }
 
+
+function syncNiterControls() {
+  if (niterSlider) {
+    niterSlider.value = String(niter | 0);
+    updateNativeRangeFill(niterSlider);
+    refreshSlider('niter');
+  }
+  if (niterInput && document.activeElement !== niterInput) {
+    niterInput.value = String(niter | 0);
+  }
+}
+
+function setNiter(value, { silent = false } = {}) {
+  const numeric = typeof value === 'number' ? value : parseInt(value, 10);
+  if (Number.isNaN(numeric)) {
+    syncNiterControls();
+    return;
+  }
+  const clamped = clamp(numeric, NITER_MIN, NITER_MAX);
+  if (niter === clamped && !silent) {
+    syncNiterControls();
+    return;
+  }
+  niter = clamped;
+  syncNiterControls();
+  if (!silent) {
+    scheduleStateSave();
+  }
+}
+
 function syncFlowThresholdControls() {
   if (flowThresholdSlider) {
     flowThresholdSlider.value = flowThreshold.toFixed(1);
@@ -3689,6 +3971,7 @@ function setFlowThreshold(value, { silent = false } = {}) {
   const numeric = typeof value === 'number' ? value : parseFloat(value);
   if (Number.isNaN(numeric)) {
     syncFlowThresholdControls();
+syncNiterControls();
     return;
   }
   const clamped = clamp(numeric, FLOW_THRESHOLD_MIN, FLOW_THRESHOLD_MAX);
@@ -3933,6 +4216,51 @@ function updateKernelToggle() {
   brushKernelToggle.checked = brushKernelMode === BRUSH_KERNEL_MODES.SNAPPED;
 }
 
+function updateMaskStyleControls() {
+  if (!maskStyleButtons || !maskStyleButtons.length) {
+    return;
+  }
+  maskStyleButtons.forEach((btn) => {
+    const mode = btn.getAttribute('data-mask-style');
+    const isActive = mode === maskDisplayMode;
+    if (isActive) {
+      btn.setAttribute('data-active', 'true');
+      btn.setAttribute('aria-pressed', 'true');
+    } else {
+      btn.removeAttribute('data-active');
+      btn.setAttribute('aria-pressed', 'false');
+    }
+  });
+}
+
+function setMaskDisplayMode(nextMode, { silent = false } = {}) {
+  const normalized = normalizeMaskDisplayMode(nextMode);
+  if (maskDisplayMode === normalized) {
+    updateMaskStyleControls();
+    return;
+  }
+  maskDisplayMode = normalized;
+  outlinesVisible = maskDisplayMode !== MASK_DISPLAY_MODES.SOLID;
+  if (outlinesVisible) {
+    if (affinityGraphInfo && affinityGraphInfo.values) {
+      rebuildOutlineFromAffinity();
+    } else {
+      scheduleAffinityRebuildIfStale('mask-style');
+    }
+  }
+  updateMaskStyleControls();
+  if (isWebglPipelineActive()) {
+    markMaskTextureFullDirty();
+    markOutlineTextureFullDirty();
+  } else {
+    redrawMaskCanvas();
+  }
+  draw();
+  if (!silent) {
+    scheduleStateSave();
+  }
+}
+
 function setBrushKernelMode(nextMode) {
   const normalized = nextMode === BRUSH_KERNEL_MODES.SNAPPED
     ? BRUSH_KERNEL_MODES.SNAPPED
@@ -3994,13 +4322,12 @@ function redrawMaskCanvas() {
       data[p + 3] = 0;
       continue;
     }
-    // Alpha policy:
-    // - If outlinesVisible: outline pixels use max alpha; interior uses half alpha
-    // - Else: uniform alpha for all mask pixels
     const maxAlpha = Math.round(Math.max(0, Math.min(1, maskOpacity)) * 255);
     let alpha = maxAlpha;
-    if (outlinesVisible) {
-      alpha = outlineState[i] ? maxAlpha : Math.max(0, Math.min(255, (maxAlpha >> 1))); // half alpha for interior
+    if (maskDisplayMode === MASK_DISPLAY_MODES.OUTLINE) {
+      alpha = outlineState[i] ? maxAlpha : 0;
+    } else if (maskDisplayMode === MASK_DISPLAY_MODES.OUTLINED) {
+      alpha = outlineState[i] ? maxAlpha : Math.max(0, Math.min(255, (maxAlpha >> 1)));
     }
     data[p] = rgb[0];
     data[p + 1] = rgb[1];
@@ -4125,6 +4452,9 @@ function collectViewerState() {
     maskOpacity,
     maskThreshold,
     flowThreshold,
+    niter,
+    segmentationModel,
+    customSegmentationModelPath,
     viewState: {
       scale: viewState.scale,
       offsetX: viewState.offsetX,
@@ -4134,6 +4464,7 @@ function collectViewerState() {
     tool,
     brushDiameter,
     maskVisible,
+    maskDisplayMode,
     nColorActive,
     nColorValues: nColorActive && nColorValues ? base64FromUint32(nColorValues) : null,
     clusterEnabled,
@@ -4197,6 +4528,16 @@ function restoreViewerState(saved) {
       flowThreshold = saved.flowThreshold;
       syncFlowThresholdControls();
     }
+    if (typeof saved.niter === 'number') {
+      niter = clamp(saved.niter, NITER_MIN, NITER_MAX);
+      syncNiterControls();
+    }
+    if (typeof saved.segmentationModel === 'string') {
+      segmentationModel = saved.segmentationModel;
+    }
+    if (typeof saved.customSegmentationModelPath === 'string') {
+      customSegmentationModelPath = saved.customSegmentationModelPath;
+    }
     if (saved.viewState) {
       const vs = saved.viewState;
       if (typeof vs.scale === 'number') viewState.scale = vs.scale;
@@ -4216,6 +4557,10 @@ function restoreViewerState(saved) {
         maskVisibilityToggle.checked = maskVisible;
       }
       updateMaskVisibilityLabel();
+    }
+    if (typeof saved.maskDisplayMode === 'string') {
+      maskDisplayMode = normalizeMaskDisplayMode(saved.maskDisplayMode);
+      outlinesVisible = maskDisplayMode !== MASK_DISPLAY_MODES.SOLID;
     }
     if (typeof saved.clusterEnabled === 'boolean') {
       setClusterEnabled(saved.clusterEnabled, { silent: true });
@@ -4241,20 +4586,8 @@ function restoreViewerState(saved) {
       }
     }
     if (saved.nColorActive) {
-      try {
-        const decoded = saved.nColorValues ? uint32FromBase64(saved.nColorValues, maskValues.length) : null;
-        if (decoded && decoded.length === maskValues.length) {
-          nColorValues = decoded;
-          nColorActive = true;
-        } else {
-          nColorActive = true;
-          nColorValues = null;
-        }
-      } catch (err) {
-        console.warn('Failed to restore nColor state', err);
-        nColorActive = true;
-        nColorValues = null;
-      }
+      nColorActive = true;
+      nColorValues = null;
     } else if (typeof saved.nColorActive === 'boolean') {
       nColorActive = false;
       nColorValues = null;
@@ -4262,13 +4595,32 @@ function restoreViewerState(saved) {
       nColorActive = true;
       nColorValues = null;
     }
-    rebuildNColorLabelMap();
+    if (segmentationModelSelect) {
+      if (segmentationModel && segmentationModel.startsWith('file:')) {
+        const label = segmentationModel.replace(/^file:/, '') || 'Custom Model';
+        let option = null;
+        for (const opt of segmentationModelSelect.options) {
+          if (opt.value === segmentationModel) {
+            option = opt;
+            break;
+          }
+        }
+        if (!option) {
+          option = document.createElement('option');
+          option.value = segmentationModel;
+          option.textContent = label;
+          segmentationModelSelect.insertBefore(option, segmentationModelSelect.lastElementChild);
+        }
+      }
+      segmentationModelSelect.value = segmentationModel || DEFAULT_SEGMENTATION_MODEL;
+    }
     if (!Number.isFinite(currentLabel) || currentLabel <= 0) {
       currentLabel = 1;
     }
     updateColorModeLabel();
     updateMaskLabel();
     updateMaskVisibilityLabel();
+    updateMaskStyleControls();
     updateToolInfo();
     updateBrushControls();
     if (flowOverlayToggle) flowOverlayToggle.checked = showFlowOverlay;
@@ -5578,7 +5930,7 @@ function scheduleAffinityRebuildIfStale(reason) {
     if (affinityGraphSource === 'remote') {
       return;
     }
-    if (!showAffinityGraph && !affinitySegEnabled) {
+    if (!showAffinityGraph && !affinitySegEnabled && !outlinesVisible) {
       return;
     }
     let maskNonZero = maskHasNonZero;
@@ -5938,7 +6290,8 @@ function rebuildOutlineFromAffinity() {
 }
 
 function updateAffinityGraphForIndices(indices) {
-  if (!showAffinityGraph) {
+  const needsAffinity = showAffinityGraph || affinitySegEnabled || outlinesVisible;
+  if (!needsAffinity) {
     affinityGraphNeedsLocalRebuild = true;
     return;
   }
@@ -5956,7 +6309,7 @@ function updateAffinityGraphForIndices(indices) {
     }
   }
   const info = affinityGraphInfo;
-  if (!info.segments) {
+  if (showAffinityGraph && !info.segments) {
     buildAffinityGraphSegments();
     if (!info.segments) {
       return;
@@ -6024,7 +6377,8 @@ function updateAffinityGraphForIndices(indices) {
   if (touchedCount === 0) {
     return;
   }
-  const { values, segments } = info;
+  const { values } = info;
+  const segments = showAffinityGraph ? info.segments : null;
   let outlineChanged = false;
   for (let listIdx = 0; listIdx < touchedCount; listIdx += 1) {
     const index = touchedList[listIdx];
@@ -6055,7 +6409,7 @@ function updateAffinityGraphForIndices(indices) {
           values[oppIdx * planeStride + neighborIndex] = value;
         }
       }
-      const segment = segments[s];
+      const segment = segments ? segments[s] : null;
       if (segment) {
         if (!segment.rgba) segment.rgba = parseCssColorToRgba(segment.color, AFFINITY_LINE_ALPHA);
         if (!segment.indices) segment.indices = new Set();
@@ -6088,7 +6442,7 @@ function updateAffinityGraphForIndices(indices) {
       // Mirror segment for the opposite step direction
       const oppIdx = affinityOppositeSteps[s] | 0;
       if (neighborIndex >= 0 && oppIdx >= 0) {
-        const oppSegment = segments[oppIdx];
+        const oppSegment = segments ? segments[oppIdx] : null;
         if (oppSegment) {
           if (!oppSegment.rgba) oppSegment.rgba = parseCssColorToRgba(oppSegment.color, AFFINITY_LINE_ALPHA);
           if (!oppSegment.indices) oppSegment.indices = new Set();
@@ -6145,7 +6499,7 @@ function updateAffinityGraphForIndices(indices) {
       redrawMaskCanvas();
     }
   }
-  if (!webglOverlay || !webglOverlay.enabled || !LIVE_AFFINITY_OVERLAY_UPDATES) {
+  if (showAffinityGraph && (!webglOverlay || !webglOverlay.enabled || !LIVE_AFFINITY_OVERLAY_UPDATES)) {
     markAffinityGeometryDirty();
   }
   const updateEnd = typeof performance !== 'undefined' && performance.now ? performance.now() : Date.now();
@@ -6489,9 +6843,39 @@ function recomputeNColorFromCurrentMask(forceActive = false) {
           const arr = new Uint8Array(buffer);
           for (let i = 0; i < bin.length; i += 1) arr[i] = bin.charCodeAt(i);
           const groups = new Uint32Array(buffer);
-          nColorValues = groups;
+          if (maskValues && maskValues.length === groups.length) {
+            const sampleMap = {};
+            const missingLabels = new Set();
+            let missing = 0;
+            const sampleLimit = 10;
+            for (let i = 0; i < groups.length; i += 1) {
+              const label = maskValues[i] | 0;
+              if (label > 0 && label <= sampleLimit && sampleMap[label] === undefined) {
+                sampleMap[label] = groups[i] | 0;
+              }
+              if (label > 0 && groups[i] === 0) {
+                missing += 1;
+                if (missingLabels.size < sampleLimit) {
+                  missingLabels.add(label);
+                }
+              }
+            }
+            console.warn('[ncolor] sample label->group:', sampleMap);
+            if (missing > 0) {
+              console.warn('[ncolor] group mapping returned 0 for labeled pixels:', missing, 'labels:', Array.from(missingLabels));
+            }
+          }
+          // Overwrite maskValues with group IDs; no separate overlay state
+          let hasNonZero = false;
+          for (let i = 0; i < groups.length; i += 1) {
+            maskValues[i] = groups[i];
+            if (groups[i] > 0) {
+              hasNonZero = true;
+            }
+          }
+          maskHasNonZero = hasNonZero;
+          nColorValues = null;
           nColorActive = true;
-          rebuildNColorLabelMap();
           clearColorCaches();
           if (isWebglPipelineActive()) {
             markMaskTextureFullDirty();
@@ -6546,7 +6930,7 @@ async function relabelFromAffinity() {
     if (hasPywebview) {
       const result = await window.pywebview.api.relabel_from_affinity(payload);
       if (result && !result.error && result.mask) {
-        applySegmentationMask(result);
+        applySegmentationMask(result, { forceInstanceMask: true });
         log('Applied relabel_from_affinity from backend (pywebview).');
         return true;
       }
@@ -6560,7 +6944,7 @@ async function relabelFromAffinity() {
       if (res.ok) {
         const result = await res.json();
         if (result && !result.error && result.mask) {
-          applySegmentationMask(result);
+          applySegmentationMask(result, { forceInstanceMask: true });
           log('Applied relabel_from_affinity from backend (HTTP).');
           return true;
         }
@@ -6891,13 +7275,9 @@ function getNColorLabelColor(label) {
 }
 
 function getDisplayColor(index) {
-  const rawLabel = maskValues[index] | 0;
-  if (rawLabel <= 0) return null;
-  if (nColorActive && nColorValues && nColorValues.length === maskValues.length) {
-    const groupId = nColorValues[index] | 0;
-    if (groupId > 0) return getNColorLabelColor(groupId);
-  }
-  return getRawLabelColor(rawLabel);
+  const label = maskValues[index] | 0;
+  if (label <= 0) return null;
+  return nColorActive ? getNColorLabelColor(label) : getRawLabelColor(label);
 }
 
 function collectLabelsFromMask(sourceMask) {
@@ -7216,9 +7596,9 @@ function updateHoverInfo(point) {
     updateCursor();
     return;
   }
-  const x = Math.round(point.x);
-  const y = Math.round(point.y);
-  if (x < 0 || y < 0 || x >= imgWidth || y >= imgHeight) {
+  const rawX = point.x;
+  const rawY = point.y;
+  if (rawX < 0 || rawY < 0 || rawX >= imgWidth || rawY >= imgHeight) {
     cursorInsideImage = false;
     if (valueTarget) {
       valueTarget.textContent = 'Val: --';
@@ -7228,9 +7608,12 @@ function updateHoverInfo(point) {
     } else if (coordTarget) {
       coordTarget.textContent = 'Y: --, X: --, Val: --';
     }
+    clearHoverPreview();
     updateCursor();
     return;
   }
+  const x = Math.min(imgWidth - 1, Math.max(0, Math.round(rawX)));
+  const y = Math.min(imgHeight - 1, Math.max(0, Math.round(rawY)));
   const idx = (y * imgWidth + x) * 4;
   const r = originalImageData.data[idx];
   const g = originalImageData.data[idx + 1];
@@ -7298,15 +7681,83 @@ function updateColorModeLabel() {
   colorMode.textContent = 'Mask Colors: ' + mode + " (toggle with 'N')";
 }
 
+
+function formatLabelsFromCurrentMask() {
+  return new Promise((resolve) => {
+    try {
+      const buf = maskValues.buffer.slice(maskValues.byteOffset, maskValues.byteOffset + maskValues.byteLength);
+      const bytes = new Uint8Array(buf);
+      const b64 = base64FromUint8(bytes);
+      const payload = { mask: b64, width: imgWidth, height: imgHeight };
+      const applyMapping = (obj) => {
+        try {
+          if (!obj || !obj.mask) { resolve(false); return; }
+          const bin = atob(obj.mask);
+          if (bin.length !== maskValues.length * 4) { resolve(false); return; }
+          const buffer = new ArrayBuffer(bin.length);
+          const arr = new Uint8Array(buffer);
+          for (let i = 0; i < bin.length; i += 1) arr[i] = bin.charCodeAt(i);
+          const labels = new Uint32Array(buffer);
+          let hasNonZero = false;
+          for (let i = 0; i < labels.length; i += 1) {
+            maskValues[i] = labels[i];
+            if (labels[i] > 0) {
+              hasNonZero = true;
+            }
+          }
+          maskHasNonZero = hasNonZero;
+          clearColorCaches();
+          if (isWebglPipelineActive()) {
+            markMaskTextureFullDirty();
+            markOutlineTextureFullDirty();
+          } else {
+            redrawMaskCanvas();
+          }
+          draw();
+          resolve(true);
+        } catch (e) { resolve(false); }
+      };
+      if (window.pywebview && window.pywebview.api && typeof window.pywebview.api.format_labels === 'function') {
+        window.pywebview.api.format_labels(payload).then(applyMapping).catch(() => resolve(false));
+        return;
+      }
+      if (typeof fetch === 'function') {
+        fetch('/api/format_labels', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) })
+          .then((res) => (res.ok ? res.json() : Promise.reject(new Error('HTTP ' + res.status))))
+          .then(applyMapping)
+          .catch(() => resolve(false));
+        return;
+      }
+      resolve(false);
+    } catch (_) {
+      resolve(false);
+    }
+  });
+}
+
 function toggleColorMode() {
   if (!nColorActive) {
-    // ON: compute groups from current mask for display.
+    // ON: compute groups from current mask and write into maskValues.
     lastLabelBeforeNColor = currentLabel;
     const prevLabel = currentLabel | 0;
     recomputeNColorFromCurrentMask(true).then((ok) => {
       if (!ok) console.warn('N-color mapping failed');
       // Repaint outlines with new palette without changing the graph
       rebuildOutlineFromAffinity();
+      // Preserve currentLabel if valid in group space; otherwise default to 1
+      try {
+        let maxGroup = 0;
+        for (let i = 0, n = maskValues.length; i < n; i += Math.max(1, Math.floor(n / 2048))) {
+          const g = maskValues[i] | 0; if (g > maxGroup) maxGroup = g;
+        }
+        // Fallback full scan if sample returned 0
+        if (maxGroup === 0) {
+          for (let i = 0; i < maskValues.length; i += 1) { const g = maskValues[i] | 0; if (g > maxGroup) maxGroup = g; }
+        }
+        if (!(prevLabel >= 1 && prevLabel <= maxGroup)) {
+          currentLabel = maxGroup >= 1 ? 1 : 0;
+        }
+      } catch (_) { currentLabel = 1; }
       updateMaskLabel();
       updateColorModeLabel();
       if (autoNColorToggle) autoNColorToggle.checked = nColorActive;
@@ -7315,23 +7766,46 @@ function toggleColorMode() {
     });
     return;
   }
-  // OFF: leave instance labels untouched, disable N-color display
-  nColorActive = false;
-  nColorValues = null;
-  nColorLabelToGroup.clear();
-  clearColorCaches();
-  if (isWebglPipelineActive()) {
-    markMaskTextureFullDirty();
-    markOutlineTextureFullDirty();
-  } else {
-    redrawMaskCanvas();
-  }
-  updateMaskLabel();
-  updateColorModeLabel();
-  if (autoNColorToggle) autoNColorToggle.checked = nColorActive;
-  draw();
-  scheduleStateSave();
+  // OFF: relabel using affinity graph to restore instance IDs
+  const prevLabel = currentLabel | 0;
+  relabelFromAffinity()
+    .then((ok) => {
+      if (!ok) console.warn('relabel_from_affinity failed during N-color OFF');
+      nColorActive = false;
+      clearColorCaches();
+      if (isWebglPipelineActive()) {
+        markMaskTextureFullDirty();
+        markOutlineTextureFullDirty();
+      } else {
+        redrawMaskCanvas();
+      }
+      // Preserve currentLabel if still present; else default to 1
+      try {
+        let found = false;
+        if (prevLabel > 0) {
+          for (let i = 0; i < maskValues.length; i += Math.max(1, Math.floor(maskValues.length / 2048))) {
+            if ((maskValues[i] | 0) === prevLabel) { found = true; break; }
+          }
+          if (!found) {
+            for (let i = 0; i < maskValues.length; i += 1) { if ((maskValues[i] | 0) === prevLabel) { found = true; break; } }
+          }
+        }
+        if (!found) {
+          currentLabel = 1;
+        }
+      } catch (_) { currentLabel = 1; }
+      updateMaskLabel();
+      updateColorModeLabel();
+      if (autoNColorToggle) autoNColorToggle.checked = nColorActive;
+      draw();
+      scheduleStateSave();
+    })
+    .catch((err) => {
+      console.warn('N-color OFF relabel failed', err);
+    });
 }
+
+
 
 // buildLinksFromCurrentGraph removed: we keep a single connectivity source based on raw labels only
 
@@ -7341,7 +7815,12 @@ function getSegmentationSettingsPayload() {
     flow_threshold: Number(flowThreshold.toFixed(2)),
     cluster: Boolean(clusterEnabled),
     affinity_seg: Boolean(affinitySegEnabled),
+    niter: niter | 0,
+    model: segmentationModel,
   };
+  if (customSegmentationModelPath) {
+    payload.model_path = customSegmentationModelPath;
+  }
   if (sessionId) {
     payload.sessionId = sessionId;
   }
@@ -7593,7 +8072,7 @@ function setSegmentStatus(message, isError = false) {
   segmentStatus.style.color = isError ? '#ff8a8a' : '#9aa';
 }
 
-function applySegmentationMask(payload) {
+function applySegmentationMask(payload, options = {}) {
   // If a segmentation update comes in while painting, apply it after the stroke
   if (isPainting) {
     pendingSegmentationPayload = payload;
@@ -7607,7 +8086,12 @@ function applySegmentationMask(payload) {
   } else if (!canRebuildMask) {
     canRebuildMask = true;
   }
-  const binary = atob(payload.mask);
+  const forceInstanceMask = Boolean(options.forceInstanceMask);
+  let maskPayload = payload.mask;
+  if (!forceInstanceMask && nColorActive && payload.nColorMask) {
+    maskPayload = payload.nColorMask;
+  }
+  const binary = atob(maskPayload);
   const byteLength = binary.length;
   const expectedBytes = maskValues.length * 4;
   let changed = false;
@@ -8249,7 +8733,11 @@ function handlePointerCancel(evt) {
 }
 
 canvas.addEventListener('pointerup', handlePointerUp);
-canvas.addEventListener('pointerleave', stopInteraction);
+canvas.addEventListener('pointerleave', (evt) => {
+  stopInteraction(evt);
+  clearHoverPreview();
+  clearHoverState();
+});
 canvas.addEventListener('pointercancel', handlePointerCancel);
 canvas.addEventListener('mouseenter', () => {
   cursorInsideCanvas = true;
@@ -8258,6 +8746,8 @@ canvas.addEventListener('mouseenter', () => {
 canvas.addEventListener('mouseleave', () => {
   cursorInsideCanvas = false;
   cursorInsideImage = false;
+  clearHoverPreview();
+  updateHoverInfo(null);
   updateCursor();
 });
 canvas.addEventListener('contextmenu', handleContextMenuEvent);
@@ -8683,6 +9173,28 @@ if (flowThresholdInput) {
     setFlowThreshold(flowThreshold + delta);
   });
 }
+if (niterSlider) {
+  niterSlider.addEventListener('input', (evt) => {
+    setNiter(evt.target.value);
+  });
+  niterSlider.addEventListener('change', (evt) => {
+    setNiter(evt.target.value);
+  });
+}
+if (niterInput) {
+  niterInput.addEventListener('input', (evt) => {
+    if (evt.target.value === '') {
+      return;
+    }
+    setNiter(evt.target.value);
+  });
+  niterInput.addEventListener('change', (evt) => {
+    setNiter(evt.target.value);
+  });
+  attachNumberInputStepper(niterInput, (delta) => {
+    setNiter(niter + delta);
+  });
+}
 if (clusterToggle) {
   clusterToggle.addEventListener('change', (evt) => {
     setClusterEnabled(evt.target.checked);
@@ -8769,6 +9281,172 @@ if (maskVisibilityToggle) {
     scheduleStateSave();
   });
 }
+
+function formatBytes(bytes) {
+  if (!Number.isFinite(bytes)) {
+    return '--';
+  }
+  const units = ['B', 'KB', 'MB', 'GB', 'TB'];
+  let value = Math.max(0, bytes);
+  let idx = 0;
+  while (value >= 1024 && idx < units.length - 1) {
+    value /= 1024;
+    idx += 1;
+  }
+  return value.toFixed(idx >= 2 ? 1 : 0) + ' ' + units[idx];
+}
+
+function updateSystemInfo(info) {
+  if (!info) {
+    return;
+  }
+  if (systemRamEl) {
+    const used = formatBytes(info.ram_used);
+    const available = formatBytes(info.ram_available);
+    systemRamEl.textContent = used !== '--' && available !== '--'
+      ? `${used} / ${available}`
+      : '--';
+  }
+  if (systemCpuEl) {
+    const cores = Number(info.cpu_cores) || 0;
+    systemCpuEl.textContent = cores > 0 ? `${cores} cores` : '--';
+  }
+  if (systemGpuEl) {
+    systemGpuEl.textContent = info.gpu_available
+      ? (info.gpu_name || 'GPU available')
+      : 'Not available';
+  }
+  if (useGpuToggle) {
+    useGpuToggle.disabled = !info.gpu_available;
+    useGpuToggle.checked = Boolean(info.use_gpu && info.gpu_available);
+  }
+}
+
+async function fetchSystemInfo() {
+  if (!systemRamEl && !systemCpuEl && !systemGpuEl && !useGpuToggle) {
+    return;
+  }
+  try {
+    const res = await fetch('/api/system_info', { method: 'GET' });
+    if (!res.ok) {
+      return;
+    }
+    const info = await res.json();
+    updateSystemInfo(info);
+  } catch (err) {
+    // silent
+  }
+}
+
+function initSegmentationModelSelect() {
+  if (!segmentationModelSelect) {
+    return;
+  }
+  const options = Array.isArray(CONFIG.models)
+    ? CONFIG.models
+    : (Array.isArray(CONFIG.modelOptions) ? CONFIG.modelOptions : SEGMENTATION_MODELS);
+  if (options && options.length) {
+    segmentationModelSelect.innerHTML = '';
+    for (const opt of options) {
+      const option = document.createElement('option');
+      if (typeof opt === 'string') {
+        option.value = opt;
+        option.textContent = opt;
+      } else if (opt && typeof opt === 'object') {
+        option.value = String(opt.value ?? opt.name ?? '');
+        option.textContent = String(opt.label ?? opt.name ?? opt.value ?? '');
+      } else {
+        continue;
+      }
+      segmentationModelSelect.appendChild(option);
+    }
+    const addOption = document.createElement('option');
+    addOption.value = '__add__';
+    addOption.textContent = 'Add model...';
+    segmentationModelSelect.appendChild(addOption);
+  }
+  const dropdownEntry = dropdownRegistry.get('segmentationModel');
+  if (dropdownEntry) {
+    dropdownEntry.options = Array.from(segmentationModelSelect.options).map((opt) => ({
+      value: opt.value,
+      label: opt.textContent || opt.value,
+      disabled: opt.disabled,
+    }));
+    if (typeof dropdownEntry.buildMenu === 'function') {
+      dropdownEntry.buildMenu();
+    }
+  }
+  if (segmentationModel && segmentationModel.startsWith('file:')) {
+    const label = segmentationModel.replace(/^file:/, '') || 'Custom Model';
+    let option = null;
+    for (const opt of segmentationModelSelect.options) {
+      if (opt.value === segmentationModel) {
+        option = opt;
+        break;
+      }
+    }
+    if (!option) {
+      option = document.createElement('option');
+      option.value = segmentationModel;
+      option.textContent = label;
+      segmentationModelSelect.insertBefore(option, segmentationModelSelect.lastElementChild);
+    }
+  }
+  segmentationModelSelect.value = segmentationModel || DEFAULT_SEGMENTATION_MODEL;
+  refreshDropdown('segmentationModel');
+}
+
+initSegmentationModelSelect();
+
+if (segmentationModelSelect) {
+  segmentationModelSelect.addEventListener('change', (evt) => {
+    const value = String(evt.target.value || '');
+    if (value === '__add__') {
+      if (segmentationModelFile) {
+        segmentationModelFile.click();
+      }
+      segmentationModelSelect.value = segmentationModel || DEFAULT_SEGMENTATION_MODEL;
+      return;
+    }
+    segmentationModel = value || DEFAULT_SEGMENTATION_MODEL;
+    customSegmentationModelPath = null;
+    scheduleStateSave();
+  });
+}
+
+if (segmentationModelFile) {
+  segmentationModelFile.addEventListener('change', (evt) => {
+    const files = evt.target.files;
+    if (!files || !files.length) {
+      return;
+    }
+    const file = files[0];
+    const label = file.name || 'Custom Model';
+    const value = 'file:' + label;
+    let option = null;
+    if (segmentationModelSelect) {
+      for (const opt of segmentationModelSelect.options) {
+        if (opt.value === value) {
+          option = opt;
+          break;
+        }
+      }
+    }
+    if (!option && segmentationModelSelect) {
+      option = document.createElement('option');
+      option.value = value;
+      option.textContent = label;
+      segmentationModelSelect.insertBefore(option, segmentationModelSelect.lastElementChild);
+    }
+    segmentationModel = value;
+    customSegmentationModelPath = file.path || file.name || null;
+    if (segmentationModelSelect) {
+      segmentationModelSelect.value = value;
+    }
+    scheduleStateSave();
+  });
+}
+
 if (autoNColorToggle) {
   autoNColorToggle.addEventListener('change', (evt) => {
     const wantsNColor = Boolean(evt.target.checked);
@@ -8778,6 +9456,33 @@ if (autoNColorToggle) {
       autoNColorToggle.checked = nColorActive;
       scheduleStateSave();
     }
+  });
+}
+if (useGpuToggle) {
+  useGpuToggle.addEventListener('change', async (evt) => {
+    const wantsGpu = Boolean(evt.target.checked);
+    try {
+      const res = await fetch('/api/use_gpu', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ use_gpu: wantsGpu }),
+      });
+      if (!res.ok) {
+        throw new Error('request failed');
+      }
+      const info = await res.json();
+      updateSystemInfo(info);
+    } catch (err) {
+      useGpuToggle.checked = !wantsGpu;
+    }
+  });
+}
+if (maskStyleButtons && maskStyleButtons.length) {
+  maskStyleButtons.forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const mode = btn.getAttribute('data-mask-style');
+      setMaskDisplayMode(mode);
+    });
   });
 }
 if (maskOpacitySlider) {
@@ -8814,6 +9519,8 @@ if (imageVisibilityToggle) {
   imageVisibilityToggle.checked = imageVisible;
 }
 syncMaskOpacityControls();
+updateMaskStyleControls();
+fetchSystemInfo();
 
 let bootstrapped = false;
 function boot() {

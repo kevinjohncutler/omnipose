@@ -416,6 +416,7 @@ class Segmenter:
         self._magma_lut: Optional[np.ndarray] = None
         self._utils_module = None
         self._kernel_cache: dict[int, tuple[Any, Any, Any, Any, Any]] = {}
+        self._use_gpu = False
 
     def _ensure_model(self) -> None:
         if self._model is None:
@@ -424,7 +425,7 @@ class Segmenter:
                     from cellpose_omni import models  # local import to avoid startup cost
 
                     self._model = models.CellposeModel(
-                        gpu=False,
+                        gpu=self._use_gpu,
                         model_type="bact_phase_affinity",
                     )
 
@@ -567,6 +568,17 @@ class Segmenter:
     def has_cache(self) -> bool:
         return self._cache is not None
 
+    def set_use_gpu(self, enabled: bool) -> None:
+        next_value = bool(enabled)
+        if next_value == self._use_gpu:
+            return
+        self._use_gpu = next_value
+        # Force model rebuild on next use
+        self._model = None
+
+    def get_use_gpu(self) -> bool:
+        return bool(self._use_gpu)
+
     def _parse_options(
         self,
         settings: Mapping[str, Any] | None,
@@ -639,7 +651,7 @@ class Segmenter:
         return cached
 
     def _compute_affinity_graph(self, mask: np.ndarray) -> Optional[tuple[np.ndarray, np.ndarray]]:
-        mask_int = np.array(mask, dtype=np.int32, copy=False)
+        mask_int = np.asarray(mask, dtype=np.int32)
         if mask_int.ndim != 2:
             return None
         coords = np.nonzero(mask_int)
@@ -676,7 +688,7 @@ class Segmenter:
         """
         core_module = self._ensure_core()
         utils_module = self._ensure_utils()
-        mask_int = np.array(mask, dtype=np.int32, copy=False)
+        mask_int = np.asarray(mask, dtype=np.int32)
         if mask_int.ndim != 2:
             return mask_int.astype(np.int32, copy=False)
         shape = mask_int.shape
@@ -686,7 +698,7 @@ class Segmenter:
         dim = mask_int.ndim
         # steps is (S,2) for 2D; canonicalize to kernel order (center + all neighbors)
         steps_arr = np.asarray(steps, dtype=np.int16)
-        spatial = np.array(spatial_affinity, dtype=np.uint8, copy=False)
+        spatial = np.asarray(spatial_affinity, dtype=np.uint8)
         if spatial.shape[1:] != shape:
             raise ValueError("spatial affinity shape mismatch")
         if spatial.shape[0] != steps_arr.shape[0]:
@@ -728,7 +740,7 @@ class Segmenter:
     #     """Relabel by recomputing an affinity graph from mask + optional label links, then affinity_to_masks."""
     #     core_module = self._ensure_core()
     #     utils_module = self._ensure_utils()
-    #     mask_int = np.array(mask, dtype=np.int32, copy=False)
+    #     mask_int = np.asarray(mask, dtype=np.int32)
     #     if mask_int.ndim != 2:
     #         return mask_int.astype(np.int32, copy=False)
     #     shape = mask_int.shape
@@ -775,14 +787,51 @@ class Segmenter:
         if mask.size == 0:
             return None
         mask_int = np.asarray(mask, dtype=np.int32)
+        mask_for_label = mask_int
         try:
-            labeled, ngroups = ncolor.label(mask_int, max_depth=20, expand=expand, return_n=True)
+            import fastremap  # type: ignore
+            unique = fastremap.unique(mask_int)
+            if unique.size:
+                unique = unique[unique > 0]
+            if unique.size:
+                mapping = {int(value): idx + 1 for idx, value in enumerate(unique)}
+                mask_for_label = fastremap.remap(mask_int, mapping, preserve_missing_labels=True, in_place=False)
+        except Exception:
+            mask_for_label = mask_int
+        try:
+            labeled, ngroups = ncolor.label(
+                mask_for_label,
+                max_depth=20,
+                expand=expand,
+                return_n=True,
+                format_input=False,
+            )
         except TypeError:
             try:
-                labeled = ncolor.label(mask_int, max_depth=20, expand=expand)
+                labeled = ncolor.label(mask_for_label, max_depth=20, expand=expand, format_input=False)
             except TypeError:
-                labeled = ncolor.label(mask_int, max_depth=20)
+                labeled = ncolor.label(mask_for_label, max_depth=20, format_input=False)
             ngroups = int(np.unique(labeled[labeled > 0]).size)
+        # Debug: report mapping for the first few labels.
+        try:
+            max_label = int(np.max(mask_int)) if mask_int.size else 0
+            report_max = min(max_label, 10)
+            mapping = {}
+            for label in range(1, report_max + 1):
+                coords = np.argwhere(mask_int == label)
+                if coords.size == 0:
+                    continue
+                y, x = coords[0]
+                mapping[label] = int(labeled[y, x])
+            print(f"[ncolor] label->group (1..{report_max}): {mapping}")
+            missing = (mask_int > 0) & (labeled == 0)
+            missing_count = int(np.count_nonzero(missing))
+            if missing_count:
+                missing_labels = np.unique(mask_int[missing])
+                sample_labels = missing_labels[:10].astype(int).tolist()
+                print(f"[ncolor] missing group pixels={missing_count} labels={sample_labels}")
+        except Exception:
+            pass
         labeled_uint32 = np.ascontiguousarray(labeled.astype(np.uint32, copy=False))
         print(f"[ncolor] groups={ngroups}")
         return labeled_uint32
@@ -1407,6 +1456,33 @@ class DebugAPI:
         encoded = base64.b64encode(np.ascontiguousarray(ncm.astype(np.uint32, copy=False)).tobytes()).decode("ascii")
         return {"nColorMask": encoded, "width": int(width), "height": int(height)}
 
+    def format_labels(self, payload: Mapping[str, Any]) -> dict[str, object]:
+        try:
+            mask_b64 = payload.get("mask")
+            width = int(payload.get("width"))
+            height = int(payload.get("height"))
+        except Exception:
+            return {"error": "invalid payload"}
+        if not mask_b64 or width <= 0 or height <= 0:
+            return {"error": "missing mask/shape"}
+        try:
+            raw = base64.b64decode(mask_b64)
+            arr = np.frombuffer(raw, dtype=np.uint32)
+            if arr.size != width * height:
+                return {"error": "mask size mismatch"}
+            mask = arr.reshape((height, width)).astype(np.int32, copy=False)
+        except Exception as exc:
+            return {"error": f"decode failed: {exc}"}
+        try:
+            import ncolor  # type: ignore
+            formatted = ncolor.format_labels(mask, clean=False, min_area=1, despur=False, verbose=False)
+        except Exception as exc:
+            return {"error": f"format_labels failed: {exc}"}
+        encoded = base64.b64encode(np.ascontiguousarray(formatted.astype(np.uint32, copy=False)).tobytes()).decode("ascii")
+        return {"mask": encoded, "width": int(width), "height": int(height)}
+
+
+
 
 def build_html(config: Mapping[str, Any], *, inline_assets: bool = True) -> str:
     start = time.perf_counter()
@@ -1669,7 +1745,60 @@ def run_desktop(
         server_thread.join(timeout=5)
 
 
+def _get_system_info() -> dict[str, object]:
+    total = None
+    available = None
+    used = None
+    try:
+        import psutil  # type: ignore
+
+        vm = psutil.virtual_memory()
+        total = int(vm.total)
+        available = int(vm.available)
+        used = int(vm.total - vm.available)
+    except Exception:
+        try:
+            with open('/proc/meminfo', 'r', encoding='utf-8') as handle:
+                data = handle.read().splitlines()
+            meminfo = {}
+            for line in data:
+                parts = line.split(':', 1)
+                if len(parts) != 2:
+                    continue
+                key = parts[0].strip()
+                value = parts[1].strip().split()[0]
+                meminfo[key] = int(value) * 1024
+            total = meminfo.get('MemTotal')
+            available = meminfo.get('MemAvailable')
+            if total is not None and available is not None:
+                used = int(total - available)
+        except Exception:
+            pass
+    cpu_cores = os.cpu_count() or 1
+    gpu_available = False
+    gpu_name = None
+    try:
+        import torch  # type: ignore
+
+        gpu_available = bool(torch.cuda.is_available())
+        if gpu_available:
+            gpu_name = torch.cuda.get_device_name(0)
+    except Exception:
+        gpu_available = False
+        gpu_name = None
+    return {
+        'ram_total': total,
+        'ram_available': available,
+        'ram_used': used,
+        'cpu_cores': cpu_cores,
+        'gpu_available': gpu_available,
+        'gpu_name': gpu_name,
+        'use_gpu': _SEGMENTER.get_use_gpu(),
+    }
+
+
 def create_app() -> "FastAPI":
+    from contextlib import asynccontextmanager
     from fastapi import FastAPI
     from fastapi.middleware.cors import CORSMiddleware
     from fastapi.responses import HTMLResponse, JSONResponse
@@ -1677,7 +1806,12 @@ def create_app() -> "FastAPI":
 
     api = DebugAPI(log_path=WEBGL_LOG_PATH)
 
-    app = FastAPI(title="Omnipose PyWebView Viewer")
+    @asynccontextmanager
+    async def lifespan(_: FastAPI):
+        _SEGMENTER.preload_modules_async(delay=0.0)
+        yield
+
+    app = FastAPI(title="Omnipose PyWebView Viewer", lifespan=lifespan)
     app.add_middleware(
         CORSMiddleware,
         allow_origins=["*"],
@@ -1759,6 +1893,20 @@ def create_app() -> "FastAPI":
         except Exception as exc:  # pragma: no cover
             return JSONResponse({"error": str(exc)}, status_code=500)
 
+    @app.get("/api/system_info", response_class=JSONResponse)
+    async def api_system_info() -> JSONResponse:
+        return JSONResponse(_get_system_info())
+
+    @app.post("/api/use_gpu", response_class=JSONResponse)
+    async def api_use_gpu(payload: dict | None = None) -> JSONResponse:
+        payload = payload or {}
+        enabled = payload.get("use_gpu")
+        if enabled is None:
+            return JSONResponse({"error": "use_gpu required"}, status_code=400)
+        _SEGMENTER.set_use_gpu(bool(enabled))
+        info = _get_system_info()
+        return JSONResponse(info)
+
     @app.post("/api/save_state", response_class=JSONResponse)
     async def api_save_state(payload: dict) -> JSONResponse:
         if not isinstance(payload, dict):
@@ -1799,7 +1947,10 @@ def create_app() -> "FastAPI":
                 result = run_segmentation(payload, state=state)
             return JSONResponse(result)
         except Exception as exc:  # pragma: no cover - propagate error to client
-            return JSONResponse({"error": str(exc)}, status_code=500)
+            import traceback, sys
+            print("[segment] EXCEPTION:", file=sys.stderr)
+            traceback.print_exc()
+            return JSONResponse({"error": f"{type(exc).__name__}: {exc}"}, status_code=500)
 
     @app.post("/api/resegment", response_class=JSONResponse)
     async def api_resegment(payload: dict | None = None) -> JSONResponse:
@@ -1815,7 +1966,10 @@ def create_app() -> "FastAPI":
         try:
             return JSONResponse(run_mask_update(payload, state=state))
         except Exception as exc:  # pragma: no cover - propagate error to client
-            return JSONResponse({"error": str(exc)}, status_code=500)
+            import traceback, sys
+            print("[resegment] EXCEPTION:", file=sys.stderr)
+            traceback.print_exc()
+            return JSONResponse({"error": f"{type(exc).__name__}: {exc}"}, status_code=500)
 
     @app.post("/api/clear_cache", response_class=JSONResponse)
     async def api_clear_cache(request: Request) -> JSONResponse:
@@ -1856,10 +2010,15 @@ def create_app() -> "FastAPI":
             return JSONResponse(DebugAPI().ncolor_from_mask(payload))
         except Exception as exc:  # pragma: no cover
             return JSONResponse({"error": str(exc)}, status_code=500)
+    @app.post("/api/format_labels", response_class=JSONResponse)
+    async def api_format_labels(payload: dict | None = None) -> JSONResponse:
+        try:
+            return JSONResponse(DebugAPI().format_labels(payload or {}))
+        except Exception:
+            print("[format_labels] EXCEPTION:", file=sys.stderr)
+            return JSONResponse({"error": "format_labels failed"})
 
-    @app.on_event("startup")
-    async def preload_modules() -> None:
-        _SEGMENTER.preload_modules_async(delay=0.0)
+
 
     return app
 

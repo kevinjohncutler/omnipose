@@ -5,6 +5,7 @@ import torch.nn as nn
 from torch import optim
 import torch.nn.functional as F
 import datetime
+import math
 
 from torch.amp import autocast 
 import torch.utils.checkpoint as cp
@@ -12,12 +13,36 @@ import torch.utils.checkpoint as cp
 # from . import transforms, io, dynamics, utils
 from omnipose.gpu import ARM, torch_GPU, torch_CPU, empty_cache
 
+NORM_TYPE = "batch"
+
+
+def set_norm_type(norm_type: str) -> None:
+    global NORM_TYPE
+    NORM_TYPE = (norm_type or "batch").lower()
+
+
+def _select_group_count(channels: int) -> int:
+    for groups in (32, 16, 8, 4, 2, 1):
+        if channels % groups == 0:
+            return groups
+    return 1
+
+
+def _make_norm(channels: int, dim: int) -> nn.Module:
+    norm_type = NORM_TYPE
+    if norm_type == "group":
+        groups = _select_group_count(channels)
+        return nn.GroupNorm(groups, channels, eps=1e-5)
+    if norm_type == "batch":
+        BatchNorm = nn.BatchNorm2d if dim == 2 else nn.BatchNorm3d
+        return BatchNorm(channels, eps=1e-5, momentum=0.05)
+    raise ValueError(f"Unsupported norm type: {norm_type}")
+
 def dilation_list(x,N):
     return np.round(np.linspace(1, x, N)).astype(int).tolist()
     
     
 def batchconv(in_channels, out_channels, kernel_size, dim, dilation, relu=True):
-    BatchNorm = nn.BatchNorm2d if dim == 2 else nn.BatchNorm3d
     ConvND = nn.Conv2d if dim == 2 else nn.Conv3d
     
     # Adjust padding for dilated convolutions
@@ -26,7 +51,7 @@ def batchconv(in_channels, out_channels, kernel_size, dim, dilation, relu=True):
     
     # padding = kernel_size // 2
     
-    layers = [BatchNorm(in_channels, eps=1e-5, momentum=0.05)] # cp uses momentum 0.05 now? default is .1
+    layers = [_make_norm(in_channels, dim)]  # cp uses momentum 0.05 now? default is .1
     if relu:
         layers.append(nn.ReLU(inplace=True))
     layers.append(ConvND(in_channels, out_channels, kernel_size, padding=padding, dilation=dilation, 
@@ -388,4 +413,3 @@ class CPnet(nn.Module):
                 self.load_state_dict(state_dict, strict=False)
             except Exception as e:
                 print('failed to load model', e)
-

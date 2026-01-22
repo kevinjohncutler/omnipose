@@ -91,6 +91,8 @@ def main(args):
     from tqdm import tqdm
     from cellpose_omni import utils, models, io
     import logging
+    import random
+    import torch
     logger = logging.getLogger(__name__)
     tqdm_out = utils.TqdmToLogger(logger, level=logging.INFO)
 
@@ -125,7 +127,32 @@ def main(args):
             if not confirm_prompt('Proceed anyway?'):
                 sys.exit(0)
 
+    if args.seed is not None:
+        random.seed(args.seed)
+        np.random.seed(args.seed)
+        torch.manual_seed(args.seed)
+        if torch.cuda.is_available():
+            torch.cuda.manual_seed_all(args.seed)
+        if hasattr(torch.backends, "cudnn"):
+            torch.backends.cudnn.deterministic = True
+            torch.backends.cudnn.benchmark = False
+
+    if args.deterministic:
+        os.environ.setdefault("CUBLAS_WORKSPACE_CONFIG", ":4096:8")
+        warn_only = bool(args.use_gpu and torch.cuda.is_available())
+        torch.use_deterministic_algorithms(True, warn_only=warn_only)
+        torch.autograd.set_detect_anomaly(True)
+        if hasattr(torch.backends, "cudnn"):
+            torch.backends.cudnn.deterministic = True
+            torch.backends.cudnn.benchmark = False
+            torch.backends.cudnn.enabled = False
+
     device, gpu_available = models.assign_device(args.use_gpu, args.gpu_number)
+    try:
+        from . import resnet_torch
+        resnet_torch.set_norm_type(args.norm)
+    except Exception:
+        pass
 
     # Check builtin vs custom models
     builtin_model = np.any([args.pretrained_model == s for s in MODEL_NAMES])
@@ -360,6 +387,10 @@ def main(args):
             cpmodel_path = os.fspath(args.pretrained_model) if args.pretrained_model is not None else args.pretrained_model
             szmean = args.diameter if args.diameter else 30.
 
+        if args.batch_size is not None and args.batch_size < 2:
+            logger.warning("Batch size %s is too small; using 2 instead.", args.batch_size)
+            args.batch_size = 2
+
         test_dir = args.test_dir if len(args.test_dir) > 0 else None
         from .io import load_train_test_data
         output = load_train_test_data(
@@ -422,6 +453,7 @@ def main(args):
             logger.warning('RAdam not preferred now, SGD recommended.')
             
         if args.train:
+            save_path = None if args.no_save else os.path.realpath(args.dir)
             cpmodel_path = model.train(
                 images, labels, links, train_files=image_names,
                 test_data=test_images, test_labels=test_labels, test_links=test_links,
@@ -429,7 +461,7 @@ def main(args):
                 learning_rate=args.learning_rate,
                 channels=None,  # or channels if you prefer
                 channel_axis=args.channel_axis,
-                save_path=os.path.realpath(args.dir),
+                save_path=save_path,
                 save_every=args.save_every,
                 save_each=args.save_each,
                 rescale=(args.diameter != 0),
@@ -445,7 +477,10 @@ def main(args):
                 affinity_field=args.affinity_field
             )
             model.pretrained_model = cpmodel_path
-            logger.info(f'Model trained and saved to {cpmodel_path}')
+            if save_path is None:
+                logger.info('Model trained without saving checkpoints')
+            else:
+                logger.info(f'Model trained and saved to {cpmodel_path}')
 
         # TRAIN size model
         if args.train_size:

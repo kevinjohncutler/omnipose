@@ -154,27 +154,9 @@ body {
     color: rgba(0, 0, 0, 0.55);
   }
 
-  .dropdown-toggle {
-    background: var(--control-input-surface);
-    color: var(--panel-text-color);
-    border: none;
-  }
 
-  .dropdown[data-open='true'] .dropdown-toggle,
-  .dropdown-toggle:hover {
-    background: var(--control-input-surface);
-    color: var(--panel-text-color);
-    box-shadow: 0 0 0 2px rgba(216, 162, 0, 0.22);
-  }
 
-  .dropdown-option {
-    color: var(--panel-text-color);
-  }
 
-  .dropdown-option[data-selected='true'] {
-    background: transparent;
-    color: var(--accent-hover);
-  }
 
   .number-field {
     background: var(--control-surface);

@@ -149,6 +149,7 @@ def get_arg_parser():
     training_args.add_argument('--save_every',
                         default=100, type=int, help='number of epochs to skip between saves. Default: %(default)s')
     training_args.add_argument('--save_each', action='store_true', help='save the model under a different filename per --save_every epoch for later comparsion')
+    training_args.add_argument('--no_save', action='store_true', help='disable saving trained model checkpoints')
     training_args.add_argument('--RAdam', action='store_true', help='use RAdam instead of SGD')
     training_args.add_argument('--allow_blank_masks', action='store_true',
                         help='allow training on images with no masks (default is to skip these images)')
@@ -167,11 +168,16 @@ def get_arg_parser():
     hardware_args.add_argument('--gpu_number', default=None, type=int, help='set gpu number (if multiple are available)')
     hardware_args.add_argument('--check_mkl', action='store_true', help='check if mkl working')
     hardware_args.add_argument('--mkldnn', action='store_true', help='for mxnet, force MXNET_SUBGRAPH_BACKEND = "MKLDNN"')
+    hardware_args.add_argument('--deterministic', action='store_true', help='force deterministic GPU behavior (slower)')
+    hardware_args.add_argument('--norm', default='batch', type=str,
+                               choices=['batch', 'group'],
+                               help='normalization layer type (default: %(default)s)')
     
     # misc settings
     development_args = parser.add_argument_group("development arguments")
     development_args.add_argument('--verbose', action='store_true', help='flag to output extra information (e.g. diameter metrics) for debugging and fine-tuning parameters')
     development_args.add_argument('--testing', action='store_true', help='flag to suppress CLI user confirmation for saving output; for test scripts')
     development_args.add_argument('--timing', action='store_true', help='flag to output timing information for select modules')
+    development_args.add_argument('--seed', default=None, type=int, help='random seed for reproducible runs')
 
     return parser

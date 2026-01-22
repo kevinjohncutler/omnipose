@@ -316,29 +316,35 @@
       if (state.pendingHoverScreenPoint) {
         const world = context.screenToImage(state.pendingHoverScreenPoint);
         setHoverState(world, state.pendingHoverScreenPoint);
-        const hasPreview = Boolean(state.pendingHoverHasPreview);
-        const previewTools = context.getPreviewToolTypes ? context.getPreviewToolTypes() : null;
-        const crosshairTools = context.getCrosshairToolTypes ? context.getCrosshairToolTypes() : null;
-        const tool = context.getTool ? context.getTool() : 'brush';
-        if (hasPreview && previewTools && previewTools.has(tool)) {
-          if (typeof context.drawBrushPreview === 'function') {
-            context.drawBrushPreview(world);
-          }
-        } else if (
-          crosshairTools
-          && crosshairTools.has
-          && crosshairTools.has(tool)
-          && context.isCursorInsideImage
-          && context.isCursorInsideImage()
-        ) {
-          if (typeof context.drawBrushPreview === 'function') {
-            context.drawBrushPreview(world, { crosshairOnly: true });
-          }
-        } else if (typeof context.drawBrushPreview === 'function') {
-          context.drawBrushPreview(null);
-        }
         if (typeof context.updateHoverInfo === 'function') {
           context.updateHoverInfo(world);
+        }
+        const insideImage = !context.isCursorInsideImage || context.isCursorInsideImage();
+        if (!insideImage) {
+          clearHoverState();
+          if (typeof context.drawBrushPreview === 'function') {
+            context.drawBrushPreview(null);
+          }
+        } else {
+          const hasPreview = Boolean(state.pendingHoverHasPreview);
+          const previewTools = context.getPreviewToolTypes ? context.getPreviewToolTypes() : null;
+          const crosshairTools = context.getCrosshairToolTypes ? context.getCrosshairToolTypes() : null;
+          const tool = context.getTool ? context.getTool() : 'brush';
+          if (hasPreview && previewTools && previewTools.has(tool)) {
+            if (typeof context.drawBrushPreview === 'function') {
+              context.drawBrushPreview(world);
+            }
+          } else if (
+            crosshairTools
+            && crosshairTools.has
+            && crosshairTools.has(tool)
+          ) {
+            if (typeof context.drawBrushPreview === 'function') {
+              context.drawBrushPreview(world, { crosshairOnly: true });
+            }
+          } else if (typeof context.drawBrushPreview === 'function') {
+            context.drawBrushPreview(null);
+          }
         }
       } else {
         clearHoverState();

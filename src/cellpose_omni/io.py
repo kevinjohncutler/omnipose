@@ -410,6 +410,16 @@ def load_train_test_data(train_dir, test_dir=None, image_filter='', mask_filter=
                 labels[n] = np.concatenate((labels[n][np.newaxis,:,:], flows), axis=0) 
             else:
                 labels[n] = flows
+
+    if nimg_train == 1:
+        io_logger.warning(
+            "Single training image detected; duplicating it to reach batch size 2."
+        )
+        images = images * 2
+        labels = labels * 2
+        links = links * 2
+        image_names = image_names * 2
+        nimg_train = len(images)
             
     # testing data
     nimg_test = 0
