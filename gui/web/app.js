@@ -391,12 +391,13 @@ const MASK_DISPLAY_MODES = {
   OUTLINED: 'outlined',
   SOLID: 'solid',
   OUTLINE: 'outline',
+  HIDDEN: 'hidden',
 };
 let maskDisplayMode = MASK_DISPLAY_MODES.OUTLINED;
 let outlinesVisible = true; // derives from maskDisplayMode
 
 function normalizeMaskDisplayMode(value) {
-  if (value === MASK_DISPLAY_MODES.SOLID || value === MASK_DISPLAY_MODES.OUTLINE) {
+  if (value === MASK_DISPLAY_MODES.SOLID || value === MASK_DISPLAY_MODES.OUTLINE || value === MASK_DISPLAY_MODES.HIDDEN) {
     return value;
   }
   return MASK_DISPLAY_MODES.OUTLINED;
@@ -723,6 +724,60 @@ async function requestImageChange({ path = null, direction = null } = {}) {
     }
   } catch (err) {
     console.warn('open_image request failed', err);
+  }
+}
+
+
+
+async function selectImageFolder() {
+  await saveViewerState({ immediate: true, seq: stateDirtySeq }).catch(() => {});
+  try {
+    const response = await fetch('/api/select_image_folder', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ sessionId }),
+    });
+    if (!response.ok) {
+      const message = await response.text().catch(() => 'unknown');
+      console.warn('select_image_folder failed', response.status, message);
+      return;
+    }
+    const result = await response.json().catch(() => ({}));
+    if (result && result.ok) {
+      window.location.reload();
+    } else if (result && result.error) {
+      console.warn('select_image_folder error', result.error);
+    }
+  } catch (err) {
+    console.warn('select_image_folder request failed', err);
+  }
+}
+
+async function openImageFolder(path) {
+  if (!path) {
+    console.warn('No path provided for openImageFolder');
+    return;
+  }
+  await saveViewerState({ immediate: true, seq: stateDirtySeq }).catch(() => {});
+  try {
+    const response = await fetch('/api/open_image_folder', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ sessionId, path }),
+    });
+    if (!response.ok) {
+      const message = await response.text().catch(() => 'unknown');
+      console.warn('open_image_folder failed', response.status, message);
+      return;
+    }
+    const result = await response.json().catch(() => ({}));
+    if (result && result.ok) {
+      window.location.reload();
+    } else if (result && result.error) {
+      console.warn('open_image_folder error', result.error);
+    }
+  } catch (err) {
+    console.warn('open_image_folder request failed', err);
   }
 }
 
@@ -2264,6 +2319,8 @@ function registerDropdown(root) {
     options: originalOptions,
     loop: root.dataset.loop === 'true' ? { size: 5, mode: 'loop' } : null,
     countLabel: root.dataset.countLabel || 'items',
+    confirm: root.dataset.apply === 'confirm',
+    tooltipDisabled: root.dataset.tooltipDisabled === 'true',
   };
 
     const applySelection = () => {
@@ -2273,7 +2330,16 @@ function registerDropdown(root) {
     if (selectedOption) {
       const fullLabel = selectedOption.dataset.fullPath || selectedOption.dataset.fullLabel || selectedOption.title || selectedOption.textContent;
       if (fullLabel) {
-        button.title = fullLabel;
+        if (entry.tooltipDisabled) {
+          button.removeAttribute('title');
+          button.removeAttribute('data-tooltip');
+        } else if (entry.id === 'imageNavigator') {
+          button.dataset.tooltip = fullLabel;
+          button.removeAttribute('title');
+        } else {
+          button.removeAttribute('title');
+          button.removeAttribute('data-tooltip');
+        }
       }
     }
     menu.querySelectorAll('.dropdown-option').forEach((child) => {
@@ -2290,8 +2356,8 @@ function registerDropdown(root) {
     item.dataset.value = opt.value;
     item.textContent = opt.label;
     item.setAttribute('role', 'option');
-    if (opt.title) {
-      item.title = opt.title;
+    if (opt.title && !entry.tooltipDisabled && entry.id === 'imageNavigator') {
+      item.dataset.tooltip = opt.title;
     }
     if (opt.disabled) {
       item.setAttribute('aria-disabled', 'true');
@@ -2316,8 +2382,9 @@ function registerDropdown(root) {
     const opts = entry.options || [];
     const loopEnabled = Boolean(entry.loop && entry.loop.mode === 'loop');
     if (loopEnabled && opts.length) {
-      const loopOptions = opts.filter((opt) => opt.value !== '__add__');
+      const loopOptions = opts.filter((opt) => !['__add__','__open_folder__'].includes(opt.value));
       const addOption = opts.find((opt) => opt.value === '__add__');
+      const openFolderOption = opts.find((opt) => opt.value === '__open_folder__');
       const size = entry.loop.size || 5;
       const half = Math.floor(size / 2);
       const total = loopOptions.length;
@@ -2332,6 +2399,11 @@ function registerDropdown(root) {
         const addRow = buildOption(addOption);
         addRow.classList.add('dropdown-add');
         menu.appendChild(addRow);
+      }
+      if (openFolderOption) {
+        const openRow = buildOption(openFolderOption);
+        openRow.classList.add('dropdown-add');
+        menu.appendChild(openRow);
       }
       const footer = document.createElement('div');
       footer.className = 'dropdown-footer';
@@ -2359,7 +2431,7 @@ function registerDropdown(root) {
         footer.className = 'dropdown-footer';
         const count = document.createElement('span');
         count.className = 'dropdown-count';
-        count.textContent = opts.filter((opt) => opt.value !== '__add__').length + ` ${entry.countLabel}`;
+        count.textContent = opts.filter((opt) => !['__add__','__open_folder__'].includes(opt.value)).length + ` ${entry.countLabel}`;
         const toggleBtn = document.createElement('button');
         toggleBtn.type = 'button';
         toggleBtn.className = 'dropdown-expand';
@@ -2379,13 +2451,15 @@ function registerDropdown(root) {
 
   const shiftSelection = (delta) => {
     if (!entry.loop || entry.loop.mode !== 'loop') return;
-    const loopOptions = entry.options.filter((opt) => opt.value !== '__add__');
+    const loopOptions = entry.options.filter((opt) => !['__add__','__open_folder__'].includes(opt.value));
     if (!loopOptions.length) return;
     const currentIndex = Math.max(0, loopOptions.findIndex((opt) => opt.value === select.value));
     const nextIndex = (currentIndex + delta + loopOptions.length) % loopOptions.length;
     const nextValue = loopOptions[nextIndex].value;
     select.value = nextValue;
-    select.dispatchEvent(new Event('change', { bubbles: true }));
+    if (!entry.confirm) {
+      select.dispatchEvent(new Event('change', { bubbles: true }));
+    }
     buildMenu();
   };
 
@@ -2476,12 +2550,17 @@ function registerDropdown(root) {
       const nextIndex = Math.min(opts.length - 1, Math.max(0, currentIndex + delta));
       const nextValue = opts[nextIndex].value;
       select.value = nextValue;
-      select.dispatchEvent(new Event('change', { bubbles: true }));
+      if (!entry.confirm) {
+        select.dispatchEvent(new Event('change', { bubbles: true }));
+      }
       applySelection();
       return;
     }
     if (evt.key === 'Enter') {
       evt.preventDefault();
+      if (entry.confirm) {
+        select.dispatchEvent(new Event('change', { bubbles: true }));
+      }
       closeDropdown(entry);
       return;
     }
@@ -2759,6 +2838,9 @@ const labelStepUp = document.getElementById('labelStepUp');
 const undoButton = document.getElementById('undoButton');
 const redoButton = document.getElementById('redoButton');
 const resetViewButton = document.getElementById('resetViewButton');
+const saveStateButton = document.getElementById('saveStateButton');
+const rotateLeftButton = document.getElementById('rotateLeftButton');
+const rotateRightButton = document.getElementById('rotateRightButton');
 const prevImageButton = document.getElementById('prevImageButton');
 const nextImageButton = document.getElementById('nextImageButton');
 const imageNavigator = document.getElementById('imageNavigator');
@@ -2836,7 +2918,7 @@ if (savedViewerState) {
   }
   if (typeof savedViewerState.maskDisplayMode === 'string') {
     maskDisplayMode = normalizeMaskDisplayMode(savedViewerState.maskDisplayMode);
-    outlinesVisible = maskDisplayMode !== MASK_DISPLAY_MODES.SOLID;
+    outlinesVisible = maskDisplayMode === MASK_DISPLAY_MODES.OUTLINED || maskDisplayMode === MASK_DISPLAY_MODES.OUTLINE;
   }
   if (gammaSlider && typeof savedViewerState.gamma === 'number') {
     const sliderValue = Math.round(savedViewerState.gamma * 100);
@@ -2893,6 +2975,21 @@ if (resetViewButton) {
     resetView();
   });
 }
+if (saveStateButton) {
+  saveStateButton.addEventListener('click', () => {
+    saveViewerState({ immediate: true, seq: stateDirtySeq }).catch(() => {});
+  });
+}
+if (rotateLeftButton) {
+  rotateLeftButton.addEventListener('click', () => {
+    rotateView(-Math.PI / 2);
+  });
+}
+if (rotateRightButton) {
+  rotateRightButton.addEventListener('click', () => {
+    rotateView(Math.PI / 2);
+  });
+}
 setupImageNavigator();
 
 
@@ -2906,6 +3003,11 @@ function setupImageNavigator() {
     opt.value = '';
     opt.textContent = currentImageName || 'Select';
     imageNavigator.appendChild(opt);
+    const openFolderOption = document.createElement('option');
+    openFolderOption.value = '__open_folder__';
+    openFolderOption.textContent = 'Open image folder...';
+    openFolderOption.title = 'Open image folder';
+    imageNavigator.appendChild(openFolderOption);
     return;
   }
   imageNavigator.innerHTML = '';
@@ -2933,9 +3035,15 @@ function setupImageNavigator() {
       dropdownEntry.buildMenu();
     }
   }
-  imageNavigator.addEventListener('change', () => {
+  imageNavigator.addEventListener('change', async () => {
     const nextPath = imageNavigator.value;
     if (!nextPath || nextPath === currentImagePath) {
+      return;
+    }
+    if (nextPath === '__open_folder__') {
+      await selectImageFolder();
+      imageNavigator.value = currentImagePath || '';
+      refreshDropdown('imageNavigator');
       return;
     }
     openImageByPath(nextPath).catch((err) => {
@@ -3757,7 +3865,7 @@ function updateToolInfo() {
   if (mode === 'erase') {
     description = 'Erase (E)';
   } else if (mode === 'fill') {
-    description = 'Fill (F)';
+    description = 'Fill (G)';
   } else if (mode === 'picker') {
     description = 'Eyedropper (I)';
   }
@@ -4376,7 +4484,15 @@ function setMaskDisplayMode(nextMode, { silent = false } = {}) {
     return;
   }
   maskDisplayMode = normalized;
-  outlinesVisible = maskDisplayMode !== MASK_DISPLAY_MODES.SOLID;
+  if (maskDisplayMode === MASK_DISPLAY_MODES.HIDDEN) {
+    maskVisible = false;
+    outlinesVisible = false;
+    setPanelCollapsed(labelStylePanel, true);
+  } else {
+    maskVisible = true;
+    outlinesVisible = maskDisplayMode === MASK_DISPLAY_MODES.OUTLINED || maskDisplayMode === MASK_DISPLAY_MODES.OUTLINE;
+    setPanelCollapsed(labelStylePanel, false);
+  }
   if (outlinesVisible) {
     if (affinityGraphInfo && affinityGraphInfo.values) {
       rebuildOutlineFromAffinity();
@@ -4698,7 +4814,14 @@ function restoreViewerState(saved) {
     }
     if (typeof saved.maskDisplayMode === 'string') {
       maskDisplayMode = normalizeMaskDisplayMode(saved.maskDisplayMode);
-      outlinesVisible = maskDisplayMode !== MASK_DISPLAY_MODES.SOLID;
+      outlinesVisible = maskDisplayMode === MASK_DISPLAY_MODES.OUTLINED || maskDisplayMode === MASK_DISPLAY_MODES.OUTLINE;
+      if (maskDisplayMode === MASK_DISPLAY_MODES.HIDDEN) {
+        maskVisible = false;
+        setPanelCollapsed(labelStylePanel, true);
+      } else {
+        maskVisible = true;
+        setPanelCollapsed(labelStylePanel, false);
+      }
     }
     if (typeof saved.clusterEnabled === 'boolean') {
       setClusterEnabled(saved.clusterEnabled, { silent: true });
@@ -4751,6 +4874,7 @@ function restoreViewerState(saved) {
         }
       }
       segmentationModelSelect.value = segmentationModel || DEFAULT_SEGMENTATION_MODEL;
+      refreshDropdown('segmentationModel');
     }
     if (!Number.isFinite(currentLabel) || currentLabel <= 0) {
       currentLabel = 1;
@@ -7575,9 +7699,6 @@ function renderHistogram() {
 }
 
 function updateHistogramUI() {
-  if (histRangeLabel) {
-    histRangeLabel.textContent = 'Window: [' + windowLow + ', ' + windowHigh + ']';
-  }
   renderHistogram();
 }
 
@@ -7605,6 +7726,13 @@ function updateHistogramCursor(evt) {
   }
   if (histDragTarget) {
     histogramCanvas.style.cursor = (histDragTarget === 'range' || histDragTarget === 'gamma') ? 'grabbing' : 'ew-resize';
+    if (histDragTarget === 'low') {
+      histogramCanvas.dataset.tooltip = 'Low: ' + windowLow;
+    } else if (histDragTarget === 'high') {
+      histogramCanvas.dataset.tooltip = 'High: ' + windowHigh;
+    } else {
+      delete histogramCanvas.dataset.tooltip;
+    }
     return;
   }
   const rect = histogramCanvas.getBoundingClientRect();
@@ -7631,6 +7759,17 @@ function updateHistogramCursor(evt) {
     }
   }
   histogramCanvas.style.cursor = cursor;
+  if (!Number.isNaN(x)) {
+    if (Math.abs(x - lowX) < threshold) {
+      histogramCanvas.dataset.tooltip = 'Low: ' + windowLow;
+    } else if (Math.abs(x - highX) < threshold) {
+      histogramCanvas.dataset.tooltip = 'High: ' + windowHigh;
+    } else {
+      delete histogramCanvas.dataset.tooltip;
+    }
+  } else {
+    delete histogramCanvas.dataset.tooltip;
+  }
 }
 
 function setWindowBounds(low, high, { emit = true } = {}) {
@@ -8000,6 +8139,181 @@ function getSegmentationSettingsPayload() {
     payload.image_path = currentImagePath;
   }
   return payload;
+}
+
+
+let tooltipState = null;
+function initTooltips() {
+  if (tooltipState) {
+    return;
+  }
+  const tooltip = document.createElement('div');
+  tooltip.className = 'omni-tooltip';
+  tooltip.setAttribute('role', 'tooltip');
+  document.body.appendChild(tooltip);
+  tooltipState = {
+    tooltip,
+    timer: null,
+    target: null,
+    lastPoint: null,
+  };
+
+  document.querySelectorAll('[title]').forEach((el) => {
+    const title = el.getAttribute('title');
+    if (title) {
+      el.dataset.tooltip = title;
+      el.removeAttribute('title');
+    }
+  });
+
+  const getTooltipText = (el) => {
+    if (!el) return '';
+    const existing = el.dataset.tooltip;
+    if (existing) return existing;
+    const title = el.getAttribute('title');
+    if (title) {
+      el.dataset.tooltip = title;
+      el.removeAttribute('title');
+      return title;
+    }
+    return '';
+  };
+
+  const positionTooltip = (x, y, target) => {
+    const tip = tooltipState.tooltip;
+    if (!tip) return;
+    const padding = 12;
+    const offset = 14;
+    let left = x + offset;
+    let top = y + offset;
+    const rect = tip.getBoundingClientRect();
+    const vw = window.innerWidth;
+    const vh = window.innerHeight;
+    if (left + rect.width + padding > vw) {
+      left = Math.max(padding, x - rect.width - offset);
+    }
+    if (top + rect.height + padding > vh) {
+      top = Math.max(padding, y - rect.height - offset);
+    }
+    if (Number.isFinite(left) && Number.isFinite(top)) {
+      tip.style.left = `${left}px`;
+      tip.style.top = `${top}px`;
+    } else if (target) {
+      const trect = target.getBoundingClientRect();
+      tip.style.left = `${Math.min(vw - rect.width - padding, Math.max(padding, trect.left))}px`;
+      tip.style.top = `${Math.min(vh - rect.height - padding, Math.max(padding, trect.bottom + offset))}px`;
+    }
+  };
+
+  const showTooltip = (el, point) => {
+    const text = getTooltipText(el);
+    if (!text) return;
+    const tip = tooltipState.tooltip;
+    tip.textContent = text;
+    tip.classList.add('visible');
+    const { x, y } = point || { x: 0, y: 0 };
+    positionTooltip(x, y, el);
+  };
+
+  const hideTooltip = () => {
+    if (!tooltipState) return;
+    const tip = tooltipState.tooltip;
+    if (tooltipState.timer) {
+      clearTimeout(tooltipState.timer);
+      tooltipState.timer = null;
+    }
+    tooltipState.target = null;
+    tip.classList.remove('visible');
+  };
+
+  const scheduleTooltip = (target, point) => {
+    if (!target) return;
+    if (tooltipState.timer) {
+      clearTimeout(tooltipState.timer);
+      tooltipState.timer = null;
+    }
+    tooltipState.target = target;
+    tooltipState.lastPoint = point;
+    tooltipState.timer = setTimeout(() => {
+      if (tooltipState && tooltipState.target === target) {
+        showTooltip(target, tooltipState.lastPoint);
+      }
+    }, 200);
+  };
+
+  const refreshDynamicTooltip = (target, point) => {
+    if (!target || target.dataset.tooltipDynamic !== 'true') {
+      return false;
+    }
+    if (target.closest('[data-tooltip-disabled="true"]')) {
+      return false;
+    }
+    const text = getTooltipText(target);
+    if (!text) {
+      if (tooltipState.target === target) {
+        hideTooltip();
+      }
+      return true;
+    }
+    if (tooltipState.tooltip.classList.contains('visible') && tooltipState.target === target) {
+      tooltipState.tooltip.textContent = text;
+      positionTooltip(point.x, point.y, target);
+      return true;
+    }
+    scheduleTooltip(target, point);
+    return true;
+  };
+
+  document.addEventListener('pointerover', (evt) => {
+    const target = evt.target.closest('[data-tooltip], [title], [data-tooltip-dynamic="true"]');
+    if (!target) return;
+    if (target.closest('[data-tooltip-disabled="true"]')) return;
+    scheduleTooltip(target, { x: evt.clientX, y: evt.clientY });
+  });
+
+  document.addEventListener('pointermove', (evt) => {
+    if (!tooltipState) return;
+    const point = { x: evt.clientX, y: evt.clientY };
+    tooltipState.lastPoint = point;
+    const dynamicTarget = evt.target.closest('[data-tooltip-dynamic="true"]');
+    if (dynamicTarget) {
+      refreshDynamicTooltip(dynamicTarget, point);
+    }
+    if (tooltipState.tooltip.classList.contains('visible')) {
+      positionTooltip(point.x, point.y, tooltipState.target);
+    }
+  });
+
+  document.addEventListener('pointerout', (evt) => {
+    if (!tooltipState) return;
+    const target = evt.target.closest('[data-tooltip], [title], [data-tooltip-dynamic="true"]');
+    if (!target) return;
+    if (target.closest('[data-tooltip-disabled="true"]')) return;
+
+    if (tooltipState.target === target) {
+      hideTooltip();
+    }
+  });
+
+  document.addEventListener('focusin', (evt) => {
+    const target = evt.target.closest('[data-tooltip], [title], [data-tooltip-dynamic="true"]');
+    if (!target) return;
+    if (target.closest('[data-tooltip-disabled="true"]')) return;
+
+    if (tooltipState.timer) clearTimeout(tooltipState.timer);
+    tooltipState.target = target;
+    const rect = target.getBoundingClientRect();
+    tooltipState.lastPoint = { x: rect.left + rect.width / 2, y: rect.top };
+    tooltipState.timer = setTimeout(() => {
+      if (tooltipState && tooltipState.target === target) {
+        showTooltip(target, tooltipState.lastPoint);
+      }
+    }, 200);
+  });
+
+  document.addEventListener('focusout', () => {
+    hideTooltip();
+  });
 }
 
 const overlayUpdateThrottleMs = 140;
@@ -9040,6 +9354,11 @@ window.addEventListener('keydown', (evt) => {
   }
   if (key === 'm') {
     maskVisible = !maskVisible;
+    if (maskVisible) {
+      setMaskDisplayMode(MASK_DISPLAY_MODES.OUTLINED, { silent: true });
+    } else {
+      setMaskDisplayMode(MASK_DISPLAY_MODES.HIDDEN, { silent: true });
+    }
     updateMaskVisibilityLabel();
     if (typeof saved.segMode === "string") {
       segMode = saved.segMode;
@@ -9299,6 +9618,7 @@ if (toolStopButtons.length) {
 }
 updateToolButtons();
 updateToolOptions();
+initTooltips();
 if (histogramCanvas) {
   histogramCanvas.addEventListener('pointerdown', handleHistogramPointerDown);
   histogramCanvas.addEventListener('pointermove', handleHistogramPointerMove);

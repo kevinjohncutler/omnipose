@@ -14,6 +14,8 @@
 import sys, os, re
 import subprocess
 from pathlib import Path
+# Keep the docs configuration lightweight when running test-only builds.
+MINIMAL_DOCS = os.environ.get("OMNIPOSE_DOCS_MINIMAL") == "1"
 # Disable Numba JIT during doc builds—avoids compilation errors when
 # Sphinx imports modules that use @njit functions.
 # os.environ.setdefault("NUMBA_DISABLE_JIT", "1")
@@ -32,15 +34,18 @@ def _traverse_no_warn(self, *args, **kwargs):
     return self.findall(*args, **kwargs)
 nodes.Node.traverse = _traverse_no_warn
 
-# Add all the modules that can't be installed in the RTD environment
-from dependencies import install_deps, gui_deps, distributed_deps
-autodoc_mock_imports = install_deps + gui_deps + distributed_deps
-autodoc_mock_imports += ["cv2", "tqdm", "skimage", "numba", "torch", 
-                         "sklearn", #this one in particular is a problem because it registers different than the package name 
-                         "torchvision", # may remove from imports 
-                         ]
+if MINIMAL_DOCS:
+    autodoc_mock_imports = []
+else:
+    # Add all the modules that can't be installed in the RTD environment
+    from dependencies import install_deps, gui_deps, distributed_deps
+    autodoc_mock_imports = install_deps + gui_deps + distributed_deps
+    autodoc_mock_imports += ["cv2", "tqdm", "skimage", "numba", "torch",
+                             "sklearn", #this one in particular is a problem because it registers different than the package name
+                             "torchvision", # may remove from imports
+                             ]
 
-print("Mocking imports for autodoc:", autodoc_mock_imports)
+    print("Mocking imports for autodoc:", autodoc_mock_imports)
 
 # Function to strip version specifiers from package names
 def strip_versions(dep_list):
@@ -52,65 +57,62 @@ def strip_versions(dep_list):
         stripped_list.append(dep_name)
     return stripped_list
 
-# Apply the corrected function to autodoc_mock_imports
-autodoc_mock_imports = strip_versions(autodoc_mock_imports)
-autodoc_mock_imports = [
-    dep for dep in autodoc_mock_imports
-    if dep not in {"numpy", "matplotlib"}
-]
-autodoc_mock_imports += ["colour"]
+if not MINIMAL_DOCS:
+    # Apply the corrected function to autodoc_mock_imports
+    autodoc_mock_imports = strip_versions(autodoc_mock_imports)
+    autodoc_mock_imports = [
+        dep for dep in autodoc_mock_imports
+        if dep not in {"numpy", "matplotlib"}
+    ]
+    autodoc_mock_imports += ["colour"]
 
-# Pre-mock heavy dependencies for automodapi imports.
-from unittest.mock import MagicMock
-from types import ModuleType
+    # Pre-mock heavy dependencies for automodapi imports.
+    from unittest.mock import MagicMock
+    from types import ModuleType
 
-def _mock_module(name: str) -> None:
-    parts = name.split(".")
-    for i in range(1, len(parts) + 1):
-        sub = ".".join(parts[:i])
-        if sub in sys.modules:
+    def _mock_module(name: str) -> None:
+        parts = name.split(".")
+        for i in range(1, len(parts) + 1):
+            sub = ".".join(parts[:i])
+            if sub in sys.modules:
+                continue
+            mod = ModuleType(sub)
+            mod.__getattr__ = lambda _name: MagicMock()
+            sys.modules[sub] = mod
+            if i > 1:
+                parent = sys.modules[".".join(parts[:i - 1])]
+                setattr(parent, parts[i - 1], mod)
+
+    for dep in autodoc_mock_imports:
+        if "-" in dep:
             continue
-        mod = ModuleType(sub)
-        mod.__getattr__ = lambda _name: MagicMock()
-        sys.modules[sub] = mod
-        if i > 1:
-            parent = sys.modules[".".join(parts[:i - 1])]
-            setattr(parent, parts[i - 1], mod)
+        _mock_module(dep)
 
-for dep in autodoc_mock_imports:
-    if "-" in dep:
-        continue
-    _mock_module(dep)
-
-# Common submodules imported at module import time.
-for dep in ("numba.core", "numba.core.errors", "scipy.ndimage", "tqdm.auto"):
-    _mock_module(dep)
+    # Common submodules imported at module import time.
+    for dep in ("numba.core", "numba.core.errors", "scipy.ndimage", "tqdm.auto"):
+        _mock_module(dep)
 
 # pygments
 sys.path.append(os.path.abspath(os.path.join(conf_dir, "_pygments")))
 pygments_style = 'style.CustomStyle'
 pygments_dark_style = 'style.CustomStyle'
 
-from sphinx_automodapi import automodsumm
-from sphinx_automodapi.utils import find_mod_objs
+if not MINIMAL_DOCS:
+    from sphinx_automodapi import automodsumm
+    from sphinx_automodapi.utils import find_mod_objs
 
+    def find_mod_objs_patched(*args, **kwargs):
+        return find_mod_objs(args[0], onlylocals=True)
 
-def find_mod_objs_patched(*args, **kwargs):
-    return find_mod_objs(args[0], onlylocals=True)
+    def patch_automodapi(app):
+        """Monkey-patch the automodapi extension to exclude imported members"""
+        automodsumm.find_mod_objs = find_mod_objs_patched
 
-def patch_automodapi(app):
-    """Monkey-patch the automodapi extension to exclude imported members"""
-    automodsumm.find_mod_objs = find_mod_objs_patched
-
-def setup(app):
-    # app.add_css_file("custom.css") loaded above
-    # app.add_js_file('custom.js') loaded above 
-
-    app.connect("builder-inited", patch_automodapi)
-    # gen_color()
-    # app.add_css_file('tablefix.css')
-    # app.add_css_file('_static/sinebow.css')
-    # app.add_css_file('_static/custom.css')
+    def setup(app):
+        app.connect("builder-inited", patch_automodapi)
+else:
+    def setup(app):
+        return None
 
     
 
@@ -124,9 +126,13 @@ copyright = f'{current_year}, Kevin Cutler, University of Washington'
 author = 'Kevin Cutler'
 
 # The full version, including alpha/beta/rc tags
-release = re.sub('^v', '', os.popen('git describe --tags').read().strip())
-# The short X.Y version.
-version = release
+if MINIMAL_DOCS:
+    release = "0"
+    version = release
+else:
+    release = re.sub('^v', '', os.popen('git describe --tags').read().strip())
+    # The short X.Y version.
+    version = release
 
 
 # -- General configuration ---------------------------------------------------
@@ -160,7 +166,6 @@ autodoc_default_options = {
     "exclude-members": "nn",
 }
 
-MINIMAL_DOCS = os.environ.get("OMNIPOSE_DOCS_MINIMAL") == "1"
 if MINIMAL_DOCS:
     extensions = [ext for ext in extensions if not ext.startswith("sphinx_automodapi")]
 

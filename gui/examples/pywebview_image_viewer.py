@@ -408,6 +408,8 @@ SESSION_MANAGER = SessionManager()
 class Segmenter:
     def __init__(self) -> None:
         self._model = None
+        self._model_type: str | None = None
+        self._model_path: str | None = None
         self._model_lock = threading.Lock()
         self._eval_lock = threading.Lock()
         self._preload_thread: threading.Thread | None = None
@@ -425,16 +427,31 @@ class Segmenter:
         except Exception:
             self._use_gpu = False
 
-    def _ensure_model(self) -> None:
-        if self._model is None:
+    def _ensure_model(self, model_type: str | None = None, model_path: str | None = None) -> None:
+        requested_type = model_type or "bact_phase_affinity"
+        requested_path = model_path or None
+        if self._model is None or requested_type != self._model_type or requested_path != self._model_path:
             with self._model_lock:
-                if self._model is None:
+                if (
+                    self._model is None
+                    or requested_type != self._model_type
+                    or requested_path != self._model_path
+                ):
                     from cellpose_omni import models  # local import to avoid startup cost
 
-                    self._model = models.CellposeModel(
-                        gpu=self._use_gpu,
-                        model_type="bact_phase_affinity",
-                    )
+                    if requested_path:
+                        self._model = models.CellposeModel(
+                            gpu=self._use_gpu,
+                            pretrained_model=requested_path,
+                            model_type=None,
+                        )
+                    else:
+                        self._model = models.CellposeModel(
+                            gpu=self._use_gpu,
+                            model_type=requested_type,
+                        )
+                    self._model_type = requested_type
+                    self._model_path = requested_path
 
     def preload_modules_async(self, delay: float = 0.0) -> None:
         if self._modules_preloaded:
@@ -467,16 +484,16 @@ class Segmenter:
         from omnipose.utils import normalize99
 
         self._cache = None
-        self._ensure_model()
+        parsed, merged_options = self._parse_options(settings, overrides)
+        self._ensure_model(parsed.get("model"), parsed.get("model_path"))
         arr = np.asarray(image, dtype=np.float32)
         if arr.ndim == 3:
             arr = arr.mean(axis=-1)
         arr = normalize99(arr)
-        parsed, merged_options = self._parse_options(settings, overrides)
         with self._eval_lock:
             masks, flows, *rest = self._model.eval(
-                [arr],
-                channels=None,
+                arr,
+                channels=[0, 0],
                 rescale=None,
                 mask_threshold=parsed["mask_threshold"], # should make these use kwarg dicts 
                 flow_threshold=parsed["flow_threshold"],
@@ -590,6 +607,8 @@ class Segmenter:
         self._use_gpu = next_value
         # Force model rebuild on next use
         self._model = None
+        self._model_type: str | None = None
+        self._model_path: str | None = None
 
     def get_use_gpu(self) -> bool:
         return bool(self._use_gpu)
@@ -626,6 +645,8 @@ class Segmenter:
             return bool(value)
 
         parsed = {
+            "model": merged.get("model"),
+            "model_path": merged.get("model_path"),
             "mask_threshold": _get_float("mask_threshold", -2.0),
             "flow_threshold": _get_float("flow_threshold", 0.0),
             "cluster": _get_bool("cluster", True),
@@ -1918,6 +1939,79 @@ def create_app() -> "FastAPI":
             return JSONResponse({"error": "file_not_found"}, status_code=404)
         except Exception as exc:  # pragma: no cover
             return JSONResponse({"error": str(exc)}, status_code=500)
+
+    @app.post("/api/open_image_folder", response_class=JSONResponse)
+    async def api_open_image_folder(payload: dict) -> JSONResponse:
+        if not isinstance(payload, dict):
+            return JSONResponse({"error": "invalid payload"}, status_code=400)
+        session_id = payload.get("sessionId")
+        if not isinstance(session_id, str):
+            return JSONResponse({"error": "sessionId required"}, status_code=400)
+        try:
+            state = SESSION_MANAGER.get(session_id)
+        except KeyError:
+            return JSONResponse({"error": "unknown session"}, status_code=404)
+        path_value = payload.get("path")
+        if not isinstance(path_value, str) or not path_value:
+            return JSONResponse({"error": "path required"}, status_code=400)
+        try:
+            folder_path = Path(path_value).expanduser().resolve()
+            if folder_path.is_file():
+                folder_path = folder_path.parent
+            if not folder_path.exists() or not folder_path.is_dir():
+                return JSONResponse({"error": "not_a_directory"}, status_code=400)
+            files = SESSION_MANAGER._list_directory_images(folder_path)
+            if not files:
+                return JSONResponse({"error": "no_images"}, status_code=404)
+            target = None
+            if state.current_path and state.current_path.parent == folder_path:
+                target = state.current_path
+            else:
+                target = files[0]
+            SESSION_MANAGER.set_image(state, target)
+            return JSONResponse({"ok": True})
+        except Exception as exc:  # pragma: no cover
+            return JSONResponse({"error": str(exc)}, status_code=500)
+
+    @app.post("/api/select_image_folder", response_class=JSONResponse)
+    async def api_select_image_folder(payload: dict | None = None) -> JSONResponse:
+        payload = payload or {}
+        session_id = payload.get("sessionId")
+        if not isinstance(session_id, str):
+            return JSONResponse({"error": "sessionId required"}, status_code=400)
+        try:
+            state = SESSION_MANAGER.get(session_id)
+        except KeyError:
+            return JSONResponse({"error": "unknown session"}, status_code=404)
+        try:
+            import tkinter as tk
+            from tkinter import filedialog
+        except Exception as exc:  # pragma: no cover
+            return JSONResponse({"error": f"tk_unavailable: {exc}"}, status_code=500)
+        try:
+            root = tk.Tk()
+            root.withdraw()
+            root.attributes('-topmost', True)
+            folder = filedialog.askdirectory()
+            root.destroy()
+        except Exception as exc:  # pragma: no cover
+            return JSONResponse({"error": str(exc)}, status_code=500)
+        if not folder:
+            return JSONResponse({"error": "cancelled"}, status_code=400)
+        try:
+            folder_path = Path(folder).expanduser().resolve()
+            if not folder_path.exists() or not folder_path.is_dir():
+                return JSONResponse({"error": "not_a_directory"}, status_code=400)
+            files = SESSION_MANAGER._list_directory_images(folder_path)
+            if not files:
+                return JSONResponse({"error": "no_images"}, status_code=404)
+            target = files[0]
+            SESSION_MANAGER.set_image(state, target)
+            return JSONResponse({"ok": True})
+        except Exception as exc:  # pragma: no cover
+            return JSONResponse({"error": str(exc)}, status_code=500)
+
+
 
     @app.get("/api/system_info", response_class=JSONResponse)
     async def api_system_info() -> JSONResponse:

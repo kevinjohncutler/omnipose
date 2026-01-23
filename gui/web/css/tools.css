@@ -88,6 +88,7 @@
   --history-icon-undo: url('/static/icons/arrow-back-up.svg');
   --history-icon-redo: url('/static/icons/arrow-forward-up.svg');
   --history-icon-home: url('/static/icons/home-2.svg');
+  --history-icon-save: url('/static/icons/download.svg');
 }
 
 .image-nav-panel {
@@ -259,4 +260,45 @@
 .tool-icon-picker {
   -webkit-mask: var(--tool-icon-picker) no-repeat center / contain;
   mask: var(--tool-icon-picker) no-repeat center / contain;
+}
+
+#intensityPanel {
+  --history-icon-home: url('/static/icons/home-2.svg');
+  --history-icon-rotate-left: url('/static/icons/restore.svg');
+  --history-icon-rotate-right: url('/static/icons/view-360.svg');
+}
+
+.history-icon-save {
+  -webkit-mask: var(--history-icon-save) no-repeat center / contain;
+  mask: var(--history-icon-save) no-repeat center / contain;
+}
+
+.history-icon-rotate-left {
+  -webkit-mask: var(--history-icon-rotate-left) no-repeat center / contain;
+  mask: var(--history-icon-rotate-left) no-repeat center / contain;
+}
+
+.history-icon-rotate-right {
+  -webkit-mask: var(--history-icon-rotate-right) no-repeat center / contain;
+  mask: var(--history-icon-rotate-right) no-repeat center / contain;
+}
+
+.panel-actions {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.panel-actions .history-button {
+  flex: 0 0 auto;
+  width: var(--slider-track-height);
+  height: var(--slider-track-height);
+  padding: 0;
+}
+
+.panel-actions .history-button:hover:not([disabled]),
+.panel-actions .history-button:active {
+  background: var(--accent-color);
+  border-color: var(--accent-color);
+  color: var(--accent-ink, #161616);
 }

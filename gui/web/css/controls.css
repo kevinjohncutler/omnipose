@@ -390,7 +390,7 @@
 .number-field input[type='number'] {
   width: 100%;
   height: 100%;
-  line-height: var(--slider-track-height);
+  line-height: normal;
   background: transparent;
   border: none;
   color: currentColor;
@@ -489,6 +489,8 @@
   width: var(--toggle-width);
   height: var(--slider-track-height);
   border-radius: calc(var(--slider-track-height) / 2);
+  height: var(--slider-track-height);
+  line-height: normal;
   background: var(--slider-track-bg);
   box-shadow: inset 0 0 0 1px var(--slider-track-border);
   transition: background 0.18s ease;
@@ -867,13 +869,12 @@ button:not(:disabled):hover {
 }
 
 .tool-toggle--compact {
-  width: 210px;
-  flex: 0 0 auto;
+  width: 100%;
+  max-width: 100%;
+  flex: 1 1 auto;
 }
 
-.panel-header .tool-toggle--compact {
-  margin-left: auto;
-}
+
 
 .tool-options {
   display: flex;
@@ -1002,9 +1003,9 @@ button:not(:disabled):hover {
 .mask-style-icon {
   position: relative;
   display: block;
-  width: calc((100% - 2 * var(--mask-style-gap)) * 0.75);
+  width: var(--slider-knob-size);
   height: var(--slider-knob-size);
-  border-radius: calc(var(--slider-knob-size) / 2);
+  border-radius: 50%;
   border: none;
   box-shadow: inset 0 0 0 var(--mask-style-border) currentColor;
   background: transparent;
@@ -1015,8 +1016,8 @@ button:not(:disabled):hover {
 .mask-style-icon::after {
   content: '';
   position: absolute;
-  inset: var(--control-inset);
-  border-radius: calc(var(--slider-knob-size) / 2);
+  inset: 0;
+  border-radius: 50%;
   background: currentColor;
   opacity: 0.35;
 }
@@ -1274,6 +1275,36 @@ button:not(:disabled):hover {
   gap: 10px;
 }
 
+.panel-header--tools {
+  display: grid;
+  grid-template-columns: var(--control-label-width) 1fr;
+  align-items: center;
+  column-gap: 10px;
+}
+
+.panel-header--tools .tool-toggle--compact {
+  width: 100%;
+  max-width: 100%;
+}
+
+
+
+.panel-header--labels {
+  display: grid;
+  grid-template-columns: var(--control-label-width) 1fr;
+  align-items: center;
+  column-gap: 10px;
+}
+
+.panel-header--labels .mask-style-toggle--compact {
+  width: 100%;
+  max-width: 100%;
+  flex: 1 1 auto;
+}
+
+
+
+
 .panel-body {
   display: flex;
   flex-direction: column;
@@ -1315,4 +1346,50 @@ button:not(:disabled):hover {
 
 .toggle-left {
   flex: 0 0 auto;
+}
+
+.mask-style-toggle .kernel-option[data-mask-style='hidden'] .mask-style-icon::after {
+  opacity: 0;
+}
+
+.mask-style-toggle .kernel-option[data-mask-style='hidden'] .mask-style-icon::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: currentColor;
+  height: 2px;
+  width: 120%;
+  left: -10%;
+  top: 44%;
+  transform: rotate(-35deg);
+  border-radius: 999px;
+}
+
+.omni-tooltip {
+  display: flex;
+  align-items: center;
+  position: fixed;
+  z-index: 10000;
+  padding: 0 12px;
+  border-radius: calc(var(--slider-track-height) / 2);
+  height: var(--slider-track-height);
+  line-height: normal;
+  background: var(--control-input-surface);
+  color: var(--panel-text-color);
+  border: 1px solid var(--slider-track-border);
+  backdrop-filter: blur(var(--control-blur));
+  -webkit-backdrop-filter: blur(var(--control-blur));
+  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.25);
+  font-size: 0.75rem;
+  letter-spacing: 0.02em;
+  opacity: 0;
+  transform: translateY(6px);
+  transition: opacity 0.12s ease, transform 0.12s ease;
+  pointer-events: none;
+  white-space: nowrap;
+}
+
+.omni-tooltip.visible {
+  opacity: 1;
+  transform: translateY(0);
 }

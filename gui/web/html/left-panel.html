@@ -2,7 +2,7 @@
 
       <div id="leftPanel" class="side-panel">
         <div class="panel-section">
-          <div class="control-heading">Navigation</div>
+          <div class="control-heading">Undo / Redo / Save</div>
           <div class="control history-panel">
             <div class="history-controls" role="group" aria-label="Undo, Redo, and Recenter">
               <button type="button" id="undoButton" class="history-button" aria-label="Undo" disabled>
@@ -13,18 +13,18 @@
                 <span class="history-icon history-icon-redo" aria-hidden="true"></span>
                 <span class="sr-only">Redo</span>
               </button>
-              <button type="button" id="resetViewButton" class="history-button" aria-label="Recenter view">
-                <span class="history-icon history-icon-home" aria-hidden="true"></span>
-                <span class="sr-only">Recenter</span>
+              <button type="button" id="saveStateButton" class="history-button" aria-label="Save state">
+                <span class="history-icon history-icon-save" aria-hidden="true"></span>
+                <span class="sr-only">Save</span>
               </button>
             </div>
           </div>
         </div>
         <div class="panel-section" id="brushPanel">
-          <div class="panel-header">
+          <div class="panel-header panel-header--tools">
             <div class="control-heading">Tools</div>
             <div class="kernel-toggle segmented-toggle tool-toggle tool-toggle--compact" role="group" aria-label="Tools" title="Shortcuts: Cmd/Ctrl+1..4">
-              <button type="button" class="tool-stop kernel-option" data-mode="draw" title="Draw (B)">
+              <button type="button" class="tool-stop kernel-option" data-mode="draw" title="Brush (B)">
                 <span class="tool-icon tool-icon-draw" aria-hidden="true"></span>
                 <span class="sr-only">Draw</span>
               </button>
@@ -32,7 +32,7 @@
                 <span class="tool-icon tool-icon-erase" aria-hidden="true"></span>
                 <span class="sr-only">Erase</span>
               </button>
-              <button type="button" class="tool-stop kernel-option" data-mode="fill" title="Fill (F)">
+              <button type="button" class="tool-stop kernel-option" data-mode="fill" title="Fill (G)">
                 <span class="tool-icon tool-icon-fill" aria-hidden="true"></span>
                 <span class="sr-only">Fill</span>
               </button>
@@ -76,17 +76,9 @@
           </div>
         </div>
 <div class="panel-section label-panel" id="labelStylePanel">
-          <div class="panel-header">
+          <div class="panel-header panel-header--labels">
             <div class="control-heading">Labels</div>
-            <label class="toggle panel-toggle" title="Show masks">
-              <input type="checkbox" id="maskVisibilityToggle" checked />
-              <span class="toggle-switch"></span>
-            </label>
-          </div>
-          <div class="panel-body">
-                    <div class="control label-style-row">
-            <span class="control-heading control-heading--lower">Style</span>
-            <div id="maskStyleToggle" class="kernel-toggle segmented-toggle mask-style-toggle" role="group" aria-label="Mask style">
+            <div id="maskStyleToggle" class="kernel-toggle segmented-toggle mask-style-toggle mask-style-toggle--compact" role="group" aria-label="Mask style">
               <button type="button" class="kernel-option" data-mask-style="outlined" aria-label="Outline+fill masks" title="outline+fill">
                 <span class="mask-style-icon"></span>
               </button>
@@ -96,8 +88,12 @@
               <button type="button" class="kernel-option" data-mask-style="outline" aria-label="Outline masks" title="outline">
                 <span class="mask-style-icon"></span>
               </button>
+              <button type="button" class="kernel-option" data-mask-style="hidden" aria-label="Hide masks" title="hide">
+                <span class="mask-style-icon"></span>
+              </button>
             </div>
           </div>
+          <div class="panel-body">
           <div class="control label-style-row">
             <span class="control-heading control-heading--lower">Alpha</span>
             <div class="slider-row">
