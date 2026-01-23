@@ -5,6 +5,7 @@ import argparse
 import base64
 import io
 import json
+import os
 import shutil
 import socket
 import subprocess
@@ -416,7 +417,13 @@ class Segmenter:
         self._magma_lut: Optional[np.ndarray] = None
         self._utils_module = None
         self._kernel_cache: dict[int, tuple[Any, Any, Any, Any, Any]] = {}
-        self._use_gpu = False
+        try:
+            from omnipose import gpu as omni_gpu  # type: ignore
+
+            _, available = omni_gpu.use_gpu(0, use_torch=True)
+            self._use_gpu = bool(available)
+        except Exception:
+            self._use_gpu = False
 
     def _ensure_model(self) -> None:
         if self._model is None:
@@ -570,6 +577,14 @@ class Segmenter:
 
     def set_use_gpu(self, enabled: bool) -> None:
         next_value = bool(enabled)
+        if next_value:
+            try:
+                from omnipose import gpu as omni_gpu  # type: ignore
+
+                _, available = omni_gpu.use_gpu(0, use_torch=True)
+                next_value = bool(available)
+            except Exception:
+                next_value = False
         if next_value == self._use_gpu:
             return
         self._use_gpu = next_value
@@ -1166,6 +1181,8 @@ def run_segmentation(
     if state is None:
         state = SESSION_MANAGER.get_or_create(None)
     image = state.current_image if state.current_image is not None else load_image_uint8(as_rgb=True)
+    if isinstance(settings, Mapping) and 'use_gpu' in settings:
+        _SEGMENTER.set_use_gpu(bool(settings.get('use_gpu')))
     mask = _SEGMENTER.segment(image, settings=settings or {})
     mask_uint32 = np.ascontiguousarray(mask.astype(np.uint32, copy=False))
     encoded = base64.b64encode(mask_uint32.tobytes()).decode("ascii")
@@ -1199,6 +1216,8 @@ def run_mask_update(
 ) -> dict[str, object]:
     if state is None:
         state = SESSION_MANAGER.get_or_create(None)
+    if isinstance(settings, Mapping) and 'use_gpu' in settings:
+        _SEGMENTER.set_use_gpu(bool(settings.get('use_gpu')))
     mask = _SEGMENTER.resegment(settings=settings or {})
     mask_uint32 = np.ascontiguousarray(mask.astype(np.uint32, copy=False))
     encoded = base64.b64encode(mask_uint32.tobytes()).decode("ascii")
@@ -1778,11 +1797,18 @@ def _get_system_info() -> dict[str, object]:
     gpu_available = False
     gpu_name = None
     try:
-        import torch  # type: ignore
+        from omnipose import gpu as omni_gpu  # type: ignore
 
-        gpu_available = bool(torch.cuda.is_available())
+        device, gpu_ok = omni_gpu.use_gpu(0, use_torch=True)
+        gpu_available = bool(gpu_ok)
+        gpu_name = getattr(device, 'type', None)
         if gpu_available:
-            gpu_name = torch.cuda.get_device_name(0)
+            try:
+                import torch  # type: ignore
+
+                gpu_name = torch.cuda.get_device_name(0)
+            except Exception:
+                gpu_name = 'GPU available'
     except Exception:
         gpu_available = False
         gpu_name = None

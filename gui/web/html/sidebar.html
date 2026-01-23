@@ -2,36 +2,49 @@
 
       <div id="sidebar" class="side-panel">
                         <div class="panel-section" id="intensityPanel">
-          <div class="control">
-            <label>Intensity Window</label>
-            <div class="histogram-surface">
-              <canvas id="histogram" class="histogram" width="220" height="80"></canvas>
-            </div>
-            <div id="histRange" class="status">Window: [0, 255]</div>
+          <div class="panel-header">
+            <div class="control-heading" title="lookup table">Image</div>
+            <label class="toggle panel-toggle" title="Show image">
+              <input type="checkbox" id="imageVisibilityToggle" checked />
+              <span class="toggle-switch"></span>
+            </label>
           </div>
-          <div class="control slider-inline">
-            <label for="gamma">&gamma;</label>
-            <div class="slider-row">
-              <div class="slider" data-slider-id="gamma" data-slider-type="single">
-                <input type="range" id="gamma" min="10" max="600" value="100" />
+          <div class="panel-body">
+            <div class="control">
+              <div class="histogram-surface">
+                <canvas id="histogram" class="histogram" width="220" height="80"></canvas>
               </div>
-              <div class="number-field" data-number-id="gammaInput">
-                <input type="number" id="gammaInput" min="0.10" max="6.00" step="0.05" value="1.00" />
+              <div id="histRange" class="status">Window: [0, 255]</div>
+            </div>
+            <div class="control slider-inline">
+              <label for="gamma">Gamma</label>
+              <div class="slider-row">
+                <div class="slider" data-slider-id="gamma" data-slider-type="single">
+                  <input type="range" id="gamma" min="10" max="600" value="100" />
+                </div>
+                <div class="number-field" data-number-id="gammaInput">
+                  <input type="number" id="gammaInput" min="0.10" max="6.00" step="0.05" value="1.00" />
+                </div>
               </div>
             </div>
-          </div>
+                      <div class="control">
+              <div class="dropdown" data-dropdown-id="imageNavigator" data-loop="true" data-count-label="images">
+                <select id="imageNavigator"></select>
+              </div>
+            </div>
+</div>
         </div>
                 <div class="panel-section" id="segmentationPanel">
           <div class="control">
             <div class="control-heading">Omnipose Model</div>
-            <div class="dropdown" data-dropdown-id="segmentationModel" data-loop="true">
+            <div class="dropdown" data-dropdown-id="segmentationModel" data-loop="true" data-count-label="models">
               <select id="segmentationModel"></select>
             </div>
             <input type="file" id="segmentationModelFile" accept=".pth,.pt,.onnx,.ckpt" style="display:none" />
           </div>
           <div class="control-heading">Parameters</div>
           <div class="control slider-inline">
-            <label for="niterSlider">niter</label>
+            <span class="control-heading control-heading--lower">niter</span>
             <div class="slider-row">
               <div class="slider" data-slider-id="niter" data-slider-type="single">
                 <input type="range" id="niterSlider" min="0" max="400" step="1" value="0" />
@@ -42,7 +55,7 @@
             </div>
           </div>
           <div class="control slider-inline">
-            <label for="maskThresholdSlider">Mask</label>
+            <span class="control-heading control-heading--lower">mask</span>
             <div class="slider-row">
               <div class="slider" data-slider-id="maskThreshold" data-slider-type="single">
                 <input type="range" id="maskThresholdSlider" min="-5" max="5" step="0.1" value="-2" />
@@ -53,7 +66,7 @@
             </div>
           </div>
           <div class="control slider-inline">
-            <label for="flowThresholdSlider">Flow</label>
+            <span class="control-heading control-heading--lower">flow</span>
             <div class="slider-row">
               <div class="slider" data-slider-id="flowThreshold" data-slider-type="single">
                 <input type="range" id="flowThresholdSlider" min="0" max="5" step="0.1" value="0" />
@@ -62,19 +75,21 @@
                 <input type="number" id="flowThresholdInput" min="0" max="5" step="0.1" value="0.0" />
               </div>
             </div>
+          </div>          <div class="control">
+            <div class="control-heading">Segmentation Mode</div>
+            <div id="segModeToggle" class="kernel-toggle segmented-toggle seg-mode-toggle" role="group" aria-label="Segmentation mode">
+              <button type="button" class="kernel-option" data-seg-mode="cluster" aria-label="DBSCAN cluster" title="DBSCAN clustering">
+                <span class="seg-mode-icon seg-mode-icon-dbscan" aria-hidden="true"></span>
+              </button>
+              <button type="button" class="kernel-option" data-seg-mode="affinity" aria-label="Affinity segmentation" title="Affinity segmentation">
+                <span class="seg-mode-icon seg-mode-icon-affinity" aria-hidden="true"></span>
+              </button>
+              <button type="button" class="kernel-option" data-seg-mode="none" aria-label="Neither" title="No clustering/affinity">
+                <span class="seg-mode-icon seg-mode-icon-cc" aria-hidden="true"></span>
+              </button>
+            </div>
           </div>
-          <div class="control toggle-group">
-            <label class="toggle">
-              <input type="checkbox" id="clusterToggle" checked />
-              <span class="toggle-switch"></span>
-              <span class="toggle-label">Enable Clustering</span>
-            </label>
-            <label class="toggle">
-              <input type="checkbox" id="affinityToggle" checked />
-              <span class="toggle-switch"></span>
-              <span class="toggle-label">Affinity Segmentation</span>
-            </label>
-          </div>
+
           <div class="control">
             <button id="segmentButton" class="accent-button">Segment</button>
             <div id="segmentStatus" class="status"></div>
@@ -86,19 +101,6 @@
             <button id="clearCacheButton" class="accent-button" title="Clear viewer cache and reload">Clear Cache &amp; Reload</button>
           </div>
           <div class="control-heading">Mask Display</div>
-          <div class="control">
-            <div id="maskStyleToggle" class="kernel-toggle mask-style-toggle" role="group" aria-label="Mask style">
-              <button type="button" class="kernel-option" data-mask-style="outlined" aria-label="Outlined masks" title="Outlined">
-                <span class="mask-style-icon"></span>
-              </button>
-              <button type="button" class="kernel-option" data-mask-style="solid" aria-label="Solid masks" title="Solid">
-                <span class="mask-style-icon"></span>
-              </button>
-              <button type="button" class="kernel-option" data-mask-style="outline" aria-label="Outline-only masks" title="Outline only">
-                <span class="mask-style-icon"></span>
-              </button>
-            </div>
-          </div>
           <div class="control toggle-group">
             <label class="toggle">
               <input type="checkbox" id="autoNColorToggle" checked />
@@ -125,7 +127,6 @@
             </label>
           </div>
         </div>
-</div>
         <div class="panel-section" id="systemInfoPanel">
           <div class="control-heading">System</div>
           <div class="control system-info">

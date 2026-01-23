@@ -1,10 +1,4 @@
-.tool-panel {
-  width: 100%;
-  display: flex;
-  flex-direction: column;
-  align-items: stretch;
-  gap: 10px;
-}
+
 
 .label-panel {
   width: 100%;
@@ -29,7 +23,7 @@
   width: var(--label-stepper-size);
   height: var(--label-stepper-size);
   border-radius: calc(var(--slider-track-height) / 2);
-  border: 1px solid var(--control-border);
+  border: 1px solid var(--slider-track-border);
   background: transparent;
   backdrop-filter: blur(var(--control-blur));
   -webkit-backdrop-filter: blur(var(--control-blur));
@@ -59,7 +53,7 @@
   min-width: 0;
   height: var(--label-stepper-size);
   border-radius: calc(var(--slider-track-height) / 2);
-  border: 1px solid var(--control-border);
+  border: 1px solid var(--slider-track-border);
   background: transparent;
   color: var(--panel-text-color);
   background: transparent;
@@ -110,9 +104,9 @@
 .history-button {
   flex: 1 1 0;
   min-width: 0;
-  height: 36px;
+  height: var(--slider-track-height);
   border-radius: calc(var(--slider-track-height) / 2);
-  border: 1px solid var(--control-border);
+  border: 1px solid var(--slider-track-border);
   background: transparent;
   backdrop-filter: blur(var(--control-blur));
   -webkit-backdrop-filter: blur(var(--control-blur));
@@ -200,7 +194,7 @@
   width: 46px;
   height: 46px;
   border-radius: calc(var(--slider-track-height) / 2);
-  border: 1px solid var(--control-border);
+  border: 1px solid var(--slider-track-border);
   background: transparent;
   backdrop-filter: blur(var(--control-blur));
   -webkit-backdrop-filter: blur(var(--control-blur));
@@ -230,7 +224,7 @@
   transform: translateY(0);
 }
 
-.tool-panel {
+.tool-toggle {
   /* Override these URLs with your own assets under /static/icons/… */
   /* --tool-icon-draw: url('data:...'); */
   --tool-icon-draw: url('/static/icons/pencil.svg');

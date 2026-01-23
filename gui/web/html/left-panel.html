@@ -1,119 +1,132 @@
 <!-- Extracted from index.html lines 10-73 -->
 
       <div id="leftPanel" class="side-panel">
-        <div class="control history-panel">
-          <div class="history-controls" role="group" aria-label="Undo, Redo, and Recenter">
-            <button type="button" id="undoButton" class="history-button" aria-label="Undo" disabled>
-              <span class="history-icon history-icon-undo" aria-hidden="true"></span>
-              <span class="sr-only">Undo</span>
-            </button>
-            <button type="button" id="redoButton" class="history-button" aria-label="Redo" disabled>
-              <span class="history-icon history-icon-redo" aria-hidden="true"></span>
-              <span class="sr-only">Redo</span>
-            </button>
-            <button type="button" id="resetViewButton" class="history-button" aria-label="Recenter view">
-              <span class="history-icon history-icon-home" aria-hidden="true"></span>
-              <span class="sr-only">Recenter</span>
-            </button>
-          </div>
-        </div>
-        <div class="control image-nav-panel">
-          <div class="history-controls" role="group" aria-label="Previous and Next Image">
-            <button type="button" id="prevImageButton" class="history-button" aria-label="Previous image" disabled>
-              <span class="history-icon history-icon-prev" aria-hidden="true"></span>
-              <span class="sr-only">Previous image</span>
-            </button>
-            <button type="button" id="nextImageButton" class="history-button" aria-label="Next image" disabled>
-              <span class="history-icon history-icon-next" aria-hidden="true"></span>
-              <span class="sr-only">Next image</span>
-            </button>
-          </div>
-        </div>
-        <div class="tool-panel">
-          <div class="tool-panel-heading control-heading">Tools</div>
-          <div class="tool-buttons" title="Shortcuts: Cmd/Ctrl+1..4">
-            <button type="button" class="tool-stop" data-mode="draw" title="Draw (B)">
-              <span class="tool-icon tool-icon-draw" aria-hidden="true"></span>
-              <span class="sr-only">Draw</span>
-            </button>
-            <button type="button" class="tool-stop" data-mode="erase" title="Erase (E)">
-              <span class="tool-icon tool-icon-erase" aria-hidden="true"></span>
-              <span class="sr-only">Erase</span>
-            </button>
-            <button type="button" class="tool-stop" data-mode="fill" title="Fill (F)">
-              <span class="tool-icon tool-icon-fill" aria-hidden="true"></span>
-              <span class="sr-only">Fill</span>
-            </button>
-            <button type="button" class="tool-stop" data-mode="picker" title="Eyedropper (I)">
-              <span class="tool-icon tool-icon-picker" aria-hidden="true"></span>
-              <span class="sr-only">Picker</span>
-            </button>
-          </div>
-        </div>
-        <div class="brush-panel control">
-          <div class="control-heading">Brush Size</div>
-          <div class="brush-slider slider-inline">
-            <div class="slider" data-slider-id="brushSizeSlider" data-slider-type="single">
-              <input type="range" id="brushSizeSlider" min="1" max="25" step="1" value="3" />
-            </div>
-            <div class="number-field" data-number-id="brushSizeInput">
-              <input type="number" id="brushSizeInput" min="1" max="25" step="1" value="3" />
+        <div class="panel-section">
+          <div class="control-heading">Navigation</div>
+          <div class="control history-panel">
+            <div class="history-controls" role="group" aria-label="Undo, Redo, and Recenter">
+              <button type="button" id="undoButton" class="history-button" aria-label="Undo" disabled>
+                <span class="history-icon history-icon-undo" aria-hidden="true"></span>
+                <span class="sr-only">Undo</span>
+              </button>
+              <button type="button" id="redoButton" class="history-button" aria-label="Redo" disabled>
+                <span class="history-icon history-icon-redo" aria-hidden="true"></span>
+                <span class="sr-only">Redo</span>
+              </button>
+              <button type="button" id="resetViewButton" class="history-button" aria-label="Recenter view">
+                <span class="history-icon history-icon-home" aria-hidden="true"></span>
+                <span class="sr-only">Recenter</span>
+              </button>
             </div>
           </div>
         </div>
-        <div class="brush-panel control">
-          <div class="control-heading">Label Opacity</div>
-          <div class="brush-slider slider-inline">
-            <div class="slider" data-slider-id="maskOpacity" data-slider-type="single">
-              <input type="range" id="maskOpacity" min="0" max="1" step="0.01" value="0.8" />
-            </div>
-            <div class="number-field" data-number-id="maskOpacityInput">
-              <input type="number" id="maskOpacityInput" min="0" max="1" step="0.01" value="0.80" />
+        <div class="panel-section" id="brushPanel">
+          <div class="panel-header">
+            <div class="control-heading">Tools</div>
+            <div class="kernel-toggle segmented-toggle tool-toggle tool-toggle--compact" role="group" aria-label="Tools" title="Shortcuts: Cmd/Ctrl+1..4">
+              <button type="button" class="tool-stop kernel-option" data-mode="draw" title="Draw (B)">
+                <span class="tool-icon tool-icon-draw" aria-hidden="true"></span>
+                <span class="sr-only">Draw</span>
+              </button>
+              <button type="button" class="tool-stop kernel-option" data-mode="erase" title="Erase (E)">
+                <span class="tool-icon tool-icon-erase" aria-hidden="true"></span>
+                <span class="sr-only">Erase</span>
+              </button>
+              <button type="button" class="tool-stop kernel-option" data-mode="fill" title="Fill (F)">
+                <span class="tool-icon tool-icon-fill" aria-hidden="true"></span>
+                <span class="sr-only">Fill</span>
+              </button>
+              <button type="button" class="tool-stop kernel-option" data-mode="picker" title="Eyedropper (I)">
+                <span class="tool-icon tool-icon-picker" aria-hidden="true"></span>
+                <span class="sr-only">Picker</span>
+              </button>
             </div>
           </div>
-        </div>
-        <div class="control">
-          <div class="control-heading">Brush Kernel</div>
-          <label class="toggle" title="Snap exact kernel to pixel grid (on) or interpolate circle onto local grid (off, default)">
-            <input type="checkbox" id="brushKernelToggle" />
-            <span class="toggle-switch"></span>
-            <span class="toggle-label">Snap</span>
-          </label>
-          <!--
-          <div class="dropdown" data-dropdown-id="brushKernelMode">
-            <select id="brushKernelMode">
-              <option value="smooth">Interpolated (continuous)</option>
-              <option value="snapped">Snapped (integer)</option>
-            </select>
+          <div class="panel-body">
+            <div class="tool-options tool-options--brush" data-tool="draw,erase">
+              <div class="brush-slider slider-inline">
+                <span class="control-heading control-heading--lower">Size</span>
+                <div class="slider-row">
+                  <div class="slider" data-slider-id="brushSizeSlider" data-slider-type="single">
+                    <input type="range" id="brushSizeSlider" min="1" max="25" step="1" value="3" />
+                  </div>
+                  <div class="number-field" data-number-id="brushSizeInput">
+                    <input type="number" id="brushSizeInput" min="1" max="25" step="1" value="3" />
+                  </div>
+                </div>
+              </div>
+              <div class="control label-style-row">
+                <span class="control-heading control-heading--lower">Snap</span>
+                <label class="toggle toggle-left" title="Snap exact kernel to pixel grid (on) or interpolate circle onto local grid (off, default)">
+                  <input type="checkbox" id="brushKernelToggle" />
+                  <span class="toggle-switch"></span>
+                </label>
+              </div>
+            </div>
+            <div class="tool-options tool-options--empty" data-tool="fill"></div>
+            <div class="tool-options tool-options--empty" data-tool="picker"></div>
+            <!--
+            <div class="dropdown" data-dropdown-id="brushKernelMode">
+              <select id="brushKernelMode">
+                <option value="smooth">Interpolated (continuous)</option>
+                <option value="snapped">Snapped (integer)</option>
+              </select>
+            </div>
+            -->
           </div>
-          -->
         </div>
-
-
+<div class="panel-section label-panel" id="labelStylePanel">
+          <div class="panel-header">
+            <div class="control-heading">Labels</div>
+            <label class="toggle panel-toggle" title="Show masks">
+              <input type="checkbox" id="maskVisibilityToggle" checked />
+              <span class="toggle-switch"></span>
+            </label>
+          </div>
+          <div class="panel-body">
+                    <div class="control label-style-row">
+            <span class="control-heading control-heading--lower">Style</span>
+            <div id="maskStyleToggle" class="kernel-toggle segmented-toggle mask-style-toggle" role="group" aria-label="Mask style">
+              <button type="button" class="kernel-option" data-mask-style="outlined" aria-label="Outline+fill masks" title="outline+fill">
+                <span class="mask-style-icon"></span>
+              </button>
+              <button type="button" class="kernel-option" data-mask-style="solid" aria-label="Fill masks" title="fill">
+                <span class="mask-style-icon"></span>
+              </button>
+              <button type="button" class="kernel-option" data-mask-style="outline" aria-label="Outline masks" title="outline">
+                <span class="mask-style-icon"></span>
+              </button>
+            </div>
+          </div>
+          <div class="control label-style-row">
+            <span class="control-heading control-heading--lower">Alpha</span>
+            <div class="slider-row">
+              <div class="slider" data-slider-id="maskAlpha" data-slider-type="single">
+                <input type="range" id="maskAlpha" min="0" max="1" step="0.01" value="0.8" />
+              </div>
+              <div class="number-field" data-number-id="maskAlphaInput">
+                <input type="number" id="maskAlphaInput" min="0" max="1" step="0.01" value="0.80" />
+              </div>
+            </div>
+          </div>
+          <div class="control label-style-row">
+            <span class="control-heading control-heading--lower">Value</span>
+            <div class="label-panel-row label-stepper">
+              <input type="number" id="labelValueInput" min="0" step="1" value="" placeholder="—" />
+              <div class="label-stepper-buttons">
+                <button type="button" id="labelStepDown" aria-label="Decrement label">
+                  <span class="label-icon label-icon-decrement" aria-hidden="true"></span>
+                  <span class="sr-only">Decrement</span>
+                </button>
+                <button type="button" id="labelStepUp" aria-label="Increment label">
+                  <span class="label-icon label-icon-increment" aria-hidden="true"></span>
+                  <span class="sr-only">Increment</span>
+                </button>
+              </div>
+            </div>
+          </div>
+          </div>
+        </div>
         <div class="control toggle-group" id="layerVisibilityControls">
-          <label class="toggle">
-            <input type="checkbox" id="imageVisibilityToggle" checked />
-            <span class="toggle-switch"></span>
-            <span class="toggle-label">Show Image</span>
-          </label>
-          <label class="toggle">
-            <input type="checkbox" id="maskVisibilityToggle" checked />
-            <span class="toggle-switch"></span>
-            <span class="toggle-label">Show Masks</span>
-          </label>
-        </div>
-        <div class="label-panel control">
-          <div class="control-heading">Label</div>
-          <div class="label-panel-row label-stepper">
-            <input type="number" id="labelValueInput" min="0" step="1" value="" placeholder="—" />
-            <button type="button" id="labelStepDown" aria-label="Decrement label">
-              <span class="label-icon label-icon-decrement" aria-hidden="true"></span>
-              <span class="sr-only">Decrement</span>
-            </button>
-            <button type="button" id="labelStepUp" aria-label="Increment label">
-              <span class="label-icon label-icon-increment" aria-hidden="true"></span>
-              <span class="sr-only">Increment</span>
-            </button>
-          </div>
         </div>
       </div>

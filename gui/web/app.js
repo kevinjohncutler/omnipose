@@ -1904,6 +1904,23 @@ function percentToValue(percent, input) {
   return clamp(Math.round(snapped * factor) / factor, min, max);
 }
 
+
+const FILENAME_TRUNCATE = 10;
+
+function truncateFilename(name, keep = FILENAME_TRUNCATE) {
+  if (!name || typeof name !== 'string') {
+    return '';
+  }
+  const lastDot = name.lastIndexOf('.');
+  const hasExt = lastDot > 0 && lastDot < name.length - 1;
+  const base = hasExt ? name.slice(0, lastDot) : name;
+  const ext = hasExt ? name.slice(lastDot) : '';
+  if (base.length <= keep * 2) {
+    return base + ext;
+  }
+  return `${base.slice(0, keep)}...${base.slice(-keep)}${ext}`;
+}
+
 function pointerPercent(evt, container) {
   const rect = container.getBoundingClientRect();
   if (rect.width <= 0) {
@@ -2246,11 +2263,19 @@ function registerDropdown(root) {
     menuWrapper,
     options: originalOptions,
     loop: root.dataset.loop === 'true' ? { size: 5, mode: 'loop' } : null,
+    countLabel: root.dataset.countLabel || 'items',
   };
 
     const applySelection = () => {
     const selectedOption = select.options[select.selectedIndex];
-    button.textContent = selectedOption ? selectedOption.textContent : 'Select';
+    const displayLabel = selectedOption ? selectedOption.textContent : 'Select';
+    button.textContent = displayLabel;
+    if (selectedOption) {
+      const fullLabel = selectedOption.dataset.fullPath || selectedOption.dataset.fullLabel || selectedOption.title || selectedOption.textContent;
+      if (fullLabel) {
+        button.title = fullLabel;
+      }
+    }
     menu.querySelectorAll('.dropdown-option').forEach((child) => {
       const isSelected = child.dataset.value === select.value;
       child.dataset.selected = isSelected ? 'true' : 'false';
@@ -2265,6 +2290,9 @@ function registerDropdown(root) {
     item.dataset.value = opt.value;
     item.textContent = opt.label;
     item.setAttribute('role', 'option');
+    if (opt.title) {
+      item.title = opt.title;
+    }
     if (opt.disabled) {
       item.setAttribute('aria-disabled', 'true');
       item.style.opacity = '0.45';
@@ -2309,7 +2337,7 @@ function registerDropdown(root) {
       footer.className = 'dropdown-footer';
       const count = document.createElement('span');
       count.className = 'dropdown-count';
-      count.textContent = total ? `${total} models` : '0 models';
+      count.textContent = total ? `${total} ${entry.countLabel}` : `0 ${entry.countLabel}`;
       const toggleBtn = document.createElement('button');
       toggleBtn.type = 'button';
       toggleBtn.className = 'dropdown-expand';
@@ -2331,7 +2359,7 @@ function registerDropdown(root) {
         footer.className = 'dropdown-footer';
         const count = document.createElement('span');
         count.className = 'dropdown-count';
-        count.textContent = opts.filter((opt) => opt.value !== '__add__').length + ' models';
+        count.textContent = opts.filter((opt) => opt.value !== '__add__').length + ` ${entry.countLabel}`;
         const toggleBtn = document.createElement('button');
         toggleBtn.type = 'button';
         toggleBtn.className = 'dropdown-expand';
@@ -2733,6 +2761,7 @@ const redoButton = document.getElementById('redoButton');
 const resetViewButton = document.getElementById('resetViewButton');
 const prevImageButton = document.getElementById('prevImageButton');
 const nextImageButton = document.getElementById('nextImageButton');
+const imageNavigator = document.getElementById('imageNavigator');
 const leftPanelEl = document.getElementById('leftPanel');
 const sidebarEl = document.getElementById('sidebar');
 const maskVisibility = document.getElementById('maskVisibility');
@@ -2761,11 +2790,17 @@ const flowThresholdSlider = document.getElementById('flowThresholdSlider');
 const flowThresholdInput = document.getElementById('flowThresholdInput');
 const clusterToggle = document.getElementById('clusterToggle');
 const affinityToggle = document.getElementById('affinityToggle');
+const segModeToggle = document.getElementById('segModeToggle');
+const segModeButtons = segModeToggle
+  ? Array.from(segModeToggle.querySelectorAll('.kernel-option'))
+  : [];
 const affinityGraphToggle = document.getElementById('affinityGraphToggle');
 const flowOverlayToggle = document.getElementById('flowOverlayToggle');
 const distanceOverlayToggle = document.getElementById('distanceOverlayToggle');
 const imageVisibilityToggle = document.getElementById('imageVisibilityToggle');
 const maskVisibilityToggle = document.getElementById('maskVisibilityToggle');
+const intensityPanel = document.getElementById('intensityPanel');
+const labelStylePanel = document.getElementById('labelStylePanel');
 const autoNColorToggle = document.getElementById('autoNColorToggle');
 const brushKernelToggle = document.getElementById('brushKernelToggle');
 const systemRamEl = document.getElementById('systemRam');
@@ -2777,6 +2812,7 @@ const maskStyleButtons = maskStyleToggle
   ? Array.from(maskStyleToggle.querySelectorAll('.kernel-option'))
   : [];
 const toolStopButtons = Array.from(document.querySelectorAll('.tool-stop'));
+const toolOptionsBlocks = Array.from(document.querySelectorAll('.tool-options'));
 const TOOL_MODE_ORDER = ['draw', 'erase', 'fill', 'picker'];
 const PREVIEW_TOOL_TYPES = new Set(['brush', 'erase']);
 const CROSSHAIR_TOOL_TYPES = new Set(['brush', 'erase', 'fill', 'picker']);
@@ -2857,25 +2893,53 @@ if (resetViewButton) {
     resetView();
   });
 }
-if (prevImageButton) {
-  prevImageButton.disabled = !hasPrevImage;
-  prevImageButton.addEventListener('click', () => {
-    if (!hasPrevImage) {
-      return;
+setupImageNavigator();
+
+
+function setupImageNavigator() {
+  if (!imageNavigator) {
+    return;
+  }
+  if (!Array.isArray(directoryEntries) || directoryEntries.length === 0) {
+    imageNavigator.innerHTML = '';
+    const opt = document.createElement('option');
+    opt.value = '';
+    opt.textContent = currentImageName || 'Select';
+    imageNavigator.appendChild(opt);
+    return;
+  }
+  imageNavigator.innerHTML = '';
+  directoryEntries.forEach((entry) => {
+    const opt = document.createElement('option');
+    opt.value = entry.path || entry.name;
+    opt.textContent = truncateFilename(entry.name);
+    opt.dataset.fullLabel = entry.name;
+    opt.dataset.fullPath = entry.path || entry.name;
+    opt.title = entry.path || entry.name;
+    if (entry.isCurrent) {
+      opt.selected = true;
     }
-    navigateDirectory(-1).catch((err) => {
-      console.warn('navigateDirectory(-1) failed', err);
-    });
+    imageNavigator.appendChild(opt);
   });
-}
-if (nextImageButton) {
-  nextImageButton.disabled = !hasNextImage;
-  nextImageButton.addEventListener('click', () => {
-    if (!hasNextImage) {
+  const dropdownEntry = dropdownRegistry.get('imageNavigator');
+  if (dropdownEntry) {
+    dropdownEntry.options = Array.from(imageNavigator.options).map((opt) => ({
+      value: opt.value,
+      label: opt.textContent || opt.value,
+      disabled: opt.disabled,
+      title: opt.dataset.fullPath || opt.dataset.fullLabel || opt.title || opt.textContent || opt.value,
+    }));
+    if (typeof dropdownEntry.buildMenu === 'function') {
+      dropdownEntry.buildMenu();
+    }
+  }
+  imageNavigator.addEventListener('change', () => {
+    const nextPath = imageNavigator.value;
+    if (!nextPath || nextPath === currentImagePath) {
       return;
     }
-    navigateDirectory(1).catch((err) => {
-      console.warn('navigateDirectory(1) failed', err);
+    openImageByPath(nextPath).catch((err) => {
+      console.warn('openImageByPath failed', err);
     });
   });
 }
@@ -2984,6 +3048,7 @@ let flowThreshold = clamp(
 );
 let clusterEnabled = typeof CONFIG.cluster === 'boolean' ? CONFIG.cluster : true;
 let affinitySegEnabled = typeof CONFIG.affinitySeg === 'boolean' ? CONFIG.affinitySeg : true;
+let segMode = clusterEnabled ? (affinitySegEnabled ? 'none' : 'cluster') : (affinitySegEnabled ? 'affinity' : 'none');
 let userAdjustedScale = false;
 const touchPointers = new Map();
 window.addEventListener('blur', handleWindowBlur);
@@ -3659,7 +3724,7 @@ function updateLabelControls() {
       const color = 'rgb(' + (r | 0) + ', ' + (g | 0) + ', ' + (b | 0) + ')';
       const textColor = readableTextColor([r, g, b]);
       labelValueInput.style.setProperty('background', color);
-      labelValueInput.style.setProperty('border-color', 'rgba(0, 0, 0, 0.18)');
+      labelValueInput.style.setProperty('border-color', 'var(--slider-track-border)');
       labelValueInput.style.setProperty('color', textColor);
       labelValueInput.style.setProperty('caret-color', textColor);
       updateAccentColorsFromRgb(rgb);
@@ -3784,6 +3849,22 @@ function getActiveToolMode() {
   return 'draw';
 }
 
+
+function updateToolOptions() {
+  if (!toolOptionsBlocks.length) {
+    return;
+  }
+  const mode = getActiveToolMode();
+  toolOptionsBlocks.forEach((block) => {
+    const tools = (block.getAttribute('data-tool') || '')
+      .split(',')
+      .map((value) => value.trim())
+      .filter(Boolean);
+    const active = tools.includes(mode);
+    block.style.display = active ? 'flex' : 'none';
+  });
+}
+
 function updateToolButtons() {
   if (!toolStopButtons || !toolStopButtons.length) {
     return;
@@ -3800,6 +3881,7 @@ function updateToolButtons() {
       btn.setAttribute('aria-pressed', 'false');
     }
   });
+  updateToolOptions();
 }
 
 function selectToolMode(mode) {
@@ -4017,6 +4099,18 @@ function setAffinitySegEnabled(value, { silent = false } = {}) {
   }
 }
 
+
+function setPanelCollapsed(panel, collapsed) {
+  if (!panel) {
+    return;
+  }
+  if (collapsed) {
+    panel.classList.add('panel-collapsed');
+  } else {
+    panel.classList.remove('panel-collapsed');
+  }
+}
+
 function setImageVisible(value, { silent = false } = {}) {
   const next = Boolean(value);
   if (imageVisible === next) {
@@ -4029,6 +4123,7 @@ function setImageVisible(value, { silent = false } = {}) {
   if (imageVisibilityToggle) {
     imageVisibilityToggle.checked = imageVisible;
   }
+  setPanelCollapsed(intensityPanel, !imageVisible);
   if (!silent) {
     draw();
     scheduleStateSave();
@@ -4214,6 +4309,47 @@ function updateKernelToggle() {
     return;
   }
   brushKernelToggle.checked = brushKernelMode === BRUSH_KERNEL_MODES.SNAPPED;
+}
+
+function updateSegModeControls() {
+  if (!segModeButtons || !segModeButtons.length) {
+    return;
+  }
+  segModeButtons.forEach((btn) => {
+    const mode = btn.getAttribute('data-seg-mode');
+    const isActive = mode === segMode;
+    if (isActive) {
+      btn.setAttribute('data-active', 'true');
+      btn.setAttribute('aria-pressed', 'true');
+    } else {
+      btn.removeAttribute('data-active');
+      btn.setAttribute('aria-pressed', 'false');
+    }
+  });
+}
+
+function setSegMode(nextMode, { silent = false } = {}) {
+  const normalized = nextMode === 'cluster' || nextMode === 'none' ? nextMode : 'affinity';
+  if (segMode === normalized) {
+    updateSegModeControls();
+    return;
+  }
+  segMode = normalized;
+  if (segMode === 'cluster') {
+    setClusterEnabled(true, { silent: true });
+    setAffinitySegEnabled(false, { silent: true });
+  } else if (segMode === 'affinity') {
+    setClusterEnabled(false, { silent: true });
+    setAffinitySegEnabled(true, { silent: true });
+  } else {
+    setClusterEnabled(false, { silent: true });
+    setAffinitySegEnabled(false, { silent: true });
+  }
+  updateSegModeControls();
+  if (!silent) {
+    scheduleMaskRebuild();
+    scheduleStateSave();
+  }
 }
 
 function updateMaskStyleControls() {
@@ -4472,6 +4608,8 @@ function collectViewerState() {
     showFlowOverlay,
     showDistanceOverlay,
     showAffinityGraph: Boolean(showAffinityGraph),
+    segMode,
+    useGpu: useGpuToggle ? Boolean(useGpuToggle.checked) : undefined,
     timestamp: Date.now(),
   };
 }
@@ -4620,12 +4758,19 @@ function restoreViewerState(saved) {
     updateColorModeLabel();
     updateMaskLabel();
     updateMaskVisibilityLabel();
+    if (typeof saved.segMode === "string") {
+      segMode = saved.segMode;
+    }
+    setSegMode(segMode, { silent: true });
     updateMaskStyleControls();
     updateToolInfo();
     updateBrushControls();
     if (flowOverlayToggle) flowOverlayToggle.checked = showFlowOverlay;
     if (distanceOverlayToggle) distanceOverlayToggle.checked = showDistanceOverlay;
     if (autoNColorToggle) autoNColorToggle.checked = nColorActive;
+    if (useGpuToggle && typeof saved.useGpu === 'boolean') {
+      useGpuToggle.checked = saved.useGpu;
+    }
     if (isWebglPipelineActive()) {
       markMaskTextureFullDirty();
       markOutlineTextureFullDirty();
@@ -7354,6 +7499,26 @@ function computeHistogram() {
   }
 }
 
+
+function histogramQuantile(q) {
+  if (!histogramData) {
+    return 0;
+  }
+  const total = histogramData.reduce((acc, v) => acc + v, 0);
+  if (!total) {
+    return 0;
+  }
+  const target = total * q;
+  let cumulative = 0;
+  for (let i = 0; i < histogramData.length; i += 1) {
+    cumulative += histogramData[i];
+    if (cumulative >= target) {
+      return i;
+    }
+  }
+  return histogramData.length - 1;
+}
+
 function renderHistogram() {
   if (!histogramCanvas || !histogramData) {
     return;
@@ -7761,6 +7926,9 @@ function toggleColorMode() {
       updateMaskLabel();
       updateColorModeLabel();
       if (autoNColorToggle) autoNColorToggle.checked = nColorActive;
+    if (useGpuToggle && typeof saved.useGpu === 'boolean') {
+      useGpuToggle.checked = saved.useGpu;
+    }
       draw();
       scheduleStateSave();
     });
@@ -7797,6 +7965,9 @@ function toggleColorMode() {
       updateMaskLabel();
       updateColorModeLabel();
       if (autoNColorToggle) autoNColorToggle.checked = nColorActive;
+    if (useGpuToggle && typeof saved.useGpu === 'boolean') {
+      useGpuToggle.checked = saved.useGpu;
+    }
       draw();
       scheduleStateSave();
     })
@@ -7817,6 +7988,7 @@ function getSegmentationSettingsPayload() {
     affinity_seg: Boolean(affinitySegEnabled),
     niter: niter | 0,
     model: segmentationModel,
+    use_gpu: useGpuToggle ? Boolean(useGpuToggle.checked) : false,
   };
   if (customSegmentationModelPath) {
     payload.model_path = customSegmentationModelPath;
@@ -8869,6 +9041,10 @@ window.addEventListener('keydown', (evt) => {
   if (key === 'm') {
     maskVisible = !maskVisible;
     updateMaskVisibilityLabel();
+    if (typeof saved.segMode === "string") {
+      segMode = saved.segMode;
+    }
+    setSegMode(segMode, { silent: true });
     if (maskVisibilityToggle) {
       maskVisibilityToggle.checked = maskVisible;
     }
@@ -8938,6 +9114,11 @@ function initialize() {
     windowHigh = 255;
     currentGamma = DEFAULT_GAMMA;
     computeHistogram();
+    if (histogramData) {
+      const lowQ = histogramQuantile(0.01);
+      const highQ = histogramQuantile(0.99);
+      setWindowBounds(lowQ, highQ, { emit: false });
+    }
     setGamma(currentGamma, { emit: false });
     updateHistogramUI();
     applyImageAdjustments();
@@ -9117,6 +9298,7 @@ if (toolStopButtons.length) {
   });
 }
 updateToolButtons();
+updateToolOptions();
 if (histogramCanvas) {
   histogramCanvas.addEventListener('pointerdown', handleHistogramPointerDown);
   histogramCanvas.addEventListener('pointermove', handleHistogramPointerMove);
@@ -9198,12 +9380,16 @@ if (niterInput) {
 if (clusterToggle) {
   clusterToggle.addEventListener('change', (evt) => {
     setClusterEnabled(evt.target.checked);
+    segMode = clusterEnabled ? (affinitySegEnabled ? 'none' : 'cluster') : (affinitySegEnabled ? 'affinity' : 'none');
+    updateSegModeControls();
     scheduleStateSave();
   });
 }
 if (affinityToggle) {
   affinityToggle.addEventListener('change', (evt) => {
     setAffinitySegEnabled(evt.target.checked);
+    segMode = clusterEnabled ? (affinitySegEnabled ? 'none' : 'cluster') : (affinitySegEnabled ? 'affinity' : 'none');
+    updateSegModeControls();
     scheduleStateSave();
   });
 }
@@ -9277,6 +9463,11 @@ if (maskVisibilityToggle) {
     }
     maskVisible = visible;
     updateMaskVisibilityLabel();
+    setPanelCollapsed(labelStylePanel, !maskVisible);
+    if (typeof saved.segMode === "string") {
+      segMode = saved.segMode;
+    }
+    setSegMode(segMode, { silent: true });
     draw();
     scheduleStateSave();
   });
@@ -9485,6 +9676,14 @@ if (maskStyleButtons && maskStyleButtons.length) {
     });
   });
 }
+if (segModeButtons && segModeButtons.length) {
+  segModeButtons.forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const mode = btn.getAttribute('data-seg-mode');
+      setSegMode(mode);
+    });
+  });
+}
 if (maskOpacitySlider) {
   maskOpacitySlider.addEventListener('input', (evt) => {
     setMaskOpacity(evt.target.value);
@@ -9518,8 +9717,11 @@ setImageVisible(imageVisible, { silent: true });
 if (imageVisibilityToggle) {
   imageVisibilityToggle.checked = imageVisible;
 }
+setPanelCollapsed(intensityPanel, !imageVisible);
+setPanelCollapsed(labelStylePanel, !maskVisible);
 syncMaskOpacityControls();
 updateMaskStyleControls();
+updateSegModeControls();
 fetchSystemInfo();
 
 let bootstrapped = false;
