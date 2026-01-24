@@ -422,8 +422,11 @@ let flowOverlayImage = null;
 let flowOverlaySource = null;
 let distanceOverlayImage = null;
 let distanceOverlaySource = null;
+let pointsOverlayInfo = null;
+let pointsOverlayData = null;
 let showFlowOverlay = false;
 let showDistanceOverlay = false;
+let showPointsOverlay = false;
 function stateDebugEnabled() {
   if (DEBUG_STATE_SAVE) {
     return true;
@@ -486,6 +489,7 @@ const FXAA_SUBPIX = CONFIG.webglOverlayFxaaSubpixel ?? 0.75;
 const FXAA_EDGE_THRESHOLD = CONFIG.webglOverlayFxaaEdgeThreshold ?? 0.125;
 const FXAA_EDGE_THRESHOLD_MIN = CONFIG.webglOverlayFxaaEdgeThresholdMin ?? 1 / 12;
 const OVERLAY_PIXEL_FADE_CUTOFF = Math.max(0.0001, typeof CONFIG.webglOverlayPixelFadeCutoff === 'number' ? CONFIG.webglOverlayPixelFadeCutoff : 10);
+const POINTS_OVERLAY_ALPHA = 0.35;
 const OVERLAY_GENERATE_MIPS = CONFIG.webglOverlayGenerateMips ?? false;
 const OVERLAY_CONTEXT_ATTRIBUTES = {
   antialias: true,
@@ -1192,6 +1196,7 @@ uniform sampler2D u_maskSampler;
 uniform sampler2D u_outlineSampler;
 uniform sampler2D u_flowSampler;
 uniform sampler2D u_distanceSampler;
+uniform sampler2D u_pointsSampler;
 
 uniform float u_maskOpacity;
 uniform float u_maskVisible;
@@ -1202,6 +1207,8 @@ uniform float u_flowVisible;
 uniform float u_flowOpacity;
 uniform float u_distanceVisible;
 uniform float u_distanceOpacity;
+uniform float u_pointsVisible;
+uniform float u_pointsOpacity;
 uniform float u_colorOffset;
 
 vec3 sinebow(float t) {
@@ -1254,6 +1261,11 @@ void main() {
   if (u_distanceVisible > 0.5) {
     vec4 overlay = texture(u_distanceSampler, v_texCoord);
     float overlayAlpha = clamp(u_distanceOpacity, 0.0, 1.0) * overlay.a;
+    color = mix(color, overlay.rgb, overlayAlpha);
+  }
+  if (u_pointsVisible > 0.5) {
+    vec4 overlay = texture(u_pointsSampler, v_texCoord);
+    float overlayAlpha = clamp(u_pointsOpacity, 0.0, 1.0) * overlay.a;
     color = mix(color, overlay.rgb, overlayAlpha);
   }
   outColor = vec4(color, 1.0);
@@ -1384,6 +1396,9 @@ const texCoords = new Float32Array([
     distanceSampler: gl.getUniformLocation(program, 'u_distanceSampler'),
     distanceVisible: gl.getUniformLocation(program, 'u_distanceVisible'),
     distanceOpacity: gl.getUniformLocation(program, 'u_distanceOpacity'),
+    pointsSampler: gl.getUniformLocation(program, 'u_pointsSampler'),
+    pointsVisible: gl.getUniformLocation(program, 'u_pointsVisible'),
+    pointsOpacity: gl.getUniformLocation(program, 'u_pointsOpacity'),
     colorOffset: gl.getUniformLocation(program, 'u_colorOffset'),
   };
   gl.useProgram(program);
@@ -1392,6 +1407,7 @@ const texCoords = new Float32Array([
   gl.uniform1i(uniforms.outlineSampler, 2);
   gl.uniform1i(uniforms.flowSampler, 3);
   gl.uniform1i(uniforms.distanceSampler, 4);
+  gl.uniform1i(uniforms.pointsSampler, 5);
   gl.useProgram(null);
 
   const affinityProgram = createWebglProgram(gl, AFFINITY_LINE_VERTEX_SHADER, AFFINITY_LINE_FRAGMENT_SHADER);
@@ -1587,6 +1603,9 @@ function updateOverlayTexture(kind, image) {
   if (!isWebglPipelineActive() || !webglPipeline) {
     return;
   }
+  if (kind !== 'flow' && kind !== 'distance') {
+    return;
+  }
   const key = kind === 'flow' ? 'flowTexture' : 'distanceTexture';
   const texUnit = kind === 'flow' ? 3 : 4;
   const { gl: pipelineGl } = webglPipeline;
@@ -1657,6 +1676,8 @@ function drawWebglFrame() {
   pipelineGl.uniform1f(uniforms.flowOpacity, 0.7);
   pipelineGl.uniform1f(uniforms.distanceVisible, showDistanceOverlay && distanceOverlayImage && distanceOverlayImage.complete ? 1 : 0);
   pipelineGl.uniform1f(uniforms.distanceOpacity, 0.6);
+  pipelineGl.uniform1f(uniforms.pointsVisible, 0);
+  pipelineGl.uniform1f(uniforms.pointsOpacity, 0);
 
   pipelineGl.activeTexture(pipelineGl.TEXTURE0);
   pipelineGl.bindTexture(pipelineGl.TEXTURE_2D, baseTexture || webglPipeline.emptyTexture);
@@ -1677,21 +1698,49 @@ function drawWebglFrame() {
   }
 }
 
+
+function shouldApplyOverlayZoomFade() {
+  return !affinitySegEnabled;
+}
+
+function updateOverlayVisibility() {
+  if (!webglOverlay || !webglOverlay.enabled) {
+    return;
+  }
+  const hasLines = showAffinityGraph && webglOverlay.edgeCount > 0;
+  const hasPoints = showPointsOverlay && webglOverlay.pointsCount > 0;
+  const visible = hasLines || hasPoints;
+  const alpha = hasLines
+    ? (Number.isFinite(webglOverlay.displayAlpha) ? webglOverlay.displayAlpha : 1)
+    : (hasPoints ? 1 : 0);
+  setOverlayCanvasVisibility(visible, alpha);
+}
+
 function drawAffinityGraphShared(matrix) {
   if (!webglOverlay || !webglOverlay.enabled) {
     return;
   }
   const glCanvas = getOverlayCanvasElement();
-  if (!showAffinityGraph || !affinityGraphInfo || !affinityGraphInfo.values) {
+  const showLines = showAffinityGraph && affinityGraphInfo && affinityGraphInfo.values;
+  const showPoints = showPointsOverlay && webglOverlay.pointsCount > 0;
+  if (!showLines && !showPoints) {
     clearWebglOverlaySurface();
     return;
   }
-  const { gl: overlayGl, program, attribs, uniforms } = webglOverlay;
-  if (!overlayGl || !program || !uniforms || !attribs) {
+  const {
+    gl: overlayGl,
+    lineProgram,
+    lineAttribs,
+    lineUniforms,
+    pointProgram,
+    pointAttribs,
+    pointUniforms,
+  } = webglOverlay;
+  if (!overlayGl || !lineProgram || !lineUniforms || !lineAttribs) {
     clearWebglOverlaySurface();
     return;
   }
-  let mustBuild = Boolean(webglOverlay.needsGeometryRebuild)
+  let mustBuild = showLines && Boolean(webglOverlay.needsGeometryRebuild)
     || !webglOverlay.positionsArray
     || !Number.isFinite(webglOverlay.vertexCount) || webglOverlay.vertexCount === 0
     || webglOverlay.width !== (affinityGraphInfo.width | 0)
@@ -1702,9 +1751,11 @@ function drawAffinityGraphShared(matrix) {
       ensureWebglGeometry(affinityGraphInfo.width, affinityGraphInfo.height);
     }
   }
-  if (!webglOverlay.positionsArray || !webglOverlay.positionsArray.length) {
-    clearWebglOverlaySurface();
-    return;
+  if (showLines && (!webglOverlay.positionsArray || !webglOverlay.positionsArray.length)) {
+    if (!showPoints) {
+      clearWebglOverlaySurface();
+      return;
+    }
   }
   const targetWidth = glCanvas ? glCanvas.width : canvas.width;
   const targetHeight = glCanvas ? glCanvas.height : canvas.height;
@@ -1716,8 +1767,8 @@ function drawAffinityGraphShared(matrix) {
   }
   overlayGl.disable(overlayGl.DEPTH_TEST);
   overlayGl.lineWidth(1);
-  overlayGl.useProgram(program);
-  overlayGl.uniformMatrix3fv(uniforms.matrix, false, matrix);
+  overlayGl.useProgram(lineProgram);
+  overlayGl.uniformMatrix3fv(lineUniforms.matrix, false, matrix);
   const s = Math.max(0.0001, Number(viewState && viewState.scale ? viewState.scale : 1.0));
   const minStep = minAffinityStepLength > 0 ? minAffinityStepLength : 1.0;
   const minEdgePx = Math.max(0, s * minStep);
@@ -1726,6 +1777,8 @@ function drawAffinityGraphShared(matrix) {
   const t = cutoff <= 0 ? 1 : Math.max(0, Math.min(1, minEdgePx / cutoff));
   const alphaScale = t * t * (3 - 2 * t);
   const clampedAlpha = Math.max(0, Math.min(1, alphaScale));
+  const scaledAlpha = clampedAlpha;
+  webglOverlay.lineAlpha = clampedAlpha;
   webglOverlay.displayAlpha = clampedAlpha;
   if (BATCH_LIVE_OVERLAY_UPDATES) {
     if (webglOverlay.dirtyPosSlots && webglOverlay.dirtyPosSlots.size) {
@@ -1746,22 +1799,44 @@ function drawAffinityGraphShared(matrix) {
     }
   }
   overlayGl.bindBuffer(overlayGl.ARRAY_BUFFER, webglOverlay.positionBuffer);
-  overlayGl.enableVertexAttribArray(attribs.position);
-  overlayGl.vertexAttribPointer(attribs.position, 2, overlayGl.FLOAT, false, 0, 0);
+  overlayGl.enableVertexAttribArray(lineAttribs.position);
+  overlayGl.vertexAttribPointer(lineAttribs.position, 2, overlayGl.FLOAT, false, 0, 0);
   overlayGl.bindBuffer(overlayGl.ARRAY_BUFFER, webglOverlay.colorBuffer);
-  overlayGl.enableVertexAttribArray(attribs.color);
-  overlayGl.vertexAttribPointer(attribs.color, 4, overlayGl.UNSIGNED_BYTE, true, 0, 0);
+  overlayGl.enableVertexAttribArray(lineAttribs.color);
+  overlayGl.vertexAttribPointer(lineAttribs.color, 4, overlayGl.UNSIGNED_BYTE, true, 0, 0);
   overlayGl.enable(overlayGl.BLEND);
   overlayGl.blendFunc(overlayGl.SRC_ALPHA, overlayGl.ONE_MINUS_SRC_ALPHA);
   const edgesToDraw = Math.max(webglOverlay.edgeCount | 0, (webglOverlay.maxUsedSlotIndex | 0) + 1);
   const verticesToDraw = Math.max(0, edgesToDraw) * 2;
   let hasContent = false;
-  if (verticesToDraw > 0) {
+  if (showLines && verticesToDraw > 0) {
     overlayGl.drawArrays(overlayGl.LINES, 0, verticesToDraw);
     hasContent = true;
   }
-  overlayGl.disableVertexAttribArray(attribs.position);
-  overlayGl.disableVertexAttribArray(attribs.color);
+  if (showPoints && webglOverlay.pointsCount > 0 && pointProgram && pointAttribs && pointUniforms) {
+    overlayGl.useProgram(pointProgram);
+    overlayGl.uniformMatrix3fv(pointUniforms.matrix, false, matrix);
+    if (pointUniforms.alpha) {
+      const compensate = clampedAlpha > 0.0001 ? 1 / clampedAlpha : 1;
+      const baseAlpha = POINTS_OVERLAY_ALPHA * compensate;
+      overlayGl.uniform1f(pointUniforms.alpha, baseAlpha);
+    }
+    overlayGl.blendFunc(overlayGl.SRC_ALPHA, overlayGl.ONE);
+    overlayGl.bindBuffer(overlayGl.ARRAY_BUFFER, webglOverlay.pointsPositionBuffer);
+    overlayGl.enableVertexAttribArray(pointAttribs.position);
+    overlayGl.vertexAttribPointer(pointAttribs.position, 2, overlayGl.FLOAT, false, 0, 0);
+    overlayGl.bindBuffer(overlayGl.ARRAY_BUFFER, webglOverlay.pointsColorBuffer);
+    overlayGl.enableVertexAttribArray(pointAttribs.color);
+    overlayGl.vertexAttribPointer(pointAttribs.color, 4, overlayGl.UNSIGNED_BYTE, true, 0, 0);
+    overlayGl.drawArrays(overlayGl.POINTS, 0, webglOverlay.pointsCount);
+    overlayGl.disableVertexAttribArray(pointAttribs.position);
+    overlayGl.disableVertexAttribArray(pointAttribs.color);
+    overlayGl.useProgram(lineProgram);
+    overlayGl.blendFunc(overlayGl.SRC_ALPHA, overlayGl.ONE_MINUS_SRC_ALPHA);
+    hasContent = true;
+  }
+  overlayGl.disableVertexAttribArray(lineAttribs.position);
+  overlayGl.disableVertexAttribArray(lineAttribs.color);
   overlayGl.disable(overlayGl.BLEND);
   overlayGl.bindBuffer(overlayGl.ARRAY_BUFFER, null);
   overlayGl.useProgram(null);
@@ -1771,6 +1846,7 @@ function drawAffinityGraphShared(matrix) {
   }
   if (webglOverlay.shared) {
     webglOverlay.displayAlpha = finalAlpha;
+    updateOverlayVisibility();
     return;
   }
   if (finalAlpha > 0) {
@@ -1871,7 +1947,7 @@ function updateFps(now) {
     return;
   }
   lastFpsUpdate = now;
-  const text = `FPS: ${average.toFixed(1)}`;
+  let text = `FPS: ${average.toFixed(1)}`;
   fpsDisplay.textContent = text;
   if (average >= 50) {
     fpsDisplay.style.color = '#8ff7c1';
@@ -2879,6 +2955,7 @@ const segModeButtons = segModeToggle
 const affinityGraphToggle = document.getElementById('affinityGraphToggle');
 const flowOverlayToggle = document.getElementById('flowOverlayToggle');
 const distanceOverlayToggle = document.getElementById('distanceOverlayToggle');
+const pointsOverlayToggle = document.getElementById('pointsOverlayToggle');
 const imageVisibilityToggle = document.getElementById('imageVisibilityToggle');
 const maskVisibilityToggle = document.getElementById('maskVisibilityToggle');
 const intensityPanel = document.getElementById('intensityPanel');
@@ -4141,6 +4218,7 @@ function setNiter(value, { silent = false } = {}) {
   niter = clamped;
   syncNiterControls();
   if (!silent) {
+    scheduleMaskRebuild({ interactive: true });
     scheduleStateSave();
   }
 }
@@ -4371,6 +4449,7 @@ function performClearMasks({ recordHistory = true } = {}) {
   nColorLabelToGroup.clear();
   clearColorCaches();
   clearAffinityGraphData();
+  applyPointsPayload(null);
   if (window.__OMNI_FORCE_GRID_MASK__ && window.OmniPainting
     && typeof window.OmniPainting.__debugApplyGridIfNeeded === 'function') {
     try {
@@ -4723,6 +4802,8 @@ function collectViewerState() {
     affinitySegEnabled,
     showFlowOverlay,
     showDistanceOverlay,
+    showPointsOverlay,
+    pointsPayload: pointsOverlayData || null,
     showAffinityGraph: Boolean(showAffinityGraph),
     segMode,
     useGpu: useGpuToggle ? Boolean(useGpuToggle.checked) : undefined,
@@ -4837,13 +4918,22 @@ function restoreViewerState(saved) {
       showDistanceOverlay = saved.showDistanceOverlay;
       if (distanceOverlayToggle) distanceOverlayToggle.checked = showDistanceOverlay;
     }
+    if (typeof saved.showPointsOverlay === 'boolean') {
+      showPointsOverlay = saved.showPointsOverlay;
+      if (pointsOverlayToggle) pointsOverlayToggle.checked = showPointsOverlay;
+    }
+    if (saved.pointsPayload) {
+      applyPointsPayload(saved.pointsPayload);
+    }
     if (typeof saved.showAffinityGraph === 'boolean') {
       showAffinityGraph = saved.showAffinityGraph;
       if (affinityGraphToggle) {
         affinityGraphToggle.checked = showAffinityGraph;
       }
-      if (!showAffinityGraph) {
+      if (!showAffinityGraph && !showPointsOverlay) {
         clearWebglOverlaySurface();
+      } else {
+        updateOverlayVisibility();
       }
     }
     if (saved.nColorActive) {
@@ -4891,6 +4981,7 @@ function restoreViewerState(saved) {
     updateBrushControls();
     if (flowOverlayToggle) flowOverlayToggle.checked = showFlowOverlay;
     if (distanceOverlayToggle) distanceOverlayToggle.checked = showDistanceOverlay;
+    if (pointsOverlayToggle) pointsOverlayToggle.checked = showPointsOverlay;
     if (autoNColorToggle) autoNColorToggle.checked = nColorActive;
     if (useGpuToggle && typeof saved.useGpu === 'boolean') {
       useGpuToggle.checked = saved.useGpu;
@@ -4969,7 +5060,7 @@ function initializeSharedOverlay(gl) {
     return false;
   }
   gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
-  const vertexSource = `#version 300 es
+  const lineVertexSource = `#version 300 es
 layout (location = 0) in vec2 a_position;
 layout (location = 1) in vec4 a_color;
 
@@ -4982,7 +5073,7 @@ void main() {
   v_color = a_color;
 }
 `;
-  const fragmentSource = `#version 300 es
+  const lineFragmentSource = `#version 300 es
 precision mediump float;
 in vec4 v_color;
 out vec4 outColor;
@@ -4991,36 +5082,82 @@ void main() {
   outColor = v_color;
 }
 `;
-  const program = createWebglProgram(gl, vertexSource, fragmentSource);
-  if (!program) {
+  const pointVertexSource = `#version 300 es
+layout (location = 0) in vec2 a_position;
+layout (location = 1) in vec4 a_color;
+
+uniform mat3 u_matrix;
+out vec4 v_color;
+
+void main() {
+  vec3 pos = u_matrix * vec3(a_position, 1.0);
+  gl_Position = vec4(pos.xy, 0.0, 1.0);
+  gl_PointSize = 10.0;
+  v_color = a_color;
+}
+`;
+  const pointFragmentSource = `#version 300 es
+precision mediump float;
+in vec4 v_color;
+uniform float u_alpha;
+out vec4 outColor;
+
+void main() {
+  vec2 coord = gl_PointCoord - vec2(0.5);
+  if (dot(coord, coord) > 0.25) {
+    discard;
+  }
+  outColor = vec4(v_color.rgb, v_color.a * u_alpha);
+}
+`;
+  const lineProgram = createWebglProgram(gl, lineVertexSource, lineFragmentSource);
+  if (!lineProgram) {
     webglOverlay = { enabled: false, failed: true };
     return false;
   }
+  const pointProgram = createWebglProgram(gl, pointVertexSource, pointFragmentSource);
   const positionBuffer = gl.createBuffer();
   const colorBuffer = gl.createBuffer();
-  gl.useProgram(program);
+  const pointsPositionBuffer = gl.createBuffer();
+  const pointsColorBuffer = gl.createBuffer();
   gl.clearColor(0, 0, 0, 0);
   gl.lineWidth(1);
-  const attribs = {
-    position: gl.getAttribLocation(program, 'a_position'),
-    color: gl.getAttribLocation(program, 'a_color'),
+  const lineAttribs = {
+    position: gl.getAttribLocation(lineProgram, 'a_position'),
+    color: gl.getAttribLocation(lineProgram, 'a_color'),
   };
-  const uniforms = {
-    matrix: gl.getUniformLocation(program, 'u_matrix'),
+  const lineUniforms = {
+    matrix: gl.getUniformLocation(lineProgram, 'u_matrix'),
   };
+  const pointAttribs = pointProgram ? {
+    position: gl.getAttribLocation(pointProgram, 'a_position'),
+    color: gl.getAttribLocation(pointProgram, 'a_color'),
+  } : null;
+  const pointUniforms = pointProgram ? {
+    matrix: gl.getUniformLocation(pointProgram, 'u_matrix'),
+    alpha: gl.getUniformLocation(pointProgram, 'u_alpha'),
+  } : null;
   webglOverlay = {
     enabled: true,
     failed: false,
     shared: true,
     canvas: null,
     gl,
-    program,
-    attribs,
-    uniforms,
+    lineProgram,
+    pointProgram,
+    lineAttribs,
+    lineUniforms,
+    pointAttribs,
+    pointUniforms,
     positionBuffer,
     colorBuffer,
+    pointsPositionBuffer,
+    pointsColorBuffer,
     positionsArray: null,
     colorsArray: null,
+    pointsPositions: null,
+    pointsColors: null,
+    pointsCount: 0,
     edgeCount: 0,
     vertexCount: 0,
     width: 0,
@@ -6033,18 +6170,15 @@ function drawAffinityGraphWebgl() {
   if (!ensureWebglOverlayReady() || !webglOverlay || !webglOverlay.enabled) {
     return false;
   }
-  if (webglOverlay.shared) {
-    const matrix = computeWebglMatrix(webglOverlay.matrixCache, canvas.width, canvas.height);
-    drawAffinityGraphShared(matrix);
-    return true;
-  }
+  const showLines = showAffinityGraph && affinityGraphInfo && affinityGraphInfo.values;
+  const showPoints = showPointsOverlay && webglOverlay.pointsCount > 0;
   if (webglOverlay.shared) {
     const matrix = computeWebglMatrix(webglOverlay.matrixCache, canvas.width, canvas.height);
     drawAffinityGraphShared(matrix);
     return true;
   }
   const {
-    gl, canvas: glCanvas, program, attribs, uniforms, matrixCache, msaa, resolve,
+    gl, canvas: glCanvas, lineProgram, lineAttribs, lineUniforms, pointProgram, pointAttribs, pointUniforms, matrixCache, msaa, resolve,
   } = webglOverlay;
   ensureOverlayTargets(glCanvas.width, glCanvas.height);
   if (!webglOverlay.enabled || !webglOverlay.targetsReady) {
@@ -6059,7 +6193,7 @@ function drawAffinityGraphWebgl() {
   gl.clearColor(0, 0, 0, 0);
   gl.clear(gl.COLOR_BUFFER_BIT);
   let hasContent = false;
-  if (!showAffinityGraph || !affinityGraphInfo || !affinityGraphInfo.values) {
+  if (!showLines && !showPoints) {
     if (webglOverlay) {
       webglOverlay.displayAlpha = 0;
     }
@@ -6067,20 +6201,29 @@ function drawAffinityGraphWebgl() {
     return true;
   }
   // Build geometry if marked dirty, or if buffers are empty/mismatched
-  let mustBuild = Boolean(webglOverlay.needsGeometryRebuild)
+  let mustBuild = showLines && (
+    Boolean(webglOverlay.needsGeometryRebuild)
     || !webglOverlay.positionsArray
-    || !Number.isFinite(webglOverlay.vertexCount) || webglOverlay.vertexCount === 0
-    || webglOverlay.width !== (affinityGraphInfo.width | 0)
-    || webglOverlay.height !== (affinityGraphInfo.height | 0);
+    || !Number.isFinite(webglOverlay.vertexCount) || webglOverlay.vertexCount == 0
+    || webglOverlay.width != (affinityGraphInfo.width | 0)
+    || webglOverlay.height != (affinityGraphInfo.height | 0)
+  );
   if (mustBuild) {
     const shouldDefer = DEFER_AFFINITY_OVERLAY_DURING_PAINT && isPainting;
     if (!shouldDefer) {
       ensureWebglGeometry(affinityGraphInfo.width, affinityGraphInfo.height);
     }
   }
-  gl.useProgram(program);
+  if (showLines && (!webglOverlay.positionsArray || !webglOverlay.positionsArray.length)) {
+    if (!showPoints) {
+      webglOverlay.displayAlpha = 0;
+      finalizeOverlayFrame(false);
+      return true;
+    }
+  }
+  gl.useProgram(lineProgram);
   const matrix = computeWebglMatrix(matrixCache, glCanvas.width, glCanvas.height);
-  gl.uniformMatrix3fv(uniforms.matrix, false, matrix);
+  gl.uniformMatrix3fv(lineUniforms.matrix, false, matrix);
   // Compute a global alpha based on the projected pixel size of the shortest affinity edge
   const s = Math.max(0.0001, Number(viewState && viewState.scale ? viewState.scale : 1.0));
   const minStep = minAffinityStepLength > 0 ? minAffinityStepLength : 1.0;
@@ -6090,6 +6233,8 @@ function drawAffinityGraphWebgl() {
   const t = cutoff <= 0 ? 1 : Math.max(0, Math.min(1, minEdgePx / cutoff));
   const alphaScale = t * t * (3 - 2 * t);
   const clampedAlpha = Math.max(0, Math.min(1, alphaScale));
+  const scaledAlpha = clampedAlpha;
+  webglOverlay.lineAlpha = clampedAlpha;
   webglOverlay.displayAlpha = clampedAlpha;
   if (DEBUG_AFFINITY && typeof window !== 'undefined') {
     const prev = Number.isFinite(window.__debugAlpha) ? window.__debugAlpha : NaN;
@@ -6117,22 +6262,44 @@ function drawAffinityGraphWebgl() {
       webglOverlay.dirtyColSlots.clear();
     }
   }
-  gl.bindBuffer(gl.ARRAY_BUFFER, webglOverlay.positionBuffer);
-  gl.enableVertexAttribArray(attribs.position);
-  gl.vertexAttribPointer(attribs.position, 2, gl.FLOAT, false, 0, 0);
-  gl.bindBuffer(gl.ARRAY_BUFFER, webglOverlay.colorBuffer);
-  gl.enableVertexAttribArray(attribs.color);
-  gl.vertexAttribPointer(attribs.color, 4, gl.UNSIGNED_BYTE, true, 0, 0);
   gl.enable(gl.BLEND);
   gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
   const edgesToDraw = Math.max(webglOverlay.edgeCount | 0, (webglOverlay.maxUsedSlotIndex | 0) + 1);
   const verticesToDraw = Math.max(0, edgesToDraw) * 2;
-  if (verticesToDraw > 0) {
+  if (showLines && verticesToDraw > 0) {
+    gl.bindBuffer(gl.ARRAY_BUFFER, webglOverlay.positionBuffer);
+    gl.enableVertexAttribArray(lineAttribs.position);
+    gl.vertexAttribPointer(lineAttribs.position, 2, gl.FLOAT, false, 0, 0);
+    gl.bindBuffer(gl.ARRAY_BUFFER, webglOverlay.colorBuffer);
+    gl.enableVertexAttribArray(lineAttribs.color);
+    gl.vertexAttribPointer(lineAttribs.color, 4, gl.UNSIGNED_BYTE, true, 0, 0);
     hasContent = true;
     gl.drawArrays(gl.LINES, 0, verticesToDraw);
   }
-  gl.disableVertexAttribArray(attribs.position);
-  gl.disableVertexAttribArray(attribs.color);
+  if (showPoints && webglOverlay.pointsCount > 0 && pointProgram && pointAttribs && pointUniforms) {
+    gl.useProgram(pointProgram);
+    gl.uniformMatrix3fv(pointUniforms.matrix, false, matrix);
+    if (pointUniforms.alpha) {
+      const compensate = clampedAlpha > 0.0001 ? 1 / clampedAlpha : 1;
+      const baseAlpha = POINTS_OVERLAY_ALPHA * compensate;
+      gl.uniform1f(pointUniforms.alpha, baseAlpha);
+    }
+    gl.blendFunc(gl.SRC_ALPHA, gl.ONE);
+    gl.bindBuffer(gl.ARRAY_BUFFER, webglOverlay.pointsPositionBuffer);
+    gl.enableVertexAttribArray(pointAttribs.position);
+    gl.vertexAttribPointer(pointAttribs.position, 2, gl.FLOAT, false, 0, 0);
+    gl.bindBuffer(gl.ARRAY_BUFFER, webglOverlay.pointsColorBuffer);
+    gl.enableVertexAttribArray(pointAttribs.color);
+    gl.vertexAttribPointer(pointAttribs.color, 4, gl.UNSIGNED_BYTE, true, 0, 0);
+    gl.drawArrays(gl.POINTS, 0, webglOverlay.pointsCount);
+    gl.disableVertexAttribArray(pointAttribs.position);
+    gl.disableVertexAttribArray(pointAttribs.color);
+    gl.useProgram(lineProgram);
+    gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
+    hasContent = true;
+  }
+  gl.disableVertexAttribArray(lineAttribs.position);
+  gl.disableVertexAttribArray(lineAttribs.color);
   gl.disable(gl.BLEND);
   finalizeOverlayFrame(hasContent);
   return true;
@@ -7029,6 +7196,7 @@ function processAffinityBatch(deadline) {
     affinityBatchHandle = null;
     debugAffinity(`[affinity] batch complete (processed ${affinityBatchProcessedTotal}/${affinityBatchQueuedTotal} indices across ${affinityBatchChunkCounter} chunks)`);
     scheduleDraw();
+    drawBrushPreview(getHoverPoint());
   }
 }
 
@@ -8466,6 +8634,10 @@ function updateOverlayImages(payload) {
 
 function setOverlayImage(kind, dataUrl) {
   const isFlow = kind === 'flow';
+  const isDistance = kind === 'distance';
+  if (!isFlow && !isDistance) {
+    return;
+  }
   const toggle = isFlow ? flowOverlayToggle : distanceOverlayToggle;
   const currentSource = isFlow ? flowOverlaySource : distanceOverlaySource;
   const currentImage = isFlow ? flowOverlayImage : distanceOverlayImage;
@@ -8479,7 +8651,7 @@ function setOverlayImage(kind, dataUrl) {
       flowOverlayImage = null;
       flowOverlaySource = null;
       showFlowOverlay = false;
-    } else {
+    } else if (isDistance) {
       distanceOverlayImage = null;
       distanceOverlaySource = null;
       showDistanceOverlay = false;
@@ -8501,7 +8673,7 @@ function setOverlayImage(kind, dataUrl) {
     if (toggle.checked) {
       if (isFlow) {
         showFlowOverlay = true;
-      } else {
+      } else if (isDistance) {
         showDistanceOverlay = true;
       }
       draw();
@@ -8516,7 +8688,7 @@ function setOverlayImage(kind, dataUrl) {
       if (toggle.checked) {
         showFlowOverlay = true;
       }
-    } else {
+    } else if (isDistance) {
       distanceOverlayImage = image;
       distanceOverlaySource = url;
       if (toggle.checked) {
@@ -8534,7 +8706,7 @@ function setOverlayImage(kind, dataUrl) {
       flowOverlayImage = null;
       flowOverlaySource = null;
       showFlowOverlay = false;
-    } else {
+    } else if (isDistance) {
       distanceOverlayImage = null;
       distanceOverlaySource = null;
       showDistanceOverlay = false;
@@ -8556,6 +8728,79 @@ function setSegmentStatus(message, isError = false) {
   }
   segmentStatus.textContent = message || '';
   segmentStatus.style.color = isError ? '#ff8a8a' : '#9aa';
+}
+
+
+function applyPointsPayload(pointsPayload) {
+  if (!webglOverlay || !webglOverlay.enabled) {
+    pointsOverlayInfo = pointsPayload || null;
+    if (pointsOverlayToggle) {
+      pointsOverlayToggle.checked = false;
+      pointsOverlayToggle.disabled = true;
+    }
+    return;
+  }
+  const gl = webglOverlay.gl;
+  if (!pointsPayload || !pointsPayload.encoded || !pointsPayload.count) {
+    pointsOverlayInfo = null;
+  pointsOverlayData = null;
+    webglOverlay.pointsCount = 0;
+    if (webglOverlay.pointsPositionBuffer) {
+      gl.bindBuffer(gl.ARRAY_BUFFER, webglOverlay.pointsPositionBuffer);
+      gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(), gl.DYNAMIC_DRAW);
+    }
+    if (webglOverlay.pointsColorBuffer) {
+      gl.bindBuffer(gl.ARRAY_BUFFER, webglOverlay.pointsColorBuffer);
+      gl.bufferData(gl.ARRAY_BUFFER, new Uint8Array(), gl.DYNAMIC_DRAW);
+    }
+    if (pointsOverlayToggle) {
+      pointsOverlayToggle.checked = false;
+      pointsOverlayToggle.disabled = true;
+    }
+    updateOverlayVisibility();
+    return;
+  }
+    const binary = atob(pointsPayload.encoded);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i += 1) {
+    bytes[i] = binary.charCodeAt(i);
+  }
+  const coords = new Float32Array(bytes.buffer, bytes.byteOffset, Math.floor(bytes.byteLength / 4));
+  const count = pointsPayload.count || Math.floor(coords.length / 2);
+
+  const positions = new Float32Array(count * 2);
+  const colors = new Uint8Array(count * 4);
+  for (let i = 0; i < count; i += 1) {
+    const y = coords[i * 2];
+    const x = coords[i * 2 + 1];
+    positions[i * 2] = x + 0.5;
+    positions[i * 2 + 1] = y + 0.5;
+    colors[i * 4] = 255;
+    colors[i * 4 + 1] = 255;
+    colors[i * 4 + 2] = 255;
+    colors[i * 4 + 3] = 255;
+  }
+  pointsOverlayInfo = {
+    width: pointsPayload.width,
+    height: pointsPayload.height,
+    count,
+  };
+  pointsOverlayData = pointsPayload;
+  webglOverlay.pointsCount = count;
+  webglOverlay.pointsPositions = positions;
+  webglOverlay.pointsColors = colors;
+  if (webglOverlay.pointsPositionBuffer) {
+    gl.bindBuffer(gl.ARRAY_BUFFER, webglOverlay.pointsPositionBuffer);
+    gl.bufferData(gl.ARRAY_BUFFER, positions, gl.DYNAMIC_DRAW);
+  }
+  if (webglOverlay.pointsColorBuffer) {
+    gl.bindBuffer(gl.ARRAY_BUFFER, webglOverlay.pointsColorBuffer);
+    gl.bufferData(gl.ARRAY_BUFFER, colors, gl.DYNAMIC_DRAW);
+  }
+  if (pointsOverlayToggle) {
+    pointsOverlayToggle.disabled = false;
+  }
+  updateOverlayVisibility();
 }
 
 function applySegmentationMask(payload, options = {}) {
@@ -8628,6 +8873,7 @@ function applySegmentationMask(payload, options = {}) {
   }
   updateOverlayImages(payload);
   applyAffinityGraphPayload(payload.affinityGraph);
+  applyPointsPayload(payload.points);
   draw();
   // If a relabel was requested from a stroke, set currentLabel to the mode over the edited indices
   // If a relabel was requested from a stroke, set currentLabel to the mode over the edited indices
@@ -9729,14 +9975,7 @@ if (affinityGraphToggle) {
       if (needsBuild) {
         ensureWebglGeometry(affinityGraphInfo.width, affinityGraphInfo.height);
       }
-      const visible = showAffinityGraph && webglOverlay.edgeCount > 0;
-      const alpha = visible
-        ? (Number.isFinite(webglOverlay.displayAlpha) ? webglOverlay.displayAlpha : 1)
-        : 0;
-      setOverlayCanvasVisibility(visible, alpha);
-      if (!visible) {
-        webglOverlay.displayAlpha = 0;
-      }
+      updateOverlayVisibility();
     }
     scheduleDraw();
     scheduleStateSave();
@@ -9762,6 +10001,20 @@ if (distanceOverlayToggle) {
       return;
     }
     showDistanceOverlay = evt.target.checked;
+    draw();
+    scheduleStateSave();
+  });
+}
+if (pointsOverlayToggle) {
+  pointsOverlayToggle.addEventListener('change', (evt) => {
+    if (!pointsOverlayInfo || !webglOverlay || !webglOverlay.pointsCount) {
+      pointsOverlayToggle.checked = false;
+      showPointsOverlay = false;
+      updateOverlayVisibility();
+      return;
+    }
+    showPointsOverlay = evt.target.checked;
+    updateOverlayVisibility();
     draw();
     scheduleStateSave();
   });
