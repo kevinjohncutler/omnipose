@@ -1,4 +1,5 @@
 from .imports import *
+from .helpers import resolve_pretrained_model
 
 
 
@@ -73,44 +74,20 @@ class OmniModel:
         self.__dict__.update(net_props)
         
         # channel axis might be useful here 
-        pretrained_model_string = None
-        if model_type is not None or (pretrained_model and not os.path.exists(pretrained_model[0])):
-            pretrained_model_string = model_type 
-            if not np.any([pretrained_model_string == s for s in MODEL_NAMES]): #also covers None case
-                pretrained_model_string = 'cyto'
-            if (pretrained_model and not os.path.exists(pretrained_model[0])):
-                models_logger.warning('pretrained model has incorrect path')
-            models_logger.info(f'>>{pretrained_model_string}<< model set to be used')
-
-            nuclear = 'nuclei' in model_type
-            bacterial = ('bact' in model_type) or ('worm' in model_type) 
-            plant = 'plant' in model_type
-
-            if nuclear:
-                self.diam_mean = 17. 
-            elif bacterial or plant:
-                #self.diam_mean = 0.
-                net_avg = False # No bacterial, plant, or omni models have additional models
-            
-            # original omni models had the boundary field 
-            if model_type in BD_MODEL_NAMES:
-                self.nclasses = 3
-            else:
-                self.nclasses = 2
-
-            # most original cellpose/omnipose models also were trained with 2 channels
-            # (even though most or all images were single-channel)
-            if model_type in C2_MODEL_NAMES:
-                self.nchan = 2
-
-            # for now, omni models cannot do net_avg 
-            if self.omni:
-                net_avg = False
-                
-            #changed to only look for multiple files if net_avg is selected
-            model_range = range(4) if net_avg else range(1)
-            pretrained_model = [model_path(pretrained_model_string, j, torch) for j in model_range]
-            residual_on, style_on, concatenation = True, True, False
+        pretrained_model, pretrained_model_string, net_avg, updates, residual_on, style_on, concatenation = (
+            resolve_pretrained_model(
+                pretrained_model=pretrained_model,
+                model_type=model_type,
+                net_avg=net_avg,
+                use_torch=torch,
+                model_names=MODEL_NAMES,
+                bd_model_names=BD_MODEL_NAMES,
+                c2_model_names=C2_MODEL_NAMES,
+                omni=self.omni,
+            )
+        )
+        if updates:
+            self.__dict__.update(updates)
         else:
             if pretrained_model:
                 pretrained_model_string = pretrained_model[0]
@@ -133,7 +110,7 @@ class OmniModel:
         net_kwargs.pop("nout", None)
         net_kwargs.setdefault("sz", 3)
 
-        if "residual_on" in locals():
+        if residual_on is not None:
             net_kwargs["residual_on"] = residual_on
             net_kwargs["style_on"] = style_on
             net_kwargs["concatenation"] = concatenation
@@ -181,10 +158,6 @@ class OmniModel:
             #     self.net = nn.DataParallel(self.net)
 
             self.net.load_model(self.pretrained_model[0], cpu=(not self.gpu))
-
-            
-            if not self.torch:
-                self.net.collect_params().grad_req = 'null'
 
                 
         ostr = ['off', 'on']

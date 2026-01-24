@@ -1,10 +1,38 @@
-from .imports import *
-from .transforms import get_module, normalize99, rescale
+import itertools
+import logging
+import math
+
+import numpy as np
+import torch
+
+from .modules import get_module
+from .normalize import normalize99, rescale
+
+omnipose_logger = logging.getLogger(__name__)
+
+
+def pad_image_ND(img0, div=16, extra=1, dim=2):
+    inds = [k for k in range(-dim, 0)]
+    Lpad = [int(div * np.ceil(img0.shape[i] / div) - img0.shape[i]) for i in inds]
+    pad1 = [extra * div // 2 + Lpad[k] // 2 for k in range(dim)]
+    pad2 = [extra * div // 2 + Lpad[k] - Lpad[k] // 2 for k in range(dim)]
+
+    emptypad = tuple([[0, 0]] * (img0.ndim - dim))
+    pads = emptypad + tuple(np.stack((pad1, pad2), axis=1))
+    I = np.pad(img0, pads, mode="reflect")
+
+    shape = img0.shape[-dim:]
+    subs = [np.arange(pad1[k], pad1[k] + shape[k]) for k in range(dim)]
+    return I, subs
 
  
 
 def get_flip(idx):
-    module = get_module(idx)
+    """
+    ND slices for flipping arrays along particular axes 
+    based on the tile indices. Used in augment_tiles_ND()
+    and unaugment_tiles_ND(). 
+    """
     return tuple([slice(None,None,None) if i%2 else 
                   slice(None,None,-1) for i in idx])
 

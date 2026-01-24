@@ -1,5 +1,7 @@
 # Omnipose Refactor (WIP)
 
+![coverage](badges/coverage.svg)
+
 This folder hosts a clean, minimal re-implementation of Omnipose with two separable packages:
 
 - `omnirefactor`: the core Omnipose package (ND-first, backwards-compatible API)

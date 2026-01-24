@@ -1,6 +1,8 @@
 from .imports import *
 
 from scipy.signal import find_peaks
+from .. import transforms
+from ..transforms.normalize import rescale
 
 
 def ncolor_contour(contour_map,contour_list,pad=1):
@@ -174,8 +176,8 @@ def get_midline(cell,img_stack,reference_point,debug=False):
         
         # center = np.array([np.mean(c) for c in np.nonzero(mask)])
         center = np.array(prop.centroid)
-        seg_rot = utils.rotate(mask,-angle,order=0,output_shape=output_shape,center=center)       
-        img_rot = utils.rotate(img,-angle,output_shape=output_shape,center=center) 
+        seg_rot = transforms.rotate(mask, -angle, order=0, output_shape=output_shape, center=center)
+        img_rot = transforms.rotate(img, -angle, output_shape=output_shape, center=center)
 
         
         # weighted by distance version
@@ -262,7 +264,7 @@ def build_pants(node,cells,labels,img_stack,depth=0,reference_point=None, debug=
     
 from skimage import filters
 from skimage.feature import peak_local_max, corner_peaks
-from ..utils import rescale
+from ..transforms.normalize import rescale
 from scipy.ndimage import center_of_mass, binary_erosion, binary_dilation
 from skimage import measure
 
@@ -311,7 +313,7 @@ def overseg_seeds(msk, bd, mu, T, ks=1.5,
         
         
 
-    image = utils.rescale(image)
+    image = rescale(image)
     # skel = binary_erosion(np.logical_xor(msk,bd),iterations=1)
     # skel = binary_dilation(skel,iterations=1)
     
@@ -350,151 +352,11 @@ def find_nonzero_runs(a):
     return ranges
 
 
-def turn_overseg(maski,bdi):
-    """
-    This function works by detecting turns in boundary labels. First, the boundary
-    is parametrized. Then, changes in boundary label are detected. For ND compatibility,
-    this should be replaced with a version that detects these turns while rejecting other
-    points of self-contact (where the boundary label is different) by another metric. 
-    In particular, the flow should be more or less parallel at these turn points, at least
-    not antiparallel. This is how the contour finding works. 
-    
-    An advantage of using contours is that they are closed, such that the labels can cycle back. 
-    Contours provide the necessary ordering. In ND, there is no such ordering, and so I must 
-    devise an alternative way to ensure that labels from different internal boundaries are still linked. 
-    Currently, adjacent boundary labels get the same integer. 
-    """
-#     T, mu = masks_to_flows(masks,
-#                            boundaries=boundaries,
-#                            use_gpu=0,omni=1,
-#                            smooth=0,normalize=0)[-2:]
-    
-#     contour_map,contour_list = get_boundary(mu,masks,contour=contour,desprue=False)
-
-    bdi_label = ncolor.label(bdi)
-    
-    agi = boundary_to_affinity(maski,bdi_label>0)
-    contour_map, contour_list = get_contour(maski,agi)
-        
-    pad = 1
-    pad_bdi_lab = np.pad(bdi_label,1)
-    contour_map_pad = np.pad(contour_map,1)
-    maski_pad = np.pad(maski,1)
-    bd_dumb_pad = find_boundaries(maski_pad,mode='inner',connectivity=2)
-
-    turn_map = np.zeros_like(pad_bdi_lab)
-    repl_map = np.zeros_like(pad_bdi_lab)
-
-    turnpoints = []
-    offset = 0
-    turnlabels = []
-    links = set()
-    
-    coords = np.nonzero(maski_pad)
-    
-    for c,contour in enumerate(contour_list):
-
-        # coords_t = np.unravel_index(contour,contour_map_pad.shape)
-        coords_unpad = np.nonzero(maski)
-        coords_t = tuple([crd[contour] for crd in coords_unpad])
-        coords_t_pad = tuple([coords_t[i]+pad for i in range(2)])
-        u = bdi_label[coords_t].astype(int)
-        label = np.unique(maski[coords_t])[0]
-        # print(label,coords_t)
-        d = np.diff(u,append=u[0])
-        turns = np.nonzero(d)[0]
-
-        bd_interior_pad = np.logical_xor(pad_bdi_lab[coords_t_pad],bd_dumb_pad[coords_t_pad]) 
-        bd_interior_pad_cpy = bd_interior_pad.copy()
-
-        for turn in turns:
-            bd_interior_pad[slice(turn-1,turn+1)] = True
-
-        nturn = len(turns)
-        labels = []
-        # print('nturn',nturn)
-        if nturn:
-            runs = utils.find_nonzero_runs(bd_interior_pad)
-
-            # generalize to any number of turns
-            labels = [[i,2,i+2] for i in range(1,2*nturn,2)]
-            if nturn>1: #make cyclic 
-                labels[-1][-1] = labels[0][0]
-            labels = np.array(labels)+offset
-
-            # keep track of which labels correspond to turns 
-            turnlabels.append(labels[0][1]) 
-        
-            # create links
-            [links.add((lnk[0],lnk[1])) for lnk in labels]
-            if nturn>2: # make sure it loops around 
-                [links.add((lnk[-1],lnk[1])) for lnk in [labels[-1]]]
-
-            r = runs.flatten()
-            intervals = [np.abs(r.take(i,mode='wrap')-r.take(i+1,mode='wrap')) for i in range(1,len(r),2)]
-            endpoints = [0]+[r[1] for r in runs[:-1]]+[len(u)]
-            for j,(run,turn,labs) in enumerate(zip(runs,turns,labels)):
-                mid = slice(turn,turn+2)
-                skip = np.sum(bd_interior_pad_cpy[mid])<2 # these are the joins along external boundaries 
-
-                # replace with cyclic take 
-                pads = [intervals[i%len(intervals)]//2 for i in [j,j+1]]
-                inds = [range(turn-pads[0],turn),range(turn,turn+2),range(turn+2,turn+2+pads[1])]
-
-                for l,i in zip(labs,inds):
-                    turn_map[tuple([ct.take(i,mode='wrap') for ct in coords_t_pad])] = labs[1] if skip else l
-
-                if not skip:  # put in the label to either side
-                    repl_map[tuple([ct.take(inds[1],mode='wrap') for ct in coords_t_pad])] = [labs[i] for i in [0,-1]]
-
-                offset+=3
-
-        else:
-            turn_map[coords_t_pad] = offset+1
-            offset += 1
-
-        vals = contour_map_pad[coords_t_pad]
-        # print(len(vals),'vals')
-        p = [[vals[t],vals.take(t+1,mode='wrap')] for t in turns]
-        if len(p):
-            turnpoints.append([label,p])
-                
-    
-    result = np.zeros_like(maski_pad)
-    for l in fastremap.unique(maski_pad)[1:]:
-        mask = maski_pad==l
-        # seeds = turn_map*bd_interior_pad*mask
-        seeds = turn_map*mask
-
-        if np.any(seeds):
-            exp = ncolor.expand_labels(seeds)*mask
-        
-        result[mask] = exp[mask]
-        
-        
-    # remove turnlabels, expand the remaining labels, then put the turnlabels back in the remaining space
-    # turn_mask = np.zeros_like(turn_map)
-    r2 = result.copy()
-    for l in turnlabels:
-        r2[np.nonzero(result==l)] = 0
-
-    for l in fastremap.unique(maski_pad)[1:]:
-        mask = maski_pad==l
-        seeds = r2*mask
-
-        if np.any(seeds):
-            exp = expand_labels(seeds,1)*mask
-
-        r2[mask] = exp[mask] # put in texpanded labels 
-        r2[np.logical_and(mask,r2==0)] = result[np.logical_and(mask,r2==0)] # put back linker 
-
-    # restore tips; expansion can mess this up a bit 
-    r2[repl_map>0] = repl_map[repl_map>0]
-    
-    # unpad things and return split masks and corresponding links 
-    unpad = tuple([slice(pad,-pad)]*maski.ndim)
-    return r2[unpad], links
-
+def turn_overseg(maski, bdi):
+    """Boundary/contour-based over-segmentation handling (removed in omnirefactor)."""
+    raise NotImplementedError(
+        "turn_overseg relies on boundary/contour utilities that were removed from omnirefactor."
+    )
 
 
 def split_contour(masks,contour_map,contour_list,bd_label=None):
@@ -540,7 +402,7 @@ def split_contour(masks,contour_map,contour_list,bd_label=None):
                                          ])
                                 ,axis=0)
 
-            seed_map[coords_t] = utils.rescale(csum)
+            seed_map[coords_t] = rescale(csum)
             X = np.concatenate([csum[::-1][:Lpad+1],csum,csum[::-1][:Lpad+1]])
             peaks, _ = find_peaks(X, height=1, distance=int(diam))
         

@@ -32,6 +32,12 @@ setup(
     extras_require={
         "gui": gui_deps,
         "all": gui_deps + distributed_deps,
+        "dev": [
+            "pytest",
+            "pytest-cov",
+            "coverage",
+            "genbadge[coverage]",
+        ],
     },
     tests_require=[
         "pytest",

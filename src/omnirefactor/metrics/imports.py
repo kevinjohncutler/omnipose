@@ -8,7 +8,8 @@ from scipy.ndimage import convolve, mean
 import fastremap
 
 from .. import utils, core
-from ..utils import torch_norm, kernel_setup, get_supporting_inds
+from ..transforms.vector import torch_norm
+from ..utils import kernel_setup, get_supporting_inds
 from ..core.masks import steps_batch
 from ..core.affinity import _get_affinity_torch
 from ..core.fields import divergence_torch, _gradient

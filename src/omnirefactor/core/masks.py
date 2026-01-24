@@ -17,14 +17,12 @@ from ..gpu import empty_cache
 from ..logger import get_logger
 from .affinity import (
     _despur,
-    _get_affinity,
     _get_affinity_torch,
     affinity_to_boundary,
     affinity_to_masks,
     boundary_to_masks,
 )
-from .boundary import get_boundary
-from .diameters import diameters, dist_to_diam
+from .diameter_utils import diameters, dist_to_diam
 from .fields import div_rescale, step_factor
 from .flows import masks_to_flows
 from .steps import steps_batch
@@ -41,9 +39,9 @@ SKIMAGE_ENABLED = True
 omnipose_logger = get_logger('core')
 
 
-def compute_masks(dP, dist, affinity_graph=None, bd=None, p=None, coords=None, iscell=None, niter=None, rescale=1.0, resize=None,
+def compute_masks(dP, dist, affinity_graph=None, bd=None, p=None, coords=None, iscell=None, niter=None, rescale_factor=1.0, resize=None,
                   mask_threshold=0.0, diam_threshold=12., flow_threshold=0.4,
-                  interp=True, cluster=False, boundary_seg=False, affinity_seg=False, do_3D=False,
+                  interp=True, cluster=False, affinity_seg=False, do_3D=False,
                   min_size=None, max_size=None, hole_size=None, omni=True,
                   calc_trace=False, verbose=False, use_gpu=False, device=None, nclasses=2,
                   dim=2, eps=None, hdbscan=False, flow_factor=6, debug=False, override=False, suppress=None, despur=False):
@@ -93,7 +91,7 @@ def compute_masks(dP, dist, affinity_graph=None, bd=None, p=None, coords=None, i
 
         if omni:
             if suppress:
-                dP_ = div_rescale(dP, iscell) / rescale
+                dP_ = div_rescale(dP, iscell) / rescale_factor
             else:
                 dP_ = dP.copy() / 5.
 
@@ -109,100 +107,89 @@ def compute_masks(dP, dist, affinity_graph=None, bd=None, p=None, coords=None, i
         bd_pad = np.pad(bd, pad)
         bounds = None
 
-        if boundary_seg:
-            if verbose:
-                omnipose_logger.info('doing new boundary seg')
-            bd = get_boundary(np.pad(dP, pad_seq), iscell_pad)
-            labels, bounds, _ = boundary_to_masks(bd, iscell_pad)
+        if (cluster or affinity_seg or not suppress) and niter is None:
+            niter = int(diameters(iscell, dist) / (1 + affinity_seg))
 
-            hole_size = 0
-
-            p = np.zeros([2, 1, 1])
-            tr = []
-
+        if p is None:
+            p, coords, tr = follow_flows(dP_pad, dt_pad, coords, niter=niter, interp=interp,
+                                         use_gpu=use_gpu, device=device, omni=omni,
+                                         suppress=suppress,
+                                         calc_trace=calc_trace, verbose=verbose)
         else:
-            if (cluster or affinity_seg or not suppress) and niter is None:
-                niter = int(diameters(iscell, dist) / (1 + affinity_seg))
+            tr = []
+            if verbose:
+                omnipose_logger.info('p given')
 
-            if p is None:
-                p, coords, tr = follow_flows(dP_pad, dt_pad, coords, niter=niter, interp=interp,
-                                             use_gpu=use_gpu, device=device, omni=omni,
-                                             suppress=suppress,
-                                             calc_trace=calc_trace, verbose=verbose)
-            else:
-                tr = []
-                if verbose:
-                    omnipose_logger.info('p given')
+            p[:, ~iscell_pad] = np.stack(np.nonzero(~iscell_pad))
 
-                p[:, ~iscell_pad] = np.stack(np.nonzero(~iscell_pad))
+        if omni or override:
+            steps, inds, idx, fact, sign = utils.kernel_setup(dim)
+            if affinity_seg:
+                hole_size = 0
+                if affinity_graph is None:
+                    if verbose:
+                        omnipose_logger.info('computing affinity graph')
 
-            if omni or override:
-                steps, inds, idx, fact, sign = utils.kernel_setup(dim)
-                if affinity_seg:
-                    hole_size = 0
-                    if affinity_graph is None:
-                        if verbose:
-                            omnipose_logger.info('computing affinity graph')
+                    initial_points = np.stack(_meshgrid(iscell_pad.shape))
+                    final_points = p
+                    supporting_inds = utils.get_supporting_inds(steps)
 
-                        initial_points = np.stack(_meshgrid(iscell_pad.shape))
-                        final_points = p
-                        supporting_inds = utils.get_supporting_inds(steps)
+                    affinity_graph = _get_affinity_torch(initial_points,
+                                                         final_points,
+                                                         dP_pad,
+                                                         dt_pad,
+                                                         iscell_pad,
+                                                         steps,
+                                                         fact,
+                                                         inds,
+                                                         supporting_inds,
+                                                         niter,
+                                                         device=device,
+                                                         )
+                    affinity_graph = affinity_graph.squeeze().cpu().numpy()
+                    affinity_graph = affinity_graph[(Ellipsis,) + tuple(coords)]
 
-                        affinity_graph = _get_affinity_torch(initial_points,
-                                                             final_points,
-                                                             dP_pad,
-                                                             dt_pad,
-                                                             iscell_pad,
-                                                             steps,
-                                                             fact,
-                                                             inds,
-                                                             supporting_inds,
-                                                             niter,
-                                                             device=device,
-                                                             )
-                        affinity_graph = affinity_graph.squeeze().cpu().numpy()
-                        affinity_graph = affinity_graph[(Ellipsis,) + tuple(coords)]
+                neighbors = utils.get_neighbors(tuple(coords), steps, dim, shape, pad=pad)
+                indexes, neigh_inds, ind_matrix = utils.get_neigh_inds(tuple(neighbors), tuple(coords), shape)
 
-                    neighbors = utils.get_neighbors(tuple(coords), steps, dim, shape, pad=pad)
-                    indexes, neigh_inds, ind_matrix = utils.get_neigh_inds(tuple(neighbors), tuple(coords), shape)
+                despur = dim == 2 and despur
+                if verbose and not despur:
+                    omnipose_logger.info('despur disabled')
 
-                    despur = dim == 2 and despur
-                    if verbose and not despur:
-                        omnipose_logger.info('despur disabled')
+                if despur:
+                    non_self = np.array(list(set(np.arange(len(steps))) - {inds[0][0]}))
+                    cardinal = np.concatenate(inds[1:2])
+                    ordinal = np.concatenate(inds[2:])
 
-                    if despur:
-                        non_self = np.array(list(set(np.arange(len(steps))) - {inds[0][0]}))
-                        cardinal = np.concatenate(inds[1:2])
-                        ordinal = np.concatenate(inds[2:])
+                    affinity_graph = _despur(affinity_graph,
+                                             neigh_inds,
+                                             indexes,
+                                             steps,
+                                             non_self,
+                                             cardinal,
+                                             ordinal,
+                                             dim)
 
-                        affinity_graph = _despur(affinity_graph,
-                                                 neigh_inds,
-                                                 indexes,
-                                                 steps,
-                                                 non_self,
-                                                 cardinal,
-                                                 ordinal,
-                                                 dim)
+                bounds = affinity_to_boundary(iscell_pad, affinity_graph, tuple(coords))
 
-                    bounds = affinity_to_boundary(iscell_pad, affinity_graph, tuple(coords))
-
-                    if cluster:
-                        labels = affinity_to_masks(affinity_graph, neigh_inds, iscell_pad, coords, verbose=verbose)
-                    else:
-                        if verbose:
-                            omnipose_logger.info('doing affinity seg without cluster.')
-                        labels, bounds, _ = boundary_to_masks(bounds, iscell_pad)
-
+                if cluster:
+                    labels = affinity_to_masks(affinity_graph, neigh_inds, iscell_pad, coords, verbose=verbose)
                 else:
-                    labels, _ = get_masks(p, bd_pad, dt_pad, iscell_pad, coords, nclasses, cluster=cluster,
-                                          diam_threshold=diam_threshold, verbose=verbose,
-                                          eps=eps, hdbscan=hdbscan)
-                    affinity_graph = None
-                    coords = np.nonzero(labels)
+                    if verbose:
+                        omnipose_logger.info('doing affinity seg without cluster.')
+                    labels, bounds, _ = boundary_to_masks(bounds, iscell_pad)
+
             else:
-                labels = get_masks_cp(p, iscell=iscell_pad,
-                                      flows=dP_pad if flow_threshold > 0 else None,
-                                      use_gpu=use_gpu)
+                labels, _ = get_masks(p, bd_pad, dt_pad, iscell_pad, coords, nclasses, cluster=cluster,
+                                      diam_threshold=diam_threshold, verbose=verbose,
+                                      eps=eps, hdbscan=hdbscan)
+                affinity_graph = None
+                coords = np.nonzero(labels)
+        else:
+            # should deprecate this code path, remove omni toggle, maybe have a cp toggle instead or combine suppress=False with CC
+            labels = get_masks_cp(p, iscell=iscell_pad,
+                                  flows=dP_pad if flow_threshold > 0 else None,
+                                  use_gpu=use_gpu)
 
         if not do_3D:
             flows = np.pad(dP, pad_seq)
@@ -234,21 +221,22 @@ def compute_masks(dP, dist, affinity_graph=None, bd=None, p=None, coords=None, i
                 omnipose_logger.info('affinity_seg not compatible with rescaling, disabling')
             affinity_seg = False
 
-        if not affinity_seg or boundary_seg:
+        if not affinity_seg:
             bounds = find_boundaries(masks, mode='inner', connectivity=dim)
+            # todo: replace this with masks to affinity followed by affinity to boundary? 
+        
+        # if bounds is None:
+        #     if verbose:
+        #         print('Default clustering on, finding boundaries via affinity.')
+        #     print('TO-DO: replace with _get_affinity_torch')
+        #     affinity_graph, neighbors, neigh_inds, bounds = _get_affinity(steps, masks, dP_pad, dt_pad, p, inds, pad=pad)
 
-        if bounds is None:
-            if verbose:
-                print('Default clustering on, finding boundaries via affinity.')
-            print('TO-DO: replace with _get_affinity_torch')
-            affinity_graph, neighbors, neigh_inds, bounds = _get_affinity(steps, masks, dP_pad, dt_pad, p, inds, pad=pad)
-
-            gone = neigh_inds[3 ** dim // 2, np.sum(affinity_graph, axis=0) == 0]
-            crd = coords.T
-            masks[tuple(crd[gone].T)] = 0
-            iscell_pad[tuple(crd[gone].T)] = 0
-        else:
-            bounds *= masks > 0
+        #     gone = neigh_inds[3 ** dim // 2, np.sum(affinity_graph, axis=0) == 0]
+        #     crd = coords.T
+        #     masks[tuple(crd[gone].T)] = 0
+        #     iscell_pad[tuple(crd[gone].T)] = 0
+        # else:
+        #     bounds *= masks > 0
 
         fastremap.renumber(masks, in_place=True)
 
@@ -480,32 +468,62 @@ def flow_error(maski, dP_net, coords=None, affinity_graph=None, use_gpu=False, d
     return flow_errors, dP_masks
 
 
+
 def get_masks_cp(p, iscell=None, rpad=20, flows=None, use_gpu=False, device=None):
-    """Create masks using pixel convergence after running dynamics."""
+    """ create masks using pixel convergence after running dynamics
+    
+    Makes a histogram of final pixel locations p, initializes masks 
+    at peaks of histogram and extends the masks from the peaks so that
+    they include all pixels with more than 2 final pixels p. Discards 
+    masks with flow errors greater than the threshold. 
+
+    Parameters
+    ----------------
+    p: float32, 3D or 4D array
+        final locations of each pixel after dynamics,
+        size [axis x Ly x Lx] or [axis x Lz x Ly x Lx].
+    iscell: bool, 2D or 3D array
+        if iscell is not None, set pixels that are 
+        iscell False to stay in their original location.
+    rpad: int (optional, default 20)
+        histogram edge padding
+    flows: float, 3D or 4D array (optional, default None)
+        flows [axis x Ly x Lx] or [axis x Lz x Ly x Lx]. If flows
+        is not None, then masks with inconsistent flows are removed using 
+        `remove_bad_flow_masks`.
+
+    Returns
+    ---------------
+    M0: int, 2D or 3D array
+        masks with inconsistent flow masks removed, 
+        0=NO masks; 1,2,...=mask labels,
+        size [Ly x Lx] or [Lz x Ly x Lx]
+    
+    """
     pflows = []
     edges = []
     shape0 = p.shape[1:]
     dims = len(p)
     if iscell is not None:
-        if dims == 3:
+        if dims==3:
             inds = np.meshgrid(np.arange(shape0[0]), np.arange(shape0[1]),
-                               np.arange(shape0[2]), indexing='ij')
-        elif dims == 2:
+                np.arange(shape0[2]), indexing='ij')
+        elif dims==2:
             inds = np.meshgrid(np.arange(shape0[0]), np.arange(shape0[1]),
-                               indexing='ij')
+                     indexing='ij')
         for i in range(dims):
             p[i, ~iscell] = inds[i][~iscell]
-
+    
     for i in range(dims):
         pflows.append(p[i].flatten().astype('int32'))
-        edges.append(np.arange(-.5 - rpad, shape0[i] + .5 + rpad, 1))
+        edges.append(np.arange(-.5-rpad, shape0[i]+.5+rpad, 1))
 
-    h, _ = np.lib.histogramdd(pflows, bins=edges)
+    h,_ = np.lib.histogramdd(pflows, bins=edges)
     hmax = h.copy()
     for i in range(dims):
         hmax = maximum_filter1d(hmax, 5, axis=i)
 
-    seeds = np.nonzero(np.logical_and(h - hmax > -1e-6, h > 10))
+    seeds = np.nonzero(np.logical_and(h-hmax>-1e-6, h>10))
     Nmax = h[seeds]
     isort = np.argsort(Nmax)[::-1]
     for s in seeds:
@@ -513,76 +531,54 @@ def get_masks_cp(p, iscell=None, rpad=20, flows=None, use_gpu=False, device=None
     pix = list(np.array(seeds).T)
 
     shape = h.shape
-    if dims == 3:
-        expand = np.nonzero(np.ones((3, 3, 3)))
+    if dims==3:
+        expand = np.nonzero(np.ones((3,3,3)))
     else:
-        expand = np.nonzero(np.ones((3, 3)))
+        expand = np.nonzero(np.ones((3,3)))
     for e in expand:
-        e = np.expand_dims(e, 1)
+        e = np.expand_dims(e,1)
 
     for iter in range(5):
         for k in range(len(pix)):
-            if iter == 0:
+            if iter==0:
                 pix[k] = list(pix[k])
             newpix = []
             iin = []
-            for i, e in enumerate(expand):
-                epix = e[:, np.newaxis] + np.expand_dims(pix[k][i], 0) - 1
+            for i,e in enumerate(expand):
+                epix = e[:,np.newaxis] + np.expand_dims(pix[k][i], 0) - 1
                 epix = epix.flatten()
-                iin.append(np.logical_and(epix >= 0, epix < shape[i]))
+                iin.append(np.logical_and(epix>=0, epix<shape[i]))
                 newpix.append(epix)
             iin = np.all(tuple(iin), axis=0)
             for p in newpix:
                 p = p[iin]
             newpix = tuple(newpix)
-            igood = h[newpix] > 2
+            igood = h[newpix]>2
             for i in range(dims):
                 pix[k][i] = newpix[i][igood]
-            if iter == 4:
+            if iter==4:
                 pix[k] = tuple(pix[k])
-
+    
     M = np.zeros(h.shape, np.int32)
     for k in range(len(pix)):
-        M[pix[k]] = 1 + k
-
+        M[pix[k]] = 1+k
+        
     for i in range(dims):
         pflows[i] = pflows[i] + rpad
     M0 = M[tuple(pflows)]
-
-    _, counts = np.unique(M0, return_counts=True)
+    
+    # remove big masks
+    _,counts = np.unique(M0, return_counts=True)
     big = np.prod(shape0) * 0.4
     for i in np.nonzero(counts > big)[0]:
-        M0[M0 == i] = 0
-    _, M0 = np.unique(M0, return_inverse=True)
+        M0[M0==i] = 0
+    _,M0 = np.unique(M0, return_inverse=True)
     M0 = np.reshape(M0, shape0)
 
+    # moved to compute masks
+    # if M0.max()>0 and threshold is not None and threshold > 0 and flows is not None:
+    #     M0 = remove_bad_flow_masks(M0, flows, threshold=threshold, use_gpu=use_gpu, device=device)
+    #     _,M0 = np.unique(M0, return_inverse=True)
+    #     M0 = np.reshape(M0, shape0).astype(np.int32)
+
     return M0
-
-
-    masks = ncolor.format_labels(masks, min_area=min_size)
-    fill_holes = hole_size > 0
-
-    slices = find_objects(masks)
-    j = 0
-    for i, slc in enumerate(slices):
-        if slc is not None:
-            msk = masks[slc] == (i + 1)
-            npix = msk.sum()
-
-            too_small = npix < min_size
-            too_big = False if max_size is None else npix > max_size
-
-            if (min_size > 0) and (too_small or too_big):
-                masks[slc][msk] = 0
-            elif fill_holes:
-                hsz = np.count_nonzero(msk) * hole_size / 100
-                if SKIMAGE_ENABLED:
-                    pad = 1
-                    unpad = tuple([slice(pad, -pad)] * dim)
-                    padmsk = remove_small_holes(np.pad(msk, pad, mode='constant'), area_threshold=hsz)
-                    msk = padmsk[unpad]
-                else:
-                    msk = binary_fill_holes(msk)
-                masks[slc][msk] = (j + 1)
-                j += 1
-    return masks

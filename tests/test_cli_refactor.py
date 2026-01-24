@@ -1,11 +1,9 @@
 from pathlib import Path
-import os
-import subprocess
-import sys
 
 import numpy as np
 import tifffile
 
+from omnirefactor.cli import runner
 
 def _write_training_pair(directory: Path, stem: str) -> None:
     image = (np.random.rand(32, 32) * 255).astype(np.uint8)
@@ -28,14 +26,7 @@ def test_cli_train_then_eval_with_random_init_model(tmp_path):
     train_dir.mkdir()
     _write_training_pair(train_dir, "sample")
 
-    root = Path(__file__).resolve().parents[1]
-    env = os.environ.copy()
-    env["PYTHONPATH"] = str(root / "src")
-
     train_cmd = [
-        sys.executable,
-        "-m",
-        "omnirefactor",
         "--dir",
         str(train_dir),
         "--train",
@@ -51,25 +42,28 @@ def test_cli_train_then_eval_with_random_init_model(tmp_path):
         "1",
         "--tyx",
         "32,32",
+        "--nsample",
+        "1",
+        "--fast_mode",
         "--testing",
     ]
-    subprocess.run(train_cmd, check=True, capture_output=True, text=True, env=env, cwd=root)
+    runner.main(train_cmd)
 
     model_dir = train_dir / "models"
     model_path = _latest_model_file(model_dir)
 
     eval_cmd = [
-        sys.executable,
-        "-m",
-        "omnirefactor",
         "--dir",
         str(train_dir),
         "--pretrained_model",
         str(model_path),
+        "--nsample",
+        "1",
+        "--fast_mode",
         "--testing",
         "--no_npy",
     ]
-    subprocess.run(eval_cmd, check=True, capture_output=True, text=True, env=env, cwd=root)
+    runner.main(eval_cmd)
 
 
 def test_cli_train_params_without_saving(tmp_path):
@@ -77,14 +71,7 @@ def test_cli_train_params_without_saving(tmp_path):
     train_dir.mkdir()
     _write_training_pair(train_dir, "sample")
 
-    root = Path(__file__).resolve().parents[1]
-    env = os.environ.copy()
-    env["PYTHONPATH"] = str(root / "src")
-
     cmd = [
-        sys.executable,
-        "-m",
-        "omnirefactor",
         "--dir",
         str(train_dir),
         "--train",
@@ -100,10 +87,13 @@ def test_cli_train_params_without_saving(tmp_path):
         "1",
         "--tyx",
         "32,32",
+        "--nsample",
+        "1",
+        "--fast_mode",
         "--save_each",
         "--save_every",
         "1",
         "--no_save",
         "--testing",
     ]
-    subprocess.run(cmd, check=True, capture_output=True, text=True, env=env, cwd=root)
+    runner.main(cmd)

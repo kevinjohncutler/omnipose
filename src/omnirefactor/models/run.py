@@ -63,13 +63,19 @@ def _run_tiled(self, imgi, augment=False, normalize=True,
     if imgi.ndim == 4 and self.dim == 2:
         batch_size = self.batch_size
         Lz, nchan = imgi.shape[:2]
-        IMG, ysub, xsub, Ly, Lx = transforms.make_tiles(imgi[0], bsize=bsize,
-                                                        augment=augment, tile_overlap=tile_overlap)
-        ny, nx, nchan, ly, lx = IMG.shape
+        IMG, subs, shape, inds = transforms.make_tiles_ND(
+            imgi[0],
+            bsize=bsize,
+            augment=augment,
+            tile_overlap=tile_overlap,
+            normalize=normalize,
+        )
+        ntiles, nchan = IMG.shape[:2]
+        ly, lx = IMG.shape[-2:]
         batch_size *= max(4, (bsize**2 // (ly * lx))**0.5)
         yf = np.zeros((Lz, self.nclasses, imgi.shape[-2], imgi.shape[-1]), np.float32)
         styles = []
-        if ny * nx > batch_size:
+        if ntiles > batch_size:
             ziterator = trange(Lz, file=tqdm_out)
             for i in ziterator:
                 yfi, stylei = self._run_tiled(
@@ -84,20 +90,20 @@ def _run_tiled(self, imgi, augment=False, normalize=True,
                 yf[i] = yfi
                 styles.append(stylei)
         else:
-            ntiles = ny * nx
             nimgs = max(2, int(np.round(batch_size / ntiles)))
             niter = int(np.ceil(Lz / nimgs))
             ziterator = trange(niter, file=tqdm_out)
             for k in ziterator:
                 IMGa = np.zeros((ntiles * nimgs, nchan, ly, lx), np.float32)
                 for i in range(min(Lz - k * nimgs, nimgs)):
-                    IMG, ysub, xsub, Ly, Lx = transforms.make_tiles(
+                    IMG, subs, shape, inds = transforms.make_tiles_ND(
                         imgi[k * nimgs + i],
                         bsize=bsize,
                         augment=augment,
                         tile_overlap=tile_overlap,
+                        normalize=normalize,
                     )
-                    IMGa[i * ntiles:(i + 1) * ntiles] = np.reshape(IMG, (ny * nx, nchan, ly, lx))
+                    IMGa[i * ntiles:(i + 1) * ntiles] = IMG
                 ya, stylea = self.run_network(IMGa,
                     return_conv=return_conv,
                     to_numpy=to_numpy,
@@ -105,10 +111,9 @@ def _run_tiled(self, imgi, augment=False, normalize=True,
                 for i in range(min(Lz - k * nimgs, nimgs)):
                     y = ya[i * ntiles:(i + 1) * ntiles]
                     if augment:
-                        y = np.reshape(y, (ny, nx, 3, ly, lx))
-                        y = transforms.unaugment_tiles(y, self.unet)
-                        y = np.reshape(y, (-1, 3, ly, lx))
-                    yfi = transforms.average_tiles(y, ysub, xsub, Ly, Lx)
+                        y = transforms.unaugment_tiles_ND(y, inds, self.unet)
+                    yfi = transforms.average_tiles_ND(y, subs, shape)
+                    yfi = yfi[(Ellipsis,) + tuple(slice(s) for s in shape)]
                     yfi = yfi[:, :imgi.shape[2], :imgi.shape[3]]
                     yf[k * nimgs + i] = yfi
                     stylei = stylea[i * ntiles:(i + 1) * ntiles].sum(axis=0)

@@ -17,7 +17,6 @@ from ncolor import unique_nonzero
 
 from ..utils import *
 from ..core.affinity import boundary_to_affinity, masks_to_affinity
-from ..core.boundary import get_boundary
 from ..core.fields import divergence
 from ..core.flows import masks_to_flows_torch
 from ..core.masks import follow_flows

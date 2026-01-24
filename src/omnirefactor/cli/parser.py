@@ -117,8 +117,6 @@ def get_arg_parser():
                              help="whether or not to save RGB outline images when masks are saved (disabled by default)")
     output_args.add_argument("--save_ncolor", action="store_true",
                              help="whether or not to save minimal ""n-color"" masks (disabled by default")
-    output_args.add_argument("--save_txt", action="store_true",
-                             help="flag to enable txt outlines for ImageJ (disabled by default)")
     output_args.add_argument("--transparency", action="store_true",
                              help="store flows with background transparent (alpha=flow magnitude) (disabled by default)")
 
@@ -180,6 +178,8 @@ def get_arg_parser():
     hardware_args.add_argument("--check_mkl", action="store_true", help="check if mkl working")
     hardware_args.add_argument("--mkldnn", action="store_true",
                                help="for mxnet, force MXNET_SUBGRAPH_BACKEND = ""MKLDNN""")
+    hardware_args.add_argument("--deterministic", action="store_true",
+                               help="force deterministic GPU behavior (slower)")
 
     # misc settings
     development_args = parser.add_argument_group("development arguments")
@@ -189,5 +189,6 @@ def get_arg_parser():
                                   help="flag to suppress CLI user confirmation for saving output; for test scripts")
     development_args.add_argument("--timing", action="store_true",
                                   help="flag to output timing information for select modules")
+    development_args.add_argument("--seed", default=None, type=int, help="random seed for reproducible runs")
 
     return parser

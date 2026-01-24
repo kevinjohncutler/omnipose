@@ -5,7 +5,7 @@ import numpy as np
 import torch
 from scipy.special import expit
 
-from .. import utils
+from ..transforms.normalize import normalize_field, normalize99
 
 
 # @torch.no_grad() # try to solve memory leak in mps
@@ -175,9 +175,9 @@ def div_rescale(dP, mask, p=1):
     """
     dP = dP.copy()
     dP *= mask
-    dP = utils.normalize_field(dP)
+    dP = normalize_field(dP)
     if p > 0:
-        div = utils.normalize99(divergence(dP)) ** p
+        div = normalize99(divergence(dP)) ** p
         dP *= div
     return dP
 

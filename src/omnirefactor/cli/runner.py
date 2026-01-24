@@ -3,9 +3,11 @@ from __future__ import annotations
 import logging
 import os
 import sys
+import random
 
 import numpy as np
 from tqdm import tqdm
+import torch
 
 from .. import io, models, utils
 from ..logger import TqdmToLogger
@@ -27,7 +29,7 @@ def _resolve_channels(args):
     return None
 
 
-def _resolve_model(args, device):
+def _resolve_model(args, device, norm_type: str):
     builtin_model = np.any([args.pretrained_model == s for s in models.MODEL_NAMES])
     if args.pretrained_model is not None and "omni" in args.pretrained_model:
         args.omni = True
@@ -45,6 +47,7 @@ def _resolve_model(args, device):
             nsample=args.nsample,
             nchan=args.nchan,
             dim=args.dim,
+            norm_type=norm_type,
         )
 
     if args.pretrained_model is not None and not os.path.exists(args.pretrained_model):
@@ -62,6 +65,7 @@ def _resolve_model(args, device):
             nsample=args.nsample,
             nchan=args.nchan,
             dim=args.dim,
+            norm_type=norm_type,
         )
 
     return models.OmniModel(
@@ -76,6 +80,7 @@ def _resolve_model(args, device):
         nsample=args.nsample,
         nchan=args.nchan,
         dim=args.dim,
+        norm_type=norm_type,
     )
 
 
@@ -99,13 +104,13 @@ def _run_evaluation(args) -> None:
             or args.save_tif
             or args.save_flows
             or args.save_ncolor
-            or args.save_txt
         )
         if not saving_something and not confirm_prompt("Proceed without saving any outputs?"):
             sys.exit(0)
 
     device, _gpu_available = models.assign_device(args.use_gpu, args.gpu_number)
-    model = _resolve_model(args, device)
+    norm_type = "batch"
+    model = _resolve_model(args, device, norm_type)
     channels = _resolve_channels(args)
 
     image_names = io.get_image_files(
@@ -132,7 +137,7 @@ def _run_evaluation(args) -> None:
             image,
             channels=channels,
             diameter=diameter,
-            rescale=args.rescale,
+            rescale_factor=args.rescale,
             do_3D=args.do_3D,
             net_avg=(not args.fast_mode and not args.no_net_avg),
             augment=False,
@@ -159,7 +164,13 @@ def _run_evaluation(args) -> None:
         )
 
         if args.exclude_on_edges:
-            masks = utils.remove_edge_masks(masks)
+            masks = utils.clean_boundary(
+                masks,
+                boundary_thickness=1,
+                area_thresh=np.inf,
+                cutoff=0.0,
+            )
+            utils.fastremap.renumber(masks, in_place=True)
 
         if not args.no_npy:
             io.masks_flows_to_seg(image, masks, flows, diameter, image_name, channels)
@@ -169,7 +180,6 @@ def _run_evaluation(args) -> None:
             or args.save_tif
             or args.save_flows
             or args.save_ncolor
-            or args.save_txt
         ):
             io.save_masks(
                 image,
@@ -183,7 +193,6 @@ def _run_evaluation(args) -> None:
                 save_ncolor=args.save_ncolor,
                 dir_above=args.dir_above,
                 savedir=args.savedir,
-                save_txt=args.save_txt,
                 in_folders=args.in_folders,
                 omni=args.omni,
                 channel_axis=args.channel_axis,
@@ -194,12 +203,16 @@ def _run_evaluation(args) -> None:
 def _run_training(args) -> None:
     if args.tyx is not None:
         args.tyx = tuple(int(s) for s in args.tyx.split(","))
+    if args.batch_size is not None and args.batch_size < 2:
+        logger.warning("Batch size %s is too small; using 2 instead.", args.batch_size)
+        args.batch_size = 2
     if args.train_size:
         raise NotImplementedError("Size model training is not implemented in omnirefactor.")
     if args.unet:
         raise NotImplementedError("UNet training is not implemented in omnirefactor.")
 
     device, _gpu_available = models.assign_device(args.use_gpu, args.gpu_number)
+    norm_type = "batch"
 
     test_dir = args.test_dir if len(args.test_dir) > 0 else None
     output = io.load_train_test_data(
@@ -224,7 +237,7 @@ def _run_training(args) -> None:
         image_names_test,
     ) = output
 
-    model = _resolve_model(args, device)
+    model = _resolve_model(args, device, norm_type)
     save_path = None if args.no_save else os.path.realpath(args.dir)
     cpmodel_path = model.train(
         images,
@@ -241,7 +254,7 @@ def _run_training(args) -> None:
         save_path=save_path,
         save_every=args.save_every,
         save_each=args.save_each,
-        rescale=(args.diameter != 0),
+        do_rescale=(args.diameter != 0),
         n_epochs=args.n_epochs,
         batch_size=args.batch_size,
         dataloader=args.dataloader,
@@ -262,6 +275,24 @@ def _run_training(args) -> None:
 
 def main(argv: list[str] | None = None) -> None:
     args = get_arg_parser().parse_args(argv)
+    if args.seed is not None:
+        random.seed(args.seed)
+        np.random.seed(args.seed)
+        torch.manual_seed(args.seed)
+        if torch.cuda.is_available():
+            torch.cuda.manual_seed_all(args.seed)
+        if hasattr(torch.backends, "cudnn"):
+            torch.backends.cudnn.deterministic = True
+            torch.backends.cudnn.benchmark = False
+    if args.deterministic:
+        os.environ.setdefault("CUBLAS_WORKSPACE_CONFIG", ":4096:8")
+        warn_only = bool(args.use_gpu and torch.cuda.is_available())
+        torch.use_deterministic_algorithms(True, warn_only=warn_only)
+        torch.autograd.set_detect_anomaly(True)
+        if hasattr(torch.backends, "cudnn"):
+            torch.backends.cudnn.deterministic = True
+            torch.backends.cudnn.benchmark = False
+            torch.backends.cudnn.enabled = False
     if args.train or args.train_size:
         _run_training(args)
     else:

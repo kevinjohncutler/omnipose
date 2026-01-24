@@ -28,7 +28,6 @@ from sklearn.utils.extmath import cartesian
 from skimage import color
 from skimage.segmentation import find_boundaries
 
-from mahotas.morph import hitmiss as mh_hitmiss
 import math
 import os
 import re

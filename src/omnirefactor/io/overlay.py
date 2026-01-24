@@ -2,7 +2,7 @@ from .imports import *
 
 from skimage import color
 from ..utils.color import sinebow
-from ..utils.transforms import rescale
+from ..transforms.normalize import rescale
 
 def channel_overlay(channels, color_indexes, colors=None, a=1, cmaps=None):
     """Overlay selected channels as colors onto the remaining channels as grayscale."""

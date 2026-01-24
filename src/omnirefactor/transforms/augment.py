@@ -4,6 +4,8 @@ import numpy as np
 from scipy.ndimage import affine_transform
 import mgen
 
+from .. import core
+
 
 def rotate(V, theta, order=1, output_shape=None, center=None):
     dim = V.ndim
@@ -21,3 +23,38 @@ def rotate(V, theta, order=1, output_shape=None, center=None):
     offset = c_in - np.dot(np.linalg.inv(M), c_out)
     V_rot = affine_transform(V, np.linalg.inv(M), offset=offset, order=order, output_shape=output_shape)
     return V_rot
+
+
+def random_rotate_and_resize(
+    X,
+    Y=None,
+    scale_range=1.0,
+    gamma_range=(0.5, 4.0),
+    tyx=None,
+    do_flip=True,
+    rescale_factor=None,
+    unet=False,
+    inds=None,
+    omni=False,
+    dim=2,
+    nchan=1,
+    nclasses=3,
+    device=None,
+    allow_blank_masks=False,
+):
+    scale_range = max(0, min(2, float(scale_range)))
+    if inds is None:
+        nimg = len(X)
+        inds = np.arange(nimg)
+    return core.random_rotate_and_resize(
+        X,
+        Y=Y,
+        scale_range=scale_range,
+        gamma_range=gamma_range,
+        tyx=tyx,
+        do_flip=do_flip,
+        rescale_factor=rescale_factor,
+        inds=inds,
+        nchan=nchan,
+        allow_blank_masks=allow_blank_masks,
+    )

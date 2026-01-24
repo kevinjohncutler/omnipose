@@ -3,7 +3,7 @@ import os
 import numpy as np
 
 from .defaults import figure
-from ..utils import rescale
+from ..transforms.normalize import rescale
 
 
 def set_outline(ax, outline_color=None, outline_width=0):

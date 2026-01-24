@@ -1,6 +1,13 @@
 from .imports import *
 
 
+def _circle_mask(radius):
+    rr = np.arange(-radius, radius + 1)
+    yy, xx = np.meshgrid(rr, rr, indexing="ij")
+    rs = np.sqrt(yy ** 2 + xx ** 2)
+    return rs, yy, xx
+
+
 def mask_ious(masks_true, masks_pred):
     """ return best-matched masks """
     iou = _intersection_over_union(masks_true, masks_pred)[1:,1:]
@@ -15,14 +22,15 @@ def mask_ious(masks_true, masks_pred):
 
 def boundary_scores(masks_true, masks_pred, scales):
     """ boundary precision / recall / Fscore """
-    diams = [utils.diameters(lbl)[0] for lbl in masks_true]
+    diams = [core.diameter_utils.diameters(lbl) for lbl in masks_true]
     precision = np.zeros((len(scales), len(masks_true)))
     recall = np.zeros((len(scales), len(masks_true)))
     fscore = np.zeros((len(scales), len(masks_true)))
     for j, scale in enumerate(scales):
         for n in range(len(masks_true)):
             diam = max(1, scale * diams[n])
-            rs, ys, xs = utils.circleMask([int(np.ceil(diam)), int(np.ceil(diam))])
+            r = int(np.ceil(diam))
+            rs, ys, xs = _circle_mask(r)
             filt = (rs <= diam).astype(np.float32)
             otrue = utils.masks_to_outlines(masks_true[n])
             otrue = convolve(otrue, filt)

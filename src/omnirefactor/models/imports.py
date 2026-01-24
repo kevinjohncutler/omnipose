@@ -23,11 +23,11 @@ from .registry import C2_BD_MODELS, C1_BD_MODELS, C2_MODELS, C1_MODELS, CP_MODEL
 from ..gpu import empty_cache, ARM
 from ..networks import assign_device, check_mkl, MXNET_ENABLED, parse_model_string, UnetND
 from ..transforms import torch_zoom
-from ..utils import hysteresis_threshold
+from ..transforms.filters import hysteresis_threshold
 from ..io.paths import check_dir
 from ..kwargs import split_kwargs
 from torchvf.numerics import interp_vf, ivp_solver
 
 from .logging import models_logger, core_logger, tqdm_out
 
-from .helpers import model_path, size_model_path, cache_model_path, deprecation_warning_cellprob_dist_threshold
+from .helpers import model_path, size_model_path, cache_model_path

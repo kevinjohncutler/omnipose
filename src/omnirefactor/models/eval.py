@@ -1,12 +1,13 @@
 from .imports import *
 import inspect
+import warnings
 from ..kwargs import base_kwargs, split_kwargs_for
 from ..logger import TqdmToLogger
 
 
 def eval(self, x, batch_size=8, indices=None, channels=None, channel_axis=None,
          z_axis=None, normalize=True, invert=False,
-         rescale=None, diameter=None, do_3D=False, anisotropy=None, net_avg=True,
+         rescale_factor=None, diameter=None, do_3D=False, anisotropy=None, net_avg=True,
          augment=False, tile=False, tile_overlap=0.1, bsize=224, num_workers=8,
          loader_batch_size=1, # for torch dataloader
          resample=True, progress=None, show_progress=True,
@@ -44,11 +45,12 @@ def eval(self, x, batch_size=8, indices=None, channels=None, channel_axis=None,
         invert: bool (optional, default False)
             invert image pixel intensity before running network
 
-        rescale: float (optional, default None)
+        rescale_factor: float (optional, default None)
             resize factor for each image, if None, set to 1.0
+            NOTE: the legacy kwarg `rescale` is deprecated; use `rescale_factor`.
 
         diameter: float (optional, default None)
-            diameter for each image (only used if rescale is None), 
+            diameter for each image (only used if rescale_factor is None), 
             if diameter is None, set to diam_mean
 
         do_3D: bool (optional, default False)
@@ -81,12 +83,6 @@ def eval(self, x, batch_size=8, indices=None, channels=None, channel_axis=None,
 
         mask_threshold: float (optional, default 0.0)
             all pixels with value above threshold kept for masks, decrease to find more and larger masks
-
-        dist_threshold: float (optional, default None) DEPRECATED
-            use mask_threshold instead
-
-        cellprob_threshold: float (optional, default None) DEPRECATED
-            use mask_threshold instead
 
         compute_masks: bool (optional, default True)
             Whether or not to compute dynamics and return masks.
@@ -143,12 +139,6 @@ def eval(self, x, batch_size=8, indices=None, channels=None, channel_axis=None,
         base_args,
         strict=False,
     )
-    if "cellprob_threshold" in base_args or "dist_threshold" in base_args:
-        mask_threshold = deprecation_warning_cellprob_dist_threshold(
-            base_args.get("cellprob_threshold"), base_args.get("dist_threshold")
-        )
-        mask_kwargs["mask_threshold"] = mask_threshold
-
     # lift commonly-used items back into locals for readability
     interp = step_kwargs.get("interp", True) # not used below? 
     niter = step_kwargs.get("niter")
@@ -217,7 +207,7 @@ def eval(self, x, batch_size=8, indices=None, channels=None, channel_axis=None,
         x.tile = tile
         
         # set the rescale parameter in dataset
-        x.rescale = 1.0 if rescale is None else rescale
+        x.rescale_factor = 1.0 if rescale_factor is None else rescale_factor
         # avoid double normalization; handled in this eval branch
         x.normalize = False
         x.invert = False
@@ -311,8 +301,8 @@ def eval(self, x, batch_size=8, indices=None, channels=None, channel_axis=None,
             yf = yf[(Ellipsis,)+slc]
             
             # rescale and resample
-            if resample and rescale not in [None, 1.0, 0]:
-                yf = torch_zoom(yf, 1/rescale)
+            if resample and rescale_factor not in [None, 1.0, 0]:
+                yf = torch_zoom(yf, 1 / rescale_factor)
 
             # compared to the usual per-image pipeline, this one will not support cellpose or u-net 
             flow_pred = yf[:,:self.dim]
@@ -418,8 +408,8 @@ def eval(self, x, batch_size=8, indices=None, channels=None, channel_axis=None,
             mask_base = dict(mask_kwargs)
             for key in ("bd", "p", "coords", "iscell", "affinity_graph"):
                 mask_base.pop(key, None)
-            if rescale is None:
-                mask_base["rescale"] = 1.0
+            if rescale_factor is None:
+                mask_base["rescale_factor"] = 1.0
             mask_base.update({
                 "use_gpu": self.gpu,
                 "device": self.device,
@@ -480,7 +470,7 @@ def eval(self, x, batch_size=8, indices=None, channels=None, channel_axis=None,
         
         for i in iterator:
             dia = diameter[i] if isinstance(diameter, list) or isinstance(diameter, np.ndarray) else diameter
-            rsc = rescale[i] if isinstance(rescale, list) or isinstance(rescale, np.ndarray) else rescale
+            rsc = rescale_factor[i] if isinstance(rescale_factor, list) or isinstance(rescale_factor, np.ndarray) else rescale_factor
             chn = channels if channels is None else channels[i] if (len(channels)==len(x) and 
                                                                     (isinstance(channels[i], list) 
                                                                      or isinstance(channels[i], np.ndarray)) and
@@ -492,7 +482,7 @@ def eval(self, x, batch_size=8, indices=None, channels=None, channel_axis=None,
                 "channels": chn,
                 "channel_axis": channel_axis,
                 "z_axis": z_axis,
-                "rescale": rsc,
+                "rescale_factor": rsc,
                 "diameter": dia,
                 "loop_run": (i > 0),
                 "model_loaded": model_loaded,
@@ -510,10 +500,6 @@ def eval(self, x, batch_size=8, indices=None, channels=None, channel_axis=None,
             if self.torch and self.gpu:
                 models_logger.info(f'using dataparallel')
                 net = self.net.module
-                
-                # if ARM:
-                #     models_logger.info('On ARM, OMP_NUM_THREADS set to 1')
-                #     os.environ['OMP_NUM_THREADS'] = '1'
                     
             else:
                 net = self.net
@@ -523,8 +509,6 @@ def eval(self, x, batch_size=8, indices=None, channels=None, channel_axis=None,
                 models_logger.info(f'network initialized.')
             
             net.load_model(self.pretrained_model[0], cpu=(not self.gpu))
-            if not self.torch:
-                net.collect_params().grad_req = 'null'
 
         if verbose: 
             models_logger.info('shape before transforms.convert_image(): {}'.format(x.shape))
@@ -547,8 +531,8 @@ def eval(self, x, batch_size=8, indices=None, channels=None, channel_axis=None,
                 models_logger.info('shape now {}'.format(x.shape))
 
         self.batch_size = batch_size
-        rescale = self.diam_mean / diameter if (rescale is None and (diameter is not None and diameter>0)) else rescale
-        rescale = 1.0 if rescale is None else rescale
+        rescale_factor = self.diam_mean / diameter if (rescale_factor is None and (diameter is not None and diameter>0)) else rescale_factor
+        rescale_factor = 1.0 if rescale_factor is None else rescale_factor
 
         run_kwargs = split_kwargs_for(self.run_batch, locals(), exclude={"self", "x", "kwargs"})
         masks, styles, dP, cellprob, p, bd, tr, affinity, bounds = self.run_batch(x, **run_kwargs)
@@ -572,11 +556,11 @@ def eval(self, x, batch_size=8, indices=None, channels=None, channel_axis=None,
 
 
 def run_batch(self, x, compute_masks=True, normalize=True, invert=False,
-            rescale=1.0, net_avg=True, resample=True,
+            rescale_factor=1.0, net_avg=True, resample=True,
             augment=False, tile=False, tile_overlap=0.1, bsize=224,
-            mask_threshold=0.0, diam_threshold=12., flow_threshold=0.4, niter=None, flow_factor=5.0, 
+            mask_threshold=0.0, diam_threshold=12., flow_threshold=0.4, niter=None, flow_factor=5.0,
             min_size=15, max_size=None,
-            interp=True, cluster=False, suppress=None, boundary_seg=False, affinity_seg=False, despur=False,
+            interp=True, cluster=False, suppress=None, affinity_seg=False, despur=False,
             anisotropy=1.0, do_3D=False, stitch_threshold=0.0,
             omni=True, calc_trace=False,  show_progress=True, verbose=False, pad=0):
     
@@ -599,7 +583,7 @@ def run_batch(self, x, compute_masks=True, normalize=True, invert=False,
         # have not tested padding in do_3d yet 
         # img = np.pad(img,pad_seq,'reflect')
         
-        yf, styles = self._run_3D(img, rsz=rescale, anisotropy=anisotropy, 
+        yf, styles = self._run_3D(img, rsz=rescale_factor, anisotropy=anisotropy, 
                                   net_avg=net_avg, augment=augment, tile=tile,
                                   tile_overlap=tile_overlap)
         # unpadding 
@@ -620,10 +604,12 @@ def run_batch(self, x, compute_masks=True, normalize=True, invert=False,
         styles = np.zeros((nimg, self.nbase[-1]), np.float32)
         
         #indexing a little weird here due to channels being last now 
+        no_channel_axis = (x.ndim == self.dim + 1)
         if resample:
-            s = tuple(shape[-(self.dim+1):-1])
+            s = tuple(shape[-self.dim:]) if no_channel_axis else tuple(shape[-(self.dim+1):-1])
         else:
-            s = tuple(np.round(np.array(shape[-(self.dim+1):-1])*rescale).astype(int))
+            base_shape = shape[-self.dim:] if no_channel_axis else shape[-(self.dim+1):-1]
+            s = tuple(np.round(np.array(base_shape) * rescale_factor).astype(int))
         
         dP = np.zeros((self.dim, nimg,)+s, np.float32)
         cellprob = np.zeros((nimg,)+s, np.float32)
@@ -643,15 +629,15 @@ def run_batch(self, x, compute_masks=True, normalize=True, invert=False,
             if pad>0:
                 img = np.pad(img,pad_seq,'edge')
 
-            if rescale != 1.0:
+            if rescale_factor != 1.0:
                 # if self.dim>2:
                 #     print('WARNING, resample not updated for ND')
                 # img = transforms.resize_image(img, rsz=rescale)
                 
                 if img.ndim>self.dim: # then there is a channel axis, assume it is last here 
-                    img = np.stack([zoom(img[...,k],rescale,order=3) for k in range(img.shape[-1])],axis=-1)
+                    img = np.stack([zoom(img[...,k], rescale_factor, order=3) for k in range(img.shape[-1])], axis=-1)
                 else:
-                    img = zoom(img,rescale,order=1)
+                    img = zoom(img, rescale_factor, order=1)
                     
             # inherited from Unet 
             # returns numpy arrays by default, not torch tensors
@@ -666,7 +652,7 @@ def run_batch(self, x, compute_masks=True, normalize=True, invert=False,
             # resample interpolates the network output to native resolution prior to running Euler integration
             # this means the masks will have no scaling artifacts. We could *upsample* by some factor to make
             # the clustering etc. work even better, but that is not implemented yet 
-            if resample and rescale!=1.0:
+            if resample and rescale_factor != 1.0:
                 # for k in range(yf.shape[-1]):
                 #     print('a',shape[1:1+self.dim]/np.array(yf.shape[:-1]))
                 # ND version actually gives better results than CV2 in some places. 
@@ -707,7 +693,7 @@ def run_batch(self, x, compute_masks=True, normalize=True, invert=False,
         # Cellpose default is 200
         # Omnipose default is None (dynamically adjusts based on distance field)
         if niter is None and not omni:
-            niter = 200 if (do_3D and not resample) else (1 / rescale * 200)
+            niter = 200 if (do_3D and not resample) else (1 / rescale_factor * 200)
 
         if do_3D:
             resize = None

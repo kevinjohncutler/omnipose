@@ -30,7 +30,7 @@ def dist_to_diam(dt_pos, n):
     return 2 * (n + 1) * np.mean(dt_pos)
 
 
-def diameters(masks, dt=None, dist_threshold=0, pill=False, return_length=False):
+def diameters(masks, dt=None, dist_threshold=0, pill=False, return_length=False, omni=None):
     """
     Calculate the mean cell diameter from a label matrix.
 
@@ -54,7 +54,10 @@ def diameters(masks, dt=None, dist_threshold=0, pill=False, return_length=False)
 
     if dt is None and np.any(masks):
         dt = edt.edt(np.int32(masks))
-    dt_pos = np.abs(dt[dt > dist_threshold])
+    if dt is None:
+        dt_pos = np.array([])
+    else:
+        dt_pos = np.abs(dt[dt > dist_threshold])
 
     A = np.count_nonzero(dt_pos)
     D = np.sum(dt_pos)

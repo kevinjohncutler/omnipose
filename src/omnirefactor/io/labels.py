@@ -1,6 +1,7 @@
 from .imports import *
 from .paths import check_dir, getname
 from .imio import imread, imwrite, get_image_files
+from ..transforms.normalize import normalize99
 from .links import load_links
 
 
@@ -144,6 +145,16 @@ def load_train_test_data(train_dir, test_dir=None, image_filter='', mask_filter=
                 labels[n] = np.concatenate((labels[n][np.newaxis,:,:], flows), axis=0) 
             else:
                 labels[n] = flows
+
+    if nimg_train == 1:
+        io_logger.warning(
+            "Single training image detected; duplicating it to reach batch size 2."
+        )
+        images = images * 2
+        labels = labels * 2
+        links = links * 2
+        image_names = image_names * 2
+        nimg_train = len(images)
             
     # testing data
     nimg_test = 0
@@ -230,13 +241,13 @@ def masks_flows_to_seg(images, masks, flows, diams, file_names, channels=None):
         flowi.append(flows[0])
     
     if flows[0].ndim==3:
-        cellprob = (np.clip(transforms.normalize99(flows[2]),0,1) * 255).astype(np.uint8)
+        cellprob = (np.clip(normalize99(flows[2]), 0, 1) * 255).astype(np.uint8)
         cellprob = cv2.resize(cellprob, (Lx, Ly), interpolation=0)
         flowi.append(cellprob[np.newaxis,...])
         flowi.append(np.zeros(flows[0].shape, dtype=np.uint8))
         flowi[-1] = flowi[-1][np.newaxis,...]
     else:
-        flowi.append((np.clip(transforms.normalize99(flows[2]),0,1) * 255).astype(np.uint8))
+        flowi.append((np.clip(normalize99(flows[2]), 0, 1) * 255).astype(np.uint8))
         flowi.append((flows[1][0]/10 * 127 + 127).astype(np.uint8))
     if len(flows)>2:
         flowi.append(flows[3])
@@ -278,7 +289,7 @@ def save_to_png(images, masks, flows, file_names):
 def save_masks(images, masks, flows, file_names, png=True, tif=False,
                suffix='',save_flows=False, save_outlines=False, outline_col=[1,0,0],
                save_ncolor=False, dir_above=False, in_folders=False, savedir=None, 
-               save_txt=True, save_plot=True, omni=True, channel_axis=None, channels=None):
+               save_plot=True, omni=True, channel_axis=None, channels=None):
     """ save masks + nicely plotted segmentation image to png and/or tiff
 
     if png, masks[k] for images[k] are saved to file_names[k]+'_cp_masks.png'
@@ -307,7 +318,7 @@ def save_masks(images, masks, flows, file_names, png=True, tif=False,
     savedir: str
         absolute path where images will be saved. Default is none (saves to image directory)
     
-    save_flows, save_outlines, save_ncolor, save_txt: bool
+    save_flows, save_outlines, save_ncolor: bool
         Can choose which outputs/views to save.
         ncolor is a 4 (or 5, if 4 takes too long) index version of the labels that
         is way easier to visualize than having hundreds of unique colors that may
@@ -318,7 +329,7 @@ def save_masks(images, masks, flows, file_names, png=True, tif=False,
         for image, mask, flow, file_name in zip(images, masks, flows, file_names):
             save_masks(image, mask, flow, file_name, png=png, tif=tif, suffix=suffix, dir_above=dir_above,
                        save_flows=save_flows,save_outlines=save_outlines, outline_col=outline_col,
-                       save_ncolor=save_ncolor, savedir=savedir, save_txt=save_txt, save_plot=save_plot,
+                       save_ncolor=save_ncolor, savedir=savedir, save_plot=save_plot,
                        in_folders=in_folders, omni=omni, channel_axis=channel_axis, channels=channels)
         return
 
@@ -385,6 +396,7 @@ def save_masks(images, masks, flows, file_names, png=True, tif=False,
     SSNLoss = not (min(images.shape) > 3 and images.ndim >=3)
     
     if png and MATPLOTLIB and SSNLoss and save_plot:
+        from .. import plot
         img = images.copy()
         # if img.ndim<3:
         #     img = img[:,:,np.newaxis]
@@ -398,12 +410,6 @@ def save_masks(images, masks, flows, file_names, png=True, tif=False,
         fig.savefig(os.path.join(cpdir,basename + '_cp_output' + suffix + '.png'), dpi=300)
         plt.close(fig)
 
-    # ImageJ txt outline files 
-    if masks.ndim < 3 and save_txt:
-        check_dir(txtdir)
-        outlines = utils.outlines_list(masks)
-        outlines_to_text(os.path.join(txtdir,basename), outlines)
-    
     # RGB outline images
     if masks.ndim < 3 and save_outlines: 
         check_dir(outlinedir) 

@@ -3,7 +3,8 @@ import matplotlib as mpl
 from skimage import img_as_ubyte
 
 from ..utils.color import sinebow
-from ..utils import rescale, torch_norm
+from ..transforms.normalize import rescale, safe_divide, normalize99
+from ..transforms.vector import torch_norm
 
 
 def colorize(im, colors=None, color_weights=None, offset=0, channel_axis=-1):
@@ -275,7 +276,7 @@ def apply_ncolor(masks, offset=0, cmap=None, max_depth=20, expand=True, maxv=1, 
 def rgb_flow(dP, transparency=True, mask=None, norm=True, device=None):
     """Meant for stacks of dP, unsqueeze if using on a single plane."""
     import torch
-    from ..utils import normalize99, safe_divide
+# normalize99 and safe_divide imported from transforms.normalize
 
     if device is None:
         device = torch.device('cpu')
