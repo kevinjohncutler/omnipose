@@ -4,7 +4,8 @@ import fastremap
 from scipy.ndimage import affine_transform, gaussian_filter
 
 from .. import utils
-from .diameters import diameters
+from ..transforms.normalize import normalize99, rescale
+from .diameter_utils import diameters
 from .njit import most_frequent
 
 try:
@@ -55,7 +56,7 @@ def mode_filter(masks):
 # Spacetime segmentation: augmentations need to treat time differently
 # Need to assume a particular axis is the temporal axis; most convenient is tyx.
 def random_rotate_and_resize(X, Y=None, scale_range=1., gamma_range=[.75, 2.5], tyx=(224, 224),
-                             do_flip=True, rescale=None, inds=None, nchan=1, allow_blank_masks=False):
+                             do_flip=True, rescale_factor=None, inds=None, nchan=1, allow_blank_masks=False):
 
     """ augmentation by random rotation and resizing
 
@@ -81,7 +82,7 @@ def random_rotate_and_resize(X, Y=None, scale_range=1., gamma_range=[.75, 2.5], 
             size of transformed images to return, e.g. (Ly,Lx) or (Lt,Ly,Lx)
         do_flip: bool (optional, default True)
             whether or not to flip images horizontally
-        rescale: float, array or list
+        rescale_factor: float, array or list
             how much to resize images by before performing augmentations
         inds: int, list
             image indices (for debugging)
@@ -110,11 +111,18 @@ def random_rotate_and_resize(X, Y=None, scale_range=1., gamma_range=[.75, 2.5], 
     v1 = [0] * (dim - 1) + [1]
     v2 = [0] * (dim - 2) + [1, 0]
 
+    if rescale_factor is None:
+        rescale = np.ones(nimg, np.float32)
+    elif np.isscalar(rescale_factor):
+        rescale = np.ones(nimg, np.float32) * rescale_factor
+    else:
+        rescale = np.array(rescale_factor)
+
     for n in range(nimg):
         img = X[n].copy()
         y = None if Y is None else Y[n]
         imgi[n], lbl[n], scale[n] = random_crop_warp(img, y, tyx, v1, v2, nchan,
-                                                     1 if rescale is None else rescale[n],
+                                                     rescale[n],
                                                      scale_range, gamma_range, do_flip,
                                                      inds is None if inds is None else inds[n],
                                                      allow_blank_masks=allow_blank_masks)
@@ -122,7 +130,7 @@ def random_rotate_and_resize(X, Y=None, scale_range=1., gamma_range=[.75, 2.5], 
     return imgi, lbl, np.mean(scale)
 
 
-def random_crop_warp(img, Y, tyx, v1, v2, nchan, rescale, scale_range, gamma_range, do_flip, ind,
+def random_crop_warp(img, Y, tyx, v1, v2, nchan, rescale_factor, scale_range, gamma_range, do_flip, ind,
                      do_labels=True, depth=0, augment=True, allow_blank_masks=False):
     """
     This sub-fuction of `random_rotate_and_resize()` recursively performs random cropping until
@@ -140,7 +148,7 @@ def random_crop_warp(img, Y, tyx, v1, v2, nchan, rescale, scale_range, gamma_ran
         size of transformed images to return, e.g. (Ly,Lx) or (Lt,Ly,Lx)
     nchan: int
         number of channels the images have
-    rescale: float, array or list
+    rescale_factor: float, array or list
         how much to resize images by before performing augmentations
     scale_range: float
         Range of resizing of images for augmentation. Images are resized by
@@ -175,7 +183,7 @@ def random_crop_warp(img, Y, tyx, v1, v2, nchan, rescale, scale_range, gamma_ran
         Problematic index is: {}.
         Image shape is: {}.
         tyx is: {}.
-        rescale is {}""".format(ind, img.shape, tyx, rescale)
+                               rescale_factor is {}""".format(ind, img.shape, tyx, rescale_factor)
         raise ValueError(error_message)
 
     if depth > 200:
@@ -199,8 +207,8 @@ def random_crop_warp(img, Y, tyx, v1, v2, nchan, rescale, scale_range, gamma_ran
         beta = alpha * (1.0 - m) / m
         scale = a + (b - a) * np.random.beta(alpha, beta, size=dim)
 
-        if rescale is not None:
-            scale *= 1. / rescale
+        if rescale_factor is not None:
+            scale *= 1. / rescale_factor
     else:
         scale = 1
 
@@ -225,9 +233,9 @@ def random_crop_warp(img, Y, tyx, v1, v2, nchan, rescale, scale_range, gamma_ran
     lbl = do_warp(labels, M_inv, tyx, offset=offset, order=0, mode=mode)
 
     if len(fastremap.unique(lbl)) < 2 and not allow_blank_masks:
-        return random_crop_warp(img, Y, tyx, v1, v2, nchan, rescale, scale_range,
-                                gamma_range, do_flip, ind, do_labels, depth=depth + 1,
-                                augment=augment, allow_blank_masks=allow_blank_masks)
+            return random_crop_warp(img, Y, tyx, v1, v2, nchan, rescale_factor, scale_range,
+                                    gamma_range, do_flip, ind, do_labels, depth=depth + 1,
+                                    augment=augment, allow_blank_masks=allow_blank_masks)
     else:
         lbl = mode_filter(lbl)
 
@@ -242,7 +250,7 @@ def random_crop_warp(img, Y, tyx, v1, v2, nchan, rescale, scale_range, gamma_ran
         raw_bits = int(np.ceil(np.log2(max(nvals, 1))))
 
         if has_foreground:
-            arr = utils.rescale(img[k])
+            arr = rescale(img[k])
         else:
             maxv = np.iinfo(img[k].dtype).max if np.issubdtype(img[k].dtype, np.integer) else 1.0
             arr = img[k].astype(np.float32) / maxv
@@ -260,7 +268,7 @@ def random_crop_warp(img, Y, tyx, v1, v2, nchan, rescale, scale_range, gamma_ran
             if aug_choices[2] and has_foreground:
                 dp = .1
                 dpct = np.random.triangular(left=0, mode=0, right=dp, size=2)
-                imgi[k] = utils.normalize99(imgi[k], upper=100 - dpct[0], lower=dpct[1])
+                imgi[k] = normalize99(imgi[k], upper=100 - dpct[0], lower=dpct[1])
 
             if aug_choices[0] and has_foreground:
                 if aug_choices[7] or not OPEN_SIMPLEX_ENABLED:
@@ -276,7 +284,7 @@ def random_crop_warp(img, Y, tyx, v1, v2, nchan, rescale, scale_range, gamma_ran
                     freq_jitter = np.random.triangular(left=1, mode=1.0, right=10.0)
                     fs = mean_obj_diam * freq_jitter
                     coords = [np.arange(0, s, dtype=np.float32) / fs for s in spatial_shape[::-1]]
-                    illum_field = utils.rescale(simplex.noise2array(*coords))
+                    illum_field = rescale(simplex.noise2array(*coords))
 
                 min_factor = np.random.triangular(left=0, mode=0, right=1) ** .5
 
@@ -304,7 +312,7 @@ def random_crop_warp(img, Y, tyx, v1, v2, nchan, rescale, scale_range, gamma_ran
                 else:
                     bit_shift = 0
                 im = utils.to_16_bit(imgi[k])
-                imgi[k] = utils.rescale(im >> bit_shift)
+                imgi[k] = rescale(im >> bit_shift)
 
             if aug_choices[5]:
                 border_inds = utils.border_indices(tyx)

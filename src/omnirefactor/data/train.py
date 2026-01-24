@@ -40,7 +40,9 @@ class train_set(torch.utils.data.Dataset):
         self.normalize = False
         self.gamma_range = [.75, 2.5]
         self.nimg = len(data)
-        self.rescale = self.diam_train / self.diam_mean if self.rescale else np.ones(self.nimg, np.float32)
+        do_rescale = getattr(self, "do_rescale", getattr(self, "rescale", True))
+        self.do_rescale = bool(do_rescale)
+        self.rescale_factor = self.diam_train / self.diam_mean if self.do_rescale else np.ones(self.nimg, np.float32)
 
         self.v1 = [0] * (self.dim - 1) + [1]
         self.v2 = [0] * (self.dim - 2) + [1, 0]
@@ -108,7 +110,7 @@ class train_set(torch.utils.data.Dataset):
                                                             v1=self.v1,
                                                             v2=self.v2,
                                                             nchan=self.nchan,
-                                                            rescale=self.rescale[idx],
+                                                            rescale_factor=self.rescale_factor[idx],
                                                             scale_range=self.scale_range,
                                                             gamma_range=self.gamma_range,
                                                             do_flip=self.do_flip,

@@ -1,52 +1,9 @@
 import numpy as np
 from numba import njit
 
-import fastremap
-import ncolor
-from skimage.segmentation import expand_labels
-
-
 @njit
 def most_frequent(neighbor_masks):
     return np.array([np.bincount(row).argmax() for row in neighbor_masks.T])
-
-
-@njit('(int64[:,:], int32[:], int32[:], int64[:], int64[:,:], float64[:,:], boolean[:,:])', nogil=True)
-def parametrize(steps, labs, unique_L, inds, ind_shift, values, step_ok):
-    """Parametrize 2D boundaries."""
-    sign = np.sum(np.abs(steps), axis=1)
-    cardinal_mask = sign > 1  # limit to cardinal steps for traversing
-    contours = []
-    for l in unique_L:
-        indices = np.argwhere(labs == l).flatten()  # boundary indices for this label
-        index = indices[0]
-
-        closed = 0
-        contour = []
-        n_iter = 0
-
-        while not closed and n_iter < len(indices) + 1:
-            contour.append(inds[index])
-
-            neighbor_inds = ind_shift[:, index]
-            step_ok_here = step_ok[:, index]
-            seen = np.array([i in contour for i in neighbor_inds])
-            step_mask = (seen + cardinal_mask + ~step_ok_here) > 0
-
-            vals = values[:, index]
-            vals[step_mask] = np.inf
-
-            if np.sum(step_mask) < len(step_mask):
-                select = np.argmin(vals)
-                neighbor_idx = neighbor_inds[select]
-                w = np.argwhere(inds[indices] == neighbor_idx)[0][0]
-                index = indices[w]
-                n_iter += 1
-            else:
-                closed = True
-                contours.append(contour)
-
-    return contours
 
 
 @njit
@@ -79,7 +36,9 @@ def parametrize_contours(steps, labs, unique_L, neigh_inds, step_ok, csum):
                     select = possible_step_indices[0]
                 else:
                     consider_steps = steps[possible_step_indices]
-                    best = np.argmin(np.array([np.sum(s * steps[3]) for s in consider_steps]))
+                    best = np.argmin(
+                        np.array([np.sum(s * steps[3]) for s in consider_steps])
+                    )
                     select = possible_step_indices[best]
 
                 neighbor_idx = neighbor_inds[select]
@@ -92,6 +51,7 @@ def parametrize_contours(steps, labs, unique_L, neigh_inds, step_ok, csum):
     return contours
 
 
+# might want to deprecate this and do all despur using the torch code 
 @njit
 def candidate_cleanup_idx(idx, connect, neigh_inds, cardinal, ordinal, dim, boundary, internal):
     """
@@ -127,21 +87,3 @@ def candidate_cleanup_idx(idx, connect, neigh_inds, cardinal, ordinal, dim, boun
                     if t > -1:
                         connect[sym_index, t] = c_val
     return
-
-
-@njit()
-def linker_label_to_links(maski, linker_label_list):
-    linker_mask = np.zeros(maski.shape, bool)
-    for l in linker_label_list:
-        mask = maski == l
-        linker_mask[mask] = 1
-
-    link_masks = ncolor.format_labels(maski, clean=True)
-    linker_labels = link_masks.copy()
-    unlink_masks = link_masks.copy()
-    linker_labels[linker_mask == 0] = 0
-    unlink_masks[linker_mask] = 0
-
-    dic = fastremap.inverse_component_map(expand_labels(linker_labels, 1), unlink_masks)
-    links = {(x, z) for x, y in dic.items() if x != 0 for z in y if z != 0}
-    return links

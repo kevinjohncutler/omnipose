@@ -23,3 +23,21 @@ norecursedirs = ["trash"]
 filterwarnings = [
   "ignore::DeprecationWarning:networkit.profiling.profiling"
 ]
+
+[tool.coverage.run]
+omit = [
+  "*/_version.py",
+  "*/omnirefactor/gui/*",
+  "*/omnirefactor/plot/*",
+]
+branch = false
+parallel = true
+
+[tool.coverage.report]
+show_missing = true
+exclude_lines = [
+  "pragma: no cover",
+  "if verbose:",
+  "models_logger\\.",
+  "warnings\\.warn",
+]

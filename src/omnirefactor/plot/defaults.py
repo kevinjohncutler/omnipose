@@ -3,7 +3,8 @@ import numpy as np
 from matplotlib.figure import Figure
 
 from ..utils.color import sinebow
-from ..utils import rescale, torch_norm
+from ..transforms.normalize import rescale
+from ..transforms.vector import torch_norm
 
 
 def apply_mpl_defaults():

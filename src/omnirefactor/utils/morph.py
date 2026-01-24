@@ -43,45 +43,6 @@ def get_edge_masks(labels,dists):
     return clean_labels
 
 
-from sklearn.utils.extmath import cartesian
-
-def get_spruepoints(bw):
-    d = bw.ndim
-    idx = (3**d)//2 # the index of the center pixel is placed here when considering the neighbor kernel 
-    neigh = [[-1,0,1] for i in range(d)]
-    steps = cartesian(neigh) # all the possible step sequences in ND
-    sign = np.sum(np.abs(steps),axis=1) # signature distinguishing each kind of m-face via the number of steps 
-    
-    hits = np.zeros_like(bw)
-    mid = tuple([1]*d) # kernel 3 wide in every axis, so middle is 1
-    
-    # alt
-    substeps = np.array(list(set([tuple(s) for s in steps])-set([(0,)*d]))) # remove zero shift element 
-    # substeps = steps.copy()
-    for step in substeps:
-        oppose = np.array([np.dot(step,s) for s in steps])
-        
-        sprue = np.zeros([3]*d,dtype=int) # allocate matrix
-        sprue[tuple(mid-step)] = 1
-        sprue[mid] = 1
-        
-        miss = np.zeros([3]*d,dtype=int)
-        for idx in np.argwhere(np.logical_and(oppose>=0,sign!=0)).flatten():
-            c = tuple(steps[idx]+1)
-            miss[c] = 1
-
-        
-        hitmiss = 2 - 2*miss - sprue
-        
-        # mahotas hitmiss is far faster than ndimage 
-        hm = mh_hitmiss(bw,hitmiss)
-
-        hits = hits+hm
-        
-    return hits>0
-
-
-
 #TODO: vectorize this function
 def fill_holes_and_remove_small_masks(masks, min_size=None, max_size=None, hole_size=3, dim=2):
     """Fill holes in masks (2D/3D) and discard masks smaller than min_size (2D)."""
@@ -149,4 +110,3 @@ def clean_boundary(labels, boundary_thickness=3, area_thresh=30, cutoff=0.5):
             clean_labels[mask] = 0
 
     return clean_labels
-

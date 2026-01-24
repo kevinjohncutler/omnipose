@@ -6,7 +6,7 @@ import torch
 import numpy as np
 from aicsimageio import AICSImage
 
-from ..utils import normalize99, unaugment_tiles_ND, average_tiles_ND, make_tiles_ND
+from ..transforms import normalize99, unaugment_tiles_ND, average_tiles_ND, make_tiles_ND
 from ..transforms import torch_zoom
 
 
@@ -42,7 +42,7 @@ class eval_set(torch.utils.data.Dataset):
                  normalize_stack=True,
                  normalize=True,
                  invert=False,
-                 rescale=1.0,
+                 rescale_factor=1.0,
                  pad_mode='reflect',
                  interp_mode='bilinear',
                  extra_pad=1,
@@ -66,7 +66,7 @@ class eval_set(torch.utils.data.Dataset):
         self.normalize_stack = normalize_stack
         self.normalize = normalize
         self.invert = invert
-        self.rescale = rescale
+        self.rescale_factor = rescale_factor
         self.pad_mode = pad_mode
         self.interp_mode = interp_mode
         self.extra_pad = extra_pad
@@ -144,8 +144,8 @@ class eval_set(torch.utils.data.Dataset):
                     if self.invert:
                         imgs[b, c] = -1 * imgs[b, c] + 1
 
-        if self.rescale is not None and self.rescale != 1.0 and not no_rescale:
-            imgs = torch_zoom(imgs, self.rescale, mode=self.interp_mode)
+        if self.rescale_factor is not None and self.rescale_factor != 1.0 and not no_rescale:
+            imgs = torch_zoom(imgs, self.rescale_factor, mode=self.interp_mode)
 
         if no_pad:
             return imgs.squeeze()

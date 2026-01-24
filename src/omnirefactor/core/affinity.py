@@ -1,4 +1,5 @@
 import logging
+import time
 import numpy as np
 import torch
 from numba import njit, prange
@@ -10,6 +11,8 @@ from skimage.morphology import remove_small_objects
 from skimage.segmentation import expand_labels, find_boundaries
 
 from .. import utils
+from ..transforms.normalize import safe_divide
+from ..transforms.vector import torch_norm
 from ..gpu import torch_GPU
 from .fields import _ensure_torch, torch_and, divergence_torch, divergence
 from .njit import candidate_cleanup_idx
@@ -114,7 +117,7 @@ def masks_to_affinity(masks, coords, steps, inds, idx, fact, sign, dim,
     
     # We may not want all masks to be reflected across the edge. Thresholding by distance field
     # is a good way to make sure that cells are not doubled up along their boundary. 
-    if dists is not None:
+    if dists is not None: # pragma: no cover
         print('debug: check this')
         affinity_graph[is_edge] = dists[tuple(neighbors)][idx][np.nonzero(is_edge)[-1]]>cutoff
     
@@ -190,9 +193,9 @@ def _get_affinity_torch(initial, final, flow, dist, iscell, steps, fact, inds, s
     # adds batch dimension 
     initial, final, flow, dist, iscell = _ensure_torch(initial, final, flow, dist, iscell, device=device) 
     
-    # compute the displacment vector field; repalcingflow with this does not seem to make a difference now
+    # compute the displacement vector field; replacing flow with this does not seem to make a difference now
     # which means we could possibly forgo euler integration altogether 
-    # using the displacmeent avoids some internal boundaries 
+    # using the displacement avoids some internal boundaries 
     mu = final - initial 
     # mu = flow 
     
@@ -211,7 +214,7 @@ def _get_affinity_torch(initial, final, flow, dist, iscell, steps, fact, inds, s
     # so divergence as computed now may be too crude, and I need a better metric for if there is inward flow
     # so that i can connect inner parts of the cell. 
     
-    mag = utils.torch_norm(mu,dim=1,keepdim=True)
+    mag = torch_norm(mu, dim=1, keepdim=True)
     # mag = torch.linalg.norm(mu,dim=1,keepdim=True)
 
     mu_norm = torch.where(mag>0,mu/mag,mu) # avoids dividing during loop
@@ -231,7 +234,7 @@ def _get_affinity_torch(initial, final, flow, dist, iscell, steps, fact, inds, s
     if use_flow:
         # print('using predicted flow for mag cutoff')
         mag_cutoff = .5
-        mag = utils.torch_norm(flow,dim=1,keepdim=True) # alternate on real flow, better for catching boundary faults due to low mag flows 
+        mag = torch_norm(flow, dim=1, keepdim=True) # alternate on real flow, better for catching boundary faults due to low mag flows 
     else:
         # mag_cutoff = np.sqrt(D) # could be higher or based on niter
         mag_cutoff = 3
@@ -424,137 +427,6 @@ def _get_affinity_torch(initial, final, flow, dist, iscell, steps, fact, inds, s
     
     
 
-from functools import reduce      
-
-def _get_affinity(steps, mask_pad, mu_pad, dt_pad, p, p0, 
-                  acut=np.pi/2, euler_offset=None,
-                  clean_bd_connections=True, pad=0):
-    """
-    Get the weights associated with the edges of the affinity graph. 
-    Here pixels are connected (affinity 1) or disconnected (affinity 0). 
-    The particular way I store this affinity graph may also be called an "adjacency list". 
-    """
-
-    axes = range(mu_pad.shape[0])
-    # coord = np.nonzero(mask_pad) # should this not just be inds/p0?
-    # print('coord',np.all(coord==p0),p.shape,p0.shape) yes it is 
-    coord = tuple(p0)
-    coords = np.stack(coord)
-
-    div = divergence(mu_pad)
-
-    # steps are laid out symmetrically the 0,0,0 in center, but I was getting off results
-    d = mask_pad.ndim
-    steps, inds, idx, fact, sign = utils.kernel_setup(d)
-
-    # non_self = np.concatenate(inds[1:])
-    non_self = np.array(list(set(np.arange(len(steps)))-{inds[0][0]})) # I need these to be in order
-
-    if euler_offset is None:
-        euler_offset = 2*np.sqrt(d)
-        # euler_offset = d
-
-    shape = mask_pad.shape
-
-    # These functions are incredibly important, as they define neighbor coordinates everywhere
-    # INCLUDING at boundaries. Before, I had to pad by 1 to ensure neighbor indexing would not go over. 
-    neighbors = utils.get_neighbors(coord,steps,d,shape, pad=pad) # shape (d,3**d,npix)   
-    indexes, neigh_inds, ind_matrix = utils.get_neigh_inds(tuple(neighbors),coord,shape)#,background_reflect=True)
-    # indexes, neigh_inds, ind_matrix = get_neigh_inds(coords,shape,steps)
-
-    S,L = neigh_inds.shape
-    connect = np.zeros((S,L),dtype=bool)
-    
-    # cutoff for 
-    flow_cutoff = 1
-    div_cutoff = 0
-
-    # central pixel operations factored out of the loop
-    pix_A = p[(Ellipsis,)+coord]
-    A = pix_A-p0[:, indexes] # displacement at each pixel 
-    mag_A = np.sqrt(np.sum(A**2,axis=0))
-    slow = mag_A<flow_cutoff
-    sink = div[coord]<div_cutoff
-    mask_A = mask_pad[coord]
-    dt_pad_A = dt_pad[coord]
-
-
-    # Including the [0,0] step gives 2-connected 
-    # we unfortunately cannot use just half the steps because directionality is not symmetrical
-    # i.e. self-referencing does not work here with -1 targets and using the neighbor in the opposing
-    # direction to lookup the right index. Unfortunately, quite a lot of the computation is duplicated...
-    # the point of this method is to stick to foreground pixels, but that adds complexity. Doing this in
-    # torch over all pixels at once would probably be faster. 
-
-    # for i in range(S//2):
-    for i in non_self: # non-self 4x faster than range(S), barely slower than range(S//2)
-
-        s = steps[i]
-        neigh_indices = neigh_inds[i] # linear indices of pixel neighbors in this direction
-        
-        # earlier approach: -1 targets were excluded
-        # this means that the number of pixels being considered changes depeding on direction
-        sel = neigh_indices>-1 # non-foreground pixels have index -1, and that would mess up indexing
-        source_inds = indexes[sel] # we therefore only deal with source pixels that have a valid target 
-        target_inds = neigh_indices[source_inds] # and these are the corresponding valid targets 
-        target = tuple(neighbors[:,i,source_inds])
-   
-        pix_B = pix_A[:,target_inds]
-        B = pix_B - p0[:,target_inds] # displacement at neighbor
-        cosAB = utils.safe_divide(np.sum(np.multiply(A[:,source_inds],B),axis=0), mag_A[source_inds] * mag_A[target_inds])
-
-        angleAB = np.arccos(cosAB.clip(-1,1))
-        # angleAB[np.logical_xor(mask_A[source_inds],mask_A[target_inds])] = np.pi # background is opposite
-        angleAB[~mask_A[target_inds]] = np.pi # background is opposite
-
-        # see if connected in forward direction by thresholding on squared distance of end location  
-        sepAB = np.sum((pix_B - pix_A[:,source_inds])**2,axis=0) 
-
-        # threshold determined by average of distance fields 
-        # cutoff must be symmetrical
-        scut = (euler_offset+np.mean((dt_pad_A[source_inds],dt_pad[target]),axis=0))**2 
-        
-        # We want pixels that do not move to be internal, connected everywhere
-        is_slow = np.logical_or(slow[source_inds],slow[target_inds])
-        is_sink = np.logical_or(sink[source_inds],sink[target_inds])
-
-
-        # a slow pixel at the skeleton should be internal
-        # or otherwise pixels that get closer together with somewhat parallel flows
-        isconnectAB = np.logical_or(np.logical_and(is_slow,is_sink), 
-                                    np.logical_and(sepAB<scut,np.logical_or(angleAB<=acut,is_sink))
-                                   )
-
-        # assign symmetrical connectivity 
-        connect[i,source_inds] = connect[-(i+1),target_inds] = isconnectAB
-        # Since this is overwriting, it is still not perfectly symmetrical...
-        
- 
-    # for i in non_self:
-    #     s = steps[i]
-    #     neigh_indices = neigh_inds[i] # linear indices of pixel neighbors in this direction
-        
-    #     # earlier approach: -1 targets were excluded
-    #     # this means that the number of pixels being considered changes depeding on direction
-    #     sel = neigh_indices>-1 # non-foreground pixels have index -1, and that would mess up indexing
-    #     source_inds = indexes[sel] # we therefore only deal with source pixels that have a valid target 
-    #     target_inds = neigh_indices[source_inds] # and these are the corresponding valid targets 
-    #     target = tuple(neighbors[:,i,source_inds])
-   
-    #     print(i,np.sum(connect[i,source_inds] != connect[-(i+1),target_inds]))
-    # boundary cleanup 
-
-    # discard pixels with low connectivity  
-    csum = np.sum(connect,axis=0)
-    crop = csum<d
-    for i in non_self:
-        target = neigh_inds[i,crop] # neighbors from which to delete connections 
-        connect[i,crop] = 0 # delete connection from nbeighbor to self
-        connect[-(i+1),target[target>-1]] = 0 # delete connection from self to neighbor
-
-    return connect, neighbors, neigh_inds
-
-
 
 # numba will require getting rid of stacking, summation, etc., super annoying... the number of pixels to fix is quite
 # small in practice, so may not be worth it 
@@ -678,112 +550,9 @@ def affinity_to_masks(affinity_graph,neigh_inds,iscell, coords,
     else:
         return labels
         
-        
-import numpy as np
-
-class UnionFind:
-    def __init__(self, n):
-        self.parent = np.arange(n)
-        self.rank = np.zeros(n, dtype=np.int32)
-
-    def find(self, x):
-        """ Path-compressing find. """
-        while self.parent[x] != x:
-            self.parent[x] = self.parent[self.parent[x]]
-            x = self.parent[x]
-        return x
-
-    def union(self, x, y):
-        rx, ry = self.find(x), self.find(y)
-        if rx != ry:
-            # Union by rank
-            if self.rank[rx] < self.rank[ry]:
-                self.parent[rx] = ry
-            elif self.rank[rx] > self.rank[ry]:
-                self.parent[ry] = rx
-            else:
-                self.parent[ry] = rx
-                self.rank[rx] += 1
 
 
-def affinity_to_masks2(affinity_graph,neigh_inds,iscell, coords,
-                      cardinal=True,
-                      exclude_interior=False,
-                      return_edges=False, 
-                      verbose=False):
-    """
-    Faster replacement for affinity_to_masks using union-find.
-    """
-    # 1) Basic setup
-    nstep, npix = affinity_graph.shape
-    dim = iscell.ndim
-    csum = np.sum(affinity_graph, axis=0)
-    boundary = np.logical_and(csum < (3**dim - 1), csum >= dim)
-
-    if exclude_interior:
-        px_inds = np.nonzero(boundary)[0]
-    else:
-        px_inds = np.arange(npix)
-
-    # Either use only cardinal steps or all steps
-    if cardinal and not exclude_interior:
-        step_inds = utils.kernel_setup(dim)[1][1]  # cardinal indices only
-    else:
-        step_inds = np.arange(nstep)
-
-    # 2) Build and populate a union-find over all pixels
-    uf = UnionFind(npix)
-
-    for s in step_inds:
-        # Find all columns where this step is True
-        # (i.e. pixel col is connected to pixel neigh_inds[s, col]).
-        cols = np.where(affinity_graph[s])[0]
-        # Restrict to boundary or full interior if needed
-        #   e.g. cols = np.intersect1d(cols, px_inds) if needed
-        #   or just do it outside if exclude_interior is True
-        for c in cols:
-            if c in px_inds:
-                neighbor = neigh_inds[s, c]
-                uf.union(c, neighbor)
-
-    # 3) For each pixel, find the “root” and map each root → label
-    #    then assign those labels into `iscell.shape`.
-    roots = np.array([uf.find(i) for i in range(npix)], dtype=int)
-    unique_roots, inv = np.unique(roots, return_inverse=True)
-
-    # If you want singletons to be labeled 0, all others to be labeled 1..N:
-    counts = np.bincount(inv)
-    label_of_root = np.zeros_like(unique_roots)  # 0 for singletons
-
-    label_id = 1
-    for r_idx, ccount in enumerate(counts):
-        if ccount > 1:      # skip singletons
-            label_of_root[r_idx] = label_id
-            label_id += 1
-
-    # final label for each pixel
-    pix_labels = label_of_root[inv]
-
-    # 4) Reshape to the original ND layout
-    labels = np.zeros(iscell.shape, dtype=int)
-    # coords is typically (dim, npix).T, so coords[d][col] is the d-th coordinate
-    # You can do:
-    labels[tuple(coords)] = pix_labels
-
-    # 5) Optionally expand interior
-    if exclude_interior:
-        labels = ncolor.expand_labels(labels) * iscell
-
-    # E.g. zero out certain boundary points if you want:
-    gone = neigh_inds[(3**dim)//2, csum < dim]
-    coords_t = np.stack(coords).T
-    labels[tuple(coords_t[gone].T)] = 0
-
-    return labels
-
-
-
-def boundary_to_affinity(masks,boundaries):
+def boundary_to_affinity(masks,boundaries):  # pragma: no cover
     """
     This function converts boundary+interior labels to an affinity graph. 
     Boundaries are taken to have label 1,2,...,N and interior pixels have
@@ -844,7 +613,7 @@ def boundary_to_affinity(masks,boundaries):
 # hmm so in fact binary internal masks would work too
 # the assumption is simply that the inner masks are separated by 2px boundaries 
 
-def boundary_to_masks(boundaries, binary_mask=None, min_size=9, dist=np.sqrt(2),connectivity=1):
+def boundary_to_masks(boundaries, binary_mask=None, min_size=9, dist=np.sqrt(2),connectivity=1):  # pragma: no cover
     
     nlab = len(fastremap.unique(np.uint32(boundaries)))
     # 0-1-2 format can also work here 
@@ -920,7 +689,7 @@ def _despur(connect, neigh_inds, indexes, steps, non_self,
             internal_ordinal = np.stack([internal[neigh_inds[s]] for s in ordinal])
             is_internal_spur_ordinal = np.any(np.logical_and(internal_ordinal, internal_ordinal[::-1]), axis=0)
             bad = bad | (boundary & is_internal_spur_ordinal)
-        else:
+        else: # pragma: no cover
             bad = np.zeros_like(bad, dtype=bool)
 
         candidate_indexes = indexes[bad]
@@ -936,7 +705,7 @@ def _despur(connect, neigh_inds, indexes, steps, non_self,
     return connect
 
 
-def split_spacetime(augmented_affinity, mask, verbose=False):
+def split_spacetime(augmented_affinity, mask, verbose=False):  # pragma: no cover
     """
     Split lineage labels into frame-by-frame labels and Cell ID / spacetime labeling.
     """

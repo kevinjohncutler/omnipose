@@ -10,7 +10,7 @@ def train(self, train_data, train_labels, train_links=None, train_files=None,
           save_path=None, save_every=100, save_each=False,
           learning_rate=0.2, n_epochs=500, momentum=0.9, SGD=True,
           weight_decay=0.00001, batch_size=8, dataloader=False, num_workers=0, nimg_per_epoch=None,
-          rescale=True, min_train_masks=5, netstr=None, tyx=None, timing=False, do_autocast=False,
+          do_rescale=True, min_train_masks=5, netstr=None, tyx=None, timing=False, do_autocast=False,
           affinity_field=False, **kwargs):
 
     """ train network with images train_data 
@@ -76,7 +76,7 @@ def train(self, train_data, train_labels, train_links=None, train_files=None,
             minimum number of images to train on per epoch, 
             with a small training set (< 8 images) it may help to set to 8
 
-        rescale: bool (default, True)
+        do_rescale: bool (default, True)
             whether or not to rescale images to diam_mean during training, 
             if True it assumes you will fit a size model after training or resize your images accordingly,
             if False it will try to train the model to be scale-invariant (works worse)
@@ -102,8 +102,13 @@ def train(self, train_data, train_labels, train_links=None, train_files=None,
     #                                 rank=rank                                               
     #                         )    
     
-    if rescale:
-        models_logger.info(f'Training with rescale = {rescale:.2f}')
+    if "rescale_factor" in kwargs:
+        do_rescale = bool(kwargs.pop("rescale_factor"))
+    if "rescale" in kwargs:
+        do_rescale = bool(kwargs.pop("rescale"))
+
+    if do_rescale:
+        models_logger.info(f'Training with rescale = {do_rescale:.2f}')
     # images may need some dimension shuffling to conform to standard, this is link-independent 
     
     train_data, train_labels, test_data, test_labels, run_test = transforms.reshape_train_test(train_data, train_labels,  
@@ -185,12 +190,8 @@ def _train_step(self, x, lbl, symmetry_weight=1):
             inv[p] = i
         return tuple(inv)
 
-    def spatial_axes(tensor):
-        start = tensor.ndim - self.dim
-        return list(range(start, tensor.ndim))
-
     def apply_spatial_transform(tensor, perm, flips):
-        if self.dim == 0:
+        if self.dim == 0:  # pragma: no cover
             return tensor
         total_dims = tensor.ndim
         spatial = list(range(total_dims - self.dim, total_dims))
@@ -201,7 +202,7 @@ def _train_step(self, x, lbl, symmetry_weight=1):
         return torch.flip(tensor, dims=flip_axes) if flip_axes else tensor
 
     def undo_spatial_transform(tensor, perm, flips):
-        if self.dim == 0:
+        if self.dim == 0:  # pragma: no cover
             return tensor
         total_dims = tensor.ndim
         spatial = list(range(total_dims - self.dim, total_dims))
@@ -214,7 +215,7 @@ def _train_step(self, x, lbl, symmetry_weight=1):
         return tensor.permute(order)
 
     def realign_flow_channels(flow, perm, flips):
-        if self.dim == 0:
+        if self.dim == 0:  # pragma: no cover
             return flow
         inv = inverse_perm(perm)
         flow = flow[:, list(inv), ...]
@@ -257,6 +258,13 @@ def _train_step(self, x, lbl, symmetry_weight=1):
 
         torch.nn.utils.clip_grad_norm_(self.net.parameters(), max_norm=1.0)
 
+        for name, param in self.net.named_parameters():
+            if param.grad is None:
+                continue
+            if not torch.isfinite(param.grad).all():
+                core_logger.error("Non-finite grad detected in %s", name)
+                raise RuntimeError(f"Non-finite gradient in {name}")
+
         if scaler:
             scaler.step(self.optimizer)
             scaler.update()
@@ -274,6 +282,10 @@ def _train_step(self, x, lbl, symmetry_weight=1):
         # print(loss,sym_loss)
         # loss = loss + symmetry_weight * sym_loss
 
+    if not torch.isfinite(loss):
+        core_logger.error("Non-finite loss detected during training step")
+        raise RuntimeError("Non-finite loss during training step")
+
     backward_and_step(loss)
 
     train_loss = raw_loss.detach()
@@ -282,44 +294,31 @@ def _train_step(self, x, lbl, symmetry_weight=1):
 
 def _test_eval(self, x, lbl):
     X = self._to_device(x)
-    if self.torch:
-        self.net.eval()
-        with torch.no_grad():
-            y, style = self.net(X)
-            del X
-            loss = core_loss(self, lbl, y)
-            test_loss = loss.detach()
-            test_loss *= len(x)
-    else:
+    self.net.eval()
+    with torch.no_grad():
         y, style = self.net(X)
         del X
         loss = core_loss(self, lbl, y)
-        test_loss = nd.sum(loss).asnumpy()
+        test_loss = loss.detach()
+        test_loss *= len(x)
     return test_loss
 
 
 def _set_optimizer(self, learning_rate, momentum, weight_decay, SGD=False):
-    if self.torch:
-        if SGD:
-            self.optimizer = torch.optim.SGD(self.net.parameters(), lr=learning_rate,
-                                        momentum=momentum, weight_decay=weight_decay)
-        else:
-            import torch_optimizer as optim # for RADAM optimizer
-            self.optimizer = optim.RAdam(self.net.parameters(), lr=learning_rate, betas=(0.99, 0.999), #changed to .95
-                                        eps=1e-08, weight_decay=weight_decay)
-            core_logger.info('>>> Using RAdam optimizer')
-            self.optimizer.current_lr = learning_rate
+    if SGD:
+        self.optimizer = torch.optim.SGD(self.net.parameters(), lr=learning_rate,
+                                    momentum=momentum, weight_decay=weight_decay)
     else:
-        self.optimizer = gluon.Trainer(self.net.collect_params(), 'sgd',{'learning_rate': learning_rate,
-                            'momentum': momentum, 'wd': weight_decay})
+        import torch_optimizer as optim # for RADAM optimizer
+        self.optimizer = optim.RAdam(self.net.parameters(), lr=learning_rate, betas=(0.99, 0.999), #changed to .95
+                                    eps=1e-08, weight_decay=weight_decay)
+        core_logger.info('>>> Using RAdam optimizer')
+        self.optimizer.current_lr = learning_rate
 
 
 def _set_learning_rate(self, lr):
-    if self.torch:
-        for param_group in self.optimizer.param_groups:
-            param_group['lr'] = lr
-    else:
-        self.optimizer.set_learning_rate(lr)
+    for param_group in self.optimizer.param_groups:
+        param_group['lr'] = lr
 
 
 
@@ -345,7 +344,7 @@ def _train_net(self, train_data, train_labels, train_links, test_data=None, test
                test_links=None, save_path=None, save_every=100, save_each=False,
                learning_rate=0.2, n_epochs=500, momentum=0.9, weight_decay=0.00001, 
                SGD=True, batch_size=8, dataloader=False, num_workers=8, nimg_per_epoch=None, 
-               rescale=True, affinity_field=False,
+               do_rescale=True, affinity_field=False,
                netstr=None, do_autocast=False, tyx=None, timing=False): 
     """ train function uses loss function core_loss in models.py"""
     
@@ -358,7 +357,8 @@ def _train_net(self, train_data, train_labels, train_links, test_data=None, test
         elif len(learning_rate) != n_epochs:
             raise ValueError('if learning_rate given as list or np.ndarray it must have length n_epochs')
         self.learning_rate = learning_rate
-        self.learning_rate_const = mode(learning_rate)[0][0]
+        mode_val = mode(learning_rate, keepdims=True).mode
+        self.learning_rate_const = float(np.ravel(mode_val)[0])
     else:
         self.learning_rate_const = learning_rate
         # set learning rate schedule    
@@ -401,16 +401,16 @@ def _train_net(self, train_data, train_labels, train_links, test_data=None, test
             tyx = (8 * n,) * self.dim
     
     # compute average cell diameter
-    if rescale:
+    if do_rescale:
         if train_links is not None:
             core_logger.warning("""WARNING: rescaling not updated for multi-label objects. 
                                 Check rescaling manually for the right diameter.""")
             
-        diam_train = np.array([utils.diameters(train_labels[k],omni=self.omni)[0] 
+        diam_train = np.array([core.diameter_utils.diameters(train_labels[k],omni=self.omni)
                                for k in range(len(train_labels))])
         diam_train[diam_train<5] = 5.
         if test_data is not None:
-            diam_test = np.array([utils.diameters(test_labels[k],omni=self.omni)[0] 
+            diam_test = np.array([core.diameter_utils.diameters(test_labels[k],omni=self.omni)
                                   for k in range(len(test_labels))])
             diam_test[diam_test<5] = 5.
         # scale_range = 0.5
@@ -467,8 +467,8 @@ def _train_net(self, train_data, train_labels, train_links, test_data=None, test
         # Generators
         # some parameters like gamma_range are not opened up here, just left to defaults
         # some are passed through the model parameters (self.omni etc)
-        kwargs = {'rescale': rescale, 
-                  'diam_train': diam_train if rescale else None,
+        kwargs = {'do_rescale': do_rescale, 
+                  'diam_train': diam_train if do_rescale else None,
                   'tyx': tyx,
                   'scale_range': scale_range,        
                   'omni': self.omni,
@@ -605,7 +605,7 @@ def _train_net(self, train_data, train_labels, train_links, test_data=None, test
             for ibatch in range(0,nimg_per_epoch,batch_size):
                 tic = time.time() 
                 inds = rperm[ibatch:ibatch+batch_size]
-                rsc = diam_train[inds] / self.diam_mean if rescale else np.ones(len(inds), np.float32)
+                rsc = diam_train[inds] / self.diam_mean if do_rescale else np.ones(len(inds), np.float32)
                 # now passing in the full train array, need the labels for distance field
                 
                 # TRY STARTING WITH a small tyx, then increasing it
@@ -664,7 +664,7 @@ def _train_net(self, train_data, train_labels, train_links, test_data=None, test
                     print('\t Dataloading time (manual batching): {:.2f}'.format(dt))
                 nbatch = len(imgi) 
                 
-                if self.unet and lbl.shape[1]>1 and rescale:
+                if self.unet and lbl.shape[1]>1 and do_rescale:
                     lbl[:,1] /= diam_train[:,np.newaxis,np.newaxis]**2 # was called diam_batch...
 
                 tic = time.time()

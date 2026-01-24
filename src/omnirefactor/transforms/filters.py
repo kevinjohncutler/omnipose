@@ -1,4 +1,7 @@
-from .imports import *
+import numpy as np
+import torch
+import torch.nn.functional as F
+from scipy.ndimage import convolve1d, convolve, gaussian_filter
 
 
 
@@ -82,7 +85,6 @@ def add_poisson_noise(image):
 
 
 
-import torch.nn.functional as F
 def hysteresis_threshold(image, low, high):
     """
     Pytorch implementation of skimage.filters.apply_hysteresis_threshold(). 
@@ -109,9 +111,9 @@ def hysteresis_threshold(image, low, high):
     thresholded_old = torch.zeros_like(thresholded)
     while (thresholded_old != thresholded).any():
         if spatial_dims == 2:
-            hysteresis_magnitude = F.conv2d(thresholded.float(), hysteresis_kernel, padding=1)
+            hysteresis_magnitude = torch.nn.functional.conv2d(thresholded.float(), hysteresis_kernel, padding=1)
         elif spatial_dims == 3:
-            hysteresis_magnitude = F.conv3d(thresholded.float(), hysteresis_kernel, padding=1)
+            hysteresis_magnitude = torch.nn.functional.conv3d(thresholded.float(), hysteresis_kernel, padding=1)
         else:
             raise ValueError(f'Unsupported number of spatial dimensions: {spatial_dims}')
 

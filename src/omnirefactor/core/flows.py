@@ -3,6 +3,7 @@ from .imports import *
 from .affinity import masks_to_affinity, affinity_to_boundary
 from .fields import _gradient, _iterate
 from .centers import _extend_centers, _extend_centers_gpu
+from ..transforms.normalize import normalize_field
 
 omnipose_logger = logging.getLogger(__name__)
 
@@ -406,7 +407,7 @@ def masks_to_flows_torch(masks, affinity_graph, coords=None, dists=None, device=
         if return_flows:
             T, mu = out
             if normalize:
-                mu = utils.normalize_field(mu,use_torch=True,cutoff=0 if not smooth else 0.15) ##### transforms.normalize_field(mu,omni) 
+                mu = normalize_field(mu, use_torch=True, cutoff=0 if not smooth else 0.15)  ##### transforms.normalize_field(mu,omni) 
                 if verbose:
                     print('normalizing field')
             return T, mu

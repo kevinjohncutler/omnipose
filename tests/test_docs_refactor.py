@@ -21,7 +21,7 @@ def _temp_env(**updates):
 
 
 def test_conf_py_executes():
-    repo_root = Path(__file__).resolve().parents[2]
+    repo_root = Path(__file__).resolve().parents[1]
     docs_dir = repo_root / "docs"
     conf_path = docs_dir / "conf.py"
 

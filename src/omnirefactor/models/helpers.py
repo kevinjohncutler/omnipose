@@ -1,6 +1,8 @@
 import os
 import pathlib
 
+import numpy as np
+
 from .logging import models_logger
 from .. import io
 
@@ -34,8 +36,122 @@ def cache_model_path(basename):
     return cached_file
 
 
-def deprecation_warning_cellprob_dist_threshold(cellprob_threshold, dist_threshold):
-    models_logger.warning(
-        'cellprob_threshold and dist_threshold are being deprecated in a future release, use mask_threshold instead'
+def resolve_model_init_config(
+    pretrained_model,
+    model_type,
+    net_avg,
+    model_names,
+    bd_model_names,
+    c2_model_names,
+    omni,
+    pretrained_model_exists=None,
+):
+    """
+    Resolve model defaults without touching the filesystem.
+    Returns dict with:
+      - model_name
+      - net_avg
+      - updates
+      - residual_on/style_on/concatenation
+      - model_indices
+      - warn_bad_path
+    """
+    model_name = None
+    updates = {}
+    residual_on = style_on = concatenation = None
+    warn_bad_path = False
+
+    if pretrained_model_exists is None and pretrained_model:
+        # leave as None to avoid filesystem checks in pure config usage
+        pretrained_model_exists = None
+
+    if model_type is not None or (pretrained_model and pretrained_model_exists is False):
+        model_name = model_type
+        if not np.any([model_name == s for s in model_names]):
+            model_name = "cyto"
+        if pretrained_model and pretrained_model_exists is False:
+            warn_bad_path = True
+
+        nuclear = "nuclei" in model_name
+        bacterial = ("bact" in model_name) or ("worm" in model_name)
+        plant = "plant" in model_name
+
+        if nuclear:
+            updates["diam_mean"] = 17.0
+        elif bacterial or plant:
+            net_avg = False
+
+        if model_name in bd_model_names:
+            updates["nclasses"] = 3
+        else:
+            updates["nclasses"] = 2
+
+        if model_name in c2_model_names:
+            updates["nchan"] = 2
+
+        if omni:
+            net_avg = False
+
+        model_indices = list(range(4)) if net_avg else [0]
+        residual_on, style_on, concatenation = True, True, False
+    else:
+        model_indices = []
+
+    return {
+        "model_name": model_name,
+        "net_avg": net_avg,
+        "updates": updates,
+        "residual_on": residual_on,
+        "style_on": style_on,
+        "concatenation": concatenation,
+        "model_indices": model_indices,
+        "warn_bad_path": warn_bad_path,
+    }
+
+
+def resolve_pretrained_model(
+    pretrained_model,
+    model_type,
+    net_avg,
+    use_torch,
+    model_names,
+    bd_model_names,
+    c2_model_names,
+    omni,
+):
+    """
+    Resolve a model name or explicit path into a pretrained model list + model-specific defaults.
+    Returns (pretrained_model, pretrained_model_string, net_avg, updates, residual_on, style_on, concatenation).
+    """
+    pretrained_model_exists = None
+    if pretrained_model:
+        pretrained_model_exists = os.path.exists(pretrained_model[0])
+
+    config = resolve_model_init_config(
+        pretrained_model=pretrained_model,
+        model_type=model_type,
+        net_avg=net_avg,
+        model_names=model_names,
+        bd_model_names=bd_model_names,
+        c2_model_names=c2_model_names,
+        omni=omni,
+        pretrained_model_exists=pretrained_model_exists,
     )
-    return cellprob_threshold if cellprob_threshold is not None else dist_threshold
+
+    if config["warn_bad_path"]:
+        models_logger.warning("pretrained model has incorrect path")
+    if config["model_name"] is not None:
+        models_logger.info(f">>{config['model_name']}<< model set to be used")
+        pretrained_model = [
+            model_path(config["model_name"], j, use_torch) for j in config["model_indices"]
+        ]
+
+    return (
+        pretrained_model,
+        config["model_name"],
+        config["net_avg"],
+        config["updates"],
+        config["residual_on"],
+        config["style_on"],
+        config["concatenation"],
+    )

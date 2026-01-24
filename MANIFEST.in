@@ -1,0 +1,19 @@
+include README.md
+include LICENSE
+include pyproject.toml
+include setup.py
+
+recursive-include src *
+
+prune tests
+prune tests_parity
+prune tools
+
+global-exclude *.pyc
+global-exclude *.pyo
+global-exclude *.pyd
+global-exclude *.nbi
+global-exclude *.nbc
+global-exclude ._*
+global-exclude .DS_Store
+global-exclude */__pycache__/*

@@ -23,13 +23,7 @@ from aicsimageio import AICSImage
 import ncolor
 
 from ..logger import LOGGER_FORMAT, get_logger
-from .. import utils, plot, transforms
-
-try:
-    from PyQt6 import QtGui, QtCore, QtWidgets
-    GUI = True
-except Exception:
-    GUI = False
+from .. import utils
 
 try:
     import matplotlib.pyplot as plt

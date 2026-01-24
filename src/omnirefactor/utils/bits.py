@@ -1,5 +1,5 @@
 from .imports import *
-from .transforms import rescale
+from ..transforms.normalize import rescale
 
 def to_16_bit(im):
     """Rescale image [0,2^16-1] and then cast to uint16."""

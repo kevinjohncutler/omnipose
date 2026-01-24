@@ -444,7 +444,7 @@ class Segmenter:
         settings: Mapping[str, Any] | None = None,
         **overrides: Any,
     ) -> np.ndarray:
-        from omnirefactor.utils.transforms import normalize99
+        from omnirefactor.transforms.normalize import normalize99
 
         self._cache = None
         self._ensure_model()
@@ -457,7 +457,7 @@ class Segmenter:
             masks, flows, *rest = self._model.eval(
                 [arr],
                 channels=None,
-                rescale=None,
+                rescale_factor=None,
                 mask_threshold=parsed["mask_threshold"], # should make these use kwarg dicts 
                 flow_threshold=parsed["flow_threshold"],
                 transparency=parsed["transparency"],
@@ -514,7 +514,7 @@ class Segmenter:
             mask_threshold=parsed["mask_threshold"],
             flow_threshold=parsed["flow_threshold"],
             resize=cache["mask_shape"],
-            rescale=rescale_value,
+            rescale_factor=rescale_value,
             cluster=parsed["cluster"],
             affinity_seg=parsed["affinity_seg"],
             omni=True,
