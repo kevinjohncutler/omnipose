@@ -156,7 +156,7 @@ def train(self, train_data, train_labels, train_links=None, train_files=None,
     #     nmasks = np.array([label[0].max() for label in train_labels])
 
     if run_test:
-        test_labels = labels_to_flows(test_labels, test_links, files=test_files, 
+        test_labels = labels_to_flows(test_labels, test_links, 
                                       use_gpu=self.gpu, device=self.device, dim=self.dim)
     else:
         test_labels = None

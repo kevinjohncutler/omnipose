@@ -65,7 +65,7 @@ def export_movie(frames, basename, basedir, scale=1, fps=15):
     # loop over the frames
     for frame in to_16_bit(frames):
         # write frame to pipe
-        p.stdin.write(frame.tostring())
+            p.stdin.write(frame.tobytes())
 
     # close the pipe
     p.stdin.close()

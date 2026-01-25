@@ -9,7 +9,7 @@ from .links import load_links
 # and simplifications made because we can safely assume how output was saved.
 # the one place it is needed internally 
 def get_label_files(img_names, label_filter='_cp_masks', img_filter='', ext=None,
-                    dir_above=False, subfolder='', parent=None, flows=False, links=False):
+                    dir_above=False, subfolder='', parent=None, links=False):
     """
     Get the corresponding labels and flows for the given file images. If no extension is given,
     looks for TIF, TIFF, and PNG. If multiple are found, the first in the list is returned. 
@@ -33,8 +33,6 @@ def get_label_files(img_names, label_filter='_cp_masks', img_filter='', ext=None
         the name of the subfolder where the labels are stored
     parent: str
         parent folder or list of folders where masks are stored, if different from images 
-    flows: Bool
-        whether or not to search for and return stored flows
     links: bool
         whether or not to search for and return stored link files 
      
@@ -55,7 +53,7 @@ def get_label_files(img_names, label_filter='_cp_masks', img_filter='', ext=None
         else: # for when masks are stored in the same containing forlder as images (usually not in subfolder)
             parent = [Path(i).parent.absolute() for i in img_names]
     
-    elif not isinstance(label_folder, list):
+    elif not isinstance(parent, list):
         parent = [parent]*nimg
     
     if ext is None:
@@ -82,25 +80,6 @@ def get_label_files(img_names, label_filter='_cp_masks', img_filter='', ext=None
     
     ret = [label_paths]
 
-    if flows:
-        flow_paths = []
-        imfilters = ['',img_filter] # this allows both flow name conventions to exist in one folder 
-
-        for p,b in zip(parent,label_base):            
-            paths = [os.path.join(p,subfolder,b+imf+'_flows.tif') for imf in imfilters]
-            found = [os.path.exists(path) for path in paths]
-            nfound = np.sum(found)
-
-            if nfound == 0:
-                io_logger.info('not all flows are present, will run flow generation for all images') # this branch should be deprecated 
-                flow_paths = None
-                break
-            else:
-                idx = np.nonzero(found)[0][0]
-                flow_paths.append(paths[idx])
-        
-        ret += [flow_paths]
-        
     if links:
         link_paths = []
         imfilters = ['',img_filter] # this allows both flow name conventions to exist in one folder 
@@ -131,20 +110,15 @@ def load_train_test_data(train_dir, test_dir=None, image_filter='', mask_filter=
     nimg_train = len(image_names)
     images = [imread(image_names[n]) for n in range(nimg_train)]
 
-    label_names, flow_names, link_names = get_label_files(image_names, 
-                                                          label_filter=mask_filter, 
-                                                          img_filter=image_filter, 
-                                                          flows=True, links=True)
+    label_names, link_names = get_label_files(
+        image_names,
+        label_filter=mask_filter,
+        img_filter=image_filter,
+        links=True,
+    )
     labels = [imread(l) for l in label_names]
     links = [load_links(l) for l in link_names]
     
-    if flow_names is not None and not unet and not omni:
-        for n in range(nimg_train):
-            flows = imread(flow_names[n])
-            if flows.shape[0]<4:
-                labels[n] = np.concatenate((labels[n][np.newaxis,:,:], flows), axis=0) 
-            else:
-                labels[n] = flows
 
     if nimg_train == 1:
         io_logger.warning(
@@ -161,22 +135,17 @@ def load_train_test_data(train_dir, test_dir=None, image_filter='', mask_filter=
     test_images, test_labels, test_links, image_names_test = None,None,[None],None 
     if test_dir is not None:
         image_names_test = get_image_files(test_dir, mask_filter, image_filter, look_one_level_down)
-        label_names_test, flow_names_test, link_names_test = get_label_files(image_names_test, 
-                                                                            label_filter=mask_filter, 
-                                                                            img_filter=image_filter, 
-                                                                            flows=True, links=True)
+        label_names_test, link_names_test = get_label_files(
+            image_names_test,
+            label_filter=mask_filter,
+            img_filter=image_filter,
+            links=True,
+        )
         
         nimg_test = len(image_names_test)
         test_images = [imread(image_names_test[n]) for n in range(nimg_test)]
         test_labels = [imread(label_names_test[n]) for n in range(nimg_test)]
         test_links = [load_links(link_names_test[n]) for n in range(nimg_test)]
-        if flow_names_test is not None and not unet:
-            for n in range(nimg_test):
-                flows = imread(flow_names_test[n])
-                if flows.shape[0]<4:
-                    test_labels[n] = np.concatenate((test_labels[n][np.newaxis,:,:], flows), axis=0) 
-                else:
-                    test_labels[n] = flows
     
     # Allow disabling the links even if link files were found 
     if not do_links:
@@ -277,18 +246,11 @@ def masks_flows_to_seg(images, masks, flows, diams, file_names, channels=None):
                      'flows': flowi,
                      'est_diam': diams})    
 
-def save_to_png(images, masks, flows, file_names):
-    """ deprecated (runs io.save_masks with png=True) 
-    
-        does not work for 3D images
-    
-    """
-    save_masks(images, masks, flows, file_names, png=True)
 
 # Now saves flows, masks, etc. to separate folders.
 def save_masks(images, masks, flows, file_names, png=True, tif=False,
-               suffix='',save_flows=False, save_outlines=False, outline_col=[1,0,0],
-               save_ncolor=False, dir_above=False, in_folders=False, savedir=None, 
+               suffix='', save_flows=False, outline_col=[1,0,0],
+               save_ncolor=False, dir_above=False, in_folders=False, savedir=None,
                save_plot=True, omni=True, channel_axis=None, channels=None):
     """ save masks + nicely plotted segmentation image to png and/or tiff
 
@@ -318,7 +280,7 @@ def save_masks(images, masks, flows, file_names, png=True, tif=False,
     savedir: str
         absolute path where images will be saved. Default is none (saves to image directory)
     
-    save_flows, save_outlines, save_ncolor: bool
+    save_flows, save_ncolor: bool
         Can choose which outputs/views to save.
         ncolor is a 4 (or 5, if 4 takes too long) index version of the labels that
         is way easier to visualize than having hundreds of unique colors that may
@@ -328,7 +290,7 @@ def save_masks(images, masks, flows, file_names, png=True, tif=False,
     if isinstance(masks, list):
         for image, mask, flow, file_name in zip(images, masks, flows, file_names):
             save_masks(image, mask, flow, file_name, png=png, tif=tif, suffix=suffix, dir_above=dir_above,
-                       save_flows=save_flows,save_outlines=save_outlines, outline_col=outline_col,
+                       save_flows=save_flows, outline_col=outline_col,
                        save_ncolor=save_ncolor, savedir=savedir, save_plot=save_plot,
                        in_folders=in_folders, omni=omni, channel_axis=channel_axis, channels=channels)
         return
@@ -353,15 +315,11 @@ def save_masks(images, masks, flows, file_names, png=True, tif=False,
     basename = os.path.splitext(os.path.basename(file_names))[0]
     if in_folders:
         maskdir = os.path.join(savedir,'masks')
-        outlinedir = os.path.join(savedir,'outlines')
-        txtdir = os.path.join(savedir,'txt_outlines')
         ncolordir = os.path.join(savedir,'ncolor_masks')
         flowdir = os.path.join(savedir,'flows')
         cpdir = os.path.join(savedir,'cp_output')
     else:
         maskdir = savedir
-        outlinedir = savedir
-        txtdir = savedir
         ncolordir = savedir
         flowdir = savedir
         cpdir = savedir
@@ -410,28 +368,6 @@ def save_masks(images, masks, flows, file_names, png=True, tif=False,
         fig.savefig(os.path.join(cpdir,basename + '_cp_output' + suffix + '.png'), dpi=300)
         plt.close(fig)
 
-    # RGB outline images
-    if masks.ndim < 3 and save_outlines: 
-        check_dir(outlinedir) 
-        # outlines = utils.masks_to_outlines(masks)
-        # outX, outY = np.nonzero(outlines)
-        # img0 = transforms.normalize99(images,omni=omni)
-        img0 = images.copy()        
-
-        # if img0.shape[0] < 4:
-        #     img0 = np.transpose(img0, (1,2,0))
-        # if img0.shape[-1] < 3 or img0.ndim < 3:
-        #     print(img0.shape,'sdfsfdssf')
-        #     img0 = plot.image_to_rgb(img0, channels=channels, omni=omni) #channels=channels, 
-        
-        # img0 = (transforms.normalize99(img0,omni=omni)*(2**8-1)).astype(np.uint8)
-        # imgout= img0.copy()
-        # imgout[outX, outY] = np.array([255,0,0]) #pure red 
-        imgout = plot.outline_view(img0,masks,color=outline_col, 
-                                   channel_axis=channel_axis, 
-                                   channels=channels)
-        imwrite(os.path.join(outlinedir, basename + '_outlines' + suffix + '.jpeg'),  imgout)
-    
     # ncolor labels (ready for color map application)
     if masks.ndim < 3 and save_ncolor:
         check_dir(ncolordir)

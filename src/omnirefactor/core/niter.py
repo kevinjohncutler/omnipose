@@ -1,4 +1,5 @@
 from .imports import *
+from ..transforms.modules import get_module
 
 def get_niter(dists):
     """
@@ -15,6 +16,6 @@ def get_niter(dists):
         number of iterations empirically found to be the lower bound for convergence
         of the distance field relaxation method
     """
-    module = utils.get_module(dists)
+    module = get_module(dists)
     c = module.ceil(module.max(dists) * 1.16) + 1
     return c.astype(int) if module == np else c.int()

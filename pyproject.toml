@@ -21,14 +21,19 @@ omnirefactor = "omnirefactor.__main__:main"
 testpaths     = ["tests"]
 norecursedirs = ["trash"]
 filterwarnings = [
-  "ignore::DeprecationWarning:networkit.profiling.profiling"
+  "ignore::DeprecationWarning:networkit.profiling.profiling",
+  "ignore:.*torch\\.jit\\.script_method.*:DeprecationWarning",
 ]
 
 [tool.coverage.run]
 omit = [
   "*/_version.py",
   "*/omnirefactor/gui/*",
+  "*/omnirefactor/load/*",
   "*/omnirefactor/plot/*",
+  "*/omnirefactor/misc/object.py",
+  "*/omnirefactor/measure/pants.py",
+  "*/omnirefactor/profiling/__init__.py",
 ]
 branch = false
 parallel = true
@@ -39,5 +44,6 @@ exclude_lines = [
   "pragma: no cover",
   "if verbose:",
   "models_logger\\.",
+  "omnipose_logger\\.",
   "warnings\\.warn",
 ]

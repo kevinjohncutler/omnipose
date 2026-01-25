@@ -113,8 +113,6 @@ def get_arg_parser():
                              help="flag to save output in folders (off by default)")
     output_args.add_argument("--save_flows", action="store_true",
                              help="whether or not to save RGB images of flows when masks are saved (disabled by default)")
-    output_args.add_argument("--save_outlines", action="store_true",
-                             help="whether or not to save RGB outline images when masks are saved (disabled by default)")
     output_args.add_argument("--save_ncolor", action="store_true",
                              help="whether or not to save minimal ""n-color"" masks (disabled by default")
     output_args.add_argument("--transparency", action="store_true",

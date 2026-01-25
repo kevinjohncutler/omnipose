@@ -189,7 +189,6 @@ def _run_evaluation(args) -> None:
                 png=args.save_png,
                 tif=args.save_tif,
                 save_flows=args.save_flows,
-                save_outlines=args.save_outlines,
                 save_ncolor=args.save_ncolor,
                 dir_above=args.dir_above,
                 savedir=args.savedir,

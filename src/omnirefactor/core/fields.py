@@ -24,36 +24,6 @@ def update_torch(a, f, fsq):
     return (1 / d) * (sum_a + torch.sqrt(torch.clamp((sum_a ** 2) - d * (sum_a2 - fsq), min=0)))
 
 
-@torch.jit.script
-def eikonal_update_torch(Tneigh: torch.Tensor,
-                         r: torch.Tensor,
-                         d: torch.Tensor,
-                         index_list: List[torch.Tensor],
-                         factors: torch.Tensor):
-    """Update for iterative solution of the eikonal equation on GPU."""
-    geometric = 1
-    phi_total = torch.ones_like(Tneigh[0, :]) if geometric else torch.zeros_like(Tneigh[0, :])
-
-    n = len(factors) - 1
-
-    for inds, f, fsq in zip(index_list[1:], factors[1:], factors[1:] ** 2):
-        npair = len(inds) // 2
-
-        mins = torch.stack([torch.minimum(Tneigh[inds[i], :], Tneigh[inds[-(i + 1)], :]) for i in range(npair)])
-
-        update = update_torch(mins, f, fsq)
-
-        if geometric:
-            phi_total *= update
-        else:
-            phi_total += update
-
-    phi_total = torch.pow(phi_total, 1 / n) if geometric else phi_total / n
-
-    return phi_total
-
-
-@torch.jit.script
 def _iterate(T: torch.Tensor,
              neigh_inds: torch.Tensor,
              central_inds: torch.Tensor,
@@ -65,11 +35,10 @@ def _iterate(T: torch.Tensor,
              isneigh: torch.Tensor,
              n_iter: torch.Tensor,
              omni: torch.Tensor,
-             smooth: torch.Tensor,
              verbose: torch.Tensor):
 
     T0 = T.clone()
-    eps = 1e-3 if not smooth else 1e-8
+    eps = 1e-3
 
     if verbose:
         print('eps is ', eps, 'n_iter is', n_iter)
@@ -95,7 +64,7 @@ def _iterate(T: torch.Tensor,
         else:
             not_converged = t < n_iter
 
-        if not omni or t < 1 or smooth:
+        if not omni or t < 1:
             Tneigh = T[neigh_inds]
             Tneigh *= isneigh
             T = Tneigh.mean(dim=0)
@@ -112,7 +81,6 @@ def _iterate(T: torch.Tensor,
     return T
 
 
-@torch.jit.script
 def _gradient(T, d, steps, fact,
               inds: List[torch.Tensor],
               isneigh,
@@ -144,6 +112,37 @@ def _gradient(T, d, steps, fact,
     return torch.where(wsum != 0,
                        (mu[:, neigh_inds] * weight).sum(dim=1) / wsum,
                        torch.zeros_like(wsum))
+
+@torch.compile
+def eikonal_update_torch(Tneigh: torch.Tensor,
+                             r: torch.Tensor,
+                             d: torch.Tensor,
+                             index_list: List[torch.Tensor],
+                             factors: torch.Tensor):
+    """Vectorized variant of eikonal update for better compile performance."""
+    geometric = 1
+    phi_total = torch.ones_like(Tneigh[0, :]) if geometric else torch.zeros_like(Tneigh[0, :])
+
+    n = len(factors) - 1
+
+    for inds, f, fsq in zip(index_list[1:], factors[1:], factors[1:] ** 2):
+        npair = len(inds) // 2
+        left = inds[:npair]
+        right = torch.flip(inds, dims=[0])[:npair]
+        mins = torch.minimum(Tneigh[left], Tneigh[right])
+
+        update = update_torch(mins, f, fsq)
+
+        if geometric:
+            phi_total *= update
+        else:
+            phi_total += update
+
+    phi_total = torch.pow(phi_total, 1 / n) if geometric else phi_total / n
+    return phi_total
+
+
+    
 
 
 # Omnipose requires (a) a special suppressed Euler step and (b) a special mask reconstruction algorithm.
@@ -184,7 +183,7 @@ def div_rescale(dP, mask, p=1):
 
 def sigmoid(x):
     """The sigmoid function."""
-    expit(x)
+    return expit(x)
 
 
 def divergence(f, sp=None):
