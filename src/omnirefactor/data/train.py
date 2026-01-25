@@ -7,7 +7,7 @@ import torch
 
 from torch.utils.data import BatchSampler
 
-from ..core.augment import random_crop_warp
+from ..transforms.augment import random_crop_warp
 from ..core.flows import masks_to_flows_batch, batch_labels
 
 
@@ -36,7 +36,6 @@ class train_set(torch.utils.data.Dataset):
 
         self.do_flip = True
         self.dist_bg = 5
-        self.smooth = False
         self.normalize = False
         self.gamma_range = [.75, 2.5]
         self.nimg = len(data)

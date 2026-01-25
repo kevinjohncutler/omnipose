@@ -447,9 +447,6 @@ def affinity_to_edges(affinity_graph,neigh_inds,step_inds,px_inds):
     return edge_list[:idx] # return only the portion edge_list that contins edges 
 
 
-
-
-
 def affinity_to_masks(affinity_graph,neigh_inds,iscell, coords,
                       cardinal=True,
                       exclude_interior=False,

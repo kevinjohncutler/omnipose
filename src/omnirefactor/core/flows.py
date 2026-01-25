@@ -2,29 +2,21 @@ from .imports import *
 
 from .affinity import masks_to_affinity, affinity_to_boundary
 from .fields import _gradient, _iterate
-from .centers import _extend_centers, _extend_centers_gpu
-from ..transforms.normalize import normalize_field
-
-omnipose_logger = logging.getLogger(__name__)
 
 
-def labels_to_flows(labels, links=None, files=None, use_gpu=False, device=None, 
-                    omni=True, redo_flows=False, dim=2):
+
+def labels_to_flows(labels, links=None, use_gpu=False, device=None, 
+                    omni=True, dim=2):
     """ Convert labels (list of masks or flows) to flows for training model.
-
-    if files is not None, flows are saved to files to be reused
 
     Parameters
     --------------
     labels: list of ND-arrays
-        labels[k] can be 2D or 3D, if [3 x Ly x Lx] then it is assumed that flows were precomputed.
-        Otherwise labels[k][0] or labels[k] (if 2D) is used to create flows.
+        labels[k] must be 2D or 3D masks. Precomputed flows are not supported.
     links: list of label links
         These lists of label pairs define which labels are "linked",
         i.e. should be treated as part of the same object. This is how
         Omnipose handles internal/self-contact boundaries during training. 
-    files: list of strings
-        list of file names for the base images that are appended with '_flows.tif' for saving. 
     use_gpu: bool
         flag to use GPU for speedup. Note that Omnipose fixes some bugs that caused the Cellpose GPU 
         implementation to have different behavior compared to the Cellpose CPU implementation. 
@@ -32,9 +24,6 @@ def labels_to_flows(labels, links=None, files=None, use_gpu=False, device=None,
         what compute hardware to use to run the code (GPU VS CPU)
     omni: bool
         flag to generate Omnipose flows instead of Cellpose flows
-    redo_flows: bool
-        flag to overwrite existing flows. This is necessary when changing over from Cellpose to Omnipose, 
-        as the flows are very different.
     dim: int
         integer representing the intrinsic dimensionality of the data. This allows users to generate 3D flows
         for volumes. Some dependencies will need to be to be extended to allow for 4D, but the image and label
@@ -44,49 +33,41 @@ def labels_to_flows(labels, links=None, files=None, use_gpu=False, device=None,
     --------------
     flows: list of [4 x Ly x Lx] arrays
         flows[k][0] is labels[k], flows[k][1] is cell distance transform, flows[k][2:2+dim] are the 
-        (T)YX flow components, and flows[k][-1] is heat distribution / smooth distance 
+        (T)YX flow components, and flows[k][-1] is heat distribution / distance field
 
     """
     
     nimg = len(labels)
     if links is None:
         links = [None]*nimg # just for entering below 
-    no_flow = labels[0].ndim != 3+dim # (6,Lt,Ly,Lx) for 3D, masks + dist + boundary + flow components, then image dimensions 
+    if labels[0].ndim == 3 + dim:
+        raise ValueError("Precomputed flows are not supported; provide mask labels instead.")
+
+    # compute flows; labels are fixed in masks_to_flows, so they need to be passed back
+    labels, dist, bd, heat, veci = map(list,zip(*[masks_to_flows(labels[n], links=links[n], use_gpu=use_gpu, 
+                                                             device=device, omni=omni, dim=dim) 
+                                              for n in trange(nimg)])) 
     
-    if no_flow or redo_flows:
-            
-        # compute flows; labels are fixed in masks_to_flows, so they need to be passed back
-        labels, dist, bd, heat, veci = map(list,zip(*[masks_to_flows(labels[n], links=links[n], use_gpu=use_gpu, 
-                                                                 device=device, omni=omni, dim=dim) 
-                                                  for n in trange(nimg)])) 
-        
-        # concatenate labels, distance transform, vector flows, heat (boundary and mask are computed in augmentations)
-        if omni:
-            flows = [np.concatenate((labels[n][np.newaxis,:,:], 
-                                     dist[n][np.newaxis,:,:], 
-                                     veci[n], 
-                                     heat[n][np.newaxis,:,:]), axis=0).astype(np.float32)
-                        for n in range(nimg)] 
-            # clean this up to swap heat and flows and simplify code? would have to rerun all flow generation 
-        else:
-            flows = [np.concatenate((labels[n][np.newaxis,:,:], 
-                                     labels[n][np.newaxis,:,:]>0.5, 
-                                     veci[n]), axis=0).astype(np.float32)
-                    for n in range(nimg)]
-        if files is not None:
-            for flow, file in zip(flows, files):
-                file_name = os.path.splitext(file)[0]
-                tifffile.imsave(file_name+'_flows.tif', flow)
+    # concatenate labels, distance transform, vector flows, heat (boundary and mask are computed in augmentations)
+    if omni:
+        flows = [np.concatenate((labels[n][np.newaxis,:,:], 
+                                 dist[n][np.newaxis,:,:], 
+                                 veci[n], 
+                                 heat[n][np.newaxis,:,:]), axis=0).astype(np.float32)
+                    for n in range(nimg)] 
+        # clean this up to swap heat and flows and simplify code? would have to rerun all flow generation 
     else:
-        omnipose_logger.info('flows precomputed (in omnipose.core now)') 
-        flows = [labels[n].astype(np.float32) for n in range(nimg)]
+        flows = [np.concatenate((labels[n][np.newaxis,:,:], 
+                                 labels[n][np.newaxis,:,:]>0.5, 
+                                 veci[n]), axis=0).astype(np.float32)
+                for n in range(nimg)]
 
     return flows
 
 # @torch.no_grad() # try to solve memory leak in mps
 
 def masks_to_flows(masks, affinity_graph=None, dists=None, coords=None, links=None, use_gpu=True, device=None, 
-                   omni=True, dim=2, smooth=False, normalize=False, n_iter=None, verbose=False):
+                   omni=True, dim=2, normalize=False, n_iter=None, verbose=False):
     """Convert masks to flows. 
     
     First, we find the scalar field. In Omnipose, this is the distance field. In Cellpose, 
@@ -129,7 +110,7 @@ def masks_to_flows(masks, affinity_graph=None, dists=None, coords=None, links=No
 
     """
     if links is not None and dists is not None:
-        print('Your dists are probably wrong...')
+        core_logger.warning("Your dists are probably wrong...")
         
     if coords is None:
         coords = np.nonzero(masks) 
@@ -141,11 +122,12 @@ def masks_to_flows(masks, affinity_graph=None, dists=None, coords=None, links=No
     
     case = [affinity_graph is None, 
              affinity_graph is not None and affinity_graph.shape[1] != len(coords[0])]
+    
     if np.any(case):
         affinity_graph = masks_to_affinity(masks, coords, steps, inds, 
                                            idx, fact, sign, dim, links=links)
         if case[1]:
-            print('Warning: passed affinity does not match mask coordinates. Recomputing.')
+            core_logger.warning("Passed affinity does not match mask coordinates. Recomputing.")
 
     boundaries = affinity_to_boundary(masks,affinity_graph,coords)
     
@@ -193,7 +175,7 @@ def masks_to_flows(masks, affinity_graph=None, dists=None, coords=None, links=No
     
     else:
         T, mu = masks_to_flows_torch(masks, affinity_graph, coords, dists, device=device,
-                                     omni=omni, smooth=smooth, normalize=normalize, n_iter=n_iter, 
+                                     omni=omni, normalize=normalize, n_iter=n_iter, 
                                      verbose=verbose)
         return masks, dists, boundaries, T, mu
 
@@ -201,7 +183,7 @@ def masks_to_flows(masks, affinity_graph=None, dists=None, coords=None, links=No
 # @torch.no_grad() # try to solve memory leak in mps
 
 def masks_to_flows_batch(batch, links=[None], device=torch.device('cpu'), 
-                         omni=True, dim=2, smooth=False, normalize=False, 
+                         omni=True, dim=2, normalize=False, 
                          affinity_field=False, initialize=False, n_iter=None, 
                          verbose=False):
     """
@@ -243,7 +225,7 @@ def masks_to_flows_batch(batch, links=[None], device=torch.device('cpu'),
     
     # if I am do carry through the warped distance fields, I should probably use them here too to seed the iterations for faster convergence... have not doen that yet
     T, mu = masks_to_flows_torch(clabels, affinity_graph, ccoords,
-                                 device=device, omni=omni, smooth=smooth,
+                                 device=device, omni=omni,
                                  normalize=normalize, initialize=initialize, 
                                  affinity_field=affinity_field, n_iter=n_iter, 
                                  edges=edges, verbose=verbose)
@@ -320,7 +302,7 @@ def batch_labels(masks,bd,T,mu,tyx,dim,nclasses,device,dist_bg=5):
     
     if nt>2:
         lbl[:,2] = bd # posisiton 2 store boundary, now returned as part of linked flow computation  
-        lbl[:,3] = T # position 3 stores the smooth distance field 
+        lbl[:,3] = T # position 3 stores the distance field
         # lbl[:,3] = torch.log(lbl[:,3]+5) # try to reduce impact of large values 
         lbl[:,3][lbl[:,3]<=0] = -dist_bg # balance with boundary logits 
         
@@ -334,7 +316,7 @@ def batch_labels(masks,bd,T,mu,tyx,dim,nclasses,device,dist_bg=5):
 # @torch.no_grad() # try to solve memory leak in mps
 
 def masks_to_flows_torch(masks, affinity_graph, coords=None, dists=None, device=torch.device('cpu'), omni=True,
-                         affinity_field=False, smooth=False, normalize=False, n_iter=None, weight=1,
+                         affinity_field=False, normalize=False, n_iter=None, weight=1,
                          return_flows=True, edges=None, initialize=False, verbose=False):
     """Convert ND masks to flows. 
     
@@ -350,8 +332,6 @@ def masks_to_flows_torch(masks, affinity_graph, coords=None, dists=None, device=
         what compute hardware to use to run the code (GPU VS CPU)
     omni: bool
         flag to generate Omnipose flows instead of Cellpose flows
-    smooth: bool
-        use relaxation to smooth out distance and therby flow field
     n_iter: int
         override number of iterations 
 
@@ -362,7 +342,7 @@ def masks_to_flows_torch(masks, affinity_graph, coords=None, dists=None, device=
         if masks are 3D, flows in Z or T = mu[0].
     dist: float, 2D or 3D array
         scalar field representing temperature distribution (Cellpose)
-        or the smooth distance field (Omnipose)
+        or the distance field (Omnipose)
 
     """
     if np.any(masks):
@@ -373,7 +353,7 @@ def masks_to_flows_torch(masks, affinity_graph, coords=None, dists=None, device=
         centers = np.array([])  
         if not omni: #do original centroid projection algrorithm
             unique_labels = fastremap.unique(masks)[1:]
-            # get mask centers
+            # get mask centers - replace with medoids for testing 
             centers = np.array(scipy.ndimage.center_of_mass(masks, 
                                                             labels=masks, 
                                                             index=unique_labels)).astype(int).T
@@ -400,14 +380,14 @@ def masks_to_flows_torch(masks, affinity_graph, coords=None, dists=None, device=
             
 
         out = _extend_centers_torch(masks, centers, affinity_graph, coords,
-                                    n_iter=n_iter, device=device, omni=omni, smooth=smooth, 
+                                    n_iter=n_iter, device=device, omni=omni, 
                                     weight=weight, return_flows=return_flows, affinity_field=affinity_field,
                                     edges=edges, initialize=initialize, verbose=verbose)
         
         if return_flows:
             T, mu = out
             if normalize:
-                mu = normalize_field(mu, use_torch=True, cutoff=0 if not smooth else 0.15)  ##### transforms.normalize_field(mu,omni) 
+                mu = normalize_field(mu, use_torch=True, cutoff=0)  ##### transforms.normalize_field(mu,omni) 
                 if verbose:
                     print('normalizing field')
             return T, mu
@@ -418,7 +398,8 @@ def masks_to_flows_torch(masks, affinity_graph, coords=None, dists=None, device=
 
     
 
-def get_links(masks,labels,bd,connectivity=1):   
+def get_links(masks,labels,bd,connectivity=1):   # pragma no cover
+    """ Generate label links based on oversegmented masks and boundary field."""
     # Helper function. Might be unecessary now with the boundary_to_affinity function, which should be better. 
     # No, I still use it for multilabel data. 
     d = labels.ndim
@@ -455,41 +436,10 @@ def get_links(masks,labels,bd,connectivity=1):
     return links
 
 
-# import networkx as nx
-# def links_to_mask(masks,links):
-#     """
-#     Convert linked masks to stitched masks. 
-#     """
-#     G = nx.from_edgelist(links)
-#     l = list(nx.connected_components(G))
-#     # after that we create the map dict, for get the unique id for each nodes
-#     mapdict={z:x for x, y in enumerate(l) for z in y }
-#     # increment the dict keys to not conflict with any existing labels
-#     m = np.max(masks)+1
-#     mapdict = {k:v+m for k,v in mapdict.items()}
-#     # remap
-#     return fastremap.remap(masks,mapdict,preserve_missing_labels=True, in_place=False)
 
-
-
-# this needs to be updaed... now a private jitted function, with a public wrapper below
-# @njit(parallel=True) # cache not supported with parallel? 
-# @njit(cache=True) # 2x as slow as paralle, but wirks in multiprocessing for training 
-# def _get_link_matrix(links_arr, piece_masks, inds, idx, is_link):
-#     for k in prange(len(inds)):
-#         i = inds[k]
-#         for j in range(len(piece_masks[i])):
-#             a = piece_masks[i][j]
-#             b = piece_masks[idx][j]
-#             # check each link tuple in the array
-#             for l in range(links_arr.shape[0]):
-#                 if (links_arr[l, 0] == a and links_arr[l, 1] == b) or (links_arr[l, 1] == a and links_arr[l, 0] == b):
-#                     is_link[i, j] = True
-#                     break
-#     return is_link
     
 def _extend_centers_torch(masks, centers, affinity_graph, coords=None, n_iter=200, 
-                          device=torch.device('cpu'), omni=True, smooth=False, 
+                          device=torch.device('cpu'), omni=True, 
                           weight=1, return_flows=True, affinity_field=False, 
                           edges=None, initialize=False, verbose=False):
     """ runs diffusion on GPU to generate flows for training images or quality control
@@ -517,7 +467,7 @@ def _extend_centers_torch(masks, centers, affinity_graph, coords=None, n_iter=20
         flows in Y = mu[-2], flows in X = mu[-1].
         if masks are 3D, flows in Z (or T) = mu[0].
     dist: float, 2D or 3D array
-        the smooth distance field (Omnipose)
+        the distance field (Omnipose)
         or temperature distribution (Cellpose)
     boundaries: bool, 2D or 3D array
         binary field representing 1-connected boundary 
@@ -560,7 +510,6 @@ def _extend_centers_torch(masks, centers, affinity_graph, coords=None, n_iter=20
     steps = torch.tensor(steps,device=device)        
     inds = tuple([torch.tensor(i) for i in inds])
     omni = torch.tensor(omni)
-    smooth = torch.tensor(smooth)
     verbose = torch.tensor(verbose)
 
     isneigh = torch.tensor(affinity_graph,device=device,dtype=torch.bool) # isneigh shape (3**d,npix)
@@ -580,8 +529,8 @@ def _extend_centers_torch(masks, centers, affinity_graph, coords=None, n_iter=20
         else:
             n_iter = torch.tensor(n_iter)
 
-        T = _iterate(T,neigh_inds,central_inds,centroid_inds,
-                     idx,d,inds,fact,isneigh,n_iter,omni,smooth,verbose)
+    T = _iterate(T,neigh_inds,central_inds,centroid_inds,
+                     idx,d,inds,fact,isneigh,n_iter,omni,verbose)
 
     ret = []
     

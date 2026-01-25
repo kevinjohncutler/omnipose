@@ -100,8 +100,6 @@ def skeletonize(labels, dt_thresh=1, dt=None, method='zhang'):
 
 
 
-
-
 def extract_skeleton(distance_field):
     # Smooth the distance field using Gaussian filter
     smoothed_field = gaussian_filter(distance_field, sigma=1)

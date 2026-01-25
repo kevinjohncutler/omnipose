@@ -30,8 +30,6 @@ def loss(self, lbl, y, ext_loss=0):
         flow = y[:, :self.dim]
         dt = y[:, self.dim]
 
-        maxF, minF = flow.max(), flow.min()
-
         if self.nclasses == (self.dim + 2):
             bd = y[:, self.dim + 1]
             bd_loss = self.BCELoss(bd, boundary)
@@ -66,7 +64,7 @@ def loss(self, lbl, y, ext_loss=0):
         return sum(losses), raw_loss
 
 
-def bg_flow_corr_penalty(flow, cellmask, eps=1e-6):
+def bg_flow_corr_penalty(flow, cellmask, eps=1e-6):  # pragma: no cover
     bg = flow * (~cellmask).unsqueeze(1)
     B, C, H, W = bg.shape
     f = bg.flatten(2)
@@ -84,7 +82,7 @@ def bg_flow_corr_penalty(flow, cellmask, eps=1e-6):
 
 def bg_flow_spectral_penalty(flow_pred, cellmask,
                              fc=0.10,
-                             dim=2):
+                             dim=2):  # pragma: no cover
     """
     flow_pred : (B, dim, H, W)  predicted flow
     cellmask  : (B, H,  W)      True on cell pixels
@@ -113,7 +111,7 @@ def bg_flow_spectral_penalty(flow_pred, cellmask,
     return penalty
 
 
-def bg_flow_spec_penalty(flow, cellmask, fc=0.1, eps=1e-6):
+def bg_flow_spec_penalty(flow, cellmask, fc=0.1, eps=1e-6):  # pragma: no cover
     bg = flow * (~cellmask).unsqueeze(1)
     power = torch.fft.rfftn(bg, dim=(-2, -1), norm='forward').abs().pow(2)
 
