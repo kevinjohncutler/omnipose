@@ -1696,6 +1696,10 @@ function drawWebglFrame() {
   if (!overlayHandled) {
     drawAffinityLines(matrix);
   }
+  if (pointsOverlay && pointsOverlay.enabled) {
+    const matrix = computeWebglMatrix((webglOverlay && webglOverlay.matrixCache) || new Float32Array(9), canvas.width, canvas.height);
+    drawPointsOverlay(matrix);
+  }
 }
 
 
@@ -1708,11 +1712,10 @@ function updateOverlayVisibility() {
     return;
   }
   const hasLines = showAffinityGraph && webglOverlay.edgeCount > 0;
-  const hasPoints = showPointsOverlay && webglOverlay.pointsCount > 0;
-  const visible = hasLines || hasPoints;
+  const visible = hasLines;
   const alpha = hasLines
     ? (Number.isFinite(webglOverlay.displayAlpha) ? webglOverlay.displayAlpha : 1)
-    : (hasPoints ? 1 : 0);
+    : 0;
   setOverlayCanvasVisibility(visible, alpha);
 }
 
@@ -1722,7 +1725,7 @@ function drawAffinityGraphShared(matrix) {
   }
   const glCanvas = getOverlayCanvasElement();
   const showLines = showAffinityGraph && affinityGraphInfo && affinityGraphInfo.values;
-  const showPoints = showPointsOverlay && webglOverlay.pointsCount > 0;
+  const showPoints = false;
   if (!showLines && !showPoints) {
     clearWebglOverlaySurface();
     return;
@@ -1813,28 +1816,6 @@ function drawAffinityGraphShared(matrix) {
     overlayGl.drawArrays(overlayGl.LINES, 0, verticesToDraw);
     hasContent = true;
   }
-  if (showPoints && webglOverlay.pointsCount > 0 && pointProgram && pointAttribs && pointUniforms) {
-    overlayGl.useProgram(pointProgram);
-    overlayGl.uniformMatrix3fv(pointUniforms.matrix, false, matrix);
-    if (pointUniforms.alpha) {
-      const compensate = clampedAlpha > 0.0001 ? 1 / clampedAlpha : 1;
-      const baseAlpha = POINTS_OVERLAY_ALPHA * compensate;
-      overlayGl.uniform1f(pointUniforms.alpha, baseAlpha);
-    }
-    overlayGl.blendFunc(overlayGl.SRC_ALPHA, overlayGl.ONE);
-    overlayGl.bindBuffer(overlayGl.ARRAY_BUFFER, webglOverlay.pointsPositionBuffer);
-    overlayGl.enableVertexAttribArray(pointAttribs.position);
-    overlayGl.vertexAttribPointer(pointAttribs.position, 2, overlayGl.FLOAT, false, 0, 0);
-    overlayGl.bindBuffer(overlayGl.ARRAY_BUFFER, webglOverlay.pointsColorBuffer);
-    overlayGl.enableVertexAttribArray(pointAttribs.color);
-    overlayGl.vertexAttribPointer(pointAttribs.color, 4, overlayGl.UNSIGNED_BYTE, true, 0, 0);
-    overlayGl.drawArrays(overlayGl.POINTS, 0, webglOverlay.pointsCount);
-    overlayGl.disableVertexAttribArray(pointAttribs.position);
-    overlayGl.disableVertexAttribArray(pointAttribs.color);
-    overlayGl.useProgram(lineProgram);
-    overlayGl.blendFunc(overlayGl.SRC_ALPHA, overlayGl.ONE_MINUS_SRC_ALPHA);
-    hasContent = true;
-  }
   overlayGl.disableVertexAttribArray(lineAttribs.position);
   overlayGl.disableVertexAttribArray(lineAttribs.color);
   overlayGl.disable(overlayGl.BLEND);
@@ -1857,6 +1838,7 @@ function drawAffinityGraphShared(matrix) {
 }
 let affinityOppositeSteps = [];
 let webglOverlay = null;
+let pointsOverlay = null;
 
 function getOverlayCanvasElement() {
   if (!webglOverlay || !webglOverlay.enabled) {
@@ -1922,7 +1904,7 @@ const previewCtx = previewCanvas.getContext('2d');
 previewCanvas.width = canvas.width;
 previewCanvas.height = canvas.height;
   // Ensure brush preview is above WebGL overlay for visibility
-  try { previewCanvas.style.zIndex = '2'; } catch (_) { /* ignore */ }
+  try { previewCanvas.style.zIndex = '3'; } catch (_) { /* ignore */ }
 
 function updateFps(now) {
   const delta = now - lastFrameTimestamp;
@@ -4474,6 +4456,7 @@ function performClearMasks({ recordHistory = true } = {}) {
   updateColorModeLabel();
   log('Masks cleared');
   scheduleStateSave();
+  updatePointsOverlayBuffers();
   return true;
 }
 
@@ -5190,6 +5173,98 @@ void main() {
   return true;
 }
 
+
+function initializePointsOverlay() {
+  if (pointsOverlay && pointsOverlay.enabled) {
+    return true;
+  }
+  if (!viewer || typeof WebGL2RenderingContext === 'undefined') {
+    pointsOverlay = { enabled: false, failed: true };
+    return false;
+  }
+  const canvasEl = document.createElement('canvas');
+  canvasEl.id = 'pointsWebgl';
+  canvasEl.style.position = 'absolute';
+  canvasEl.style.inset = '0';
+  canvasEl.style.pointerEvents = 'none';
+  canvasEl.style.zIndex = '2';
+  canvasEl.style.display = 'none';
+  canvasEl.style.opacity = '0';
+  viewer.appendChild(canvasEl);
+  const gl = canvasEl.getContext('webgl2', OVERLAY_CONTEXT_ATTRIBUTES);
+  if (!gl) {
+    viewer.removeChild(canvasEl);
+    pointsOverlay = { enabled: false, failed: true };
+    return false;
+  }
+  if (!(gl instanceof WebGL2RenderingContext)) {
+    viewer.removeChild(canvasEl);
+    pointsOverlay = { enabled: false, failed: true };
+    return false;
+  }
+  gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
+  const pointVertexSource = `#version 300 es
+layout (location = 0) in vec2 a_position;
+layout (location = 1) in vec4 a_color;
+
+uniform mat3 u_matrix;
+out vec4 v_color;
+
+void main() {
+  vec3 pos = u_matrix * vec3(a_position, 1.0);
+  gl_Position = vec4(pos.xy, 0.0, 1.0);
+  gl_PointSize = 10.0;
+  v_color = a_color;
+}
+`;
+  const pointFragmentSource = `#version 300 es
+precision mediump float;
+in vec4 v_color;
+uniform float u_alpha;
+out vec4 outColor;
+
+void main() {
+  vec2 coord = gl_PointCoord - vec2(0.5);
+  if (dot(coord, coord) > 0.25) {
+    discard;
+  }
+  outColor = vec4(v_color.rgb, v_color.a * u_alpha);
+}
+`;
+  const program = createWebglProgram(gl, pointVertexSource, pointFragmentSource);
+  if (!program) {
+    viewer.removeChild(canvasEl);
+    pointsOverlay = { enabled: false, failed: true };
+    return false;
+  }
+  const attribs = {
+    position: gl.getAttribLocation(program, 'a_position'),
+    color: gl.getAttribLocation(program, 'a_color'),
+  };
+  const uniforms = {
+    matrix: gl.getUniformLocation(program, 'u_matrix'),
+    alpha: gl.getUniformLocation(program, 'u_alpha'),
+  };
+  const positionBuffer = gl.createBuffer();
+  const colorBuffer = gl.createBuffer();
+  pointsOverlay = {
+    enabled: true,
+    failed: false,
+    canvas: canvasEl,
+    gl,
+    program,
+    attribs,
+    uniforms,
+    positionBuffer,
+    colorBuffer,
+    pointsCount: 0,
+    width: 0,
+    height: 0,
+  };
+  updatePointsOverlayBuffers();
+  return true;
+}
+
 function initializeWebglOverlay() {
   if (!viewer || typeof WebGL2RenderingContext === 'undefined') {
     webglOverlay = { enabled: false, failed: true };
@@ -5220,6 +5295,7 @@ function initializeWebglOverlay() {
   }
   gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
   const success = initializeSharedOverlay(gl);
+  initializePointsOverlay();
   if (!success) {
     viewer.removeChild(canvasEl);
     return false;
@@ -5967,6 +6043,19 @@ function compileWebglShader(gl, type, source) {
   return shader;
 }
 
+
+function resizePointsOverlay() {
+  if (!pointsOverlay || !pointsOverlay.enabled || !pointsOverlay.canvas) {
+    return;
+  }
+  const v = getViewportSize();
+  const renderWidth = Math.max(1, v.width);
+  pointsOverlay.canvas.width = Math.max(1, Math.round(renderWidth * dpr));
+  pointsOverlay.canvas.height = Math.max(1, Math.round(v.height * dpr));
+  pointsOverlay.canvas.style.width = renderWidth + 'px';
+  pointsOverlay.canvas.style.height = v.height + 'px';
+}
+
 function resizeWebglOverlay() {
   if (!webglOverlay || !webglOverlay.enabled) {
     return;
@@ -6166,12 +6255,58 @@ function computeWebglMatrix(out, width, height) {
   return out;
 }
 
+
+function drawPointsOverlay(matrix) {
+  if (!pointsOverlay || !pointsOverlay.enabled) {
+    return;
+  }
+  const showPoints = showPointsOverlay && pointsOverlay.pointsCount > 0;
+  if (!showPoints) {
+    if (pointsOverlay.canvas) {
+      pointsOverlay.canvas.style.display = 'none';
+      pointsOverlay.canvas.style.opacity = '0';
+    }
+    return;
+  }
+  const gl = pointsOverlay.gl;
+  const canvasEl = pointsOverlay.canvas;
+  if (!gl || !canvasEl) {
+    return;
+  }
+  gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+  gl.viewport(0, 0, canvasEl.width, canvasEl.height);
+  gl.clearColor(0, 0, 0, 0);
+  gl.clear(gl.COLOR_BUFFER_BIT);
+  gl.disable(gl.DEPTH_TEST);
+  gl.useProgram(pointsOverlay.program);
+  gl.uniformMatrix3fv(pointsOverlay.uniforms.matrix, false, matrix);
+  if (pointsOverlay.uniforms.alpha) {
+    gl.uniform1f(pointsOverlay.uniforms.alpha, POINTS_OVERLAY_ALPHA);
+  }
+  gl.bindBuffer(gl.ARRAY_BUFFER, pointsOverlay.positionBuffer);
+  gl.enableVertexAttribArray(pointsOverlay.attribs.position);
+  gl.vertexAttribPointer(pointsOverlay.attribs.position, 2, gl.FLOAT, false, 0, 0);
+  gl.bindBuffer(gl.ARRAY_BUFFER, pointsOverlay.colorBuffer);
+  gl.enableVertexAttribArray(pointsOverlay.attribs.color);
+  gl.vertexAttribPointer(pointsOverlay.attribs.color, 4, gl.UNSIGNED_BYTE, true, 0, 0);
+  gl.enable(gl.BLEND);
+  gl.blendFunc(gl.SRC_ALPHA, gl.ONE);
+  gl.drawArrays(gl.POINTS, 0, pointsOverlay.pointsCount);
+  gl.disableVertexAttribArray(pointsOverlay.attribs.position);
+  gl.disableVertexAttribArray(pointsOverlay.attribs.color);
+  gl.disable(gl.BLEND);
+  if (canvasEl.style.display !== 'block') {
+    canvasEl.style.display = 'block';
+  }
+  canvasEl.style.opacity = '1';
+}
+
 function drawAffinityGraphWebgl() {
   if (!ensureWebglOverlayReady() || !webglOverlay || !webglOverlay.enabled) {
     return false;
   }
   const showLines = showAffinityGraph && affinityGraphInfo && affinityGraphInfo.values;
-  const showPoints = showPointsOverlay && webglOverlay.pointsCount > 0;
+  const showPoints = false;
   if (webglOverlay.shared) {
     const matrix = computeWebglMatrix(webglOverlay.matrixCache, canvas.width, canvas.height);
     drawAffinityGraphShared(matrix);
@@ -6276,28 +6411,6 @@ function drawAffinityGraphWebgl() {
     hasContent = true;
     gl.drawArrays(gl.LINES, 0, verticesToDraw);
   }
-  if (showPoints && webglOverlay.pointsCount > 0 && pointProgram && pointAttribs && pointUniforms) {
-    gl.useProgram(pointProgram);
-    gl.uniformMatrix3fv(pointUniforms.matrix, false, matrix);
-    if (pointUniforms.alpha) {
-      const compensate = clampedAlpha > 0.0001 ? 1 / clampedAlpha : 1;
-      const baseAlpha = POINTS_OVERLAY_ALPHA * compensate;
-      gl.uniform1f(pointUniforms.alpha, baseAlpha);
-    }
-    gl.blendFunc(gl.SRC_ALPHA, gl.ONE);
-    gl.bindBuffer(gl.ARRAY_BUFFER, webglOverlay.pointsPositionBuffer);
-    gl.enableVertexAttribArray(pointAttribs.position);
-    gl.vertexAttribPointer(pointAttribs.position, 2, gl.FLOAT, false, 0, 0);
-    gl.bindBuffer(gl.ARRAY_BUFFER, webglOverlay.pointsColorBuffer);
-    gl.enableVertexAttribArray(pointAttribs.color);
-    gl.vertexAttribPointer(pointAttribs.color, 4, gl.UNSIGNED_BYTE, true, 0, 0);
-    gl.drawArrays(gl.POINTS, 0, webglOverlay.pointsCount);
-    gl.disableVertexAttribArray(pointAttribs.position);
-    gl.disableVertexAttribArray(pointAttribs.color);
-    gl.useProgram(lineProgram);
-    gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
-    hasContent = true;
-  }
   gl.disableVertexAttribArray(lineAttribs.position);
   gl.disableVertexAttribArray(lineAttribs.color);
   gl.disable(gl.BLEND);
@@ -6332,6 +6445,14 @@ function clearAffinityGraphData() {
     webglOverlay.needsGeometryRebuild = true;
   }
   clearWebglOverlaySurface();
+  if (pointsOverlay && pointsOverlay.enabled) {
+    const gl = pointsOverlay.gl;
+    gl.bindBuffer(gl.ARRAY_BUFFER, pointsOverlay.positionBuffer);
+    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(), gl.STATIC_DRAW);
+    gl.bindBuffer(gl.ARRAY_BUFFER, pointsOverlay.colorBuffer);
+    gl.bufferData(gl.ARRAY_BUFFER, new Uint8Array(), gl.STATIC_DRAW);
+    pointsOverlay.pointsCount = 0;
+  }
   markAffinityGeometryDirty();
 }
 
@@ -7538,6 +7659,7 @@ function resizeCanvas() {
   canvas.style.height = v.height + 'px';
   canvas.style.transform = '';
   resizeWebglOverlay();
+  resizePointsOverlay();
   resizePreviewCanvas();
   if (!fitViewToWindow(v)) {
     recenterView(v);
@@ -8731,25 +8853,60 @@ function setSegmentStatus(message, isError = false) {
 }
 
 
-function applyPointsPayload(pointsPayload) {
-  if (!webglOverlay || !webglOverlay.enabled) {
-    pointsOverlayInfo = pointsPayload || null;
-    if (pointsOverlayToggle) {
-      pointsOverlayToggle.checked = false;
-      pointsOverlayToggle.disabled = true;
-    }
+
+function updatePointsOverlayBuffers() {
+  if (!pointsOverlay || !pointsOverlay.enabled) {
     return;
   }
-  const gl = webglOverlay.gl;
+  const gl = pointsOverlay.gl;
+  if (!pointsOverlay.positionBuffer || !pointsOverlay.colorBuffer) {
+    return;
+  }
+  if (!pointsOverlay || !pointsOverlay.pointsPositions || !pointsOverlay.pointsColors || !pointsOverlay.pointsCount) {
+    pointsOverlay.pointsCount = 0;
+    gl.bindBuffer(gl.ARRAY_BUFFER, pointsOverlay.positionBuffer);
+    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(), gl.STATIC_DRAW);
+    gl.bindBuffer(gl.ARRAY_BUFFER, pointsOverlay.colorBuffer);
+    gl.bufferData(gl.ARRAY_BUFFER, new Uint8Array(), gl.STATIC_DRAW);
+    return;
+  }
+  gl.bindBuffer(gl.ARRAY_BUFFER, pointsOverlay.positionBuffer);
+  gl.bufferData(gl.ARRAY_BUFFER, pointsOverlay.pointsPositions, gl.STATIC_DRAW);
+  gl.bindBuffer(gl.ARRAY_BUFFER, pointsOverlay.colorBuffer);
+  gl.bufferData(gl.ARRAY_BUFFER, pointsOverlay.pointsColors, gl.STATIC_DRAW);
+  pointsOverlay.pointsCount = pointsOverlay.pointsCount | 0;
+  pointsOverlay.width = pointsOverlayData ? (pointsOverlayData.width | 0) : 0;
+  pointsOverlay.height = pointsOverlayData ? (pointsOverlayData.height | 0) : 0;
+}
+
+function applyPointsPayload(pointsPayload) {
+  const gl = webglOverlay && webglOverlay.gl ? webglOverlay.gl : null;
   if (!pointsPayload || !pointsPayload.encoded || !pointsPayload.count) {
     pointsOverlayInfo = null;
-  pointsOverlayData = null;
-    webglOverlay.pointsCount = 0;
-    if (webglOverlay.pointsPositionBuffer) {
+    pointsOverlayData = null;
+    if (pointsOverlay) {
+      pointsOverlay.pointsCount = 0;
+      pointsOverlay.pointsPositions = null;
+      pointsOverlay.pointsColors = null;
+      if (pointsOverlay.gl && pointsOverlay.positionBuffer) {
+        pointsOverlay.gl.bindBuffer(pointsOverlay.gl.ARRAY_BUFFER, pointsOverlay.positionBuffer);
+        pointsOverlay.gl.bufferData(pointsOverlay.gl.ARRAY_BUFFER, new Float32Array(), pointsOverlay.gl.STATIC_DRAW);
+      }
+      if (pointsOverlay.gl && pointsOverlay.colorBuffer) {
+        pointsOverlay.gl.bindBuffer(pointsOverlay.gl.ARRAY_BUFFER, pointsOverlay.colorBuffer);
+        pointsOverlay.gl.bufferData(pointsOverlay.gl.ARRAY_BUFFER, new Uint8Array(), pointsOverlay.gl.STATIC_DRAW);
+      }
+      if (pointsOverlay.canvas) {
+        pointsOverlay.canvas.style.display = 'none';
+        pointsOverlay.canvas.style.opacity = '0';
+      }
+    }
+    if (webglOverlay) { webglOverlay.pointsCount = 0; }
+    if (gl && webglOverlay && webglOverlay.pointsPositionBuffer) {
       gl.bindBuffer(gl.ARRAY_BUFFER, webglOverlay.pointsPositionBuffer);
       gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(), gl.DYNAMIC_DRAW);
     }
-    if (webglOverlay.pointsColorBuffer) {
+    if (gl && webglOverlay && webglOverlay.pointsColorBuffer) {
       gl.bindBuffer(gl.ARRAY_BUFFER, webglOverlay.pointsColorBuffer);
       gl.bufferData(gl.ARRAY_BUFFER, new Uint8Array(), gl.DYNAMIC_DRAW);
     }
@@ -8760,7 +8917,7 @@ function applyPointsPayload(pointsPayload) {
     updateOverlayVisibility();
     return;
   }
-    const binary = atob(pointsPayload.encoded);
+  const binary = atob(pointsPayload.encoded);
   const bytes = new Uint8Array(binary.length);
   for (let i = 0; i < binary.length; i += 1) {
     bytes[i] = binary.charCodeAt(i);
@@ -8786,20 +8943,22 @@ function applyPointsPayload(pointsPayload) {
     count,
   };
   pointsOverlayData = pointsPayload;
-  webglOverlay.pointsCount = count;
-  webglOverlay.pointsPositions = positions;
-  webglOverlay.pointsColors = colors;
-  if (webglOverlay.pointsPositionBuffer) {
+  if (pointsOverlay) { pointsOverlay.pointsPositions = positions; pointsOverlay.pointsColors = colors; pointsOverlay.pointsCount = count; }
+  if (webglOverlay) { webglOverlay.pointsCount = count; }
+  if (webglOverlay) { webglOverlay.pointsPositions = positions; }
+  if (webglOverlay) { webglOverlay.pointsColors = colors; }
+  if (gl && webglOverlay && webglOverlay.pointsPositionBuffer) {
     gl.bindBuffer(gl.ARRAY_BUFFER, webglOverlay.pointsPositionBuffer);
     gl.bufferData(gl.ARRAY_BUFFER, positions, gl.DYNAMIC_DRAW);
   }
-  if (webglOverlay.pointsColorBuffer) {
+  if (gl && webglOverlay && webglOverlay.pointsColorBuffer) {
     gl.bindBuffer(gl.ARRAY_BUFFER, webglOverlay.pointsColorBuffer);
     gl.bufferData(gl.ARRAY_BUFFER, colors, gl.DYNAMIC_DRAW);
   }
   if (pointsOverlayToggle) {
     pointsOverlayToggle.disabled = false;
   }
+  updatePointsOverlayBuffers();
   updateOverlayVisibility();
 }
 
