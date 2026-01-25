@@ -490,10 +490,15 @@ class Segmenter:
         if arr.ndim == 3:
             arr = arr.mean(axis=-1)
         arr = normalize99(arr)
+        try:
+            nchan = int(getattr(self._model, "nchan", 1) or 1)
+        except Exception:
+            nchan = 1
+        channels = [0, 0] if nchan > 1 else None
         with self._eval_lock:
             masks, flows, *rest = self._model.eval(
                 arr,
-                channels=[0, 0],
+                channels=channels,
                 rescale=None,
                 mask_threshold=parsed["mask_threshold"], # should make these use kwarg dicts 
                 flow_threshold=parsed["flow_threshold"],
@@ -517,8 +522,11 @@ class Segmenter:
         cache = self._cache
         cache["mask"] = mask_uint32
         cache["ncolor_mask"] = ncolor_mask
+        cache["points_payload"] = None
         if parsed.get("affinity_seg"):
-            affinity_data = self._compute_affinity_graph(mask_uint32)
+            affinity_data = self._affinity_from_flows(flows, mask_uint32)
+            if affinity_data is None:
+                affinity_data = self._compute_affinity_graph(mask_uint32)
             if affinity_data is not None:
                 cache["affinity_graph"] = affinity_data
             else:
@@ -543,11 +551,12 @@ class Segmenter:
         if rescale_value is None:
             rescale_value = 1.0
         core_module = self._ensure_core()
-        mask, p_out, _, bounds, _ = core_module.compute_masks(
+        mask, p_out, _, bounds, augmented_affinity = core_module.compute_masks(
             dP=dP,
             dist=dist,
             bd=bd,
             p=p,
+            niter=parsed["niter"],
             mask_threshold=parsed["mask_threshold"],
             flow_threshold=parsed["flow_threshold"],
             resize=cache["mask_shape"],
@@ -562,13 +571,17 @@ class Segmenter:
         ncolor_mask = self._compute_ncolor_mask(mask_uint32, expand=True)
         cache["mask"] = mask_uint32
         cache["ncolor_mask"] = ncolor_mask
+        cache["points_payload"] = None
         cache["mask_shape"] = tuple(mask_uint32.shape)
         cache["last_mask_threshold"] = parsed["mask_threshold"]
         cache["last_flow_threshold"] = parsed["flow_threshold"]
+        cache["last_niter"] = parsed["niter"]
         cache["last_options"] = merged_options
         if parsed["affinity_seg"]:
             cache["bounds"] = bounds
-            affinity_data = self._compute_affinity_graph(mask_uint32)
+            affinity_data = self._affinity_from_augmented(augmented_affinity, mask_uint32)
+            if affinity_data is None:
+                affinity_data = self._compute_affinity_graph(mask_uint32)
             if affinity_data is not None:
                 cache["affinity_graph"] = affinity_data
             else:
@@ -644,6 +657,29 @@ class Segmenter:
                     return False
             return bool(value)
 
+        def _get_int(name: str, default: int) -> int:
+            value = merged.get(name, default)
+            try:
+                return int(value)
+            except (TypeError, ValueError):
+                return int(default)
+
+        def _get_optional_int(name: str) -> int | None:
+            value = merged.get(name, None)
+            if value is None:
+                return None
+            if isinstance(value, str):
+                lowered = value.strip().lower()
+                if lowered in {"auto", "none"}:
+                    return None
+            try:
+                numeric = int(value)
+            except (TypeError, ValueError):
+                return None
+            if numeric <= -1:
+                return None
+            return numeric
+
         parsed = {
             "model": merged.get("model"),
             "model_path": merged.get("model_path"),
@@ -656,7 +692,7 @@ class Segmenter:
             "resample": _get_bool("resample", True),
             "verbose": _get_bool("verbose", False),
             "tile": _get_bool("tile", False),
-            "niter": merged.get("niter"),
+            "niter": _get_optional_int("niter"),
             "augment": _get_bool("augment", False),
         }
         return parsed, merged
@@ -685,6 +721,64 @@ class Segmenter:
         cached = (steps_arr, inds, idx, fact, sign)
         self._kernel_cache[dim] = cached
         return cached
+
+    def _normalize_affinity_graph(self, affinity_graph: np.ndarray, mask: np.ndarray) -> Optional[tuple[np.ndarray, np.ndarray]]:
+        mask_int = np.asarray(mask, dtype=np.int32)
+        if mask_int.ndim != 2:
+            return None
+        coords = np.nonzero(mask_int > 0)
+        if coords[0].size == 0:
+            return None
+        steps, inds, idx, fact, sign = self._get_kernel_info(mask_int.ndim)
+        steps_arr = np.asarray(steps)
+        center_index = int(idx)
+        if center_index <= 0:
+            return None
+        affinity = np.asarray(affinity_graph)
+        if affinity.ndim > 2:
+            affinity = np.squeeze(affinity)
+        if affinity.ndim != 2:
+            return None
+        if affinity.shape[1] != coords[0].size:
+            # affinity graph must align with foreground coords
+            return None
+        affinity = (affinity > 0).astype(np.uint8, copy=False)
+        if affinity.shape[0] == steps_arr.shape[0]:
+            non_center_mask = np.ones(steps_arr.shape[0], dtype=bool)
+            non_center_mask[center_index] = False
+            step_subset = np.ascontiguousarray(steps_arr[non_center_mask].astype(np.int8, copy=False))
+            affinity = affinity[non_center_mask]
+        elif affinity.shape[0] == steps_arr.shape[0] - 1:
+            non_center_mask = np.ones(steps_arr.shape[0], dtype=bool)
+            non_center_mask[center_index] = False
+            step_subset = np.ascontiguousarray(steps_arr[non_center_mask].astype(np.int8, copy=False))
+        else:
+            return None
+        core_module = self._ensure_core()
+        spatial = core_module.spatial_affinity(affinity, coords, mask_int.shape)
+        spatial_subset = np.ascontiguousarray(spatial.astype(np.uint8, copy=False))
+        return step_subset, spatial_subset
+
+    def _affinity_from_flows(self, flows: list[np.ndarray] | None, mask: np.ndarray) -> Optional[tuple[np.ndarray, np.ndarray]]:
+        if not flows or len(flows) <= 6:
+            return None
+        affinity = flows[6]
+        if affinity is None:
+            return None
+        return self._normalize_affinity_graph(affinity, mask)
+
+    def _affinity_from_augmented(self, augmented_affinity: Any, mask: np.ndarray) -> Optional[tuple[np.ndarray, np.ndarray]]:
+        if augmented_affinity is None:
+            return None
+        try:
+            arr = np.asarray(augmented_affinity)
+        except Exception:
+            return None
+        if arr.size == 0 or arr.ndim < 3:
+            return None
+        affinity = arr[-1]
+        return self._normalize_affinity_graph(affinity, mask)
+
 
     def _compute_affinity_graph(self, mask: np.ndarray) -> Optional[tuple[np.ndarray, np.ndarray]]:
         mask_int = np.asarray(mask, dtype=np.int32)
@@ -935,6 +1029,7 @@ class Segmenter:
             "last_flow_threshold": parsed["flow_threshold"],
             "last_options": dict(merged_options),
             "mask": None,
+            "points_payload": None,
             "rescale": merged_options.get("rescale"),
         }
         flow_overlay, dist_overlay = self._generate_overlays(flows)
@@ -1046,6 +1141,65 @@ class Segmenter:
             lut = cmap(np.linspace(0, 1, cmap.N))[:, :4]
             self._magma_lut = lut
         return self._magma_lut
+
+    def _prepare_points_payload(self, mask: np.ndarray, points: np.ndarray) -> tuple[str, int, int, int]:
+        mask_arr = np.asarray(mask)
+        if mask_arr.ndim != 2:
+            mask_arr = np.squeeze(mask_arr)
+        if mask_arr.ndim != 2:
+            raise ValueError("invalid mask shape for points")
+        pts = np.asarray(points)
+        if pts.ndim == 4 and pts.shape[0] == 1:
+            pts = pts[0]
+        if pts.ndim == 3:
+            if pts.shape[0] >= 2 and pts.shape[0] < pts.shape[-1]:
+                py = pts[0]
+                px = pts[1]
+            elif pts.shape[-1] >= 2:
+                py = pts[..., 0]
+                px = pts[..., 1]
+            else:
+                raise ValueError("invalid points array")
+        else:
+            raise ValueError("invalid points array")
+        h, w = mask_arr.shape
+        if py.shape != (h, w):
+            py = py[:h, :w]
+            px = px[:h, :w]
+        ys, xs = np.nonzero(mask_arr > 0)
+        if ys.size == 0:
+            return "", w, h, 0
+        yf = np.clip(py[ys, xs], 0, h - 1).astype(np.float32)
+        xf = np.clip(px[ys, xs], 0, w - 1).astype(np.float32)
+        coords = np.empty((ys.size * 2,), dtype=np.float32)
+        coords[0::2] = yf
+        coords[1::2] = xf
+        encoded = base64.b64encode(coords.tobytes()).decode("ascii")
+        return encoded, w, h, ys.size
+
+    def get_points_payload(self) -> Optional[dict[str, object]]:
+        cache = self._cache or {}
+        cached = cache.get("points_payload")
+        if isinstance(cached, dict):
+            return cached
+        mask = cache.get("mask")
+        points = cache.get("p")
+        if mask is None or points is None:
+            return None
+        try:
+            encoded, width, height, count = self._prepare_points_payload(mask, points)
+        except Exception:
+            return None
+        payload = {
+            "encoded": encoded,
+            "width": int(width),
+            "height": int(height),
+            "count": int(count),
+            "dtype": "float32",
+        }
+        cache["points_payload"] = payload
+        self._cache = cache
+        return payload
 
     def clear_cache(self) -> None:
         with self._eval_lock:
@@ -1218,6 +1372,7 @@ def run_segmentation(
         except Exception:
             pass
     affinity_graph = _SEGMENTER.get_affinity_graph_payload()
+    points_payload = _SEGMENTER.get_points_payload()
     return {
         "mask": encoded,
         "width": int(width),
@@ -1227,6 +1382,7 @@ def run_segmentation(
         "distanceOverlay": dist_overlay,
         "nColorMask": encoded_ncolor,
         "affinityGraph": affinity_graph,
+        "points": points_payload,
     }
 
 
@@ -1253,6 +1409,7 @@ def run_mask_update(
         except Exception:
             pass
     affinity_graph = _SEGMENTER.get_affinity_graph_payload()
+    points_payload = _SEGMENTER.get_points_payload()
     return {
         "mask": encoded,
         "width": int(width),
@@ -1262,6 +1419,7 @@ def run_mask_update(
         "distanceOverlay": dist_overlay,
         "nColorMask": encoded_ncolor,
         "affinityGraph": affinity_graph,
+        "points": points_payload,
     }
 
 
@@ -1973,6 +2131,84 @@ def create_app() -> "FastAPI":
         except Exception as exc:  # pragma: no cover
             return JSONResponse({"error": str(exc)}, status_code=500)
 
+    
+    
+    def _choose_path_osascript(kind: str) -> str | None:
+        try:
+            import subprocess
+        except Exception:
+            return None
+        if kind == "file":
+            script = 'POSIX path of (choose file with prompt "Select image")'
+        else:
+            script = 'POSIX path of (choose folder with prompt "Select image folder")'
+        result = subprocess.run([
+            "osascript",
+            "-e",
+            script,
+        ], capture_output=True, text=True)
+        if result.returncode != 0:
+            return None
+        path_value = (result.stdout or "").strip()
+        return path_value or None
+
+    @app.post("/api/select_image_file", response_class=JSONResponse)
+    async def api_select_image_file(payload: dict | None = None) -> JSONResponse:
+        payload = payload or {}
+        session_id = payload.get("sessionId")
+        if not isinstance(session_id, str):
+            return JSONResponse({"error": "sessionId required"}, status_code=400)
+        try:
+            state = SESSION_MANAGER.get(session_id)
+        except KeyError:
+            return JSONResponse({"error": "unknown session"}, status_code=404)
+        if sys.platform == "darwin":
+            file_path = _choose_path_osascript("file")
+            if not file_path:
+                return JSONResponse({"error": "cancelled"}, status_code=400)
+        else:
+            try:
+                import tkinter as tk
+                from tkinter import filedialog
+            except Exception as exc:  # pragma: no cover
+                return JSONResponse({"error": f"tk_unavailable: {exc}"}, status_code=500)
+            root = None
+            try:
+                root = tk.Tk()
+                root.withdraw()
+                root.attributes('-topmost', True)
+                try:
+                    root.update()
+                except Exception:
+                    pass
+                file_path = filedialog.askopenfilename(
+                    title="Select image",
+                    filetypes=[
+                        ("Images", "*.tif *.tiff *.png *.jpg *.jpeg *.bmp"),
+                        ("All files", "*.*"),
+                    ],
+                    parent=root,
+                )
+            except Exception as exc:  # pragma: no cover
+                print(f"[select_image_file] dialog failed: {exc}")
+                return JSONResponse({"error": str(exc)}, status_code=500)
+            finally:
+                if root is not None:
+                    try:
+                        root.destroy()
+                    except Exception:
+                        pass
+        if not file_path:
+            return JSONResponse({"error": "cancelled"}, status_code=400)
+        try:
+            path_obj = Path(file_path).expanduser().resolve()
+            if not path_obj.exists() or not path_obj.is_file():
+                return JSONResponse({"error": "file_not_found"}, status_code=404)
+            SESSION_MANAGER.set_image(state, path_obj)
+            return JSONResponse({"ok": True})
+        except Exception as exc:  # pragma: no cover
+            return JSONResponse({"error": str(exc)}, status_code=500)
+
     @app.post("/api/select_image_folder", response_class=JSONResponse)
     async def api_select_image_folder(payload: dict | None = None) -> JSONResponse:
         payload = payload or {}
@@ -1983,19 +2219,35 @@ def create_app() -> "FastAPI":
             state = SESSION_MANAGER.get(session_id)
         except KeyError:
             return JSONResponse({"error": "unknown session"}, status_code=404)
-        try:
-            import tkinter as tk
-            from tkinter import filedialog
-        except Exception as exc:  # pragma: no cover
-            return JSONResponse({"error": f"tk_unavailable: {exc}"}, status_code=500)
-        try:
-            root = tk.Tk()
-            root.withdraw()
-            root.attributes('-topmost', True)
-            folder = filedialog.askdirectory()
-            root.destroy()
-        except Exception as exc:  # pragma: no cover
-            return JSONResponse({"error": str(exc)}, status_code=500)
+        if sys.platform == "darwin":
+            folder = _choose_path_osascript("folder")
+            if not folder:
+                return JSONResponse({"error": "cancelled"}, status_code=400)
+        else:
+            try:
+                import tkinter as tk
+                from tkinter import filedialog
+            except Exception as exc:  # pragma: no cover
+                return JSONResponse({"error": f"tk_unavailable: {exc}"}, status_code=500)
+            root = None
+            try:
+                root = tk.Tk()
+                root.withdraw()
+                root.attributes('-topmost', True)
+                try:
+                    root.update()
+                except Exception:
+                    pass
+                folder = filedialog.askdirectory(parent=root)
+            except Exception as exc:  # pragma: no cover
+                print(f"[select_image_folder] dialog failed: {exc}")
+                return JSONResponse({"error": str(exc)}, status_code=500)
+            finally:
+                if root is not None:
+                    try:
+                        root.destroy()
+                    except Exception:
+                        pass
         if not folder:
             return JSONResponse({"error": "cancelled"}, status_code=400)
         try:

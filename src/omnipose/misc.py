@@ -835,7 +835,7 @@ def overseg_seeds(msk, bd, mu, T, ks=1.5,
     
     return peaks, image
 
-def turn_overseg(maski,bdi):
+def turn_overseg(maski,bdi):  # pragma: no cover
     """
     This function works by detecting turns in boundary labels. First, the boundary
     is parametrized. Then, changes in boundary label are detected. For ND compatibility,

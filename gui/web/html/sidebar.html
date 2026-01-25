@@ -1,6 +1,6 @@
 <!-- Extracted from index.html lines 80-202 -->
 
-      <div id="sidebar" class="side-panel">
+      <div id="sidebar" class="side-panel side-panel--right">
                         <div class="panel-section" id="intensityPanel">
           <div class="panel-header panel-header--image">
             <div class="control-heading" title="lookup table">Image</div>
@@ -60,10 +60,10 @@
             <span class="control-heading control-heading--lower">niter</span>
             <div class="slider-row">
               <div class="slider" data-slider-id="niter" data-slider-type="single">
-                <input type="range" id="niterSlider" min="0" max="400" step="1" value="0" />
+                <input type="range" id="niterSlider" min="-1" max="400" step="1" value="-1" />
               </div>
               <div class="number-field" data-number-id="niterInput">
-                <input type="number" id="niterInput" min="0" max="400" step="1" value="0" />
+                <input type="text" id="niterInput" min="-1" max="400" step="1" value="auto" />
               </div>
             </div>
           </div>
@@ -85,7 +85,7 @@
                 <input type="range" id="flowThresholdSlider" min="0" max="5" step="0.1" value="0" />
               </div>
               <div class="number-field" data-number-id="flowThresholdInput">
-                <input type="number" id="flowThresholdInput" min="0" max="5" step="0.1" value="0.0" />
+                <input type="text" id="flowThresholdInput" min="0" max="5" step="0.1" value="0.0" />
               </div>
             </div>
           </div>          <div class="control">
@@ -124,6 +124,16 @@
               <input type="checkbox" id="affinityGraphToggle" />
               <span class="toggle-switch"></span>
               <span class="toggle-label">Affinity Graph</span>
+            </label>
+            <label class="toggle">
+              <input type="checkbox" id="pointsOverlayToggle" disabled />
+              <span class="toggle-switch"></span>
+              <span class="toggle-label">Final Points</span>
+            </label>
+            <label class="toggle" id="vectorOverlayRow">
+              <input type="checkbox" id="vectorOverlayToggle" disabled />
+              <span class="toggle-switch"></span>
+              <span class="toggle-label">Displacement Vectors</span>
             </label>
           </div>
           <div class="control-heading">Network Output Display</div>

@@ -42,6 +42,8 @@ const directoryEntries = Array.isArray(CONFIG.directoryEntries) ? CONFIG.directo
 const directoryIndex = typeof CONFIG.directoryIndex === 'number' ? CONFIG.directoryIndex : null;
 const directoryPath = CONFIG.directoryPath || null;
 const savedViewerState = CONFIG.savedViewerState || loadLocalViewerState();
+let hasPendingSavedNiter = false;
+let pendingSavedNiter = null;
 const hasPrevImage = Boolean(CONFIG.hasPrev);
 const hasNextImage = Boolean(CONFIG.hasNext);
 let defaultPalette = [];
@@ -424,9 +426,12 @@ let distanceOverlayImage = null;
 let distanceOverlaySource = null;
 let pointsOverlayInfo = null;
 let pointsOverlayData = null;
+let vectorOverlayInfo = null;
+let vectorOverlayData = null;
 let showFlowOverlay = false;
 let showDistanceOverlay = false;
 let showPointsOverlay = false;
+let showVectorOverlay = false;
 function stateDebugEnabled() {
   if (DEBUG_STATE_SAVE) {
     return true;
@@ -490,6 +495,9 @@ const FXAA_EDGE_THRESHOLD = CONFIG.webglOverlayFxaaEdgeThreshold ?? 0.125;
 const FXAA_EDGE_THRESHOLD_MIN = CONFIG.webglOverlayFxaaEdgeThresholdMin ?? 1 / 12;
 const OVERLAY_PIXEL_FADE_CUTOFF = Math.max(0.0001, typeof CONFIG.webglOverlayPixelFadeCutoff === 'number' ? CONFIG.webglOverlayPixelFadeCutoff : 10);
 const POINTS_OVERLAY_ALPHA = 0.35;
+const VECTOR_OVERLAY_ALPHA = 0.35;
+const VECTOR_ARROW_LENGTH = 4;
+const VECTOR_ARROW_WIDTH = 2;
 const OVERLAY_GENERATE_MIPS = CONFIG.webglOverlayGenerateMips ?? false;
 const OVERLAY_CONTEXT_ATTRIBUTES = {
   antialias: true,
@@ -741,12 +749,14 @@ async function selectImageFolder() {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ sessionId }),
     });
-    if (!response.ok) {
+    const result = await response.json().catch(async () => {
       const message = await response.text().catch(() => 'unknown');
-      console.warn('select_image_folder failed', response.status, message);
+      return { error: message || 'unknown' };
+    });
+    if (!response.ok) {
+      console.warn('select_image_folder failed', response.status, result);
       return;
     }
-    const result = await response.json().catch(() => ({}));
     if (result && result.ok) {
       window.location.reload();
     } else if (result && result.error) {
@@ -754,6 +764,32 @@ async function selectImageFolder() {
     }
   } catch (err) {
     console.warn('select_image_folder request failed', err);
+  }
+}
+
+async function selectImageFile() {
+  await saveViewerState({ immediate: true, seq: stateDirtySeq }).catch(() => {});
+  try {
+    const response = await fetch('/api/select_image_file', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ sessionId }),
+    });
+    const result = await response.json().catch(async () => {
+      const message = await response.text().catch(() => 'unknown');
+      return { error: message || 'unknown' };
+    });
+    if (!response.ok) {
+      console.warn('select_image_file failed', response.status, result);
+      return;
+    }
+    if (result && result.ok) {
+      window.location.reload();
+    } else if (result && result.error) {
+      console.warn('select_image_file error', result.error);
+    }
+  } catch (err) {
+    console.warn('select_image_file request failed', err);
   }
 }
 
@@ -1696,6 +1732,10 @@ function drawWebglFrame() {
   if (!overlayHandled) {
     drawAffinityLines(matrix);
   }
+  if (vectorOverlay && vectorOverlay.enabled) {
+    const matrix = computeWebglMatrix((webglOverlay && webglOverlay.matrixCache) || new Float32Array(9), canvas.width, canvas.height);
+    drawVectorOverlay(matrix);
+  }
   if (pointsOverlay && pointsOverlay.enabled) {
     const matrix = computeWebglMatrix((webglOverlay && webglOverlay.matrixCache) || new Float32Array(9), canvas.width, canvas.height);
     drawPointsOverlay(matrix);
@@ -1705,6 +1745,18 @@ function drawWebglFrame() {
 
 function shouldApplyOverlayZoomFade() {
   return !affinitySegEnabled;
+}
+
+
+function updateVectorOverlayVisibility() {
+  if (!vectorOverlay || !vectorOverlay.enabled) {
+    return;
+  }
+  const show = affinitySegEnabled && showVectorOverlay && vectorOverlay.vertexCount > 0;
+  if (vectorOverlay.canvas) {
+    vectorOverlay.canvas.style.display = show ? 'block' : 'none';
+    vectorOverlay.canvas.style.opacity = show ? '1' : '0';
+  }
 }
 
 function updateOverlayVisibility() {
@@ -1717,6 +1769,7 @@ function updateOverlayVisibility() {
     ? (Number.isFinite(webglOverlay.displayAlpha) ? webglOverlay.displayAlpha : 1)
     : 0;
   setOverlayCanvasVisibility(visible, alpha);
+  updateVectorOverlayVisibility();
 }
 
 function drawAffinityGraphShared(matrix) {
@@ -1839,6 +1892,7 @@ function drawAffinityGraphShared(matrix) {
 let affinityOppositeSteps = [];
 let webglOverlay = null;
 let pointsOverlay = null;
+let vectorOverlay = null;
 
 function getOverlayCanvasElement() {
   if (!webglOverlay || !webglOverlay.enabled) {
@@ -2120,6 +2174,10 @@ function registerSlider(root) {
     activeThumb: null,
   };
 
+  if (!entry.root.hasAttribute('tabindex')) {
+    entry.root.tabIndex = 0;
+  }
+
   const apply = () => {
     if (entry.type === 'dual') {
       const minInput = entry.inputs[0];
@@ -2153,6 +2211,27 @@ function registerSlider(root) {
       entry.track.style.setProperty('--slider-track-radius', `${trackRadius}px`);
       entry.thumbs[0].style.left = `${trackRadius + fillPx}px`;
     }
+  };
+
+  const stepInputValue = (input, direction) => {
+    if (!input) {
+      return;
+    }
+    const min = Number(input.min || 0);
+    const max = Number(input.max || 1);
+    let step = Number(input.step || '1');
+    if (!Number.isFinite(step) || step <= 0) {
+      step = 1;
+    }
+    const precision = (step.toString().split('.')[1] || '').length;
+    const factor = 10 ** precision;
+    const current = Number(input.value || min);
+    let next = current + direction * step;
+    next = clamp(next, min, max);
+    next = Math.round(next * factor) / factor;
+    input.value = String(next);
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+    apply();
   };
 
   const setValueFromPercent = (index, percent) => {
@@ -2203,6 +2282,9 @@ function registerSlider(root) {
     entry.activeThumb = thumbIndex;
     entry.root.setPointerCapture(entry.activePointer);
     entry.root.dataset.active = 'true';
+    if (entry.root.focus) {
+      entry.root.focus({ preventScroll: true });
+    }
     const targetInput = entry.inputs[thumbIndex];
     if (targetInput) {
       targetInput.focus();
@@ -2217,6 +2299,42 @@ function registerSlider(root) {
     const percent = pointerPercent(evt, entry.root);
     setValueFromPercent(entry.activeThumb ?? 0, percent);
   };
+
+  entry.root.addEventListener('keydown', (evt) => {
+    if (evt.key === 'ArrowLeft' || evt.key === 'ArrowDown') {
+      evt.preventDefault();
+      const index = entry.type === 'dual' ? (entry.activeThumb ?? 0) : 0;
+      stepInputValue(entry.inputs[index], -1);
+      return;
+    }
+    if (evt.key === 'ArrowRight' || evt.key === 'ArrowUp') {
+      evt.preventDefault();
+      const index = entry.type === 'dual' ? (entry.activeThumb ?? 0) : 0;
+      stepInputValue(entry.inputs[index], 1);
+      return;
+    }
+    if (evt.key === 'Home') {
+      evt.preventDefault();
+      const index = entry.type === 'dual' ? (entry.activeThumb ?? 0) : 0;
+      const input = entry.inputs[index];
+      if (input) {
+        input.value = String(input.min || 0);
+        input.dispatchEvent(new Event('input', { bubbles: true }));
+        apply();
+      }
+      return;
+    }
+    if (evt.key === 'End') {
+      evt.preventDefault();
+      const index = entry.type === 'dual' ? (entry.activeThumb ?? 0) : 0;
+      const input = entry.inputs[index];
+      if (input) {
+        input.value = String(input.max || 1);
+        input.dispatchEvent(new Event('input', { bubbles: true }));
+        apply();
+      }
+    }
+  });
 
   const onPointerRelease = (evt) => {
     if (entry.activePointer === null || evt.pointerId !== entry.activePointer) {
@@ -2918,6 +3036,13 @@ const segmentationModelSelect = document.getElementById('segmentationModel');
 const segmentationModelFile = document.getElementById('segmentationModelFile');
 const niterSlider = document.getElementById('niterSlider');
 const niterInput = document.getElementById('niterInput');
+if (niterSlider) {
+  niterSlider.min = '-1';
+}
+if (niterInput) {
+  niterInput.min = '-1';
+}
+
 const hoverInfo = document.getElementById('hoverInfo');
 const fpsDisplay = document.getElementById('fpsDisplay');
 const hoverValueDisplay = document.getElementById('hoverValueDisplay');
@@ -2938,6 +3063,8 @@ const affinityGraphToggle = document.getElementById('affinityGraphToggle');
 const flowOverlayToggle = document.getElementById('flowOverlayToggle');
 const distanceOverlayToggle = document.getElementById('distanceOverlayToggle');
 const pointsOverlayToggle = document.getElementById('pointsOverlayToggle');
+const vectorOverlayToggle = document.getElementById('vectorOverlayToggle');
+const vectorOverlayRow = document.getElementById('vectorOverlayRow');
 const imageVisibilityToggle = document.getElementById('imageVisibilityToggle');
 const maskVisibilityToggle = document.getElementById('maskVisibilityToggle');
 const intensityPanel = document.getElementById('intensityPanel');
@@ -2984,9 +3111,9 @@ if (savedViewerState) {
     gammaSlider.value = String(Math.min(600, Math.max(10, sliderValue)));
     updateNativeRangeFill(gammaSlider);
   }
-  if (niterSlider && typeof savedViewerState.niter === 'number') {
-    niterSlider.value = String(savedViewerState.niter | 0);
-    updateNativeRangeFill(niterSlider);
+  if ('niter' in savedViewerState) {
+    hasPendingSavedNiter = true;
+    pendingSavedNiter = savedViewerState.niter;
   }
 }
 
@@ -3062,6 +3189,11 @@ function setupImageNavigator() {
     opt.value = '';
     opt.textContent = currentImageName || 'Select';
     imageNavigator.appendChild(opt);
+    const openFileOption = document.createElement('option');
+    openFileOption.value = '__open_file__';
+    openFileOption.textContent = 'Open image file...';
+    openFileOption.title = 'Open image file';
+    imageNavigator.appendChild(openFileOption);
     const openFolderOption = document.createElement('option');
     openFolderOption.value = '__open_folder__';
     openFolderOption.textContent = 'Open image folder...';
@@ -3082,6 +3214,16 @@ function setupImageNavigator() {
     }
     imageNavigator.appendChild(opt);
   });
+  const openFileOption = document.createElement('option');
+  openFileOption.value = '__open_file__';
+  openFileOption.textContent = 'Open image file...';
+  openFileOption.title = 'Open image file';
+  imageNavigator.appendChild(openFileOption);
+  const openFolderOption = document.createElement('option');
+  openFolderOption.value = '__open_folder__';
+  openFolderOption.textContent = 'Open image folder...';
+  openFolderOption.title = 'Open image folder';
+  imageNavigator.appendChild(openFolderOption);
   const dropdownEntry = dropdownRegistry.get('imageNavigator');
   if (dropdownEntry) {
     dropdownEntry.options = Array.from(imageNavigator.options).map((opt) => ({
@@ -3097,6 +3239,12 @@ function setupImageNavigator() {
   imageNavigator.addEventListener('change', async () => {
     const nextPath = imageNavigator.value;
     if (!nextPath || nextPath === currentImagePath) {
+      return;
+    }
+    if (nextPath === '__open_file__') {
+      await selectImageFile();
+      imageNavigator.value = currentImagePath || '';
+      refreshDropdown('imageNavigator');
       return;
     }
     if (nextPath === '__open_folder__') {
@@ -3168,13 +3316,16 @@ let histogramData = null;
 let windowLow = 0;
 let windowHigh = 255;
 let currentGamma = 1.0;
-const NITER_MIN = 0;
+const NITER_MIN = -1;
 const NITER_MAX = 400;
-let niter = clamp(
-  typeof CONFIG.niter === 'number' ? CONFIG.niter : 200,
-  NITER_MIN,
-  NITER_MAX,
-);
+let niter = typeof CONFIG.niter === 'number' ? clamp(CONFIG.niter, 0, NITER_MAX) : 0;
+let niterAuto = typeof CONFIG.niter !== 'number';
+if (hasPendingSavedNiter) {
+  setNiter(pendingSavedNiter, { silent: true });
+  hasPendingSavedNiter = false;
+  pendingSavedNiter = null;
+}
+
 let histDragTarget = null;
 let histDragOffset = 0;
 let cursorInsideCanvas = false;
@@ -4176,28 +4327,58 @@ function updateFlowThresholdLabel() {
 
 
 function syncNiterControls() {
+  const isAuto = Boolean(niterAuto);
   if (niterSlider) {
-    niterSlider.value = String(niter | 0);
+    if (niterSlider.min !== String(NITER_MIN)) {
+      niterSlider.min = '-1';
+    }
+    niterSlider.value = String(isAuto ? -1 : (niter | 0));
     updateNativeRangeFill(niterSlider);
     refreshSlider('niter');
   }
-  if (niterInput && document.activeElement !== niterInput) {
-    niterInput.value = String(niter | 0);
+  if (niterInput) {
+    if (niterInput.min !== String(NITER_MIN)) {
+      niterInput.min = '-1';
+    }
+    if (isAuto) {
+      niterInput.value = 'auto';
+    } else {
+      niterInput.value = String(niter | 0);
+    }
   }
 }
 
 function setNiter(value, { silent = false } = {}) {
+  if (value === null || value === undefined) {
+    niterAuto = true;
+    syncNiterControls();
+    if (!silent) {
+      scheduleMaskRebuild({ interactive: true });
+      scheduleStateSave();
+    }
+    return;
+  }
+  const raw = typeof value === 'string' ? value.trim().toLowerCase() : value;
+  if (raw === 'auto' || raw === 'none') {
+    niterAuto = true;
+    syncNiterControls();
+    if (!silent) {
+      scheduleMaskRebuild({ interactive: true });
+      scheduleStateSave();
+    }
+    return;
+  }
   const numeric = typeof value === 'number' ? value : parseInt(value, 10);
   if (Number.isNaN(numeric)) {
     syncNiterControls();
     return;
   }
-  const clamped = clamp(numeric, NITER_MIN, NITER_MAX);
-  if (niter === clamped && !silent) {
-    syncNiterControls();
-    return;
+  if (numeric <= NITER_MIN) {
+    niterAuto = true;
+  } else {
+    niterAuto = false;
+    niter = clamp(numeric, 0, NITER_MAX);
   }
-  niter = clamped;
   syncNiterControls();
   if (!silent) {
     scheduleMaskRebuild({ interactive: true });
@@ -4212,7 +4393,7 @@ function syncFlowThresholdControls() {
     refreshSlider('flowThreshold');
   }
   if (flowThresholdInput && document.activeElement !== flowThresholdInput) {
-    flowThresholdInput.value = flowThreshold.toFixed(1);
+    flowThresholdInput.value = flowThreshold <= 0 ? 'off' : flowThreshold.toFixed(1);
   }
   updateFlowThresholdLabel();
 }
@@ -4221,7 +4402,6 @@ function setFlowThreshold(value, { silent = false } = {}) {
   const numeric = typeof value === 'number' ? value : parseFloat(value);
   if (Number.isNaN(numeric)) {
     syncFlowThresholdControls();
-syncNiterControls();
     return;
   }
   const clamped = clamp(numeric, FLOW_THRESHOLD_MIN, FLOW_THRESHOLD_MAX);
@@ -4261,6 +4441,17 @@ function setAffinitySegEnabled(value, { silent = false } = {}) {
   if (affinityToggle) {
     affinityToggle.checked = affinitySegEnabled;
   }
+  if (vectorOverlayToggle) {
+    if (!affinitySegEnabled) {
+      showVectorOverlay = false;
+      vectorOverlayToggle.checked = false;
+    }
+    vectorOverlayToggle.disabled = !affinitySegEnabled || !vectorOverlayData;
+  }
+  if (vectorOverlayRow) {
+    vectorOverlayRow.style.display = affinitySegEnabled ? '' : 'none';
+  }
+  updateVectorOverlayVisibility();
   if (!silent) {
     scheduleMaskRebuild();
     scheduleStateSave();
@@ -4766,7 +4957,7 @@ function collectViewerState() {
     maskOpacity,
     maskThreshold,
     flowThreshold,
-    niter,
+    niter: niterAuto ? null : niter,
     segmentationModel,
     customSegmentationModelPath,
     viewState: {
@@ -4846,8 +5037,12 @@ function restoreViewerState(saved) {
       flowThreshold = saved.flowThreshold;
       syncFlowThresholdControls();
     }
-    if (typeof saved.niter === 'number') {
-      niter = clamp(saved.niter, NITER_MIN, NITER_MAX);
+    if (saved.niter === null) {
+      niterAuto = true;
+      syncNiterControls();
+    } else if (typeof saved.niter === 'number') {
+      niterAuto = false;
+      niter = clamp(saved.niter, 0, NITER_MAX);
       syncNiterControls();
     }
     if (typeof saved.segmentationModel === 'string') {
@@ -4904,6 +5099,14 @@ function restoreViewerState(saved) {
     if (typeof saved.showPointsOverlay === 'boolean') {
       showPointsOverlay = saved.showPointsOverlay;
       if (pointsOverlayToggle) pointsOverlayToggle.checked = showPointsOverlay;
+    }
+    if (typeof saved.showVectorOverlay === 'boolean') {
+      showVectorOverlay = saved.showVectorOverlay;
+      if (vectorOverlayToggle) vectorOverlayToggle.checked = showVectorOverlay;
+    }
+    if (!affinitySegEnabled) {
+      showVectorOverlay = false;
+      if (vectorOverlayToggle) vectorOverlayToggle.checked = false;
     }
     if (saved.pointsPayload) {
       applyPointsPayload(saved.pointsPayload);
@@ -5265,6 +5468,168 @@ void main() {
   return true;
 }
 
+
+
+function initializeVectorOverlay() {
+  if (vectorOverlay && vectorOverlay.enabled) {
+    return true;
+  }
+  if (!viewer || typeof WebGL2RenderingContext === 'undefined') {
+    vectorOverlay = { enabled: false, failed: true };
+    return false;
+  }
+  const canvasEl = document.createElement('canvas');
+  canvasEl.id = 'vectorsWebgl';
+  canvasEl.style.position = 'absolute';
+  canvasEl.style.inset = '0';
+  canvasEl.style.pointerEvents = 'none';
+  canvasEl.style.zIndex = '1.5';
+  canvasEl.style.display = 'none';
+  canvasEl.style.opacity = '0';
+  viewer.appendChild(canvasEl);
+  const gl = canvasEl.getContext('webgl2', OVERLAY_CONTEXT_ATTRIBUTES);
+  if (!gl) {
+    viewer.removeChild(canvasEl);
+    vectorOverlay = { enabled: false, failed: true };
+    return false;
+  }
+  if (!(gl instanceof WebGL2RenderingContext)) {
+    viewer.removeChild(canvasEl);
+    vectorOverlay = { enabled: false, failed: true };
+    return false;
+  }
+  gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
+  const vertexSource = `#version 300 es
+layout (location = 0) in vec2 a_position;
+layout (location = 1) in vec4 a_color;
+
+uniform mat3 u_matrix;
+out vec4 v_color;
+
+void main() {
+  vec3 pos = u_matrix * vec3(a_position, 1.0);
+  gl_Position = vec4(pos.xy, 0.0, 1.0);
+  v_color = a_color;
+}
+`;
+  const fragmentSource = `#version 300 es
+precision mediump float;
+
+in vec4 v_color;
+uniform float u_alpha;
+out vec4 outColor;
+
+void main() {
+  outColor = vec4(v_color.rgb, v_color.a * u_alpha);
+}
+`;
+  const program = createWebglProgram(gl, vertexSource, fragmentSource);
+  if (!program) {
+    viewer.removeChild(canvasEl);
+    vectorOverlay = { enabled: false, failed: true };
+    return false;
+  }
+  const attribs = {
+    position: gl.getAttribLocation(program, 'a_position'),
+    color: gl.getAttribLocation(program, 'a_color'),
+  };
+  const uniforms = {
+    matrix: gl.getUniformLocation(program, 'u_matrix'),
+    alpha: gl.getUniformLocation(program, 'u_alpha'),
+  };
+  const positionBuffer = gl.createBuffer();
+  const colorBuffer = gl.createBuffer();
+  vectorOverlay = {
+    enabled: true,
+    failed: false,
+    canvas: canvasEl,
+    gl,
+    program,
+    attribs,
+    uniforms,
+    positionBuffer,
+    colorBuffer,
+    vertexCount: 0,
+    width: 0,
+    height: 0,
+  };
+  updateVectorOverlayBuffers();
+  return true;
+}
+
+function resizeVectorOverlay() {
+  if (!vectorOverlay || !vectorOverlay.enabled || !vectorOverlay.canvas) {
+    return;
+  }
+  const v = getViewportSize();
+  const renderWidth = Math.max(1, v.width);
+  const canvasEl = vectorOverlay.canvas;
+  canvasEl.width = Math.max(1, Math.round(renderWidth * dpr));
+  canvasEl.height = Math.max(1, Math.round(v.height * dpr));
+  canvasEl.style.width = renderWidth + 'px';
+  canvasEl.style.height = v.height + 'px';
+}
+
+function drawVectorOverlay(matrix) {
+  if (!vectorOverlay || !vectorOverlay.enabled) {
+    return;
+  }
+  const showVectors = showVectorOverlay && affinitySegEnabled && vectorOverlay.vertexCount > 0;
+  if (!showVectors) {
+    if (vectorOverlay.canvas) {
+      vectorOverlay.canvas.style.display = 'none';
+      vectorOverlay.canvas.style.opacity = '0';
+    }
+    return;
+  }
+  const gl = vectorOverlay.gl;
+  const canvasEl = vectorOverlay.canvas;
+  if (!gl || !canvasEl) {
+    return;
+  }
+  canvasEl.style.display = 'block';
+  canvasEl.style.opacity = '1';
+  gl.viewport(0, 0, canvasEl.width, canvasEl.height);
+  gl.clearColor(0, 0, 0, 0);
+  gl.clear(gl.COLOR_BUFFER_BIT);
+  gl.useProgram(vectorOverlay.program);
+  gl.uniformMatrix3fv(vectorOverlay.uniforms.matrix, false, matrix);
+  if (vectorOverlay.uniforms.alpha) {
+    gl.uniform1f(vectorOverlay.uniforms.alpha, VECTOR_OVERLAY_ALPHA);
+  }
+  gl.bindBuffer(gl.ARRAY_BUFFER, vectorOverlay.positionBuffer);
+  gl.enableVertexAttribArray(vectorOverlay.attribs.position);
+  gl.vertexAttribPointer(vectorOverlay.attribs.position, 2, gl.FLOAT, false, 0, 0);
+  gl.bindBuffer(gl.ARRAY_BUFFER, vectorOverlay.colorBuffer);
+  gl.enableVertexAttribArray(vectorOverlay.attribs.color);
+  gl.vertexAttribPointer(vectorOverlay.attribs.color, 4, gl.UNSIGNED_BYTE, true, 0, 0);
+  gl.drawArrays(gl.LINES, 0, vectorOverlay.vertexCount);
+  gl.disableVertexAttribArray(vectorOverlay.attribs.position);
+  gl.disableVertexAttribArray(vectorOverlay.attribs.color);
+}
+
+function updateVectorOverlayBuffers() {
+  if (!vectorOverlay || !vectorOverlay.enabled) {
+    return;
+  }
+  const gl = vectorOverlay.gl;
+  if (!gl || !vectorOverlay.positionBuffer || !vectorOverlay.colorBuffer) {
+    return;
+  }
+  if (!vectorOverlay.positions || !vectorOverlay.colors || !vectorOverlay.vertexCount) {
+    vectorOverlay.vertexCount = 0;
+    gl.bindBuffer(gl.ARRAY_BUFFER, vectorOverlay.positionBuffer);
+    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(), gl.STATIC_DRAW);
+    gl.bindBuffer(gl.ARRAY_BUFFER, vectorOverlay.colorBuffer);
+    gl.bufferData(gl.ARRAY_BUFFER, new Uint8Array(), gl.STATIC_DRAW);
+    return;
+  }
+  gl.bindBuffer(gl.ARRAY_BUFFER, vectorOverlay.positionBuffer);
+  gl.bufferData(gl.ARRAY_BUFFER, vectorOverlay.positions, gl.STATIC_DRAW);
+  gl.bindBuffer(gl.ARRAY_BUFFER, vectorOverlay.colorBuffer);
+  gl.bufferData(gl.ARRAY_BUFFER, vectorOverlay.colors, gl.STATIC_DRAW);
+}
+
 function initializeWebglOverlay() {
   if (!viewer || typeof WebGL2RenderingContext === 'undefined') {
     webglOverlay = { enabled: false, failed: true };
@@ -5296,6 +5661,7 @@ function initializeWebglOverlay() {
   gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
   const success = initializeSharedOverlay(gl);
   initializePointsOverlay();
+  initializeVectorOverlay();
   if (!success) {
     viewer.removeChild(canvasEl);
     return false;
@@ -7660,6 +8026,7 @@ function resizeCanvas() {
   canvas.style.transform = '';
   resizeWebglOverlay();
   resizePointsOverlay();
+  resizeVectorOverlay();
   resizePreviewCanvas();
   if (!fitViewToWindow(v)) {
     recenterView(v);
@@ -8415,7 +8782,7 @@ function getSegmentationSettingsPayload() {
     flow_threshold: Number(flowThreshold.toFixed(2)),
     cluster: Boolean(clusterEnabled),
     affinity_seg: Boolean(affinitySegEnabled),
-    niter: niter | 0,
+    niter: niterAuto ? null : (niter | 0),
     model: segmentationModel,
     use_gpu: useGpuToggle ? Boolean(useGpuToggle.checked) : false,
   };
@@ -8879,15 +9246,102 @@ function updatePointsOverlayBuffers() {
   pointsOverlay.height = pointsOverlayData ? (pointsOverlayData.height | 0) : 0;
 }
 
+
+function buildVectorOverlayData(pointsPositions, count, width, height) {
+  if (!pointsPositions || !count || !maskValues || maskValues.length !== width * height) {
+    return null;
+  }
+  const startPositions = new Float32Array(count * 2);
+  let idx = 0;
+  for (let y = 0; y < height; y += 1) {
+    const rowOffset = y * width;
+    for (let x = 0; x < width; x += 1) {
+      if (maskValues[rowOffset + x] > 0) {
+        if (idx >= count) {
+          break;
+        }
+        startPositions[idx * 2] = x + 0.5;
+        startPositions[idx * 2 + 1] = y + 0.5;
+        idx += 1;
+      }
+    }
+    if (idx >= count) {
+      break;
+    }
+  }
+  const actual = Math.min(idx, count);
+  if (actual <= 0) {
+    return null;
+  }
+  const segmentsPer = 3; // main + 2 arrow wings
+  const vertexCount = actual * segmentsPer * 2;
+  const positions = new Float32Array(vertexCount * 2);
+  const colors = new Uint8Array(vertexCount * 4);
+  let v = 0;
+  const alpha = 200;
+  for (let i = 0; i < actual; i += 1) {
+    const sx = startPositions[i * 2];
+    const sy = startPositions[i * 2 + 1];
+    const ex = pointsPositions[i * 2];
+    const ey = pointsPositions[i * 2 + 1];
+    const dx = ex - sx;
+    const dy = ey - sy;
+    const len = Math.hypot(dx, dy) || 1;
+    const ux = dx / len;
+    const uy = dy / len;
+    const arrowLen = Math.min(VECTOR_ARROW_LENGTH, len * 0.5);
+    const arrowWidth = VECTOR_ARROW_WIDTH;
+    const baseX = ex - ux * arrowLen;
+    const baseY = ey - uy * arrowLen;
+    const px = -uy;
+    const py = ux;
+    const lx = baseX + px * arrowWidth;
+    const ly = baseY + py * arrowWidth;
+    const rx = baseX - px * arrowWidth;
+    const ry = baseY - py * arrowWidth;
+
+    // main line
+    positions[v] = sx; positions[v + 1] = sy; v += 2;
+    positions[v] = ex; positions[v + 1] = ey; v += 2;
+    // left wing
+    positions[v] = ex; positions[v + 1] = ey; v += 2;
+    positions[v] = lx; positions[v + 1] = ly; v += 2;
+    // right wing
+    positions[v] = ex; positions[v + 1] = ey; v += 2;
+    positions[v] = rx; positions[v + 1] = ry; v += 2;
+  }
+  for (let i = 0; i < vertexCount; i += 1) {
+    const o = i * 4;
+    colors[o] = 255;
+    colors[o + 1] = 255;
+    colors[o + 2] = 255;
+    colors[o + 3] = alpha;
+  }
+  return {
+    positions,
+    colors,
+    vertexCount,
+    width,
+    height,
+  };
+}
+
 function applyPointsPayload(pointsPayload) {
   const gl = webglOverlay && webglOverlay.gl ? webglOverlay.gl : null;
   if (!pointsPayload || !pointsPayload.encoded || !pointsPayload.count) {
     pointsOverlayInfo = null;
     pointsOverlayData = null;
+    vectorOverlayInfo = null;
+    vectorOverlayData = null;
     if (pointsOverlay) {
       pointsOverlay.pointsCount = 0;
       pointsOverlay.pointsPositions = null;
       pointsOverlay.pointsColors = null;
+      if (vectorOverlay) {
+        vectorOverlay.vertexCount = 0;
+        vectorOverlay.positions = null;
+        vectorOverlay.colors = null;
+      }
       if (pointsOverlay.gl && pointsOverlay.positionBuffer) {
         pointsOverlay.gl.bindBuffer(pointsOverlay.gl.ARRAY_BUFFER, pointsOverlay.positionBuffer);
         pointsOverlay.gl.bufferData(pointsOverlay.gl.ARRAY_BUFFER, new Float32Array(), pointsOverlay.gl.STATIC_DRAW);
@@ -8913,6 +9367,13 @@ function applyPointsPayload(pointsPayload) {
     if (pointsOverlayToggle) {
       pointsOverlayToggle.checked = false;
       pointsOverlayToggle.disabled = true;
+    }
+    if (vectorOverlayToggle) {
+      vectorOverlayToggle.checked = false;
+      vectorOverlayToggle.disabled = true;
+    }
+    if (vectorOverlayRow) {
+      vectorOverlayRow.style.display = 'none';
     }
     updateOverlayVisibility();
     return;
@@ -8947,6 +9408,14 @@ function applyPointsPayload(pointsPayload) {
   if (webglOverlay) { webglOverlay.pointsCount = count; }
   if (webglOverlay) { webglOverlay.pointsPositions = positions; }
   if (webglOverlay) { webglOverlay.pointsColors = colors; }
+
+  const vectorData = buildVectorOverlayData(positions, count, pointsPayload.width, pointsPayload.height);
+  vectorOverlayData = vectorData;
+  if (vectorOverlay) {
+    vectorOverlay.positions = vectorData ? vectorData.positions : null;
+    vectorOverlay.colors = vectorData ? vectorData.colors : null;
+    vectorOverlay.vertexCount = vectorData ? vectorData.vertexCount : 0;
+  }
   if (gl && webglOverlay && webglOverlay.pointsPositionBuffer) {
     gl.bindBuffer(gl.ARRAY_BUFFER, webglOverlay.pointsPositionBuffer);
     gl.bufferData(gl.ARRAY_BUFFER, positions, gl.DYNAMIC_DRAW);
@@ -8958,7 +9427,15 @@ function applyPointsPayload(pointsPayload) {
   if (pointsOverlayToggle) {
     pointsOverlayToggle.disabled = false;
   }
+  if (vectorOverlayToggle) {
+    vectorOverlayToggle.disabled = !affinitySegEnabled;
+  }
+  if (vectorOverlayRow) {
+    vectorOverlayRow.style.display = affinitySegEnabled ? '' : 'none';
+  }
   updatePointsOverlayBuffers();
+  updateVectorOverlayBuffers();
+  updateVectorOverlayVisibility();
   updateOverlayVisibility();
 }
 
@@ -10081,12 +10558,21 @@ if (flowThresholdInput) {
   });
 }
 if (niterSlider) {
-  niterSlider.addEventListener('input', (evt) => {
-    setNiter(evt.target.value);
-  });
-  niterSlider.addEventListener('change', (evt) => {
-    setNiter(evt.target.value);
-  });
+  const handleNiterSlider = (evt) => {
+    const target = evt.target;
+    if (target.min !== String(NITER_MIN)) {
+      target.min = String(NITER_MIN);
+    }
+    const minVal = Number(target.min);
+    const value = Number(target.value);
+    if (Number.isFinite(minVal) && value <= minVal) {
+      setNiter('auto');
+      return;
+    }
+    setNiter(target.value);
+  };
+  niterSlider.addEventListener('input', handleNiterSlider);
+  niterSlider.addEventListener('change', handleNiterSlider);
 }
 if (niterInput) {
   niterInput.addEventListener('input', (evt) => {
@@ -10099,7 +10585,9 @@ if (niterInput) {
     setNiter(evt.target.value);
   });
   attachNumberInputStepper(niterInput, (delta) => {
-    setNiter(niter + delta);
+    const raw = String(niterInput.value || '').trim().toLowerCase();
+    const base = raw === 'auto' ? 0 : niter;
+    setNiter(base + delta);
   });
 }
 if (clusterToggle) {
@@ -10174,6 +10662,20 @@ if (pointsOverlayToggle) {
     }
     showPointsOverlay = evt.target.checked;
     updateOverlayVisibility();
+    draw();
+    scheduleStateSave();
+  });
+}
+if (vectorOverlayToggle) {
+  vectorOverlayToggle.addEventListener('change', (evt) => {
+    if (!vectorOverlayData || !vectorOverlayData.vertexCount || !affinitySegEnabled) {
+      vectorOverlayToggle.checked = false;
+      showVectorOverlay = false;
+      updateVectorOverlayVisibility();
+      return;
+    }
+    showVectorOverlay = evt.target.checked;
+    updateVectorOverlayVisibility();
     draw();
     scheduleStateSave();
   });
@@ -10440,6 +10942,7 @@ if (maskOpacityInput) {
 }
 syncMaskThresholdControls();
 syncFlowThresholdControls();
+syncNiterControls();
 setClusterEnabled(clusterEnabled, { silent: true });
 setAffinitySegEnabled(affinitySegEnabled, { silent: true });
 if (maskVisibilityToggle) {

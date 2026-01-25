@@ -40,7 +40,7 @@ flows and outlines, run:
 .. code-block:: 
 
     omnipose --dir <img_dir> --use_gpu --pretrained_model bact_phase_omni \ 
-             --save_flows  --save_outlines --save_tif --in_folders 
+             --save_flows  --save_tif --in_folders 
 
 
 Rescaling for the ``*bact*`` models is disabled by default, but setting
@@ -58,13 +58,13 @@ There are some optional settings you should consider:
 
 .. code-block:: 
 
-    --dir_above --in_folders --save_tifs --save_flows --save_outlines --save_ncolor --no_npy 
+    --dir_above --in_folders --save_tifs --save_flows --save_ncolor --no_npy 
 
 
 The ``--no_npy`` command just gets rid of the ``.npy`` output that many
 users do not need. ``--save_tifs``, as an alternative to
 ``--save_pngs``, does not save the four-panel plot output (that can take
-up a lot of space). Personally, I prefer to use ``--save_outlines`` when
+up a lot of space).
 I want a whole folder of easy-to-visualize segmentation results and
 ``--save_flows`` when I want to debug them. These are also nice to have
 for making GIFs of cell growth, for example. ``--save_ncolor`` is handy

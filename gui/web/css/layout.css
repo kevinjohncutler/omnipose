@@ -86,14 +86,43 @@ body {
   padding: 20px;
   gap: 14px;
   z-index: 4;
-  background: var(--control-surface);
+  background: transparent;
   color: var(--panel-text-color);
-  backdrop-filter: blur(var(--control-blur));
-  -webkit-backdrop-filter: blur(var(--control-blur));
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
   overflow-y: auto;
   overflow-x: hidden;
   overscroll-behavior: contain;
   touch-action: manipulation;
+}
+
+.side-panel::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 0;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  background: transparent;
+  opacity: 0;
+  mask-repeat: no-repeat;
+  -webkit-mask-repeat: no-repeat;
+}
+
+.side-panel > * {
+  position: relative;
+  z-index: 1;
+}
+
+.side-panel--left::before {
+  mask-image: linear-gradient(to right, rgba(0, 0, 0, 1), rgba(0, 0, 0, 0));
+  -webkit-mask-image: linear-gradient(to right, rgba(0, 0, 0, 1), rgba(0, 0, 0, 0));
+}
+
+.side-panel--right::before {
+  mask-image: linear-gradient(to left, rgba(0, 0, 0, 1), rgba(0, 0, 0, 0));
+  -webkit-mask-image: linear-gradient(to left, rgba(0, 0, 0, 1), rgba(0, 0, 0, 0));
 }
 
 .sr-only {
@@ -112,14 +141,14 @@ body {
   /* Only layout-specific overrides belong here (width/edge positioning). */
   left: 0;
   width: var(--left-panel-width);
-  border-right: 1px solid var(--control-border);
+  border-right: none;
 }
 
 #sidebar {
   /* Mirror layout overrides for the right rail; visual style lives in .side-panel. */
   right: 0;
   width: var(--sidebar-width);
-  border-left: 1px solid var(--control-border);
+  border-left: none;
   z-index: 5;
 }
 
