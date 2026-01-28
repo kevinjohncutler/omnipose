@@ -213,6 +213,9 @@ function getSidebarWidthPx() {
 const leftPanelWidthRaw = rootStyle.getPropertyValue('--left-panel-width');
 const leftPanelWidthValue = Number.parseFloat(leftPanelWidthRaw || '');
 const leftPanelWidthDefault = Number.isFinite(leftPanelWidthValue) ? Math.max(0, leftPanelWidthValue) : 260;
+const rightPanelWidthRaw = rootStyle.getPropertyValue('--sidebar-width');
+const rightPanelWidthValue = Number.parseFloat(rightPanelWidthRaw || '');
+const rightPanelWidthDefault = Number.isFinite(rightPanelWidthValue) ? Math.max(0, rightPanelWidthValue) : 260;
 function getLeftPanelWidthPx() {
   const el = document.getElementById('leftPanel');
   if (!el) return leftPanelWidthDefault;
@@ -220,18 +223,27 @@ function getLeftPanelWidthPx() {
   const w = Math.max(0, Math.round(r.width));
   return Number.isFinite(w) && w > 0 ? w : leftPanelWidthDefault;
 }
+function getRightPanelWidthPx() {
+  const el = document.getElementById('sidebar');
+  if (!el) return rightPanelWidthDefault;
+  const r = el.getBoundingClientRect();
+  const w = Math.max(0, Math.round(r.width));
+  return Number.isFinite(w) && w > 0 ? w : rightPanelWidthDefault;
+}
 
 function getViewportSize() {
   // Use the true viewport size to avoid layout effects from scrolling sidebar
   const baseWidth = Math.max(1, Math.floor(window.innerWidth || document.documentElement.clientWidth || 1));
   const h = Math.max(1, Math.floor(window.innerHeight || document.documentElement.clientHeight || 1));
   const leftInset = getLeftPanelWidthPx();
-  const visibleWidth = Math.max(1, baseWidth - leftInset);
+  const rightInset = getRightPanelWidthPx();
+  const visibleWidth = Math.max(1, baseWidth - leftInset - rightInset);
   return {
     width: baseWidth,
     height: h,
     visibleWidth,
     leftInset,
+    rightInset,
   };
 }
 
@@ -432,6 +444,7 @@ let showFlowOverlay = false;
 let showDistanceOverlay = false;
 let showPointsOverlay = false;
 let showVectorOverlay = false;
+let vectorOverlayPreferred = false;
 function stateDebugEnabled() {
   if (DEBUG_STATE_SAVE) {
     return true;
@@ -2021,6 +2034,7 @@ let showAffinityGraph = true;
 let affinityGraphInfo = null;
 let affinityGraphNeedsLocalRebuild = false;
 let affinityGraphSource = 'none';
+let savedAffinityGraphPayload = null;
 let affinitySteps = DEFAULT_AFFINITY_STEPS.map((step) => step.slice());
 refreshOppositeStepMapping();
 let shuttingDown = false;
@@ -4442,11 +4456,8 @@ function setAffinitySegEnabled(value, { silent = false } = {}) {
     affinityToggle.checked = affinitySegEnabled;
   }
   if (vectorOverlayToggle) {
-    if (!affinitySegEnabled) {
-      showVectorOverlay = false;
-      vectorOverlayToggle.checked = false;
-    }
     vectorOverlayToggle.disabled = !affinitySegEnabled || !vectorOverlayData;
+    vectorOverlayToggle.checked = showVectorOverlay;
   }
   if (vectorOverlayRow) {
     vectorOverlayRow.style.display = affinitySegEnabled ? '' : 'none';
@@ -4651,12 +4662,12 @@ function performClearMasks({ recordHistory = true } = {}) {
   return true;
 }
 
-function promptClearMasks({ skipConfirm = false } = {}) {
+async function promptClearMasks({ skipConfirm = false } = {}) {
   if (!skipConfirm && !hasAnyMaskPixels() && !nColorActive) {
     return false;
   }
   if (!skipConfirm) {
-    const confirmed = window.confirm(CLEAR_MASK_CONFIRM_MESSAGE);
+    const confirmed = await showConfirmDialog(CLEAR_MASK_CONFIRM_MESSAGE, { confirmText: 'Clear', cancelText: 'Cancel' });
     if (!confirmed) {
       return false;
     }
@@ -4707,6 +4718,11 @@ function setSegMode(nextMode, { silent = false } = {}) {
     setAffinitySegEnabled(false, { silent: true });
   }
   updateSegModeControls();
+  if (segMode !== 'affinity') {
+    affinityGraphSource = 'local';
+    affinityGraphNeedsLocalRebuild = true;
+    rebuildLocalAffinityGraph();
+  }
   if (!silent) {
     scheduleMaskRebuild();
     scheduleStateSave();
@@ -4958,6 +4974,16 @@ function collectViewerState() {
     maskThreshold,
     flowThreshold,
     niter: niterAuto ? null : niter,
+    affinityGraph: (savedAffinityGraphPayload && savedAffinityGraphPayload.encoded)
+      ? savedAffinityGraphPayload
+      : ((affinityGraphInfo && affinityGraphInfo.values && affinityGraphInfo.values.length)
+        ? {
+          width: affinityGraphInfo.width,
+          height: affinityGraphInfo.height,
+          steps: affinitySteps.map((p) => [p[0] | 0, p[1] | 0]),
+          encoded: base64FromUint8(affinityGraphInfo.values),
+        }
+        : null),
     segmentationModel,
     customSegmentationModelPath,
     viewState: {
@@ -5100,13 +5126,17 @@ function restoreViewerState(saved) {
       showPointsOverlay = saved.showPointsOverlay;
       if (pointsOverlayToggle) pointsOverlayToggle.checked = showPointsOverlay;
     }
+    if (saved.affinityGraph && saved.affinityGraph.encoded) {
+      savedAffinityGraphPayload = saved.affinityGraph;
+    }
     if (typeof saved.showVectorOverlay === 'boolean') {
-      showVectorOverlay = saved.showVectorOverlay;
-      if (vectorOverlayToggle) vectorOverlayToggle.checked = showVectorOverlay;
+      vectorOverlayPreferred = saved.showVectorOverlay;
+      showVectorOverlay = affinitySegEnabled ? vectorOverlayPreferred : false;
+      if (vectorOverlayToggle) vectorOverlayToggle.checked = vectorOverlayPreferred;
     }
     if (!affinitySegEnabled) {
       showVectorOverlay = false;
-      if (vectorOverlayToggle) vectorOverlayToggle.checked = false;
+      if (vectorOverlayToggle) vectorOverlayToggle.checked = vectorOverlayPreferred;
     }
     if (saved.pointsPayload) {
       applyPointsPayload(saved.pointsPayload);
@@ -5162,6 +5192,7 @@ function restoreViewerState(saved) {
       segMode = saved.segMode;
     }
     setSegMode(segMode, { silent: true });
+    maybeApplySavedAffinityGraph();
     updateMaskStyleControls();
     updateToolInfo();
     updateBrushControls();
@@ -5183,7 +5214,12 @@ function restoreViewerState(saved) {
   } finally {
     isRestoringState = false;
   }
-  rebuildLocalAffinityGraph();
+  if (affinityGraphSource === 'remote' && affinityGraphInfo && affinityGraphInfo.values) {
+    buildAffinityGraphSegments();
+    rebuildOutlineFromAffinity();
+  } else {
+    rebuildLocalAffinityGraph();
+  }
   logDebugGridStatus('after-restore');
   if (webglOverlay && webglOverlay.enabled) {
     webglOverlay.needsGeometryRebuild = true;
@@ -6838,6 +6874,9 @@ function sampledHasNonZero(values) {
 }
 
 function scheduleAffinityRebuildIfStale(reason) {
+  if (affinityGraphSource === 'remote' && affinityGraphInfo && affinityGraphInfo.values) {
+    return;
+  }
   if (affinityRebuildScheduled) {
     return;
   }
@@ -6881,11 +6920,28 @@ function scheduleAffinityRebuildIfStale(reason) {
   });
 }
 
+function maybeApplySavedAffinityGraph() {
+  if (!affinitySegEnabled || !savedAffinityGraphPayload || !savedAffinityGraphPayload.encoded) {
+    return false;
+  }
+  applyAffinityGraphPayload(savedAffinityGraphPayload);
+  affinityGraphSource = 'remote';
+  affinityGraphNeedsLocalRebuild = false;
+  return true;
+}
+
 function applyAffinityGraphPayload(payload) {
   resetAffinityUpdateQueue();
-  // If the backend did not provide an affinity graph, rebuild locally from the current mask
-  // so that outlines and (optionally) the overlay remain consistent after parameter changes.
+  // If the backend did not provide an affinity graph, fall back to local only
   if (!payload || !payload.encoded || !payload.steps || !payload.steps.length) {
+    if (affinityGraphInfo && affinityGraphInfo.values) {
+      // Keep existing remote graph; just ensure overlays are rebuilt.
+      if (showAffinityGraph) {
+        buildAffinityGraphSegments();
+      }
+      rebuildOutlineFromAffinity();
+      return;
+    }
     // Reset to defaults and clear previous buffers
     clearAffinityGraphData();
     // Rebuild a local graph from maskValues to keep outlines up-to-date
@@ -7421,6 +7477,11 @@ function updateAffinityGraphForIndices(indices) {
     } else {
       redrawMaskCanvas();
     }
+  }
+  if (affinitySegEnabled) {
+    // Force affinity graph persistence to use the latest edited graph
+    savedAffinityGraphPayload = null;
+    scheduleStateSave();
   }
   if (showAffinityGraph && (!webglOverlay || !webglOverlay.enabled || !LIVE_AFFINITY_OVERLAY_UPDATES)) {
     markAffinityGeometryDirty();
@@ -8800,6 +8861,55 @@ function getSegmentationSettingsPayload() {
 
 
 let tooltipState = null;
+function showConfirmDialog(message, { confirmText = 'OK', cancelText = 'Cancel' } = {}) {
+  return new Promise((resolve) => {
+    const backdrop = document.createElement('div');
+    backdrop.className = 'omni-confirm-backdrop';
+    const dialog = document.createElement('div');
+    dialog.className = 'omni-confirm';
+    const msg = document.createElement('div');
+    msg.className = 'omni-confirm-message';
+    msg.textContent = message;
+    const actions = document.createElement('div');
+    actions.className = 'omni-confirm-actions';
+    const cancelBtn = document.createElement('button');
+    cancelBtn.type = 'button';
+    cancelBtn.className = 'omni-confirm-button';
+    cancelBtn.textContent = cancelText;
+    const okBtn = document.createElement('button');
+    okBtn.type = 'button';
+    okBtn.className = 'omni-confirm-button omni-confirm-primary';
+    okBtn.textContent = confirmText;
+    actions.appendChild(cancelBtn);
+    actions.appendChild(okBtn);
+    dialog.appendChild(msg);
+    dialog.appendChild(actions);
+    backdrop.appendChild(dialog);
+    document.body.appendChild(backdrop);
+    const cleanup = (result) => {
+      backdrop.remove();
+      document.removeEventListener('keydown', onKey);
+      resolve(result);
+    };
+    const onKey = (evt) => {
+      if (evt.key === 'Enter') {
+        evt.preventDefault();
+        cleanup(true);
+      } else if (evt.key === 'Escape') {
+        evt.preventDefault();
+        cleanup(false);
+      }
+    };
+    document.addEventListener('keydown', onKey);
+    cancelBtn.addEventListener('click', () => cleanup(false));
+    okBtn.addEventListener('click', () => cleanup(true));
+    backdrop.addEventListener('click', (evt) => {
+      if (evt.target === backdrop) cleanup(false);
+    });
+    setTimeout(() => okBtn.focus(), 0);
+  });
+}
+
 function initTooltips() {
   if (tooltipState) {
     return;
@@ -9508,8 +9618,35 @@ function applySegmentationMask(payload, options = {}) {
     redrawMaskCanvas();
   }
   updateOverlayImages(payload);
-  applyAffinityGraphPayload(payload.affinityGraph);
+  const hasRemoteAffinity = affinitySegEnabled
+    && payload.affinityGraph
+    && payload.affinityGraph.encoded;
+  if (affinitySegEnabled && !hasRemoteAffinity) {
+    console.warn('[affinity] missing affinityGraph in payload', {
+      hasAffinitySeg: affinitySegEnabled,
+      hasPayload: Boolean(payload.affinityGraph),
+      source: affinityGraphSource,
+    });
+  }
+  if (hasRemoteAffinity) {
+    savedAffinityGraphPayload = payload.affinityGraph;
+    applyAffinityGraphPayload(payload.affinityGraph);
+    if (affinityGraphSource === 'remote' && affinityGraphInfo && affinityGraphInfo.values) {
+      affinityGraphNeedsLocalRebuild = false;
+    }
+  } else if (!affinitySegEnabled) {
+    savedAffinityGraphPayload = null;
+    affinityGraphSource = 'local';
+    affinityGraphNeedsLocalRebuild = true;
+    rebuildLocalAffinityGraph();
+  } else if (!savedAffinityGraphPayload && (!affinityGraphInfo || !affinityGraphInfo.values)) {
+    // Cold-start fallback when affinity mode is on but no graph exists yet.
+    affinityGraphSource = 'local';
+    affinityGraphNeedsLocalRebuild = true;
+    rebuildLocalAffinityGraph();
+  }
   applyPointsPayload(payload.points);
+  scheduleStateSave();
   draw();
   // If a relabel was requested from a stroke, set currentLabel to the mode over the edited indices
   // If a relabel was requested from a stroke, set currentLabel to the mode over the edited indices
@@ -10037,9 +10174,59 @@ function stopInteraction(evt) {
   clearCursorOverride();
 }
 
+let contextMenuEl = null;
+let contextMenuBackdrop = null;
+
+function hideContextMenu() {
+  if (contextMenuEl) contextMenuEl.remove();
+  if (contextMenuBackdrop) contextMenuBackdrop.remove();
+  contextMenuEl = null;
+  contextMenuBackdrop = null;
+}
+
+function showContextMenu(x, y) {
+  hideContextMenu();
+  const backdrop = document.createElement('div');
+  backdrop.className = 'omni-context-backdrop';
+  backdrop.addEventListener('pointerdown', hideContextMenu);
+  const menu = document.createElement('div');
+  menu.className = 'omni-context-menu';
+  const item = document.createElement('button');
+  item.type = 'button';
+  item.className = 'omni-context-item';
+  item.textContent = 'Clear Cache & Reload';
+  item.addEventListener('click', () => {
+    hideContextMenu();
+    clearCacheAndReload();
+  });
+  menu.appendChild(item);
+  document.body.appendChild(backdrop);
+  document.body.appendChild(menu);
+  const rect = menu.getBoundingClientRect();
+  const left = Math.min(x, window.innerWidth - rect.width - 8);
+  const top = Math.min(y, window.innerHeight - rect.height - 8);
+  menu.style.left = `${Math.max(8, left)}px`;
+  menu.style.top = `${Math.max(8, top)}px`;
+  contextMenuEl = menu;
+  contextMenuBackdrop = backdrop;
+}
+
 function handleContextMenuEvent(evt) {
+  const target = evt && evt.target ? evt.target : null;
+  const isPanelContext = target && typeof target.closest === 'function'
+    ? Boolean(target.closest('#leftPanel') || target.closest('#sidebar'))
+    : false;
+  if (!isPanelContext) {
+    return;
+  }
   if (evt && typeof evt.preventDefault === 'function') {
     evt.preventDefault();
+  }
+  if (document.querySelector('.omni-confirm-backdrop')) {
+    return;
+  }
+  if (evt) {
+    showContextMenu(evt.clientX || 0, evt.clientY || 0);
   }
   if (activePointerId !== null) {
     try {
@@ -10118,9 +10305,23 @@ canvas.addEventListener('mouseleave', () => {
   updateHoverInfo(null);
   updateCursor();
 });
-canvas.addEventListener('contextmenu', handleContextMenuEvent);
+canvas.addEventListener('contextmenu', (evt) => {
+  if (evt && typeof evt.preventDefault === 'function') {
+    evt.preventDefault();
+  }
+});
 if (viewer) {
-  viewer.addEventListener('contextmenu', handleContextMenuEvent);
+  viewer.addEventListener('contextmenu', (evt) => {
+    if (evt && typeof evt.preventDefault === 'function') {
+      evt.preventDefault();
+    }
+  });
+}
+if (leftPanelEl) {
+  leftPanelEl.addEventListener('contextmenu', handleContextMenuEvent);
+}
+if (sidebarEl) {
+  sidebarEl.addEventListener('contextmenu', handleContextMenuEvent);
 }
 
 window.addEventListener('keydown', (evt) => {
@@ -10446,8 +10647,9 @@ if (segmentButton) {
   });
 }
 if (clearMasksButton) {
-  clearMasksButton.addEventListener('click', () => {
-    promptClearMasks();
+  clearMasksButton.addEventListener('click', (evt) => {
+    const skip = Boolean(evt && (evt.metaKey || evt.ctrlKey));
+    promptClearMasks({ skipConfirm: skip });
   });
 }
 if (clearCacheButton) {
@@ -10669,12 +10871,12 @@ if (pointsOverlayToggle) {
 if (vectorOverlayToggle) {
   vectorOverlayToggle.addEventListener('change', (evt) => {
     if (!vectorOverlayData || !vectorOverlayData.vertexCount || !affinitySegEnabled) {
-      vectorOverlayToggle.checked = false;
       showVectorOverlay = false;
       updateVectorOverlayVisibility();
       return;
     }
-    showVectorOverlay = evt.target.checked;
+    vectorOverlayPreferred = Boolean(evt.target.checked);
+    showVectorOverlay = vectorOverlayPreferred;
     updateVectorOverlayVisibility();
     draw();
     scheduleStateSave();
@@ -10727,9 +10929,9 @@ function updateSystemInfo(info) {
   }
   if (systemRamEl) {
     const used = formatBytes(info.ram_used);
-    const available = formatBytes(info.ram_available);
-    systemRamEl.textContent = used !== '--' && available !== '--'
-      ? `${used} / ${available}`
+    const total = formatBytes(info.ram_total);
+    systemRamEl.textContent = used !== '--' && total !== '--'
+      ? `${used} / ${total}`
       : '--';
   }
   if (systemCpuEl) {
@@ -11188,5 +11390,59 @@ if (typeof window !== 'undefined') {
     showAffinityGraph,
     lastLocalAffinityBuild: window.__OMNI_DEBUG__.lastLocalAffinityBuild || null,
   });
+  window.__OMNI_DEBUG__.setAffinitySentinel = (value = 255) => {
+    if (!affinityGraphInfo || !affinityGraphInfo.values || !affinityGraphInfo.values.length) {
+      console.warn('[affinity] no graph to mark');
+      return false;
+    }
+    affinityGraphInfo.values[0] = value & 0xff;
+    if (webglOverlay && webglOverlay.enabled) {
+      webglOverlay.needsGeometryRebuild = true;
+    }
+    scheduleStateSave();
+    return true;
+  };
+  window.__OMNI_DEBUG__.getAffinityPersistSnapshot = () => ({
+    source: affinityGraphSource,
+    needsLocal: affinityGraphNeedsLocalRebuild,
+    hasGraph: Boolean(affinityGraphInfo && affinityGraphInfo.values && affinityGraphInfo.values.length),
+    firstByte: affinityGraphInfo && affinityGraphInfo.values ? affinityGraphInfo.values[0] : null,
+    savedGraph: Boolean(savedViewerState && savedViewerState.affinityGraph && savedViewerState.affinityGraph.encoded),
+  });
 }
 // no incremental rebuild method; geometry rebuilds in ensureWebglGeometry
+
+async function clearCacheAndReload() {
+  const confirmed = await showConfirmDialog('Clear cached viewer state and reload?', { confirmText: 'Clear', cancelText: 'Cancel' });
+  if (!confirmed) {
+    return;
+  }
+  try {
+    if (typeof window !== 'undefined' && window.localStorage) {
+      const storageKeys = Object.keys(window.localStorage);
+      storageKeys
+        .filter((key) => key.startsWith('OMNI') || key.includes('omnipose'))
+        .forEach((key) => {
+          try {
+            window.localStorage.removeItem(key);
+          } catch (_) {
+            /* ignore */
+          }
+        });
+    }
+  } catch (_) {
+    // ignore storage access errors
+  }
+  try {
+    await fetch('/api/clear_state', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ sessionId }),
+    });
+  } catch (_) {
+    // ignore errors
+  }
+  window.location.reload();
+}
+
+// Clear cache button removed; now available via context menu

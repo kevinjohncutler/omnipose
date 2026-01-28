@@ -12,10 +12,12 @@
   color-scheme: dark;
   --panel-text-color: #f4f4f4;
   --control-surface: rgba(72, 72, 72, 0.55);
+  --panel-surface: rgba(72, 72, 72, 0.55);
   --control-input-surface: rgba(72, 72, 72, 0.18);
   --control-input-hover-surface: rgba(112, 112, 112, 0.42);
   --control-hover-surface: rgba(112, 112, 112, 0.7);
   --control-border: rgba(220, 220, 220, 0.14);
+  --panel-border: rgba(220, 220, 220, 0.14);
   --accent-hover: #f3c54a;
   --histogram-window-color: rgba(128, 128, 128, 0.12);
 }
@@ -27,10 +29,12 @@
     color-scheme: light;
     --panel-text-color: #1a1a1a;
     --control-surface: rgba(245, 245, 245, 0.88);
+    --panel-surface: rgba(245, 245, 245, 0.88);
     --control-input-surface: rgba(255, 255, 255, 0.54);
     --control-input-hover-surface: rgba(255, 255, 255, 0.76);
     --control-hover-surface: rgba(228, 228, 228, 0.96);
     --control-border: rgba(0, 0, 0, 0.16);
+    --panel-border: rgba(0, 0, 0, 0.16);
     --accent-hover: #c49500;
     --histogram-window-color: rgba(128, 128, 128, 0.1);
   }

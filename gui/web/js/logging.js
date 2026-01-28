@@ -34,22 +34,20 @@
     if (!state.pending.length) {
       return;
     }
+    const payload = { messages: state.pending.splice(0, state.pending.length) };
     if (state.pywebviewReady) {
       const api = global.pywebview && global.pywebview.api && global.pywebview.api.log
         ? global.pywebview.api
         : null;
-      if (!api || !api.log) {
-        return;
+      if (api && api.log) {
+        for (let i = 0; i < payload.messages.length; i += 1) {
+          api.log(payload.messages[i]);
+        }
       }
-      while (state.pending.length) {
-        api.log(state.pending.shift());
-      }
-      return;
     }
     if (typeof fetch !== 'function') {
       return;
     }
-    const payload = { messages: state.pending.splice(0, state.pending.length) };
     const body = JSON.stringify(payload);
     try {
       if (global.navigator && typeof global.navigator.sendBeacon === 'function') {
@@ -114,6 +112,19 @@
 
   function clearQueue() {
     state.pending.length = 0;
+  }
+
+  const originalWarn = console && console.warn ? console.warn.bind(console) : null;
+  const originalError = console && console.error ? console.error.bind(console) : null;
+  if (console) {
+    console.warn = (...args) => {
+      try { log('[warn] ' + args.map((a) => String(a)).join(' ')); } catch (_) {}
+      if (originalWarn) { originalWarn(...args); }
+    };
+    console.error = (...args) => {
+      try { log('[error] ' + args.map((a) => String(a)).join(' ')); } catch (_) {}
+      if (originalError) { originalError(...args); }
+    };
   }
 
   const api = {

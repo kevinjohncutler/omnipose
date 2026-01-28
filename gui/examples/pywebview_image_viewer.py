@@ -63,7 +63,21 @@ else:
     )
 
 
-WEB_DIR = (Path(__file__).resolve().parent.parent / "web").resolve()
+GUI_DIR = Path(__file__).resolve().parents[1]
+WEB_DIR = (GUI_DIR / "web").resolve()
+LOG_DIR = GUI_DIR / "logs"
+LOG_FILE = LOG_DIR / "omni_gui.log"
+
+def _append_gui_log(message: str) -> None:
+    try:
+        LOG_DIR.mkdir(parents=True, exist_ok=True)
+        from datetime import datetime
+        timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        with LOG_FILE.open("a", encoding="utf-8", errors="ignore") as handle:
+            handle.write(f"[{timestamp}] {message}\n")
+    except Exception:
+        pass
+
 INDEX_HTML = WEB_DIR / "index.html"
 APP_JS = WEB_DIR / "app.js"
 HTML_DIR = WEB_DIR / "html"
@@ -525,12 +539,8 @@ class Segmenter:
         cache["points_payload"] = None
         if parsed.get("affinity_seg"):
             affinity_data = self._affinity_from_flows(flows, mask_uint32)
-            if affinity_data is None:
-                affinity_data = self._compute_affinity_graph(mask_uint32)
             if affinity_data is not None:
                 cache["affinity_graph"] = affinity_data
-            else:
-                cache.pop("affinity_graph", None)
         else:
             cache.pop("affinity_graph", None)
         return mask_uint32
@@ -580,12 +590,8 @@ class Segmenter:
         if parsed["affinity_seg"]:
             cache["bounds"] = bounds
             affinity_data = self._affinity_from_augmented(augmented_affinity, mask_uint32)
-            if affinity_data is None:
-                affinity_data = self._compute_affinity_graph(mask_uint32)
             if affinity_data is not None:
                 cache["affinity_graph"] = affinity_data
-            else:
-                cache.pop("affinity_graph", None)
         else:
             cache.pop("bounds", None)
             cache.pop("affinity_graph", None)
@@ -725,16 +731,35 @@ class Segmenter:
     def _normalize_affinity_graph(self, affinity_graph: np.ndarray, mask: np.ndarray) -> Optional[tuple[np.ndarray, np.ndarray]]:
         mask_int = np.asarray(mask, dtype=np.int32)
         if mask_int.ndim != 2:
+            _append_gui_log('[affinity] mask ndim !=2')
             return None
         coords = np.nonzero(mask_int > 0)
         if coords[0].size == 0:
+            _append_gui_log('[affinity] no foreground coords')
             return None
         steps, inds, idx, fact, sign = self._get_kernel_info(mask_int.ndim)
         steps_arr = np.asarray(steps)
         center_index = int(idx)
         if center_index <= 0:
+            _append_gui_log('[affinity] center_index invalid')
             return None
         affinity = np.asarray(affinity_graph)
+        if affinity.ndim == 3 and affinity.shape[1:] == mask_int.shape:
+            # Already a spatial affinity graph (S, H, W).
+            affinity = (affinity > 0).astype(np.uint8, copy=False)
+            if affinity.shape[0] == steps_arr.shape[0]:
+                non_center_mask = np.ones(steps_arr.shape[0], dtype=bool)
+                non_center_mask[center_index] = False
+                step_subset = np.ascontiguousarray(steps_arr[non_center_mask].astype(np.int8, copy=False))
+                affinity = affinity[non_center_mask]
+            elif affinity.shape[0] == steps_arr.shape[0] - 1:
+                non_center_mask = np.ones(steps_arr.shape[0], dtype=bool)
+                non_center_mask[center_index] = False
+                step_subset = np.ascontiguousarray(steps_arr[non_center_mask].astype(np.int8, copy=False))
+            else:
+                return None
+            spatial_subset = np.ascontiguousarray(affinity.astype(np.uint8, copy=False))
+            return step_subset, spatial_subset
         if affinity.ndim > 2:
             affinity = np.squeeze(affinity)
         if affinity.ndim != 2:
@@ -761,35 +786,63 @@ class Segmenter:
 
     def _affinity_from_flows(self, flows: list[np.ndarray] | None, mask: np.ndarray) -> Optional[tuple[np.ndarray, np.ndarray]]:
         if not flows or len(flows) <= 6:
+            _append_gui_log('[affinity] flows missing or too short: ' + str(0 if flows is None else len(flows)))
             return None
         affinity = flows[6]
         if affinity is None:
+            _append_gui_log('[affinity] flows[6] is None')
             return None
+        try:
+            _append_gui_log('[affinity] flows[6] shape=' + str(getattr(affinity, 'shape', None)))
+        except Exception:
+            pass
+        try:
+            arr = np.asarray(affinity)
+        except Exception:
+            return None
+        if arr.ndim == 3:
+            dim = int(np.asarray(mask).ndim)
+            try:
+                if arr.shape[0] == dim + 1 and arr.shape[1] == 3 ** dim:
+                    _append_gui_log('[affinity] flows[6] appears augmented; using last plane')
+                    affinity = arr[-1]
+            except Exception:
+                pass
         return self._normalize_affinity_graph(affinity, mask)
 
     def _affinity_from_augmented(self, augmented_affinity: Any, mask: np.ndarray) -> Optional[tuple[np.ndarray, np.ndarray]]:
         if augmented_affinity is None:
+            _append_gui_log('[affinity] augmented affinity is None')
             return None
         try:
             arr = np.asarray(augmented_affinity)
         except Exception:
+            _append_gui_log('[affinity] augmented affinity not array')
             return None
         if arr.size == 0 or arr.ndim < 3:
+            _append_gui_log('[affinity] augmented affinity empty/ndim<' + str(getattr(arr, 'ndim', None)) + ')')
             return None
         affinity = arr[-1]
+        try:
+            _append_gui_log('[affinity] augmented[-1] shape=' + str(getattr(affinity, 'shape', None)))
+        except Exception:
+            pass
         return self._normalize_affinity_graph(affinity, mask)
 
 
     def _compute_affinity_graph(self, mask: np.ndarray) -> Optional[tuple[np.ndarray, np.ndarray]]:
         mask_int = np.asarray(mask, dtype=np.int32)
         if mask_int.ndim != 2:
+            _append_gui_log('[affinity] mask ndim !=2')
             return None
         coords = np.nonzero(mask_int)
         if coords[0].size == 0:
+            _append_gui_log('[affinity] no foreground coords')
             return None
         steps, inds, idx, fact, sign = self._get_kernel_info(mask_int.ndim)
         center_index = int(idx)
         if center_index <= 0:
+            _append_gui_log('[affinity] center_index invalid')
             return None
         core_module = self._ensure_core()
         affinity_graph = core_module.masks_to_affinity(
@@ -1372,6 +1425,11 @@ def run_segmentation(
         except Exception:
             pass
     affinity_graph = _SEGMENTER.get_affinity_graph_payload()
+    if affinity_graph is None:
+        try:
+            _append_gui_log(f"[segment] affinity_graph missing; affinity_seg={bool(settings and settings.get('affinity_seg'))} cache={_SEGMENTER.has_cache}")
+        except Exception:
+            pass
     points_payload = _SEGMENTER.get_points_payload()
     return {
         "mask": encoded,
@@ -1409,6 +1467,11 @@ def run_mask_update(
         except Exception:
             pass
     affinity_graph = _SEGMENTER.get_affinity_graph_payload()
+    if affinity_graph is None:
+        try:
+            _append_gui_log(f"[resegment] affinity_graph missing; affinity_seg={bool(settings and settings.get('affinity_seg'))} cache={_SEGMENTER.has_cache}")
+        except Exception:
+            pass
     points_payload = _SEGMENTER.get_points_payload()
     return {
         "mask": encoded,
@@ -2049,23 +2112,32 @@ def create_app() -> "FastAPI":
         if isinstance(entries, list):
             for entry in entries:
                 try:
-                    api.log(json.dumps(entry, ensure_ascii=False))
+                    line = json.dumps(entry, ensure_ascii=False)
                 except Exception:
-                    api.log(str(entry))
+                    line = str(entry)
+                api.log(line)
+                _append_gui_log(line)
             return JSONResponse({'status': 'ok'})
         messages = payload.get('messages')
         if isinstance(messages, list):
             for raw in messages:
-                api.log(str(raw))
+                line = str(raw)
+                api.log(line)
+                _append_gui_log(line)
             return JSONResponse({'status': 'ok'})
         payload_type = payload.get('type')
         if payload_type == 'JS_ERROR':
             detail = payload.get('payload') or {}
             api.log('JS_ERROR')
+            _append_gui_log('JS_ERROR')
             for key in ('message', 'filename', 'lineno', 'colno', 'stack'):
-                api.log(f'    {key}: {detail.get(key)}')
+                line = f'    {key}: {detail.get(key)}'
+                api.log(line)
+                _append_gui_log(line)
         else:
-            api.log(str(payload.get('message', '')))
+            line = str(payload.get('message', ''))
+            api.log(line)
+            _append_gui_log(line)
         return JSONResponse({'status': 'ok'})
 
     @app.post("/api/open_image", response_class=JSONResponse)

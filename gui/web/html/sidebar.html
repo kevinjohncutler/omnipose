@@ -24,6 +24,10 @@
             </label>
           </div>
           <div class="panel-body">
+            <div class="image-hover-info" aria-hidden="true">
+              <span id="hoverValueDisplay">Val: --</span>
+              <span id="hoverCoordDisplay">Y: --, X: --</span>
+            </div>
             <div class="control">
               <div class="histogram-surface">
                 <canvas id="histogram" class="histogram" width="220" height="80" data-tooltip-dynamic="true"></canvas>
@@ -111,7 +115,6 @@
             <button id="clearMasksButton" class="accent-button" title="Clear all masks (Cmd/Ctrl+X)">Clear Masks</button>
           </div>
           <div class="control">
-            <button id="clearCacheButton" class="accent-button" title="Clear viewer cache and reload">Clear Cache &amp; Reload</button>
           </div>
           <div class="control-heading">Mask Display</div>
           <div class="control toggle-group">
