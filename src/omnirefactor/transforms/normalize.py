@@ -316,7 +316,10 @@ def adjust_contrast_masked(
     b = np.percentile(x[fg], phi)
     if not np.isfinite(a) or not np.isfinite(b) or b <= a:
         a = float(np.min(x))
-        b = float(np.max(x) + 1e-12)
+        b = float(np.max(x))
+
+    if not np.isfinite(b - a) or b <= a:
+        return x.copy(), 1.0, (float(a), float(b))
 
     j = (x - a) / (b - a)
     j = np.clip(j, 0.0, 1.0)

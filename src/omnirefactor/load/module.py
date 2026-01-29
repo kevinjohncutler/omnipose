@@ -18,11 +18,19 @@ def enable_submodules(pkg_name: str) -> None:
         if name == "__main__":
             raise AttributeError(f"module {pkg_name!r} has no attribute {name!r}")
         if name in submods:
-            mod = importlib.import_module(f"{pkg_name}.{name}")
+            try:
+                mod = importlib.import_module(f"{pkg_name}.{name}")
+            except ImportError as exc:
+                raise AttributeError(
+                    f"module {pkg_name!r} has no attribute {name!r}"
+                ) from exc
             setattr(pkg, name, mod)
             return mod
         for sub in submods:
-            mod = importlib.import_module(f"{pkg_name}.{sub}")
+            try:
+                mod = importlib.import_module(f"{pkg_name}.{sub}")
+            except ImportError:
+                continue
             if hasattr(mod, name):
                 attr = getattr(mod, name)
                 setattr(pkg, name, attr)
