@@ -3,7 +3,11 @@ from __future__ import annotations
 import sys
 
 from .cli.runner import main as cli_main
-from .gui import main as gui_main
+
+try:
+    from .gui import main as gui_main
+except Exception:  # pragma: no cover
+    gui_main = None
 
 GUI_FLAGS = {
     "--server",
@@ -37,6 +41,8 @@ def _wants_gui(argv: list[str]) -> bool:
 def main(argv: list[str] | None = None) -> None:
     args = list(sys.argv[1:] if argv is None else argv)
     if _wants_gui(args):
+        if gui_main is None:
+            raise ImportError("GUI dependencies are not installed.")
         gui_main(args)
     else:
         cli_main(args)

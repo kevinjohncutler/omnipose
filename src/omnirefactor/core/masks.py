@@ -518,7 +518,7 @@ def get_masks_cp(p, iscell=None, rpad=20, flows=None, use_gpu=False, device=None
         pflows.append(p[i].flatten().astype('int32'))
         edges.append(np.arange(-.5-rpad, shape0[i]+.5+rpad, 1))
 
-    h,_ = np.lib.histogramdd(pflows, bins=edges)
+    h, _ = np.histogramdd(pflows, bins=edges)
     hmax = h.copy()
     for i in range(dims):
         hmax = maximum_filter1d(hmax, 5, axis=i)
