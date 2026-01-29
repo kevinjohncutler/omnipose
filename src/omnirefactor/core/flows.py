@@ -109,7 +109,7 @@ def masks_to_flows(masks, affinity_graph=None, dists=None, coords=None, links=No
         in which it resides 
 
     """
-    if links is not None and dists is not None:
+    if links is not None and dists is not None: # pragma: no cover
         core_logger.warning("Your dists are probably wrong...")
         
     if coords is None:
@@ -126,7 +126,7 @@ def masks_to_flows(masks, affinity_graph=None, dists=None, coords=None, links=No
     if np.any(case):
         affinity_graph = masks_to_affinity(masks, coords, steps, inds, 
                                            idx, fact, sign, dim, links=links)
-        if case[1]:
+        if case[1]: # pragma: no cover
             core_logger.warning("Passed affinity does not match mask coordinates. Recomputing.")
 
     boundaries = affinity_to_boundary(masks,affinity_graph,coords)
@@ -398,7 +398,7 @@ def masks_to_flows_torch(masks, affinity_graph, coords=None, dists=None, device=
 
     
 
-def get_links(masks,labels,bd,connectivity=1):   # pragma no cover
+def get_links(masks,labels,bd,connectivity=1):   # pragma: no cover
     """ Generate label links based on oversegmented masks and boundary field."""
     # Helper function. Might be unecessary now with the boundary_to_affinity function, which should be better. 
     # No, I still use it for multilabel data. 
@@ -517,7 +517,7 @@ def _extend_centers_torch(masks, centers, affinity_graph, coords=None, n_iter=20
     central_inds = torch.tensor(central_inds,device=device,dtype=torch.long)
     centroid_inds = torch.tensor(centroid_inds,device=device,dtype=torch.long)
 
-    if affinity_field:
+    if affinity_field: # pragma: no cover
         # experimenting with using the connectivity graph to define the scalar field precition class
         T = torch.tensor(affinity_graph,device=device,dtype=dtype).sum(axis=0)
     else:

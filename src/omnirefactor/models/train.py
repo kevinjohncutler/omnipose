@@ -406,11 +406,11 @@ def _train_net(self, train_data, train_labels, train_links, test_data=None, test
             core_logger.warning("""WARNING: rescaling not updated for multi-label objects. 
                                 Check rescaling manually for the right diameter.""")
             
-        diam_train = np.array([core.diameter_utils.diameters(train_labels[k],omni=self.omni)
+        diam_train = np.array([core.diam.diameters(train_labels[k],omni=self.omni)
                                for k in range(len(train_labels))])
         diam_train[diam_train<5] = 5.
         if test_data is not None:
-            diam_test = np.array([core.diameter_utils.diameters(test_labels[k],omni=self.omni)
+            diam_test = np.array([core.diam.diameters(test_labels[k],omni=self.omni)
                                   for k in range(len(test_labels))])
             diam_test[diam_test<5] = 5.
         # scale_range = 0.5

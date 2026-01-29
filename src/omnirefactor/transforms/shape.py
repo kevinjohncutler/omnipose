@@ -5,7 +5,7 @@ import warnings
 
 import numpy as np
 
-from .axes import move_axis, move_axis_new, move_min_dim, update_axis
+from .axes import move_axis, move_min_dim, update_axis
 from .normalize import normalize99
 
 transforms_logger = logging.getLogger(__name__)
@@ -31,13 +31,13 @@ def convert_image(
             z_axis = update_axis(z_axis, to_squeeze, x.ndim) if z_axis is not None else z_axis
         x = x.squeeze()
     if z_axis is not None and x.ndim > 2:
-        x = move_axis(x, m_axis=z_axis, first=True)
+        x = move_axis(x, axis=z_axis, pos="first")
         if channel_axis is not None:
             channel_axis += 1
         if x.ndim == 3:
             x = x[..., np.newaxis]
     if channel_axis is not None and x.ndim > 2:
-        x = move_axis(x, m_axis=channel_axis, first=False)
+        x = move_axis(x, axis=channel_axis, pos="last")
     elif x.ndim == dim:
         x = x[np.newaxis]
 
@@ -193,7 +193,7 @@ def reshape_and_normalize_data(train_data, test_data=None, channels=None, channe
         for i in range(nimg):
             if channels is None:
                 if channel_axis is not None:
-                    data[i] = move_axis_new(data[i], axis=channel_axis, pos=0)
+                    data[i] = move_axis(data[i], axis=channel_axis, pos="first")
                 else:
                     transforms_logger.warning(
                         "No channel axis specified. Image shape is %s. Supply channel_axis if incorrect.",
@@ -211,11 +211,3 @@ def reshape_and_normalize_data(train_data, test_data=None, channels=None, channe
 
     return train_data, test_data, True
 
-
-__all__ = [
-    "convert_image",
-    "reshape",
-    "normalize_img",
-    "reshape_train_test",
-    "reshape_and_normalize_data",
-]

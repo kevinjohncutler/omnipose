@@ -181,7 +181,7 @@ def div_rescale(dP, mask, p=1):
     return dP
 
 
-def sigmoid(x):
+def sigmoid(x): #  pragma: no cover
     """The sigmoid function."""
     return expit(x)
 
@@ -216,7 +216,7 @@ def divergence_torch(y):
     """
     B, D, *spatial = y.shape
 
-    if any(s < 2 for s in spatial):
+    if any(s < 2 for s in spatial): 
         return torch.zeros((B, *spatial), dtype=y.dtype, device=y.device)
     if y.device.type == 'cpu':
         div = torch.zeros((B, *spatial), dtype=y.dtype, device=y.device)

@@ -16,7 +16,7 @@ from ..core.affinity import masks_to_affinity
 from ..core.contour import get_contour
 from ..core.flows import masks_to_flows_torch
 from ..core.masks import follow_flows
-from ..core.diameter_utils import diameters
+from ..core.diam import diameters
 from ..core.fields import divergence
 from ..utils import kernel_setup
 from ..transforms.normalize import safe_divide

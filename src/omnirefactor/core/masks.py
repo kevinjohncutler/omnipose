@@ -22,7 +22,7 @@ from .affinity import (
     affinity_to_masks,
     boundary_to_masks,
 )
-from .diameter_utils import diameters, dist_to_diam
+from .diam import diameters, dist_to_diam
 from .fields import div_rescale, step_factor
 from .flows import masks_to_flows
 from .steps import steps_batch

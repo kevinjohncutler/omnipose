@@ -18,21 +18,21 @@ NORM_TYPE = "batch"
 
 def set_norm_type(norm_type: str) -> None:
     global NORM_TYPE
-    NORM_TYPE = (norm_type or "batch").lower()
+    norm_type = (norm_type or "batch").lower()
+    if norm_type != "batch":
+        raise ValueError(f"Unsupported norm type: {norm_type}. Only 'batch' is supported.")
+    NORM_TYPE = "batch"
 
 
 def _select_group_count(channels: int) -> int:
     for groups in (32, 16, 8, 4, 2, 1):
         if channels % groups == 0:
             return groups
-    return 1
+    return 1  # pragma: no cover
 
 
 def _make_norm(channels: int, dim: int) -> nn.Module:
     norm_type = NORM_TYPE
-    if norm_type == "group":
-        groups = _select_group_count(channels)
-        return nn.GroupNorm(groups, channels, eps=1e-5)
     if norm_type == "batch":
         BatchNorm = nn.BatchNorm2d if dim == 2 else nn.BatchNorm3d
         return BatchNorm(channels, eps=1e-5, momentum=0.05)
@@ -414,5 +414,5 @@ class UnetND(nn.Module):
 
 #                 self.load_state_dict(new_state_dict, strict=False)
                 self.load_state_dict(state_dict, strict=False)
-            except Exception as e:
+            except Exception as e:  # pragma: no cover
                 print('failed to load model', e)

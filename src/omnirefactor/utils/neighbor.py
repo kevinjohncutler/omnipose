@@ -4,7 +4,7 @@ from .imports import *
 
 def precompute_valid_mask(shape, steps, device=None):
     """
-    Boolean mask telling whether both a pixel and its neighbour at offset
+    Boolean mask telling whether both a pixel and its neighbor at offset
     `steps[k]` are inside an N-D volume.
 
     Parameters
@@ -18,7 +18,7 @@ def precompute_valid_mask(shape, steps, device=None):
 
     Returns
     -------
-    valid : torch.BoolTensor        # shape (K, 1, *shape)
+    valid : torch.BoolTensor        # shape (K, 1, *shape)
     """
     dim   = len(shape)
     step  = torch.as_tensor(steps, dtype=torch.int64, device=device)  # (K, dim)
@@ -40,122 +40,6 @@ def precompute_valid_mask(shape, steps, device=None):
     valid = valid.unsqueeze(1)
     return valid
 
-
-# @njit 
-# def get_neighbors(coords, steps, dim, shape, edges=None, pad=0):
-#     print('this version actually a lot slower than below ')
-#     if edges is None:
-#         edges = [np.array([-1,s]) for s in shape]
-        
-#     npix = coords[0].shape[-1]
-#     neighbors = np.empty((dim, len(steps), npix), dtype=np.int64)
-#     for d in range(dim):
-#         for i, s in enumerate(steps):
-#             for j in range(npix):
-#                 if  ((coords[d][j] + s[d]) in edges[d]) and ((coords[d][j] + 2*s[d]) not in edges[d]):     
-#                     neighbors[d,i,j] = coords[d][j]
-#                 else:
-#                     neighbors[d,i,j] = coords[d][j] + s[d]
-    
-#     return neighbors
-
-
-# much faster 
-# @njit
-# def isin_numba(x, y):
-#     result = np.zeros(x.shape, dtype=np.bool_)
-#     for i in range(x.size):
-#         result[i] = x[i] in y
-#     return result
-
-# @njit
-# def get_neighbors(coords, steps, dim, shape, edges=None):
-#     if edges is None:
-#         edges = [np.array([-1,s]) for s in shape]
-        
-#     npix = coords[0].shape[-1]
-#     neighbors = np.empty((dim, len(steps), npix), dtype=np.int64)
-    
-#     for d in range(dim):
-#         for i, s in enumerate(steps):
-#             X = coords[d] + s[d]
-#             mask = np.logical_and(isin_numba(X, edges[d]), ~isin_numba(X+s[d], edges[d]))
-#             neighbors[d,i] = np.where(mask, coords[d], X)
-#     return neighbors
-
-
-# slightly faster than the jit code!
-# def get_neighbors(coords, steps, dim, shape, edges=None, pad=0):
-#     """
-#     Get the coordinates of all neighbor pixels. 
-#     Coordinates of pixels that are out-of-bounds get clipped. 
-#     """
-#     if edges is None:
-#         edges = [np.array([-1+pad,s-pad]) for s in shape]
-        
-#     # print('edges',edges,'\n')
-        
-#     npix = coords[0].shape[-1]
-#     neighbors = np.empty((dim, len(steps), npix), dtype=np.int64)
-    
-#     for d in range(dim):        
-#         S = steps[:,d].reshape(-1, 1)
-#         X = coords[d] + S
-#         # mask = np.logical_and(np.isin(X, edges[d]), ~np.isin(X+S, edges[d]))
-
-#         # out of bounds is where the shifted coordinate X is in the edges list
-#         # that second criterion might have been for my batched stuff 
-#         oob = np.logical_and(np.isin(X, edges[d]), ~np.isin(X+S, edges[d]))
-#         # above check was compeltelty necessary for batched 
-#         # print('debug before release, there is probably a way to map into bool array to filter edge connections')
-        
-#         # oob = np.isin(X, edges[d])
-#         # print('checkme f', pad,np.sum(oob))
-
-#         C = np.broadcast_to(coords[d], X.shape)
-#         neighbors[d] = np.where(oob, C, X)
-#         # neighbors[d] = X
-
-#     return neighbors
-
-
-
-# 2x as fast as the above 
-def get_neighbors(coords, steps, dim, shape, edges=None, pad=0):
-    """
-    Get the coordinates of all neighbor pixels.
-    Coordinates of pixels that are out-of-bounds get clipped.
-    """    
-    if edges is None:
-        edges = [np.array([-1+pad, s-pad]) for s in shape]
-
-    npix = coords[0].shape[-1]
-    neighbors = np.empty((dim, len(steps), npix), dtype=np.int64)
-
-    # Create edge masks for each dimension
-    edge_masks = []
-    for d in range(dim):
-        mask = np.zeros(shape[d], dtype=bool)
-        valid_edges = edges[d][(edges[d] >= 0) & (edges[d] < shape[d])]
-        mask[valid_edges] = True
-        edge_masks.append(mask)
-
-    for d in range(dim):
-        S = steps[:, d].reshape(-1, 1)
-        X = coords[d] + S
-
-        # Ensure that both X and X + S do not exceed the bounds
-        X_clipped = np.clip(X, 0, shape[d] - 1)
-        X_shifted_clipped = np.clip(X + S, 0, shape[d] - 1)
-
-        # Use the edge mask to determine out-of-bounds coordinates
-        current_mask = edge_masks[d]
-        oob = np.logical_and(current_mask[X_clipped], ~current_mask[X_shifted_clipped])
-
-        C = np.broadcast_to(coords[d], X.shape)
-        neighbors[d] = np.where(oob, C, X_clipped)
-
-    return neighbors
     
 # a tiny bit faster than the above
 def get_neighbors(coords, steps, dim, shape, edges=None, pad=0):
@@ -215,7 +99,7 @@ def get_neighbors(coords, steps, dim, shape, edges=None, pad=0):
     return neighbors
 
     
-def get_neighbors_torch(input, steps):
+def get_neighbors_torch(input, steps): # pragma: no cover
     """This version not yet used/tested."""
     # Get dimensions
     B, D, *DIMS = input.shape
@@ -296,7 +180,7 @@ def get_neigh_inds(neighbors,coords,shape,background_reflect=False):
 
 # This might need some reflection added in for it to work
 # also might need generalization to include cleaned mask pixels getting dropped  
-def subsample_affinity(augmented_affinity,slc,mask):
+def subsample_affinity(augmented_affinity,slc,mask): # pragma: no cover
     """
     Helper function to subsample an affinity graph according to an image crop slice 
     and a foreground selection mask. 
