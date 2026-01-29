@@ -1,0 +1,29 @@
+# Read the Docs configuration file
+# See https://docs.readthedocs.io/en/stable/config-file/v2.html for details
+
+version: 2
+
+sphinx:
+  configuration: docs/conf.py
+
+formats:
+  - pdf
+
+python:
+  install:
+    - requirements: docs/requirements.txt
+
+build:
+  os: ubuntu-24.04
+  tools:
+    python: "3.12"
+  commands:
+    - pwd
+    - echo "Listing files in current directory"
+    - ls -la
+    - echo "Listing files in docs directory"
+    - ls -la docs
+    - bash docs/install.sh
+    - echo "Finished running install.sh"
+    - rm -rf docs/api/api
+    - sphinx-build -b html docs/ _readthedocs/html

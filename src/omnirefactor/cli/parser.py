@@ -55,11 +55,13 @@ def get_arg_parser():
                             help="number of up or down sampling layers in model")
     model_args.add_argument("--logits", action="store_true",
                             help="use logits for all prediction classes")
+    model_args.add_argument("--omni", dest="omni", action="store_true",
+                            help="use Omnipose mask reconstruction features")
+    model_args.add_argument("--no_omni", dest="omni", action="store_false",
+                            help="disable Omnipose mask reconstruction features")
 
     # algorithm settings
     algorithm_args = parser.add_argument_group("algorithm arguments")
-    algorithm_args.add_argument("--omni", action="store_true",
-                                help="Omnipose algorithm (disabled by default)")
     algorithm_args.add_argument("--affinity_seg", action="store_true",
                                 help="use new affinity segmentation algorithm (disabled by default)")
     algorithm_args.add_argument("--cluster", action="store_true",
@@ -185,5 +187,7 @@ def get_arg_parser():
     development_args.add_argument("--timing", action="store_true",
                                   help="flag to output timing information for select modules")
     development_args.add_argument("--seed", default=None, type=int, help="random seed for reproducible runs")
+
+    parser.set_defaults(omni=True)
 
     return parser

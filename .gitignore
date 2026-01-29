@@ -149,3 +149,5 @@ tests/models/
 **/__pycache__/
 *.nbi
 *.nbc
+
+docs/api/*.rst

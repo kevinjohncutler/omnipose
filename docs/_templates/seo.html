@@ -1,0 +1,6 @@
+{% if 'canonical_url' in html_context %}
+  <link rel="canonical" href="{{ html_context.canonical_url }}"/>
+{% else %}
+  <link rel="canonical" href="{{ pathto(master_doc, 1) }}"/>
+{% endif %}
+<meta name="robots" content="index, follow">

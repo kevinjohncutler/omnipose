@@ -1,0 +1,579 @@
+@import url("custom.css");
+
+
+body {
+  background-color: var(--color-background-primary);
+  border-radius: 3px !important;
+
+}
+
+/* clear formatting so the rest will apply for code blocks  */
+body .highlight {
+  background: transparent !important;
+  margin: 0em !important;
+  border: none !important;
+  border-radius: 3px !important;
+  box-shadow: none !important;
+}
+
+pre,
+code {
+    /* background: transparent !important; */
+    /* background-color: var(--color-background-secondary) !important; */
+  border: none;
+  border-radius: 3px !important;
+
+    /* padding: 0; */
+}
+
+
+/* text-color */
+
+/* @import url("//media.readthedocs.org/css/sphinx_rtd_theme.css"); */
+
+/* h1{
+  color: var(--h1-color)
+}
+
+h2{
+  color: var(--color-brand-content,#00ff00)
+} */
+
+a:link {
+  color: var(--sinebow23);
+  /* text-decoration: underline; */
+}
+
+a:visited {
+  color: var(--sinebow23);
+}
+
+a:hover {
+  color: var(--color-link--hover);
+}
+
+/* .toc-list {
+  color: transparent;
+} */
+
+.header-2,.header-3 { 
+	/* color: var(--h2-color); */
+  color: var(--color-foreground-primary)
+} 
+
+table.docutils th {
+  font-weight: normal;
+}
+
+table.docutils caption {
+  font-weight: bold;
+  font-size: 1.2em;
+}
+
+
+
+
+.highlight,
+.highlight *
+/* .code.highlight.python, */
+/* div.highlight, */
+/* div.highlight pre  */
+{
+  /* background-color: var(--color-background-secondary); */
+  /* background-color works to color the entire code block*/
+  /* background-color: #5555; */
+  /* background: transparent !important; */
+  /* background-color: var(--color-background-secondary) !important; */
+  /* color: transparent !important; */
+  /* background: none !important; */
+
+  /* background-color: var(--color-background-secondary) !important;  */
+  /* background-color: #0000 !important; */
+  /* margin: 0em !important; */
+  
+  border: none !important;
+  border-radius: 3px !important;
+  /* box-shadow: none !important; */
+}
+
+/* Input cells */
+div.cell div.cell_input {
+  /* padding-left: 0em;
+  padding-right: 0em; */
+  margin: 0em !important;
+  border: none !important;
+  border-radius: 3px !important;
+  /* box-shadow: none !important; */
+
+  /* background: rgba(var(--color-background-secondary),0.5); */
+  /* background-color: rgba(var(--color-background-secondary),0.5); */
+  /* background-color: green; does not work */
+  /* background-color: transparent !important; */
+  /* background: transparent !important; */
+  /* background-color: var(--color-background-secondary); */
+  color: none !important;
+
+  /* background: green !important; does not work to color code cells */
+
+  /* border-color: transparent; */
+  /* border-left-width: medium; */
+}
+
+div.cell_input > div, 
+div.cell_output > div, 
+div.cell_input div.input > div.highlight,
+div.cell_output div.output > div.highlight {
+  margin: 0em !important;
+  border: none !important;
+  /* box-shadow: none !important; */
+  color: none !important;
+  background-color: transparent !important;
+
+  background-color: var(--color-background-secondary);
+  border-radius: 3px;
+  background: transparent !important;
+  /* background-color: red; does not work */
+
+}
+
+/* code cells */
+div.cell div.cell_input, div.cell details.above-input>summary {
+  padding-left: 0em;
+  padding-right: 0em;
+  /* border-left-color:none;
+  border-left-width: 0; */
+  margin: 0em !important;
+  border: none !important;
+  border-radius: 3px;
+  /* background: none !important; */
+  /* box-shadow: none; */
+  /* background-color: transparent !important; */
+  /* background-color: var(--color-background-secondary); */
+  background-color: none;
+
+  color: none !important;
+} 
+
+/* only indent the hide source  */
+div.cell details.above-input>summary,
+div.cell details.below-input>summary {
+  /* padding-left: 10px; */
+  background-color: transparent;
+  border: none;
+
+}
+
+
+/* line numbers */
+.highlight span.linenos {
+  box-shadow: none;
+  display: inline-block;
+  background-color: none !important;
+  background: none !important;
+  border: none;
+  /* padding: 0; */
+  color: none !important;
+  /* margin-right: .875rem; */
+  /* padding-left: 0;
+  padding-right: .875rem; */
+  padding-left: -1em;
+  }
+
+
+
+/* All cell outputs */
+.cell_output {
+  /* background: var(--color-background-secondary); */
+  /* background-color: var(--color-background-secondary); works but oclors image backgrounds too */
+  /* background-color: var(--color-background-secondary); this works */
+  /* background: none !important; */
+  padding-left: 0em;
+  padding-right: 0em;
+  margin-top: 1em;
+}
+
+/* Text outputs from cells */
+.cell_output .output.text_plain,
+.cell_output .output.traceback,
+.cell_output .output.stream,
+.cell_output .output.stderr {
+  /* background: var(--color-background-secondary);
+  background-color: var(--color-background-secondary); these do not apply */
+    /* background: red; */
+
+  /* background: transparent !important; */
+  /* border: 1px var(--color-foreground-border); */
+  border: none;
+  margin-top: 1em;
+  margin-bottom: 0em;
+  /* box-shadow: none; */
+}
+
+.omnirefactor-path-seg {
+  font-weight: 600;
+}
+
+.omnirefactor-path-dot {
+  color: #e6e6e6;
+}
+
+@media (prefers-color-scheme: light) {
+  .omnirefactor-path-dot {
+    color: #181818;
+  }
+}
+
+.omnirefactor-color-debug {
+  position: fixed;
+  right: 16px;
+  bottom: 16px;
+  max-width: 40vw;
+  max-height: 40vh;
+  overflow: auto;
+  padding: 12px 14px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+  font-size: 12px;
+  line-height: 1.4;
+  white-space: pre-wrap;
+  color: #f1f1f1;
+  background: rgba(0, 0, 0, 0.75);
+  border: 1px solid #3a3a3a;
+  border-radius: 8px;
+  z-index: 9999;
+}
+
+.sidebar-tree .reference {
+  /* color: none  !important;
+  backdrop-filter: blur(5px); */
+  font-size: var(--font-size--normal);
+}
+.sidebar-tree .toctree-l1 > .reference,
+.sidebar-tree .toctree-l2 > .reference,
+.sidebar-tree .toctree-l3 > .reference {
+  color: none !important; 
+  /* background: transparent !important; */
+  /* backdrop-filter: blur(5px); */
+  
+  padding-left: 1.75rem;
+} 
+
+.sidebar-tree .toctree-l1 > label .icon {
+  color: var(--color-foreground-muted);
+  background: transparent !important;
+  /* backdrop-filter: blur(5px); */
+  
+}
+
+.sidebar-tree .caption, .sidebar-tree :not(.caption)>.caption-text {
+  font-size: var(--font-size--normal);
+}
+
+/* Add underline to active TOC element */
+/* .sidebar-tree .toctree-l1.current > .reference,
+.sidebar-tree .toctree-l2.current > .reference {
+    text-decoration: underline;
+    border-bottom-color: red;
+}
+
+.current-page > .reference {
+  text-decoration: underline;
+  border-bottom-color: green;
+
+}
+
+.toctree-l1.current > a {
+  text-decoration: underline;
+  border-bottom-color: blue;
+
+} */
+
+/* .toc-tree li.scroll-current > .reference { */
+  /* color: var(--color-toc-item-text--active); */
+  /* font-weight: 800;
+  text-decoration: underline;
+} */
+
+/* .sidebar-tree .toctree-l1.current {background: transparent !important;}
+li.toctree-l1.current {background: transparent !important;} */
+
+/* li.toctree-l1:hover { */
+  /* background-color: #f5f5f5;
+  color: #333; */
+  /* font-size: 1.2em; */
+  /* color: var(--color-foreground-primary) !important; */
+  /* text-decoration: underline !important; */
+/* } */
+
+/* li.toctree-l1:active {
+  background-color: transparent !important;
+} */
+
+/* li.toctree-l1.current,li.toctree-l1.current.current-page {
+  background-color: transparent !important;
+} */
+
+a {
+  color: none !important;
+  /* text-decoration: underline; */
+}
+
+/* This keeps link colors persistent within the text */
+a[href^="installation.html"] {color: var(--sinebow11) !important;}
+a[href^="gui.html"] {color: var(--sinebow12) !important;}
+a[href^="inputs.html"] {color: var(--sinebow13) !important;}
+a[href^="settings.html"] {color: var(--sinebow14) !important;}
+a[href^="outputs.html"] {color: var(--sinebow15) !important;}
+a[href^="training.html"] {color: var(--sinebow16) !important;}
+a[href^="models.html"] {color: var(--sinebow17) !important;}
+
+a[href^="notebook.html"] {color: var(--sinebow18) !important;}
+a[href^="command.html"] {color: var(--sinebow19) !important;}
+
+a[href^="api/index.html"] {color: var(--sinebow20) !important;}
+a[href^="cli.html"] {color: var(--sinebow21) !important;}
+
+
+/* these may not actually be necessary */
+a[href^="affinity.html"] {color: var(--sinebow22) !important;}
+/* contours */
+a[href^="ncolor.html"] {color: var(--sinebow24) !important;}
+a[href^="diameter.html"] {color: var(--sinebow25) !important;}
+a[href^="gamma.html"] {color: var(--sinebow26) !important;}
+a[href^="logo.html"] {color: var(--sinebow27) !important;}
+
+
+a[href^="index.html"] {color: var(--sinebow10) !important;}
+
+
+.wy-alert-title,.rst-content .admonition-title{
+  color:none;
+  font-weight:bold;
+  display:block;
+  color:none;
+  background:none;
+  margin:-12px;
+  padding:6px 12px;
+  margin-bottom:12px
+}
+
+
+/* .sidebar-tree ul {color:none} */
+/* .sidebar-tree ul {color:red} */
+
+
+/* no code wrapping */
+code, .rst-content code {
+  white-space: nowrap;
+}
+
+/* indentations for header 3 */
+h3 {
+  margin-left: 10px;
+}
+
+h3 ~ * {
+  margin-left: 30px;
+}
+
+h3 ~ div.note,
+h3 ~ div.tip,
+h3 ~ div.warning,
+h3 ~ pre.code {
+  margin-left: 30px !important;
+  
+}
+
+div.h3.highlight-text,
+div.h3.highlight-python {
+  margin-left: 30px;
+}
+
+
+/* admonition backgrounds */
+div.admonition.note,
+div.admonition.warning,
+div.admonition.tip {
+  /* background-color: red; works */
+    background-color: var(--color-background-secondary);
+}
+
+/* centered table */
+table.docutils td:not(:first-child) {
+  text-align: center;
+}
+
+
+/* This keeps link colors on the sidebar persistent */
+.sinebow0 {color: var(--sinebow0) !important;}
+.sinebow1 {color: var(--sinebow1) !important;}
+.sinebow2 {color: var(--sinebow2) !important;}
+.sinebow3 {color: var(--sinebow3) !important;}
+.sinebow4 {color: var(--sinebow4) !important;}
+.sinebow5 {color: var(--sinebow5) !important;}
+.sinebow6 {color: var(--sinebow6) !important;}
+.sinebow7 {color: var(--sinebow7) !important;}
+.sinebow8 {color: var(--sinebow8) !important;}
+.sinebow9 {color: var(--sinebow9) !important;}
+.sinebow10 {color: var(--sinebow10) !important;}
+.sinebow11 {color: var(--sinebow11) !important;}
+.sinebow12 {color: var(--sinebow12) !important;}
+.sinebow13 {color: var(--sinebow13) !important;}
+.sinebow14 {color: var(--sinebow14) !important;}
+.sinebow15 {color: var(--sinebow15) !important;}
+.sinebow16 {color: var(--sinebow16) !important;}
+.sinebow17 {color: var(--sinebow17) !important;}
+.sinebow18 {color: var(--sinebow18) !important;}
+.sinebow19 {color: var(--sinebow19) !important;}
+.sinebow20 {color: var(--sinebow20) !important;}
+.sinebow21 {color: var(--sinebow21) !important;}
+.sinebow22 {color: var(--sinebow22) !important;}
+.sinebow23 {color: var(--sinebow23) !important;}
+.sinebow24 {color: var(--sinebow24) !important;}
+.sinebow25 {color: var(--sinebow25) !important;}
+.sinebow26 {color: var(--sinebow26) !important;}
+.sinebow27 {color: var(--sinebow27) !important;} 
+/* had to add sinebow27 after adding a sidebar element and extending this list... need to find a better way, sass?*/
+
+
+
+/* Make highlight fade out */
+:target {
+  animation: fadeout 3s forwards;
+}
+
+@keyframes fadeout {
+  from { background-color: var(--color-link--hover); }
+  to { background-color: transparent; }
+}
+
+/* get rid of copy button backgrounds */
+button.copybtn,
+button.copybtn svg {
+  background: none !important;
+  border: none;
+  padding: 0;
+  color: none !important;
+}
+
+/* hide output for these */
+div.cell_output .copybtn {
+  display: none;
+}
+
+/* drop down the logo a bit */
+.sidebar-logo-container {
+  margin-top: 25px;
+}
+/* 
+details {
+  background-color: transparent;
+} */
+
+/* some of these do apply, but not all for some reason */
+/* .highlight pre { background-color: var(--color-background-secondary); } */
+/* .highlight .hll { background-color: var(--color-background-secondary); } */
+.highlight .c { color: var(--color-foreground-secondary)} /* Comment */
+.highlight .cm { color: var(--color-foreground-secondary) } /* Comment.Multiline */
+.highlight .cp { color: var(--color-foreground-secondary) } /* Comment.Preproc */
+.highlight .c1 { color: var(--color-foreground-secondary) } /* Comment.Single */
+.highlight .cs { color: var(--color-foreground-secondary) } /* Comment.Special */
+
+
+
+/* Override color for header 2 fields in table of contents */
+#toc .toctree-l2 > a {
+  color: var(--color-foreground-secondary);
+}
+
+/* make these normal colored  */
+li.toctree-l2 > a[href^="cli.html"] {
+  /* color: var(--darkreader-text--sinebow21) !important; */
+  color: var(--color-foreground) !important;
+}
+
+/* bold the card titles */
+.toctree-wrapper.compound .caption, .toctree-wrapper.compound :not(.caption)>.caption-text {
+  font-weight: bold;
+  margin-bottom: 0.5em;
+
+}
+
+/* toc scroll bar - from furo*/
+.sidebar-scroll::-webkit-scrollbar, .toc-scroll::-webkit-scrollbar, article[role=main] ::-webkit-scrollbar {
+    height: .25rem;
+    width:.25rem;
+}
+
+.sidebar-scroll::-webkit-scrollbar-thumb, .toc-scroll::-webkit-scrollbar-thumb, article[role=main] ::-webkit-scrollbar-thumb {
+    background-color: var(--color-foreground-border);
+    /* background-color: green; */
+    border-radius:.125rem
+}
+
+/*  make the sidebar trasnlucent  */
+.sidebar-drawer,
+.rst-versions .rst-current-version { 
+  /* background-color: rgba(0, 255, 255, 0.25); */
+  background-color: var(--color-background-secondary);
+  backdrop-filter: blur(9px);
+  -webkit-backdrop-filter: blur(9px);
+  /* box-shadow: 0 0 10px rgba(0, 0, 0, 0.25); */
+  /* box-shadow: 0 0 0.25rem rgba(0, 0, 0, 0.1); */
+  
+  /* from furo admonition */
+  box-shadow: 0 0.2rem 0.5rem rgba(0, 0, 0, 0.05), 0 0 0.0625rem rgba(0, 0, 0, 0.1) !important; 
+  
+}
+
+
+.sd-card, .sd-grid-item  {
+  border: 1px solid var(--color-foreground-border);
+  /* box-shadow: 0 0 0.5rem rgba(0, 0, 0, 0.1); */
+  
+  /* box-shadow: 0 0.1rem 0.25rem var(--sd-color-shadow), 0 0 0.0625rem rgba(0, 0, 0, 0.1) !important;  */
+  
+  /* from furo admonition */
+  box-shadow: 0 0.2rem 0.5rem rgba(0, 0, 0, 0.05), 0 0 0.0625rem rgba(0, 0, 0, 0.1) !important; 
+  
+}
+
+/* .sd-shadow-sm {
+  /* box-shadow: 0 0 10rem rgba(255, 0, 0, 0.5) !important; */
+  /* box-shadow: 0 0 0.25rem rgba(0, 0, 0, 0.1) !important; 
+} 
+*/
+
+/* do not dim page */
+body > label.overlay.sidebar-overlay {
+  background-color: none;
+  /* backdrop-filter: blur(3px); */
+}
+
+/* .overlay { background-color: transparent;} */
+
+.overlay {
+  display: none;
+}
+
+
+
+/* 
+body {
+  background: linear-gradient(to bottom right, rgba(1, 1, 1, 0.1), rgba(.5, .5, .5, 0.1));
+} */
+
+
+.toctree-checkbox {background-color: transparent;}
+
+/* body > div.page > aside > div > div > form > input.sidebar-search { background-color: red;} */
+
+
+/* input:focus {
+  border-color: green;
+} */
+
+
+/* Hide the Read the Docs flyout */
+body > readthedocs-flyout {
+  display: none !important;
+}

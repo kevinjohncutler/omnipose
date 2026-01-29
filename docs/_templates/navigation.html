@@ -1,0 +1,34 @@
+{% extends "!navigation.html" %}
+
+{% block sidebar_navigation %}
+<nav class="bd-links nav flex-column">
+    {% for item in navigation %}
+        {% if item.children %}
+            <a class="nav-link dropdown-toggle{% if item.active %} active{% endif %}" href="#" role="button" data-bs-toggle="dropdown" aria-expanded="false">{{ item.title }}</a>
+            <ul class="dropdown-menu">
+                {% for subitem in item.children %}
+                    <li><a class="dropdown-item{% if subitem.active %} active{% endif %}" href="{{ subitem.url }}">{{ subitem.title }}</a></li>
+                {% endfor %}
+            </ul>
+        {% else %}
+            <a class="nav-link{% if item.active %} active{% endif %}" href="{{ item.url }}">{{ item.title }}</a>
+        {% endif %}
+        {% if item.title == 'CLI' %}
+            <ul class="dropdown-menu">
+                <li>
+                    <a class="dropdown-item{% if item.active %} active{% endif %}" href="{{ item.url }}">Introduction</a>
+                </li>
+                <li>
+                    <a class="dropdown-item{% if item.active %} active{% endif %}" href="{{ item.url }}get_arg_parser">get_arg_parser</a>
+                </li>
+                <li>
+                    <a class="dropdown-item{% if item.active %} active{% endif %}" href="{{ item.url }}parse_args">parse_args</a>
+                </li>
+                <li>
+                    <a class="dropdown-item{% if item.active %} active{% endif %}" href="{{ item.url }}get_config">get_config</a>
+                </li>
+            </ul>
+        {% endif %}
+    {% endfor %}
+</nav>
+{% endblock %}
