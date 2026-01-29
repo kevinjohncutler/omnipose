@@ -1,0 +1,16 @@
+{% extends "!layout.html" %}
+<!-- {% set css_files = css_files + ["_static/custom.css"] %}  -->
+{% set global_toc = toctree(maxdepth=theme_navigation_depth|int,
+    collapse=theme_collapse_navigation|tobool,
+    includehidden=theme_includehidden|tobool,
+    titles_only=theme_titles_only|tobool) %}
+
+
+{% block extrahead %}
+    {{ super() }}
+<!-- Add any additional head elements here -->
+{% endblock %}
+
+{% block ethicalads %}
+<!-- Intentionally left blank to disable ethical ads -->
+{% endblock %}

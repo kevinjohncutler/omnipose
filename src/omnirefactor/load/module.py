@@ -3,6 +3,7 @@ Install lazy sub-module discovery / attribute forwarding on a package/submodule.
 """
 from types import ModuleType
 import importlib
+import os
 import pkgutil
 import sys
 
@@ -12,7 +13,9 @@ def enable_submodules(pkg_name: str) -> None:
     pkg: ModuleType = sys.modules[pkg_name]
     submods = {info.name for info in pkgutil.iter_modules(pkg.__path__)}
     submods.discard("__main__")
-    pkg.__all__ = list(submods)
+    # Avoid pinning __all__ during docs builds so autodoc can see re-exported members.
+    if os.environ.get("OMNIREFACTOR_DOCS_EXPORT_ALL") != "1":
+        pkg.__all__ = list(submods)
 
     def _getattr(name: str):
         if name == "__main__":

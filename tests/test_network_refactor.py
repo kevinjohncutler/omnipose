@@ -38,13 +38,13 @@ def net_module():
 
 def test_norm_helpers_and_dilation_list(net_module):
     net = net_module
-    net.set_norm_type("group")
-    norm = net._make_norm(8, dim=2)
-    assert isinstance(norm, torch.nn.GroupNorm)
-
     net.set_norm_type("batch")
     norm = net._make_norm(8, dim=3)
     assert isinstance(norm, torch.nn.BatchNorm3d)
+
+    with pytest.raises(ValueError):
+        net.set_norm_type("group")
+        net._make_norm(8, dim=2)
 
     with pytest.raises(ValueError):
         net.set_norm_type("invalid")
