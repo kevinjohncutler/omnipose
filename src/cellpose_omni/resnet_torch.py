@@ -18,7 +18,10 @@ NORM_TYPE = "batch"
 
 def set_norm_type(norm_type: str) -> None:
     global NORM_TYPE
-    NORM_TYPE = (norm_type or "batch").lower()
+    norm_type = (norm_type or "batch").lower()
+    if norm_type != "batch":
+        raise ValueError(f"Unsupported norm type: {norm_type}. Only 'batch' is supported.")
+    NORM_TYPE = "batch"
 
 
 def _select_group_count(channels: int) -> int:
@@ -30,9 +33,6 @@ def _select_group_count(channels: int) -> int:
 
 def _make_norm(channels: int, dim: int) -> nn.Module:
     norm_type = NORM_TYPE
-    if norm_type == "group":
-        groups = _select_group_count(channels)
-        return nn.GroupNorm(groups, channels, eps=1e-5)
     if norm_type == "batch":
         BatchNorm = nn.BatchNorm2d if dim == 2 else nn.BatchNorm3d
         return BatchNorm(channels, eps=1e-5, momentum=0.05)

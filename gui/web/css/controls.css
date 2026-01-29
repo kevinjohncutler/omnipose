@@ -567,7 +567,7 @@ input[type='range']::-webkit-slider-thumb {
   box-shadow: none;
   cursor: pointer;
   transition: transform 0.1s ease;
-  margin-top: 3px;
+  margin-top: calc((var(--slider-track-height) - var(--slider-knob-size)) / 2);
 }
 
 input[type='range']::-webkit-slider-thumb:hover {
@@ -697,12 +697,12 @@ button:not(:disabled):hover {
 .slider-native-fill {
   z-index: 1;
   position: absolute;
-  left: 0;
-  top: 0;
-  bottom: 0;
-  width: calc(var(--slider-fill-px, 0px) + 2*var(--slider-track-radius));
+  left: var(--control-inset);
+  top: var(--control-inset);
+  bottom: var(--control-inset);
+  width: calc(var(--slider-fill-px, 0px) + 2 * var(--control-inset-radius));
   background: var(--accent-color);
-  border-radius: inherit;
+  border-radius: var(--control-inset-radius);
 }
 
 .slider-native-cap {
@@ -719,6 +719,7 @@ button:not(:disabled):hover {
 .slider-native-knob {
   position: absolute;
   top: 50%;
+  transform: translateY(-50%);
   width: var(--slider-knob-size);
   height: var(--slider-knob-size);
   border-radius: 50%;
@@ -754,7 +755,7 @@ button:not(:disabled):hover {
   height: var(--slider-knob-size);
   border-radius: 50%;
   background: transparent;
-  margin-top: 3px;
+  margin-top: calc((var(--slider-track-height) - var(--slider-knob-size)) / 2);
 }
 
 .label-stepper button {
@@ -810,7 +811,7 @@ button:not(:disabled):hover {
     height: var(--slider-track-height);
   }
   .slider-native input[type='range']::-webkit-slider-thumb {
-    margin-top: 3px;
+    margin-top: calc((var(--slider-track-height) - var(--slider-knob-size)) / 2);
   }
 }
 

@@ -10250,6 +10250,42 @@ function handleContextMenuEvent(evt) {
   updateCursor();
 }
 
+
+function maybeUndoLastStrokeAtPoint(world, label) {
+  if (!world || !Number.isFinite(world.x) || !Number.isFinite(world.y)) {
+    return false;
+  }
+  const stack = (typeof OmniHistory.getUndoStack === 'function') ? OmniHistory.getUndoStack() : null;
+  if (!stack || !stack.length) {
+    return false;
+  }
+  const entry = stack[stack.length - 1];
+  if (!entry || !entry.indices || !entry.after) {
+    return false;
+  }
+  const x = Math.min(imgWidth - 1, Math.max(0, Math.round(world.x)));
+  const y = Math.min(imgHeight - 1, Math.max(0, Math.round(world.y)));
+  const idx = (y * imgWidth + x) | 0;
+  const indices = entry.indices;
+  const after = entry.after;
+  const want = typeof label === 'number' ? (label | 0) : null;
+  for (let i = 0; i < indices.length; i += 1) {
+    if ((indices[i] | 0) === idx) {
+      if (want !== null && (after[i] | 0) !== want) {
+        return false;
+      }
+      const popped = (typeof OmniHistory.undo === 'function') ? OmniHistory.undo() : null;
+      if (!popped) {
+        return false;
+      }
+      applyHistoryEntry(popped, false);
+      updateHistoryButtons();
+      return true;
+    }
+  }
+  return false;
+}
+
 function handlePointerUp(evt) {
   const type = evt.pointerType || 'mouse';
   if (pendingBrushDoubleTap
@@ -10257,22 +10293,12 @@ function handlePointerUp(evt) {
     && (pendingBrushDoubleTap.pointerId === undefined || pendingBrushDoubleTap.pointerId === evt.pointerId)) {
     const target = pendingBrushDoubleTap;
     pendingBrushDoubleTap = null;
-    const getUndoCount = typeof OmniHistory.getUndoCount === 'function'
-      ? OmniHistory.getUndoCount
-      : null;
-    if (target.undoBaseline !== null && getUndoCount && typeof OmniHistory.undo === 'function') {
-      let undoCount = getUndoCount();
-      while (undoCount > target.undoBaseline) {
-        const before = undoCount;
-        undo();
-        undoCount = getUndoCount();
-        if (undoCount >= before) {
-          break;
-        }
-      }
+    if (typeof paintingApi.cancelStroke === 'function') {
+      paintingApi.cancelStroke();
     }
     brushTapHistory[type] = 0;
     brushTapLastPos[type] = null;
+    maybeUndoLastStrokeAtPoint(target.world, currentLabel);
     floodFill(target.world);
     stopInteraction(evt);
     scheduleStateSave();

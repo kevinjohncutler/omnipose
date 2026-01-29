@@ -170,7 +170,7 @@ def get_arg_parser():
     hardware_args.add_argument('--mkldnn', action='store_true', help='for mxnet, force MXNET_SUBGRAPH_BACKEND = "MKLDNN"')
     hardware_args.add_argument('--deterministic', action='store_true', help='force deterministic GPU behavior (slower)')
     hardware_args.add_argument('--norm', default='batch', type=str,
-                               choices=['batch', 'group'],
+                               choices=['batch'],
                                help='normalization layer type (default: %(default)s)')
     
     # misc settings

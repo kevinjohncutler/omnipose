@@ -1558,6 +1558,7 @@ def compute_masks(dP, dist, affinity_graph=None, bd=None, p=None, coords=None, i
                     neighbors = utils.get_neighbors(tuple(coords),steps,dim,shape, pad=pad) # shape (d,3**d,npix)
                     indexes, neigh_inds, ind_matrix = utils.get_neigh_inds(tuple(neighbors),tuple(coords),shape)
                     
+                    
                     despur = dim==2 and despur # only do despur in 2D 
                     if verbose and not despur:
                         omnipose_logger.info('despur disabled')
@@ -1578,7 +1579,7 @@ def compute_masks(dP, dist, affinity_graph=None, bd=None, p=None, coords=None, i
                         
                         # I need to make sure that the masks/coords also get updated... that's what affinity_to_masks does 
                         # altertnatiely, the affinity_to_boundary then boundary_to_masks does this 
-                  
+
                     bounds = affinity_to_boundary(iscell_pad,affinity_graph,tuple(coords))
                         
                     if cluster:
@@ -1909,8 +1910,8 @@ def get_masks(p, bd, dist, mask, inds, nclasses=2,cluster=False,
             # clusterer = hdbscan.HDBSCAN(min_cluster_size=min_samples)
             # labels = clusterer.fit_predict(newinds)
         else:
-            labels, _ = new_DBSCAN(newinds, eps=eps, min_samples=min_samples)
-            
+            labels, _ = new_DBSCAN(newinds, eps=eps, min_samples=min_samples) # float32 fastest
+            # print('yoyo',newinds.shape, newinds.dtype, eps, min_samples)
 
 
         # filter out small clusters

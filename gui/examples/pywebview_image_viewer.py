@@ -18,10 +18,17 @@ from pathlib import Path
 from dataclasses import dataclass, field
 from typing import Any, Mapping, Optional, Sequence
 import secrets
+import logging
 
 from starlette.requests import Request
 
 SCRIPT_START = time.perf_counter()
+
+logging.basicConfig(
+    level=os.environ.get('OMNI_LOG_LEVEL', 'INFO'),
+    format='%(asctime)s	[%(levelname)s]	%(name)s	%(message)s',
+    handlers=[logging.StreamHandler(sys.stdout)],
+)
 
 import numpy as np
 import webview
