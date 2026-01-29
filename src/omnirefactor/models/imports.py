@@ -21,7 +21,7 @@ import ncolor
 from .. import core, data, transforms, loss, metrics, utils, plot
 from .registry import C2_BD_MODELS, C1_BD_MODELS, C2_MODELS, C1_MODELS, CP_MODELS, C2_MODEL_NAMES, BD_MODEL_NAMES, MODEL_NAMES
 from ..gpu import empty_cache, ARM
-from ..networks import assign_device, check_mkl, MXNET_ENABLED, parse_model_string, UnetND
+from ..networks import assign_device, MXNET_ENABLED, parse_model_string, UnetND
 from ..transforms import torch_zoom
 from ..transforms.filters import hysteresis_threshold
 from ..io.paths import check_dir

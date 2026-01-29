@@ -88,15 +88,7 @@ def _run_evaluation(args) -> None:
     if args.tyx is not None:
         args.tyx = tuple(int(s) for s in args.tyx.split(","))
 
-    if args.check_mkl:
-        mkl_enabled = models.check_mkl((not args.mxnet))
-    else:
-        mkl_enabled = True
-
-    if mkl_enabled and args.mkldnn:
-        os.environ["MXNET_SUBGRAPH_BACKEND"] = "MKLDNN"
-    else:
-        os.environ["MXNET_SUBGRAPH_BACKEND"] = ""
+    os.environ["MXNET_SUBGRAPH_BACKEND"] = ""
 
     if not args.testing:
         saving_something = (

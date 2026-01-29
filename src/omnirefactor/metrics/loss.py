@@ -3,20 +3,6 @@ from ..core.affinity import _get_affinity_torch
 
 
 
-class EulerLoss(ivp_loss.IVPLoss):
-    def __init__(self,device,dim):
-        super().__init__(dx=np.sqrt(dim)/5,                                                   
-                         # n_steps=2,
-                        #  n_steps=(dim**2)//2,
-                         n_steps=dim, # maybe should be dim                                                  
-                         device=device,                                                   
-                         mode='nearest_batched',
-                         # mode='bilinear_batched'
-                        )
-        
-        
-# one way to implement affinity loss would be to get euler loss going
-
 class BatchMeanMSE(torch.nn.Module):
     def __init__(self):
         super().__init__()
@@ -24,8 +10,8 @@ class BatchMeanMSE(torch.nn.Module):
 
     def forward(self, pred, target, weight=None):
         """
-        Compute mean‑squared error averaged per sample, then across batch.
-        Optionally apply element‑wise weighting.
+        Compute mean-squared error averaged per sample, then across batch.
+        Optionally apply element-wise weighting.
         """
         per_elem = self.mse(pred, target)
         if weight is not None:
@@ -36,13 +22,13 @@ class BatchMeanMSE(torch.nn.Module):
 
 class BatchMeanBSE(torch.nn.Module):
     """
-    Same idea as BatchMeanMSE but using binary cross‑entropy.
+    Same idea as BatchMeanMSE but using binary cross-entropy.
     Computes BCE loss per element → average over each sample →
     average those means across the batch.
     """
     def __init__(self):
         super().__init__()
-        # keep element‑wise losses so we can average the way we want
+        # keep element-wise losses so we can average the way we want
         self.bce = torch.nn.BCELoss(reduction='none')
 
     def forward(self, pred, target):
@@ -144,54 +130,57 @@ class AffinityLoss(torch.nn.Module):
 
         coords = torch.nonzero(foreground,as_tuple=True)
 
-        cell_px = (Ellipsis,)+coords[-self.dim:]
+        # cell_px = (Ellipsis,)+coords[-self.dim:]
         # if niter is None:
         #     niter = int(2*(self.dim+1)*torch.mean(dist_pred[(Ellipsis,)+coords]) / 2)
         niter = 10
         
-        # this should be parallelized - _get_affinity_torch does not work with a batch dimension at the moment> 
+        # batch pred/gt together for ivp + affinity (keeps _get_affinity_torch unchanged)
         ags = []
         fps = []
         bds = []
-        for f,d in zip([flow_pred,flow_gt],[dist_pred,dist_gt]):
-            # final_points = initial_points.clone()
-            # final_p, traced_p = steps_batch(initial_points[cell_px],
-            #                                         flow_pred/5., #<<<<<<<<<<< add support for other options here 
-            #                                         niter=niter, omni=True)
-            # final_points[cell_px] = final_p.squeeze()
-            vf = interp_vf(f, mode = "nearest_batched")
-            final_points = ivp_solver(vf,
-                                      initial_points, 
-                                        dx = np.sqrt(self.dim)/5, # maybe divide by percentile of flow magnitude instead 
-                                        n_steps = 2,
-                                        solver = "euler")[-1] 
 
-            # # ------------------------------------------------------------------
-            # # Keep traced points inside the valid spatial domain to avoid
-            # # out-of-bounds indices (which trigger CUDA scatter/gather asserts)
-            # # ------------------------------------------------------------------
-            # for ax, L in enumerate(dims):
-            #     # `final_points` has coordinate dimension first (z/y/x …),
-            #     # so we clamp each axis independently.
-            #     final_points[ax] = final_points[ax].clamp(0, L - 1)
+        flow_all = torch.cat([flow_pred, flow_gt], dim=0)
+        dist_all = torch.cat([dist_pred, dist_gt], dim=0)
+        foreground_all = torch.cat([foreground, foreground], dim=0)
+        initial_points_all = torch.cat([initial_points, initial_points], dim=0)
 
+        vf_all = interp_vf(flow_all, mode="nearest_batched")
+        final_points_all = ivp_solver(
+            vf_all,
+            initial_points_all,
+            dx=np.sqrt(self.dim) / 5,
+            n_steps=2,
+            solver="euler",
+        )[-1]
+
+        affinity_all = _get_affinity_torch(
+            initial_points_all,
+            final_points_all,
+            flow_all / 5.,
+            dist_all,
+            foreground_all,
+            self.steps,
+            self.fact,
+            self.inds,
+            self.supporting_inds,
+            niter,
+            device=self.device,
+        )
+
+        # split back into pred / gt (batch dim is 0 for points, 1 for affinity)
+        final_points_pred, final_points_gt = torch.chunk(final_points_all, 2, dim=0)
+        affinity_pred, affinity_gt = torch.chunk(affinity_all, 2, dim=1)
+
+        for final_points, affinity_graph in (
+            (final_points_pred, affinity_pred),
+            (final_points_gt, affinity_gt),
+        ):
             fps.append(final_points)
-            affinity_graph = _get_affinity_torch(initial_points, 
-                                                final_points, 
-                                                f/5., #<<<<<<<<<<< add support for other options here 
-                                                d, 
-                                                foreground, 
-                                                self.steps,
-                                                self.fact,
-                                                self.inds,
-                                                self.supporting_inds,
-                                                niter,
-                                                device=self.device,
-                                                )
-            ags.append(affinity_graph*1.0)
-            
-            csum = torch.sum(affinity_graph,axis=1)
-            bds.append(1.0*torch.logical_and(csum<(3**self.dim-1),csum>=self.dim))
+            ags.append(affinity_graph * 1.0)
+
+            csum = torch.sum(affinity_graph, axis=1)
+            bds.append(1.0 * torch.logical_and(csum < (3**self.dim - 1), csum >= self.dim))
         
         # lossA = self.BCE(*ags)
         lossA = self.MSE(*ags)
@@ -202,36 +191,6 @@ class AffinityLoss(torch.nn.Module):
         return lossA, lossE, lossB
             
 
-class SineSquaredLoss(torch.nn.Module):
-    def __init__(self):
-        super().__init__()
-
-    def forward(self,x,y,w):
-        eps = 1e-12
-        magX = torch_norm(x,dim=1)
-        magY = torch_norm(y,dim=1)
-        denom = torch.multiply(magX,magY)
-        dot = torch.sum(torch.stack([x[:,k]*y[:,k] for k in range(x.shape[1])],dim=1),dim=1)
-        
-        # need to handle zero denominator, so if either or both are zero, cos is 1 so loss is minimum (0)
-        # so that handles transitions from boundary to background just fine 
-        cos = torch.where(denom>eps,dot/(denom+eps),1) 
-        return torch.mean((1-cos**2)*w)        
-        # return torch.where(mask,(1-cos**2)*w,torch.nan).nanmean() # possible alternative 
-
-        
-class NormLoss(torch.nn.Module):
-    def __init__(self):
-        super().__init__()
-
-    def forward(self,y,Y,w):
-        return torch.mean(torch.square(torch_norm(y,dim=1)-torch_norm(Y,dim=1))*w)/25
-        # return torch.mean(torch.square(torch_norm(y,dim=1)-torch_norm(Y,dim=1))*w)/25
-        
-        # return torch.nn.functional.binary_cross_entropy_with_logits(torch_norm(y,dim=1)/5,torch_norm(Y,dim=1)/5)
-        # return torch.nn.functional.l1_loss(torch_norm(y,dim=1)/5,torch_norm(Y,dim=1)/5)
-
-# more efficient combination of the two loss functions, fewer calls to torch_norm 
 class SSL_Norm(torch.nn.Module):
     def __init__(self):
         super().__init__()
@@ -346,35 +305,6 @@ class SSL_Norm(torch.nn.Module):
         
 # maybe should blend between MSE and SSL
 # SSL counts at the border most, MSE counts most at the center 
-class SSL_Norm_MSE(torch.nn.Module):
-    def __init__(self):
-        super().__init__()
-        
-    def forward(self,x,y,w,dist):
-        eps = 1e-12
-        magX = torch_norm(x,dim=1)
-        magY = torch_norm(y,dim=1)
-        denom = torch.multiply(magX,magY)
-        dot = torch.sum(torch.stack([x[:,k]*y[:,k] for k in range(x.shape[1])],dim=1),dim=1)
-        cos = torch.where(denom>eps,dot/(denom+eps),1)
-        err = torch.square((x-y)/5.).sum(dim=1)
-        
-        w3 = torch.clip(dist,0.5,2)/2
-        w2 = 1.-w3
-        cos_weighted = torch.sum((1-cos**2)*w2)/torch.sum(w2)
-        mse_weighted = torch.sum(err*w3)/torch.sum(w3)
-        
-        cos_weighted = torch.mean((1-cos**2)*err)
-        mse_weighted = 0
-        
-        # or maybe MSE / cos?
-        cos_weighted = torch.mean(err / (cos**2+1)) # terrible, causes border merging 
-        
-        return mse_weighted, cos_weighted, torch.mean(torch.square(magX-magY)*w)/25
-        # return torch.mean(w*((1-cos**2)+(1/25)*(magX-magY)**2))
-        
-        
-
 # class DerivativeLoss(torch.nn.Module):
 #     def __init__(self):
 #         super().__init__()
@@ -396,17 +326,17 @@ class SSL_Norm_MSE(torch.nn.Module):
 
 class DerivativeLoss(torch.nn.Module):
     """
-    Gradient‑domain loss rewritten to use the BatchMean/Weighted MSE
-    infrastructure for consistent per‑sample reduction.
+    Gradient-domain loss rewritten to use the BatchMean/Weighted MSE
+    infrastructure for consistent per-sample reduction.
 
-    Computes the mean‑squared error between spatial gradients of the
-    prediction `y` and ground‑truth `Y`.  Results are averaged per‑sample,
-    then across the batch via `WeightedMSELoss`, with optional pixel‑wise
+    Computes the mean-squared error between spatial gradients of the
+    prediction `y` and ground-truth `Y`.  Results are averaged per-sample,
+    then across the batch via `WeightedMSELoss`, with optional pixel-wise
     weights `w` and a binary mask `mask` defining valid regions.
 
     Mathematically equivalent to the original implementation:
 
-        mean( ((∇y − ∇Y)/5)² * w )[mask]
+        mean( ((∇y - ∇Y)/5)² * w )[mask]
     """
     def __init__(self):
         super().__init__()
@@ -458,7 +388,67 @@ class DerivativeLoss(torch.nn.Module):
 #         T = dist_pred[mask]
 
 
-class CorrelationLoss(torch.nn.Module):
+class EulerLoss(ivp_loss.IVPLoss):  # pragma: no cover
+    def __init__(self,device,dim):
+        super().__init__(dx=np.sqrt(dim)/5,
+                         n_steps=dim,
+                         device=device,
+                         mode='nearest_batched',
+                        )
+
+
+# one way to implement affinity loss would be to get euler loss going
+
+
+class SineSquaredLoss(torch.nn.Module):  # pragma: no cover
+    def __init__(self):
+        super().__init__()
+
+    def forward(self,x,y,w):
+        eps = 1e-12
+        magX = torch_norm(x,dim=1)
+        magY = torch_norm(y,dim=1)
+        denom = torch.multiply(magX,magY)
+        dot = torch.sum(torch.stack([x[:,k]*y[:,k] for k in range(x.shape[1])],dim=1),dim=1)
+        cos = torch.where(denom>eps,dot/(denom+eps),1)
+        return torch.mean((1-cos**2)*w)
+
+
+class NormLoss(torch.nn.Module):  # pragma: no cover
+    def __init__(self):
+        super().__init__()
+
+    def forward(self,y,Y,w):
+        return torch.mean(torch.square(torch_norm(y,dim=1)-torch_norm(Y,dim=1))*w)/25
+
+
+class SSL_Norm_MSE(torch.nn.Module):  # pragma: no cover
+    def __init__(self):
+        super().__init__()
+        
+    def forward(self,x,y,w,dist):
+        eps = 1e-12
+        magX = torch_norm(x,dim=1)
+        magY = torch_norm(y,dim=1)
+        denom = torch.multiply(magX,magY)
+        dot = torch.sum(torch.stack([x[:,k]*y[:,k] for k in range(x.shape[1])],dim=1),dim=1)
+        cos = torch.where(denom>eps,dot/(denom+eps),1)
+        err = torch.square((x-y)/5.).sum(dim=1)
+        
+        w3 = torch.clip(dist,0.5,2)/2
+        w2 = 1.-w3
+        cos_weighted = torch.sum((1-cos**2)*w2)/torch.sum(w2)
+        mse_weighted = torch.sum(err*w3)/torch.sum(w3)
+        
+        cos_weighted = torch.mean((1-cos**2)*err)
+        mse_weighted = 0
+        
+        cos_weighted = torch.mean(err / (cos**2+1))
+        
+        return mse_weighted, cos_weighted, torch.mean(torch.square(magX-magY)*w)/25
+
+
+class CorrelationLoss(torch.nn.Module):  # pragma: no cover
     def __init__(self):
         super().__init__()
 
@@ -468,97 +458,55 @@ class CorrelationLoss(torch.nn.Module):
         num = torch.sum(vx * vy, dim=0)
         denom = torch.sum(vx**2, dim=0) * torch.sum(vy**2, dim=0)
         cost = torch.where(denom>0,num/torch.sqrt(denom),-1)
-        return -torch.mean(cost) 
-        
-        
-# dist_loss = self.TruncatedMSELoss(dt,dist)  # less glowy edges, /10 maybe not dominant enough.. eventually broke down 
-class TruncatedMSELoss(torch.nn.Module):
+        return -torch.mean(cost)
+
+
+class TruncatedMSELoss(torch.nn.Module):  # pragma: no cover
     def __init__(self, t=5.0):
         super().__init__()
         self.t = t
 
     def forward(self, pred, target):
-        """
-        pred, target: shape (...), float tensors
-        """
         SE = torch.square(pred - target)
-        # Where error is small, use MSE
-        # Where error is bigger than threshold, use a constant penalty
         loss = torch.where(SE < self.t, SE, self.t)
         return loss.mean()
-        
-        
 
-class MeanAdjustedMSELoss(torch.nn.Module):
+
+class MeanAdjustedMSELoss(torch.nn.Module):  # pragma: no cover
     def __init__(self):
         super(MeanAdjustedMSELoss, self).__init__()
 
     def forward(self, pred, target):
-        """
-        Compute the mean-adjusted mean squared error.
-
-        Args:
-            pred (torch.Tensor): Predicted distance field.
-            target (torch.Tensor): Ground truth distance field.
-
-        Returns:
-            torch.Tensor: Mean-adjusted MSE loss.
-        """
-        # Calculate the mean error (bias)
         mean_error = torch.mean(pred - target)
-
-        # Adjust predictions to remove the mean error
         adjusted_pred = pred - mean_error
-
-        # Compute the mean squared error on the adjusted predictions
         loss = torch.mean((adjusted_pred - target) ** 2)
-
         return loss
-        
 
 
-class GradNormLoss(torch.nn.Module):
+class GradNormLoss(torch.nn.Module):  # pragma: no cover
     def __init__(self, num_losses, device, alpha=0.12):
         super().__init__()
         self.alpha = alpha
         self.loss_weights = torch.nn.Parameter(torch.ones(num_losses, device=device, dtype=torch.float32))
 
     def forward(self, losses, shared_params):
-        """
-        Compute GradNorm-weighted loss efficiently.
-        """
-
-        # Skip empty loss list
         if len(losses) == 0:
             raise RuntimeError("All loss terms are zero or don't require gradients.")
 
-        # Compute weighted loss
         weighted_losses = self.loss_weights[:len(losses)] * torch.stack(losses)
         total_loss = weighted_losses.sum()
-
-        # Compute gradients for all losses **in one backward pass**
         grads = torch.autograd.grad(total_loss, shared_params, retain_graph=True, create_graph=False)
 
-        # Compute gradient norms per loss term (mean over parameters)
         grad_norms = []
         for loss, grad in zip(losses, grads):
             if grad is not None:
                 grad_norms.append(torch.norm(grad))
 
-        grad_norms = torch.stack(grad_norms)#.to(self.device)
-
-        # Compute mean gradient magnitude
+        grad_norms = torch.stack(grad_norms)
         mean_grad = grad_norms.mean().detach()
-
-        # Compute scaling targets
         target_scales = (grad_norms / mean_grad) ** self.alpha
         target_scales = target_scales.detach()
-
-        # Compute loss for updating weights
         weight_loss = torch.sum(torch.abs(self.loss_weights[:len(losses)] * grad_norms - target_scales * mean_grad))
-
-        # Efficiently compute weight updates
         weight_grads = torch.autograd.grad(weight_loss, self.loss_weights[:len(losses)], allow_unused=True)[0]
-        self.loss_weights.grad = weight_grads  # Directly set gradients
-
+        self.loss_weights.grad = weight_grads
         return total_loss

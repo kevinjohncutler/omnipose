@@ -1,8 +1,9 @@
-from .imports import *
-
+import numpy as np
+import ncolor
 from skimage import color
-from ..utils.color import sinebow
+
 from ..transforms.normalize import rescale
+from ..utils.color import sinebow
 
 def channel_overlay(channels, color_indexes, colors=None, a=1, cmaps=None):
     """Overlay selected channels as colors onto the remaining channels as grayscale."""
@@ -48,29 +49,32 @@ def channel_overlay(channels, color_indexes, colors=None, a=1, cmaps=None):
     return rgb
 
 
-import ncolor
-def mask_outline_overlay(img,masks,outlines,mono=None):
+def mask_outline_overlay(img, masks, outlines, mono=None):
     """
     Apply a color overlay to a grayscale image based on a label matrix.
     mono is a single color to use. Otherwise, N sinebow colors are used. 
     """
     if mono is None:
-        m,n = ncolor.label(masks,max_depth=20,return_n=True)
+        m, n = ncolor.label(masks, max_depth=20, return_n=True)
         c = sinebow(n)
         colors = np.array(list(c.values()))[1:]
     else:
         colors = mono
-        m = masks>0
+        m = masks > 0
     if img.ndim == 3:
         im = rescale(color.rgb2gray(img))
     else:
         im = img
-    overlay = color.label2rgb(m,im,colors,
-                              bg_label=0,
-                              alpha=np.stack([((m>0)*1.+outlines*0.75)/3]*3,axis=-1))
+    overlay = color.label2rgb(
+        m,
+        im,
+        colors,
+        bg_label=0,
+        alpha=np.stack([((m > 0) * 1.0 + outlines * 0.75) / 3] * 3, axis=-1),
+    )
     return overlay
 
-def mono_mask_bd(masks,outlines,color=[1,0,0],a=0.25):
-    m = masks>0
-    alpha = (m>0)*a+outlines*(1-a)
-    return np.stack([m*c for c in color]+[alpha],axis=-1)
+def mono_mask_bd(masks, outlines, color=[1, 0, 0], a=0.25):
+    m = masks > 0
+    alpha = (m > 0) * a + outlines * (1 - a)
+    return np.stack([m * c for c in color] + [alpha], axis=-1)

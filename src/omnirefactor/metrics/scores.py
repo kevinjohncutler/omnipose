@@ -22,7 +22,7 @@ def mask_ious(masks_true, masks_pred):
 
 def boundary_scores(masks_true, masks_pred, scales):
     """ boundary precision / recall / Fscore """
-    diams = [core.diameter_utils.diameters(lbl) for lbl in masks_true]
+    diams = [core.diam.diameters(lbl) for lbl in masks_true]
     precision = np.zeros((len(scales), len(masks_true)))
     recall = np.zeros((len(scales), len(masks_true)))
     fscore = np.zeros((len(scales), len(masks_true)))

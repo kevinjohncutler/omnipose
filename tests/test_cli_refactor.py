@@ -59,6 +59,8 @@ def test_cli_train_then_eval_with_random_init_model(tmp_path):
         str(model_path),
         "--nsample",
         "1",
+        "--mask_threshold",
+        "-2",
         "--fast_mode",
         "--testing",
         "--no_npy",

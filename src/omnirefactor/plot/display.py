@@ -3,7 +3,6 @@ import os
 import numpy as np
 
 from .defaults import figure
-from ..transforms.normalize import rescale
 
 
 def set_outline(ax, outline_color=None, outline_width=0):
@@ -245,13 +244,12 @@ def show_segmentation(fig, img, maski, flowi, bdi=None, channels=None, file_name
     """Plot segmentation results."""
     from .. import io, transforms, utils
     try:
-        from skimage import color as skcolor
+        from skimage import color as _skcolor  # noqa: F401
         skimage_enabled = True
     except Exception:
         skimage_enabled = False
-    import ncolor
-    from ..utils.color import sinebow
     from .colorize import colorize
+    from .overlay import mask_outline_overlay
 
     if fig is None:
         fig, ax = figure(figsize=figsize, dpi=dpi)
@@ -268,7 +266,7 @@ def show_segmentation(fig, img, maski, flowi, bdi=None, channels=None, file_name
         if img0.shape[0] == 3 and channel_axis != -1:
             img0 = np.transpose(img0, (1, 2, 0))
         if img0.shape[channel_axis] != 3:
-            img0 = transforms.move_axis_new(img0, channel_axis, 0)
+            img0 = transforms.move_axis(img0, channel_axis, "first")
             img0 = colorize(img0, colors=img_colors)
 
     img0 = (transforms.normalize99(img0, omni=omni) * (2**8 - 1)).astype(np.uint8)
@@ -286,16 +284,7 @@ def show_segmentation(fig, img, maski, flowi, bdi=None, channels=None, file_name
         img1 = img0
 
     if omni and skimage_enabled:
-        m, n = ncolor.label(maski, max_depth=20, return_n=True) if np.any(maski) else (maski, 1)
-        clrs = np.array(list(sinebow(n).values()))[1:]
-        img1 = rescale(skcolor.rgb2gray(img1))
-        overlay = skcolor.label2rgb(
-            m,
-            img1,
-            clrs,
-            bg_label=0,
-            alpha=np.stack([((m > 0) * 1.0 + outlines * 0.75) / 3] * 3, axis=-1),
-        )
+        overlay = mask_outline_overlay(img1, maski, outlines)
     else:
         overlay = mask_overlay(img0, maski)
 

@@ -1,6 +1,6 @@
 from asyncio.log import logger
 from ..logger import TqdmToLogger
-import os, sys, time, shutil, tempfile, datetime, pathlib, subprocess
+import os, sys, time, shutil, tempfile, datetime, pathlib
 import logging
 import numpy as np
 from tqdm import trange, tqdm
@@ -109,27 +109,3 @@ def assign_device(gpu=True, gpu_number=None):
         device = torch_CPU
     return device, gpu_available
     
-
-def check_mkl(use_torch=True):
-    #core_logger.info('Running test snippet to check if MKL-DNN working')
-    if use_torch:
-        mkl_enabled = torch.backends.mkldnn.is_available()
-    else:
-        process = subprocess.Popen(['python', 'test_mkl.py'],
-                                    stdout=subprocess.PIPE, stderr=subprocess.PIPE, 
-                                    cwd=os.path.dirname(os.path.abspath(__file__)))
-        stdout, stderr = process.communicate()
-        if len(stdout)>0:
-            mkl_enabled = True
-        else:
-            mkl_enabled = False
-    if mkl_enabled:
-        mkl_enabled = True
-        #core_logger.info('MKL version working - CPU version is sped up.')
-    elif not use_torch:
-        core_logger.info('WARNING: MKL version on mxnet not working/installed - CPU version will be SLOW.')
-        core_logger.info('see https://mxnet.apache.org/versions/1.6/api/python/docs/tutorials/performance/backend/mkldnn/mkldnn_readme.html#4)')
-    else:
-        core_logger.info('WARNING: MKL version on torch not working/installed - CPU version will be slightly slower.')
-        core_logger.info('see https://pytorch.org/docs/stable/backends.html?highlight=mkl')
-    return mkl_enabled

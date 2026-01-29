@@ -124,7 +124,6 @@ class OmniModel:
 
         # initialize network (inlined from former OmniModelCore)
         self.unet = True
-        self.mkldnn = self.mkldnn if self.mkldnn is not None else False
         self.gpu = gpu
         if device is None:
             self.device, gpu_available = assign_device(self.gpu)
@@ -139,7 +138,6 @@ class OmniModel:
         net_kwargs["residual_on"] = residual_on
         net_kwargs["style_on"] = style_on
         net_kwargs["concatenation"] = concatenation
-        net_kwargs["mkldnn"] = self.mkldnn
         self.net = UnetND(self.nbase, self.nclasses, **net_kwargs).to(self.device)
         models_logger.info(f'u-net config: {self.nbase, self.nclasses, self.dim}')
 

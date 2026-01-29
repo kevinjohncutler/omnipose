@@ -7,7 +7,7 @@ from scipy.ndimage import affine_transform, gaussian_filter
 
 from .. import utils
 from ..transforms.normalize import normalize99, rescale
-from ..core.diameter_utils import diameters
+from ..core.diam import diameters
 from ..core.njit import most_frequent
 
 try:

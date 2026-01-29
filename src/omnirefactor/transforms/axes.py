@@ -1,32 +1,19 @@
 
-def move_axis(img, m_axis=-1, first=True):
-    """ move axis m_axis to first or last position """
-    if m_axis==-1:
-        m_axis = img.ndim-1
-    m_axis = min(img.ndim-1, m_axis)
-    axes = np.arange(0, img.ndim)
-    if first:
-        axes[1:m_axis+1] = axes[:m_axis]
-        axes[0] = m_axis
-    else:
-        axes[m_axis:-1] = axes[m_axis+1:]
-        axes[-1] = m_axis
-    img = img.transpose(tuple(axes))
-    return img
+import numpy as np
 
-# more flexible replacement 
-def move_axis_new(a, axis, pos):
+def move_axis(img, axis=-1, pos="last"):
     """Move ndarray axis to new location, preserving order of other axes."""
-    # Get the current shape of the array
-    shape = a.shape
-    
-    # Create the permutation order for numpy.transpose()
-    perm = list(range(len(shape)))
+    if axis == -1:
+        axis = img.ndim - 1
+    axis = min(img.ndim - 1, axis)
+    if pos in ("first", 0):
+        pos = 0
+    elif pos in ("last", -1):
+        pos = img.ndim - 1
+    perm = list(range(img.ndim))
     perm.pop(axis)
     perm.insert(pos, axis)
-    
-    # Transpose the array based on the permutation order
-    return np.transpose(a, perm)
+    return np.transpose(img, perm)
 
 # This was edited to fix a bug where single-channel images of shape (y,x) would be 
 # transposed to (x,y) if x<y, making the labels no longer correspond to the data. 
@@ -39,10 +26,11 @@ def move_min_dim(img, force=False):
                 channel_axis = -1
             else:
                 channel_axis = (img.shape).index(min_dim)
-            img = move_axis(img, m_axis=channel_axis, first=False)
+            img = move_axis(img, axis=channel_axis, pos="last")
     return img
 
 def update_axis(m_axis, to_squeeze, ndim):
+    """Update an axis index after squeezing singleton dimensions."""
     if m_axis==-1:
         m_axis = ndim-1
     if (to_squeeze==m_axis).sum() == 1:
@@ -56,4 +44,3 @@ def update_axis(m_axis, to_squeeze, ndim):
         else:
             m_axis = None
     return m_axis
-import numpy as np

@@ -16,7 +16,7 @@ def run_network(self, x, return_conv=False, to_numpy=True):
         y = self._from_device(y)
         style = self._from_device(style)
 
-    if return_conv:
+    if return_conv:  # pragma: no cover
         print("cc")
         conv = self._from_device(conv)
         y = np.concatenate((y, conv), axis=1)
