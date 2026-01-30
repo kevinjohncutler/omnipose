@@ -9,7 +9,8 @@ def eval(self, x, batch_size=8, indices=None, channels=None, channel_axis=None,
          z_axis=None, normalize=True, invert=False,
          rescale_factor=None, diameter=None, do_3D=False, anisotropy=None, net_avg=True,
          augment=False, tile=False, tile_overlap=0.1, bsize=224, num_workers=8,
-         loader_batch_size=1, # for torch dataloader
+         loader_batch_size=1, # for torch dataloader (also used as max_batch_size for iter_batches)
+         batch_mode='auto',  # for iter_batches: 'auto', 'group', 'pad', 'single'
          resample=True, progress=None, show_progress=True,
          omni=True, calc_trace=False, verbose=False, transparency=False,
          loop_run=False, model_loaded=False, hysteresis=True, **kwargs):
@@ -194,52 +195,37 @@ def eval(self, x, batch_size=8, indices=None, channels=None, channel_axis=None,
     if verbose and (is_dataset or not (is_list or is_stack)):
         models_logger.info('Evaluating with flow_threshold %0.2f, mask_threshold %0.2f'%(flow_threshold, mask_threshold))
         if omni:
-            models_logger.info(f'using omni model, cluster {cluster}')
+            models_logger.info(f'using omni model, cluster {mask_kwargs.get("cluster", False)}')
 
     
-    # Note: dataset is finetuned for basic omnipose usage. No styles are returned, some options may not be supported. 
+    # Note: dataset is finetuned for basic omnipose usage. No styles are returned, some options may not be supported.
     if is_dataset:
-    
+
         if verbose:
             models_logger.warning('Using dataset evaluation branch. Some options not yet supported.')
-            
+
         # set the tile parameter in dataset
         x.tile = tile
-        
+
         # set the rescale parameter in dataset
         x.rescale_factor = 1.0 if rescale_factor is None else rescale_factor
         # avoid double normalization; handled in this eval branch
         x.normalize = False
         x.invert = False
-    
+
+        # Configure batch mode for iter_batches()
+        x.batch_mode = x._resolve_batch_mode(batch_mode)
+        x.max_batch_size = loader_batch_size
+        x._build_batch_plan()
+
         # sample indices to evaluate
         indices = list(range(len(x))) if indices is None else indices
 
-        # the sequential batch sampler gives us a set of indices in sequence, like 0-5, 6-11, etc. 
-        sampler = torch.utils.data.sampler.BatchSampler(data.sampler(indices),
-                                                        batch_size=loader_batch_size,
-                                                        drop_last=False) 
-
-        params = {'batch_size': 1, # this batch size is more like how many worker batches to aggregate 
-                #   'shuffle': False, # use sampler instead
-                  'collate_fn': x.collate_fn,
-                  'pin_memory': False, # only useful for CPU tensors
-                  'num_workers': num_workers, 
-                  'sampler': sampler,# iterabledataset does not need this 
-                  'persistent_workers': True if num_workers>0 else False,
-                #   'multiprocessing_context': 'spawn' if num_workers>0 else None, # consider 'forkserver'
-                  'multiprocessing_context': 'fork' if num_workers>0 else None, 
-                
-                  'prefetch_factor': batch_size if num_workers>0 else None
-                 }
-
-        loader = torch.utils.data.DataLoader(x, **params)
         dist, dP, bd, masks, bounds, p, tr, affinity, flow_RGB = [], [], [], [], [], [], [], [], []
 
-        # I think the loader can at least do all the preprocessing work it will take to figure out
-        # padding and stitching and slicing 
-        progress_bar = tqdm(total=len(indices),disable=not show_progress) 
-        for batch,inds,subs in loader:   
+        # Use new iter_batches() approach for shape-aware batching
+        progress_bar = tqdm(total=len(indices), disable=not show_progress)
+        for batch, inds, subs in x.iter_batches():
             batch = batch.float()
             if normalize or invert:
                 batch_np = batch.numpy()
@@ -249,176 +235,124 @@ def eval(self, x, batch_size=8, indices=None, channels=None, channel_axis=None,
                 batch_np = batch_np.transpose(0, 3, 1, 2)
                 batch = torch.from_numpy(batch_np)
 
-            batch = batch.to(self.device) # move to GPU
-                     
+            batch = batch.to(self.device)  # move to GPU
+
             shape = batch.shape
             nimg = batch.shape[0]
             nchan = batch.shape[1]
-            shape = batch.shape[-(self.dim+1):] # nclasses, Y, X
-            resize = shape[-self.dim:] if not resample else None 
-                            
-            # define the slice needed to get rid of padding required for net downsamples 
-            slc = [slice(0, s+1) for s in shape]
-            slc[-(self.dim+1)] = slice(0, self.nclasses + 1) 
-            for k in range(1,self.dim+1):
-                slc[-k] = slice(subs[-k][0], subs[-k][-1]+1)
-            slc = tuple(slc)
 
-            # catch cases where the images are 1-channel
-            # but the model is 2 channel
-            # if self.nchan-nchan:
-            #     print('padding with extra chan dd',batch)
-            #     batch = torch.cat([batch,torch.zeros_like(batch)],dim=1)#.permute(0,2,3,1)
-            #     print('now',batch)
-                
-                # batch = torch.cat([batch,batch],dim=1)
-                # batch = torch.cat([torch.zeros_like(batch),batch],dim=1)
-   
-            # run the network on the batch 
-            # yf, style = self.run_network(batch)
-            
-            with torch.no_grad(): # this should also be in self.run_network, redundant?
-                # self.net.eval() # was missing this - some layers behave differently without it 
-                # actually, self.run_network should have it now
+            # Pad channels if model expects more than we have (e.g., grayscale input, 2-channel model)
+            if self.nchan > nchan:
+                pad_shape = (nimg, self.nchan - nchan) + tuple(batch.shape[2:])
+                batch = torch.cat([batch, torch.zeros(pad_shape, device=self.device, dtype=batch.dtype)], dim=1)
+                nchan = self.nchan
 
+            shape = batch.shape[-(self.dim+1):]  # nclasses, Y, X
+            resize = shape[-self.dim:] if not resample else None
+
+            # run the network on the batch
+            with torch.no_grad():
                 if tile:
                     yf = x._run_tiled(batch, self,
                                       batch_size=batch_size,
                                       bsize=bsize,
                                       augment=augment,
-                                      tile_overlap=tile_overlap)#.unsqueeze(0)
+                                      tile_overlap=tile_overlap)
                 else:
-                    yf = self.run_network(batch,to_numpy=False)[0]
-                    # yf = self.net(batch)[0] go back to this if error 
+                    yf = self.run_network(batch, to_numpy=False)[0]
 
-                    
                 del batch
-                # print('need to add normalization / invert /rescale options in dataloader')
-  
 
-  
-            # slice out padding
-            yf = yf[(Ellipsis,)+slc]
-            
-            # rescale and resample
-            if resample and rescale_factor not in [None, 1.0, 0]:
+            # Extract each image using its per-image subs (handles different sizes in 'pad' mode)
+            # subs is a list of [slice_y, slice_x] or similar for each image in batch
+            yf_list = []
+            for i in range(nimg):
+                img_subs = subs[i]  # List of slice objects for this image
+                # Build the slice tuple: (all_classes, spatial_slices...)
+                slc = [slice(None, self.nclasses)]  # Keep all output classes
+                slc.extend(img_subs)  # Add spatial slices
+                yf_i = yf[i][tuple(slc)]
+                yf_list.append(yf_i)
+
+            # Stack back if all same shape, otherwise process individually
+            # For 'group' and 'single' modes, all should be same shape
+            # For 'pad' mode, they may differ
+            try:
+                yf = torch.stack(yf_list, dim=0)
+            except RuntimeError:
+                # Different shapes - will process individually below
+                pass
+
+            # rescale and resample (only if stacked)
+            if isinstance(yf, torch.Tensor) and resample and rescale_factor not in [None, 1.0, 0]:
                 yf = torch_zoom(yf, 1 / rescale_factor)
+                yf_list = [yf[i] for i in range(yf.shape[0])]
+            elif resample and rescale_factor not in [None, 1.0, 0]:
+                yf_list = [torch_zoom(yf_i.unsqueeze(0), 1 / rescale_factor).squeeze(0) for yf_i in yf_list]
 
-            # compared to the usual per-image pipeline, this one will not support cellpose or u-net 
-            flow_pred = yf[:,:self.dim]
-            dist_pred = yf[:,self.dim] #scalar field always after the vector field output    
-            # might need to invert the log trasnformatiion here 
-            
-            
-            if self.nclasses>=self.dim+2:
-                bd_pred = yf[:,self.dim+1]
-                bd_list = self._from_device(bd_pred)
-            else:
-                bd_pred = None
-                bd_list = [None] * nimg
-            
-            # clear from memory
-            del yf 
+            # Process each image in the batch
+            for i in range(nimg):
+                yf_i = yf_list[i] if isinstance(yf_list, list) else yf[i]
 
-            
-            # I made a vastly faster implementation using pytorch
-            rgb = plot.rgb_flow(flow_pred, transparency=transparency) 
+                # compared to the usual per-image pipeline, this one will not support cellpose or u-net
+                flow_pred_i = yf_i[:self.dim]
+                dist_pred_i = yf_i[self.dim]  # scalar field always after the vector field output
 
-            # I implemented hysteresis with just pytorch
-            # it is faster than skimage with larger batches, but not by much
-            # it does better in thin sections, however (though might be broken skeleton fragments)
-            # I might just replace the main branch code with this
-            if hysteresis:
-                foreground = hysteresis_threshold(dist_pred.unsqueeze(1),mask_threshold-1, mask_threshold).squeeze(dim=1)
-            else:
-                foreground = dist_pred >= mask_threshold
-                # print('add flag')
-            
-            # print('fg_here',torch.sum(foreground))
+                if self.nclasses >= self.dim + 2:
+                    bd_pred_i = yf_i[self.dim + 1]
+                    bd_i = self._from_device(bd_pred_i.unsqueeze(0))[0]
+                else:
+                    bd_i = None
 
-            # vf = interp_vf(flow_pred/5., mode = "nearest_batched")
-            # initial_points = init_values_semantic(foreground, device=self.device)
-            
-            shape = flow_pred.shape
-            B = shape[0]
-            dims = shape[-self.dim:]
+                # RGB flow visualization
+                rgb_i = plot.rgb_flow(flow_pred_i.unsqueeze(0), transparency=transparency)
 
-            coords = [torch.arange(0, l, device = self.device) for l in dims]
-            mesh = torch.meshgrid(coords, indexing = "ij")
-            init_shape = [B, 1] + ([1] * len(dims))
-            initial_points = torch.stack(mesh, dim = 0) # torchvf flips with mesh[::-1]
-            initial_points = initial_points.repeat(init_shape).float()
+                # hysteresis thresholding
+                if hysteresis:
+                    foreground = hysteresis_threshold(dist_pred_i.unsqueeze(0).unsqueeze(0),
+                                                      mask_threshold - 1, mask_threshold).squeeze()
+                else:
+                    foreground = dist_pred_i >= mask_threshold
 
-            # final_points = ivp_solver(vf,initial_points, 
-            #                         dx = 1,
-            #                         n_steps = 8,
-            #                         solver = "euler")[-1] 
+                # add to output lists
+                dP.append(self._from_device(flow_pred_i.unsqueeze(0))[0])
+                dist.append(self._from_device(dist_pred_i.unsqueeze(0))[0])
+                bd.append(bd_i)
+                flow_RGB.append(self._from_device(rgb_i)[0])
 
-            # these three are equivalent 
-            coords = torch.nonzero(foreground,as_tuple=True)
-            # coords = custom_nonzero_cuda(foreground.squeeze())
-            # coords = torch.where(foreground.squeeze())
-
-            # this block works
-
-            # # Assuming foreground is a boolean tensor of shape (B, D1, D2, ..., DN)
-            # fg = foreground.squeeze()  # Now fg has shape (B, D1, D2, ..., DN)
-
-            # # Create a grid of indices
-            # grids = torch.meshgrid([torch.arange(size, device=fg.device) for size in fg.shape])
-
-            # # Stack the grids to create an index mesh
-            # index_mesh = torch.stack(grids, dim=0)  # Now index_mesh has shape (N+1, B, D1, D2, ..., DN)
-
-            # # Move index_mesh to the same device as foreground
-            # index_mesh = index_mesh.to(fg.device)
-
-            # # Use the boolean tensor to index into the index mesh
-            # selected_indices = index_mesh[:, fg]
-            # coords = tuple(selected_indices)
-
-
-            # fg = foreground.squeeze()  # Now fg has shape (B, D1, D2, ..., DN)
-
-            # # Create a grid of indices
-            # grids = torch.meshgrid([torch.arange(size, device=fg.device) for size in fg.shape])
-
-            # # Reshape each grid to have shape (-1)
-            # reshaped_grids = [grid.reshape(-1) for grid in grids]
-
-            # # Convert the reshaped grids to a tuple of indices
-            # selected_indices = tuple(reshaped_grids)
-
-            # # print(len(reshaped_grids),reshaped_grids[0].shape,reshaped_grids)
-
-            # coords = tuple(selected_indices)
-            
-
-            
-            # add to output lists 
-            dP.extend(self._from_device(flow_pred))
-            dist.extend(self._from_device(dist_pred))
-            bd.extend(bd_list)
-            flow_RGB.extend(self._from_device(rgb))
-            # run compute_masks for each item to match non-dataset evaluation
-            flow_pred = self._from_device(flow_pred)
-            dist_pred = self._from_device(dist_pred)
-            rgb = self._from_device(rgb)
-
-            mask_base = dict(mask_kwargs)
-            for key in ("bd", "p", "coords", "iscell", "affinity_graph"):
-                mask_base.pop(key, None)
-            if rescale_factor is None:
-                mask_base["rescale_factor"] = 1.0
-            mask_base.update({
-                "use_gpu": self.gpu,
-                "device": self.device,
-                "nclasses": self.nclasses,
-                "dim": self.dim,
-            })
-            for dPi, disti, bdi in zip(flow_pred, dist_pred, bd_list):
-                mask_base["bd"] = bdi
-                outputs = core.compute_masks(dPi, disti, **mask_base)
+                # run compute_masks
+                mask_base = dict(mask_kwargs)
+                for key in ("bd", "p", "coords", "iscell", "affinity_graph"):
+                    mask_base.pop(key, None)
+                if rescale_factor is None:
+                    mask_base["rescale_factor"] = 1.0
+                # Add defaults that run_batch provides but aren't in eval signature.
+                # These must match the run_batch defaults for parity.
+                # NOTE: setdefault() only sets a value when the key is MISSING.
+                # It does NOT override existing keys with None values. For params
+                # that may be explicitly None in mask_kwargs, use explicit checks.
+                if mask_base.get("min_size") is None:
+                    mask_base["min_size"] = 15
+                if mask_base.get("flow_factor") is None:
+                    mask_base["flow_factor"] = 5.0
+                mask_base.setdefault("max_size", None)
+                mask_base.setdefault("interp", True)
+                mask_base.setdefault("cluster", False)
+                mask_base.setdefault("suppress", None)
+                mask_base.setdefault("affinity_seg", False)
+                mask_base.setdefault("despur", False)
+                mask_base.update({
+                    "use_gpu": self.gpu,
+                    "device": self.device,
+                    "nclasses": self.nclasses,
+                    "dim": self.dim,
+                    "bd": bd_i,
+                })
+                outputs = core.compute_masks(
+                    self._from_device(flow_pred_i.unsqueeze(0))[0],
+                    self._from_device(dist_pred_i.unsqueeze(0))[0],
+                    **mask_base
+                )
                 masks.append(outputs[0])
                 p.append(outputs[1])
                 tr.append(outputs[2])
@@ -427,8 +361,9 @@ def eval(self, x, batch_size=8, indices=None, channels=None, channel_axis=None,
 
                 progress_bar.update()
                 empty_cache()
-        
-        
+
+            del yf_list
+
         masks = np.array(masks)
         bounds = np.array(bounds)
         p = np.array(p)

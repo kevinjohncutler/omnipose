@@ -197,11 +197,6 @@ def _run_training(args) -> None:
     if args.batch_size is not None and args.batch_size < 2:
         logger.warning("Batch size %s is too small; using 2 instead.", args.batch_size)
         args.batch_size = 2
-    if args.train_size:
-        raise NotImplementedError("Size model training is not implemented in omnirefactor.")
-    if args.unet:
-        raise NotImplementedError("UNet training is not implemented in omnirefactor.")
-
     device, _gpu_available = models.assign_device(args.use_gpu, args.gpu_number)
     norm_type = "batch"
 
@@ -211,7 +206,6 @@ def _run_training(args) -> None:
         test_dir=test_dir,
         image_filter=args.img_filter,
         mask_filter=args.mask_filter,
-        unet=args.unet,
         look_one_level_down=args.look_one_level_down,
         omni=args.omni,
         do_links=args.links,
@@ -284,7 +278,7 @@ def main(argv: list[str] | None = None) -> None:
             torch.backends.cudnn.deterministic = True
             torch.backends.cudnn.benchmark = False
             torch.backends.cudnn.enabled = False
-    if args.train or args.train_size:
+    if args.train:
         _run_training(args)
     else:
         _run_evaluation(args)

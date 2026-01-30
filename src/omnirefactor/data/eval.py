@@ -1,13 +1,15 @@
 import os
 import time
 import multiprocessing as mp
+from collections import defaultdict
 
 import torch
 import numpy as np
 from aicsimageio import AICSImage
 
-from ..transforms import normalize99, unaugment_tiles_ND, average_tiles_ND, make_tiles_ND
-from ..transforms import torch_zoom
+from ..transforms.normalize import normalize99
+from ..transforms.tiles import unaugment_tiles_ND, average_tiles_ND, make_tiles_ND
+from ..transforms.zoom import torch_zoom
 
 
 class eval_loader(torch.utils.data.DataLoader):
@@ -36,6 +38,17 @@ class sampler(torch.utils.data.Sampler):
 
 
 class eval_set(torch.utils.data.Dataset):
+    """Unified evaluation dataset with shape-aware batching.
+
+    Supports three batch modes for handling images of different shapes:
+    - 'group': Group images by shape, batch within groups (most efficient for mixed datasets)
+    - 'pad': Pad all images to common shape (simpler, may waste memory)
+    - 'single': Process one image at a time (fallback, no batching)
+    - 'auto': Automatically choose best mode based on shape variance
+
+    For uniform-shape datasets, all modes produce identical outputs.
+    """
+
     def __init__(self, data, dim,
                  channel_axis=None,
                  device=torch.device('cpu'),
@@ -49,7 +62,33 @@ class eval_set(torch.utils.data.Dataset):
                  projection=None,
                  tile=False,
                  aics_args=None,
-                 contrast_limits=None):
+                 contrast_limits=None,
+                 # New batch mode parameters
+                 batch_mode='auto',
+                 max_batch_size=8,
+                 min_batch_size=1):
+        """
+        Parameters
+        ----------
+        data : array, list, or AICSImage
+            Input images. Can be:
+            - numpy array (stack of images)
+            - list of numpy arrays (can have different shapes)
+            - list of file paths
+            - AICSImage object
+        dim : int
+            Spatial dimensionality (2 or 3)
+        batch_mode : str, optional
+            How to handle images of different shapes:
+            - 'auto': Choose based on shape variance (default)
+            - 'group': Group same-shape images for batching
+            - 'pad': Pad all to common shape
+            - 'single': Process one at a time
+        max_batch_size : int, optional
+            Maximum images per batch (default: 8)
+        min_batch_size : int, optional
+            Minimum images to form a batch in 'group' mode (default: 1)
+        """
         self.data = data
         self.dim = dim
         self.channel_axis = channel_axis
@@ -73,8 +112,167 @@ class eval_set(torch.utils.data.Dataset):
         self.tile = tile
         self.contrast_limits = contrast_limits
 
+        # Batch mode parameters
+        self.max_batch_size = max_batch_size
+        self.min_batch_size = min_batch_size
+
+        # Analyze shapes and set batch mode
+        self._analyze_shapes()
+        self.batch_mode = self._resolve_batch_mode(batch_mode)
+
+        # Build batch plan based on mode
+        self._build_batch_plan()
+
+    def _analyze_shapes(self):
+        """Analyze spatial shapes of all images to plan batching."""
+        self._shapes = []
+        self._shape_groups = defaultdict(list)
+
+        n = len(self.data) if hasattr(self.data, '__len__') else 1
+
+        for idx in range(n):
+            shape = self._get_spatial_shape(idx)
+            self._shapes.append(shape)
+            self._shape_groups[shape].append(idx)
+
+    def _get_spatial_shape(self, idx):
+        """Get the spatial shape of image at index (after rescaling)."""
+        if self.stack:
+            img = self.data[idx]
+        elif self.list:
+            if self.files:
+                # For files, we need to peek at the shape
+                # This is expensive, so we might want to cache this
+                img = AICSImage(self.data[idx]).get_image_data("YX", out_of_memory=True).squeeze()
+            else:
+                img = self.data[idx]
+        elif self.aics:
+            kwargs = self.aics_args.copy()
+            slice_dim = kwargs.pop('slice_dim')
+            kwargs[slice_dim] = [idx]
+            img = self.data.get_image_data(**kwargs).squeeze()
+        else:
+            img = self.data
+
+        # Get spatial dimensions (last dim dimensions)
+        if hasattr(img, 'shape'):
+            shape = img.shape[-self.dim:]
+        else:
+            shape = np.array(img).shape[-self.dim:]
+
+        # Account for rescaling
+        if self.rescale_factor is not None and self.rescale_factor != 1.0:
+            shape = tuple(int(s * self.rescale_factor) for s in shape)
+
+        return shape
+
+    def _resolve_batch_mode(self, mode):
+        """Resolve 'auto' batch mode to concrete mode."""
+        if mode != 'auto':
+            return mode
+
+        n_shapes = len(self._shape_groups)
+        n_images = len(self._shapes)
+
+        if n_images == 1:
+            return 'single'
+        elif n_shapes == 1:
+            # All same shape - group is most efficient
+            return 'group'
+        elif n_shapes <= 5:
+            # Few distinct shapes - grouping works well
+            return 'group'
+        else:
+            # Many different shapes - padding may be more efficient
+            return 'pad'
+
+    def _build_batch_plan(self):
+        """Build the batch plan based on batch mode."""
+        self._batches = []  # Initialize batches list
+
+        if self.batch_mode == 'single':
+            self._build_single_plan()
+        elif self.batch_mode == 'group':
+            self._build_grouped_plan()
+        elif self.batch_mode == 'pad':
+            self._build_padded_plan()
+        else:
+            raise ValueError(f"Unknown batch_mode: {self.batch_mode}")
+
+    def _build_single_plan(self):
+        """Build batch plan for single-image processing."""
+        # Each image is its own batch
+        for idx in range(len(self._shapes)):
+            shape = self._shapes[idx]
+            pad_shape = self._compute_pad_shape(shape)
+            self._batches.append(([idx], shape, pad_shape))
+
+    def _build_grouped_plan(self):
+        """Build batch plan by grouping same-shape images."""
+        overflow = []
+
+        for shape, indices in self._shape_groups.items():
+            pad_shape = self._compute_pad_shape(shape)
+
+            # Split into chunks of max_batch_size
+            for i in range(0, len(indices), self.max_batch_size):
+                batch_indices = indices[i:i + self.max_batch_size]
+                if len(batch_indices) >= self.min_batch_size:
+                    self._batches.append((batch_indices, shape, pad_shape))
+                else:
+                    # Small groups go to overflow
+                    overflow.extend(batch_indices)
+
+        # Handle overflow by processing individually
+        for idx in overflow:
+            shape = self._shapes[idx]
+            pad_shape = self._compute_pad_shape(shape)
+            self._batches.append(([idx], shape, pad_shape))
+
+    def _build_padded_plan(self):
+        """Build batch plan with all images padded to common shape."""
+        # Find maximum shape across all images
+        max_shape = tuple(
+            max(s[i] for s in self._shapes)
+            for i in range(self.dim)
+        )
+        common_pad_shape = self._compute_pad_shape(max_shape)
+
+        # All images go in sequential batches, padded to common shape
+        all_indices = list(range(len(self._shapes)))
+        for i in range(0, len(all_indices), self.max_batch_size):
+            batch_indices = all_indices[i:i + self.max_batch_size]
+            # None for orig_shape indicates mixed shapes in batch
+            self._batches.append((batch_indices, None, common_pad_shape))
+
+    def _compute_pad_shape(self, shape):
+        """Compute padded shape for network (16-divisible + extra_pad)."""
+        div = 16
+        extra = self.extra_pad
+        pad_shape = tuple(
+            int(div * np.ceil(s / div)) + extra * div
+            for s in shape
+        )
+        return pad_shape
+
+    @property
+    def n_batches(self):
+        """Number of batches in the current plan."""
+        return len(self._batches)
+
+    @property
+    def shape_info(self):
+        """Summary of shape distribution."""
+        return {
+            'n_images': len(self._shapes),
+            'n_unique_shapes': len(self._shape_groups),
+            'batch_mode': self.batch_mode,
+            'n_batches': self.n_batches,
+            'shapes': dict(self._shape_groups),
+        }
+
     def __iter__(self):
-        worker_info = mp.get_worker_info()
+        worker_info = torch.utils.data.get_worker_info()
 
         if worker_info is None:
             start = 0
@@ -148,7 +346,10 @@ class eval_set(torch.utils.data.Dataset):
             imgs = torch_zoom(imgs, self.rescale_factor, mode=self.interp_mode)
 
         if no_pad:
-            return imgs.squeeze()
+            # Squeeze only the batch dimension (if singleton), keep channel dimension
+            if imgs.shape[0] == 1:
+                return imgs.squeeze(0)  # (1, C, *spatial) -> (C, *spatial)
+            return imgs  # (B, C, *spatial)
         else:
             shape = imgs.shape[-self.dim:]
             div = 16
@@ -209,5 +410,126 @@ class eval_set(torch.utils.data.Dataset):
 
         return batch_imgs.float(), batch_inds, batch_subs
 
+    def collate_fn_batched(self, batch_data):
+        """Collate function for batch-mode iteration.
+
+        Handles padding images to common shape within a batch when needed.
+        """
+        # batch_data is a list of (batch_imgs, batch_inds, batch_subs) tuples
+        # from workers processing different batches
+
+        all_imgs = []
+        all_inds = []
+        all_subs = []
+
+        for imgs, inds, subs in batch_data:
+            if isinstance(imgs, torch.Tensor):
+                all_imgs.append(imgs)
+            else:
+                all_imgs.extend(imgs)
+            all_inds.extend(inds if isinstance(inds, list) else [inds])
+            all_subs.extend(subs if isinstance(subs[0], (list, np.ndarray)) else [subs])
+
+        # Stack if all same shape, otherwise they should already be padded
+        if all(img.shape == all_imgs[0].shape for img in all_imgs):
+            batch_imgs = torch.stack(all_imgs, dim=0) if all_imgs[0].dim() == self.dim + 1 else torch.cat(all_imgs, dim=0)
+        else:
+            batch_imgs = torch.cat(all_imgs, dim=0)
+
+        return batch_imgs.float(), all_inds, all_subs
+
+    def get_batch(self, batch_idx):
+        """Get a specific batch by index.
+
+        Returns
+        -------
+        batch_imgs : torch.Tensor
+            Batch of images, shape (N, C, *spatial)
+        batch_inds : list
+            Original image indices in this batch
+        batch_subs : list
+            Subscript slices to extract original region from each image
+        """
+        indices, orig_shape, target_shape = self._batches[batch_idx]
+
+        batch_imgs = []
+        batch_subs = []
+
+        for idx in indices:
+            # Get preprocessed image (no_pad=True returns just the tensor)
+            img = self.__getitem__([idx], no_pad=True, no_rescale=False)
+
+            # Handle shape: should be (B, C, *spatial) -> (C, *spatial)
+            if img.dim() > self.dim + 1:
+                img = img.squeeze(0)
+
+            # Pad to target shape for this batch
+            img_padded, subs = self._pad_to_target(img, target_shape)
+            batch_imgs.append(img_padded)
+            batch_subs.append(subs)
+
+        batch = torch.stack(batch_imgs, dim=0)
+        return batch, list(indices), batch_subs
+
+    def _pad_to_target(self, img, target_shape):
+        """Pad image to target shape with reflection padding.
+
+        Parameters
+        ----------
+        img : torch.Tensor
+            Image tensor of shape (C, *spatial)
+        target_shape : tuple
+            Target spatial shape
+
+        Returns
+        -------
+        padded : torch.Tensor
+            Padded image
+        subs : list
+            Subscript slices to extract original region
+        """
+        current_shape = img.shape[-self.dim:]
+
+        pads = []
+        subs = []
+        for i in range(self.dim):
+            diff = target_shape[i] - current_shape[i]
+            pad_lo = diff // 2
+            pad_hi = diff - pad_lo
+            # torch.nn.functional.pad uses reverse order (last dim first)
+            pads.extend([pad_lo, pad_hi])
+            # Use slice for proper 2D extraction
+            subs.append(slice(pad_lo, pad_lo + current_shape[i]))
+
+        # Reverse pads for torch.nn.functional.pad (last dim first)
+        pads = pads[::-1]
+
+        if any(p > 0 for p in pads):
+            padded = torch.nn.functional.pad(img.unsqueeze(0), pads, mode=self.pad_mode).squeeze(0)
+        else:
+            padded = img
+
+        return padded, subs
+
+    def iter_batches(self):
+        """Generator that yields batches according to the batch plan.
+
+        Yields
+        ------
+        batch_imgs : torch.Tensor
+            Batch of images, shape (N, C, *spatial)
+        batch_inds : list
+            Original image indices in this batch
+        batch_subs : list
+            Subscript slices to extract original region from each image
+        """
+        for batch_idx in range(self.n_batches):
+            yield self.get_batch(batch_idx)
+
     def __len__(self):
+        return len(self.data)
+
+    @property
+    def n_images(self):
+        """Number of images in the dataset."""
         return len(self.data)

@@ -74,7 +74,8 @@ def test_eval_set_list_no_pad():
     data = [np.zeros((32, 32), dtype=np.float32)]
     dataset = eval_mod.eval_set(data, dim=2, normalize=False, invert=False, rescale_factor=None)
     imgs = dataset.__getitem__(0, no_pad=True)
-    assert imgs.shape == (32, 32)
+    # Shape is (C, H, W) = (1, 32, 32) - channel dimension is preserved
+    assert imgs.shape == (1, 32, 32)
 
 
 def test_eval_set_run_tiled():
