@@ -39,8 +39,6 @@ def get_arg_parser():
     model_args = parser.add_argument_group("model arguments")
     model_args.add_argument("--pretrained_model", required=False, default="cyto",
                             type=none_or_str, help="model to use")
-    model_args.add_argument("--unet", required=False, default=0, type=int,
-                            help="run standard unet instead of cellpose flow output")
     model_args.add_argument("--nclasses", default=2, type=int,
                             help="number of prediction classes for model (3 for Cellpose, 4 for Omnipose boundary field)")
     model_args.add_argument("--nchan", default=1, type=int,
@@ -123,7 +121,6 @@ def get_arg_parser():
     # training settings
     training_args = parser.add_argument_group("training arguments")
     training_args.add_argument("--train", action="store_true", help="train network using images in dir")
-    training_args.add_argument("--train_size", action="store_true", help="train size network at end of training")
     training_args.add_argument("--mask_filter",
                                default="_masks", type=str,
                                help="end string for masks to run on. Default: %(default)s")
