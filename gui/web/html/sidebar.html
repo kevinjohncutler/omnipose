@@ -14,7 +14,10 @@
                 <span class="sr-only">Rotate left</span>
               </button>
               <button type="button" id="rotateRightButton" class="history-button" aria-label="Rotate right 90 degrees" title="Rotate right">
-                <span class="history-icon history-icon-rotate-right" aria-hidden="true"></span>
+                <svg class="history-icon history-icon-rotate-right-svg" viewBox="0 0 24 24" aria-hidden="true">
+                  <path d="M6 12a6 6 0 0 1 10.24-4.24" />
+                  <path d="M16 4l1.8 4.4-4.4-1.8" />
+                </svg>
                 <span class="sr-only">Rotate right</span>
               </button>
             </div>
@@ -25,8 +28,8 @@
           </div>
           <div class="panel-body">
             <div class="image-hover-info" aria-hidden="true">
-              <span id="hoverValueDisplay">Val: --</span>
-              <span id="hoverCoordDisplay">Y: --, X: --</span>
+              <span id="hoverValueDisplay">Y: --, X: --, Val: --</span>
+              <span id="hoverCoordDisplay"></span>
             </div>
             <div class="control">
               <div class="histogram-surface">
@@ -107,13 +110,11 @@
             </div>
           </div>
 
-          <div class="control">
+          <div class="control seg-action-row">
             <button id="segmentButton" class="accent-button">Segment</button>
-            <div id="segmentStatus" class="status"></div>
+            <button id="clearMasksButton" class="accent-button" title="Clear all masks (Cmd/Ctrl+X)">Clear</button>
           </div>
-          <div class="control">
-            <button id="clearMasksButton" class="accent-button" title="Clear all masks (Cmd/Ctrl+X)">Clear Masks</button>
-          </div>
+          <div id="segmentStatus" class="status"></div>
           <div class="control">
           </div>
           <div class="control-heading">Mask Display</div>
@@ -154,7 +155,7 @@
           </div>
         </div>
         <div class="panel-section" id="systemInfoPanel">
-          <div class="control-heading">System</div>
+          <div class="control-heading">Server Info</div>
           <div class="control system-info">
             <div class="system-row">
               <span class="system-label">RAM</span>

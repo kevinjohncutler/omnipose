@@ -8608,12 +8608,10 @@ function updateHoverInfo(point) {
   if (!point || !originalImageData) {
     cursorInsideImage = false;
     if (valueTarget) {
-      valueTarget.textContent = 'Val: --';
+      valueTarget.textContent = 'Y: --, X: --, Val: --';
     }
     if (coordTarget && coordTarget !== valueTarget) {
-      coordTarget.textContent = 'Y: --, X: --';
-    } else if (coordTarget) {
-      coordTarget.textContent = 'Y: --, X: --, Val: --';
+      coordTarget.textContent = '';
     }
     updateCursor();
     return;
@@ -8623,12 +8621,10 @@ function updateHoverInfo(point) {
   if (rawX < 0 || rawY < 0 || rawX >= imgWidth || rawY >= imgHeight) {
     cursorInsideImage = false;
     if (valueTarget) {
-      valueTarget.textContent = 'Val: --';
+      valueTarget.textContent = 'Y: --, X: --, Val: --';
     }
     if (coordTarget && coordTarget !== valueTarget) {
-      coordTarget.textContent = 'Y: --, X: --';
-    } else if (coordTarget) {
-      coordTarget.textContent = 'Y: --, X: --, Val: --';
+      coordTarget.textContent = '';
     }
     clearHoverPreview();
     updateCursor();
@@ -8643,12 +8639,10 @@ function updateHoverInfo(point) {
   const value = CONFIG.isRgb ? `${r}, ${g}, ${b}` : r;
   cursorInsideImage = true;
   if (valueTarget) {
-    valueTarget.textContent = 'Val: ' + value;
+    valueTarget.textContent = 'Y: ' + y + ', X: ' + x + ', Val: ' + value;
   }
   if (coordTarget && coordTarget !== valueTarget) {
-    coordTarget.textContent = 'Y: ' + y + ', X: ' + x;
-  } else if (coordTarget) {
-    coordTarget.textContent = 'Y: ' + y + ', X: ' + x + ', Val: ' + value;
+    coordTarget.textContent = '';
   }
   updateCursor();
 }

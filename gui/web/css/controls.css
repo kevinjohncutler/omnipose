@@ -1,8 +1,8 @@
 :root {
-  --slider-track-height: 22px;
-  --slider-track-radius: 11px;
-  --slider-knob-size: 16px;
-  --slider-knob-radius: 8px;
+  --slider-track-height: 24px;
+  --slider-track-radius: 12px;
+  --slider-knob-size: 20px;
+  --slider-knob-radius: 50%;
   --slider-fill-radius: var(--control-inset-radius);
   --slider-track-bg: rgba(255, 255, 255, 0.15);
   --slider-track-border: rgba(255, 255, 255, 0.18);
@@ -92,10 +92,10 @@
 }
 
 .slider-inline .slider {
-  --slider-track-height: 22px;
-  --slider-track-radius: 11px;
-  --slider-knob-size: 16px;
-  --slider-knob-radius: 8px;
+  --slider-track-height: 24px;
+  --slider-track-radius: 12px;
+  --slider-knob-size: 20px;
+  --slider-knob-radius: 50%;
   --slider-fill-radius: var(--control-inset-radius);
   --slider-track-bg: rgba(255, 255, 255, 0.15);
   --slider-track-border: rgba(255, 255, 255, 0.18);
@@ -171,7 +171,7 @@
   top: 50%;
   width: var(--slider-knob-size);
   height: var(--slider-knob-size);
-  border-radius: 50%;
+  border-radius: var(--slider-knob-radius);
   background: var(--slider-knob-color);
   box-shadow: none;
   transform: translate3d(-50%, -50%, 0);
@@ -189,11 +189,11 @@
 
 .slider[data-focused='true'] .slider-thumb {
   transform: translate(-50%, -50%) scale(1.12);
-  background: var(--accent-hover);
+  background: var(--slider-knob-color);
 }
 
 .slider[data-focused='true'] .slider-track {
-  box-shadow: inset 0 0 0 1px var(--accent-color);
+  box-shadow: inset 0 0 0 1px transparent;
 }
 
 .slider-input {
@@ -516,7 +516,7 @@
   left: calc(var(--slider-track-radius) - (var(--slider-knob-size) / 2));
   width: var(--slider-knob-size);
   height: var(--slider-knob-size);
-  border-radius: 50%;
+  border-radius: var(--slider-knob-radius);
   background: var(--slider-knob-color);
   transform: translate(0, -50%);
   transition: transform 0.18s ease, background 0.18s ease;
@@ -562,7 +562,7 @@ input[type='range']::-webkit-slider-thumb {
   appearance: none;
   width: var(--slider-knob-size);
   height: var(--slider-knob-size);
-  border-radius: 50%;
+  border-radius: var(--slider-knob-radius);
   background: var(--slider-knob-color);
   box-shadow: none;
   cursor: pointer;
@@ -589,7 +589,7 @@ input[type='range']::-moz-range-progress {
 input[type='range']::-moz-range-thumb {
   width: var(--slider-knob-size);
   height: var(--slider-knob-size);
-  border-radius: 50%;
+  border-radius: var(--slider-knob-radius);
   background: #ffffff;
   border: 2px solid rgba(0, 0, 0, 0.35);
   cursor: pointer;
@@ -619,7 +619,7 @@ input[type='range']::-ms-fill-upper {
 input[type='range']::-ms-thumb {
   width: var(--slider-knob-size);
   height: var(--slider-knob-size);
-  border-radius: 50%;
+  border-radius: var(--slider-knob-radius);
   background: #ffffff;
   border: 2px solid rgba(0, 0, 0, 0.35);
   cursor: pointer;
@@ -722,7 +722,7 @@ button:not(:disabled):hover {
   transform: translateY(-50%);
   width: var(--slider-knob-size);
   height: var(--slider-knob-size);
-  border-radius: 50%;
+  border-radius: var(--slider-knob-radius);
   background: var(--slider-knob-color);
   pointer-events: none;
 }
@@ -753,7 +753,7 @@ button:not(:disabled):hover {
   appearance: none;
   width: var(--slider-knob-size);
   height: var(--slider-knob-size);
-  border-radius: 50%;
+  border-radius: var(--slider-knob-radius);
   background: transparent;
   margin-top: calc((var(--slider-track-height) - var(--slider-knob-size)) / 2);
 }
@@ -985,6 +985,8 @@ button:not(:disabled):hover {
 .mask-style-toggle {
   --mask-style-gap: 10px;
   --mask-style-border: 2px;
+  --mask-style-size: calc(var(--slider-knob-size) * 0.78);
+  --mask-style-radius: 4px;
 }
 
 .mask-style-toggle .kernel-option {
@@ -1006,9 +1008,9 @@ button:not(:disabled):hover {
 .mask-style-icon {
   position: relative;
   display: block;
-  width: var(--slider-knob-size);
-  height: var(--slider-knob-size);
-  border-radius: 50%;
+  width: var(--mask-style-size);
+  height: var(--mask-style-size);
+  border-radius: var(--mask-style-radius);
   border: none;
   box-shadow: inset 0 0 0 var(--mask-style-border) currentColor;
   background: transparent;
@@ -1020,7 +1022,7 @@ button:not(:disabled):hover {
   content: '';
   position: absolute;
   inset: 0;
-  border-radius: 50%;
+  border-radius: var(--mask-style-radius);
   background: currentColor;
   opacity: 0.35;
 }
@@ -1237,8 +1239,8 @@ button:not(:disabled):hover {
 }
 
 .seg-mode-icon-dbscan {
-  -webkit-mask-image: url('/static/icons/dbscan.svg');
-  mask-image: url('/static/icons/dbscan.svg');
+  -webkit-mask-image: url('/static/icons/dbscan-nested-arcs.svg');
+  mask-image: url('/static/icons/dbscan-nested-arcs.svg');
 }
 
 .seg-mode-icon-affinity {
@@ -1247,8 +1249,8 @@ button:not(:disabled):hover {
 }
 
 .seg-mode-icon-cc {
-  -webkit-mask-image: url('/static/icons/cc.svg');
-  mask-image: url('/static/icons/cc.svg');
+  -webkit-mask-image: url('/static/icons/topology-star.svg');
+  mask-image: url('/static/icons/topology-star.svg');
 }
 
 .label-stepper .label-icon {
@@ -1361,11 +1363,11 @@ button:not(:disabled):hover {
   inset: 0;
   background: currentColor;
   height: 2px;
-  width: 120%;
-  left: -10%;
-  top: 44%;
-  transform: rotate(-35deg);
-  border-radius: 999px;
+  width: 140%;
+  left: -20%;
+  top: calc(50% - 1px);
+  transform: rotate(-45deg);
+  border-radius: 2px;
 }
 
 .omni-tooltip {
@@ -1500,6 +1502,10 @@ button:not(:disabled):hover {
   opacity: 0.5;
 }
 
+.image-hover-info span:empty {
+  display: none;
+}
+
 #hoverValueDisplay,
 #hoverCoordDisplay {
   position: static;
@@ -1510,4 +1516,16 @@ button:not(:disabled):hover {
   border-radius: 0;
   background: transparent;
   display: inline-block;
+}
+
+.seg-action-row {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 10px;
+}
+
+.seg-action-row .accent-button {
+  flex: 1 1 0;
+  width: auto;
 }
