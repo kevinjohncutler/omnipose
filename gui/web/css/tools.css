@@ -23,12 +23,11 @@
   width: var(--label-stepper-size);
   height: var(--label-stepper-size);
   border-radius: calc(var(--slider-track-height) / 2);
-  border: 1px solid var(--slider-track-border);
+  border: none;
   background: transparent;
-  backdrop-filter: blur(var(--control-blur));
-  -webkit-backdrop-filter: blur(var(--control-blur));
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
   color: var(--panel-text-color);
-  background: transparent;
   font-size: 0.85rem;
   line-height: 1;
   display: flex;
@@ -36,16 +35,13 @@
   justify-content: center;
   padding: 0;
   cursor: pointer;
-  transition: border-color 0.18s ease, background 0.18s ease;
+  transition: background 0.18s ease, color 0.18s ease;
 }
 
-.label-stepper button:hover {
-  border-color: rgba(255, 255, 255, 0.28);
-}
-
+.label-stepper button:hover,
 .label-stepper button:active {
-  border-color: rgba(200, 200, 200, 0.55);
-  background: rgba(160, 160, 160, 0.24);
+  background: var(--accent-color);
+  color: var(--accent-ink, #161616);
 }
 
 .label-stepper input[type="number"] {
