@@ -15,9 +15,9 @@
   --slider-knob-color: #f5f5f5;
   --number-field-width: var(--toggle-width);
   --control-label-width: 52px;
-  --toggle-width: 42px;
-  --icon-size: 18px;
-  --mask-icon-size: 16px;
+  --toggle-width: 45px;
+  --icon-size: calc(var(--slider-track-height) * 0.8);
+  --mask-icon-size: 14px;
 }
 
 
@@ -1248,8 +1248,8 @@ button:not(:disabled):hover {
 
 
 .seg-mode-icon {
-  width: var(--slider-knob-size);
-  height: var(--slider-knob-size);
+  width: var(--icon-size);
+  height: var(--icon-size);
   display: inline-block;
   background-color: currentColor;
   -webkit-mask-repeat: no-repeat;
