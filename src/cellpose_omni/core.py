@@ -1261,15 +1261,17 @@ class UnetModel():
                 generator=gen
             )
             params = dict(
-                batch_sampler=batch_sampler,            
+                batch_sampler=batch_sampler,
                 collate_fn=training_set.collate_fn,
                 num_workers=num_workers,
                 pin_memory=True,
-                persistent_workers=True,
-                prefetch_factor=8,
                 worker_init_fn=training_set.worker_init_fn,
             )
-            
+            # persistent_workers and prefetch_factor only valid with num_workers > 0
+            if num_workers > 0:
+                params["persistent_workers"] = True
+                params["prefetch_factor"] = 8
+
             train_loader = torch.utils.data.DataLoader(training_set, **params)
 
             steps_per_epoch = len(batch_sampler)     

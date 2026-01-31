@@ -3061,6 +3061,7 @@ const hoverInfo = document.getElementById('hoverInfo');
 const fpsDisplay = document.getElementById('fpsDisplay');
 const hoverValueDisplay = document.getElementById('hoverValueDisplay');
 const hoverCoordDisplay = document.getElementById('hoverCoordDisplay');
+const histogramValueMarker = document.getElementById('histogramValueMarker');
 const maskOpacitySlider = document.getElementById('maskOpacity');
 const maskOpacityInput = document.getElementById('maskOpacityInput');
 const maskThresholdSlider = document.getElementById('maskThresholdSlider');
@@ -8613,6 +8614,9 @@ function updateHoverInfo(point) {
     if (coordTarget && coordTarget !== valueTarget) {
       coordTarget.textContent = '';
     }
+    if (histogramValueMarker) {
+      histogramValueMarker.style.opacity = '0';
+    }
     updateCursor();
     return;
   }
@@ -8627,6 +8631,9 @@ function updateHoverInfo(point) {
       coordTarget.textContent = '';
     }
     clearHoverPreview();
+    if (histogramValueMarker) {
+      histogramValueMarker.style.opacity = '0';
+    }
     updateCursor();
     return;
   }
@@ -8643,6 +8650,14 @@ function updateHoverInfo(point) {
   }
   if (coordTarget && coordTarget !== valueTarget) {
     coordTarget.textContent = '';
+  }
+  if (histogramValueMarker && Number.isFinite(value)) {
+    const v = Math.max(0, Math.min(255, Number(value)));
+    const frac = v / 255;
+    histogramValueMarker.style.left = `calc(${(frac * 100).toFixed(2)}% - 1px)`;
+    histogramValueMarker.style.opacity = '1';
+  } else if (histogramValueMarker) {
+    histogramValueMarker.style.opacity = '0';
   }
   updateCursor();
 }

@@ -4,7 +4,7 @@
                         <div class="panel-section" id="intensityPanel">
           <div class="panel-header panel-header--image">
             <div class="control-heading" title="lookup table">Image</div>
-            <div class="panel-actions" aria-label="View controls">
+            <div class="panel-actions action-tray" aria-label="View controls">
               <button type="button" id="resetViewButton" class="history-button" aria-label="Recenter view" title="Home">
                 <span class="history-icon history-icon-home" aria-hidden="true"></span>
                 <span class="sr-only">Recenter</span>
@@ -14,10 +14,7 @@
                 <span class="sr-only">Rotate left</span>
               </button>
               <button type="button" id="rotateRightButton" class="history-button" aria-label="Rotate right 90 degrees" title="Rotate right">
-                <svg class="history-icon history-icon-rotate-right-svg" viewBox="0 0 24 24" aria-hidden="true">
-                  <path d="M6 12a6 6 0 0 1 10.24-4.24" />
-                  <path d="M16 4l1.8 4.4-4.4-1.8" />
-                </svg>
+                <span class="history-icon history-icon-rotate-right" aria-hidden="true"></span>
                 <span class="sr-only">Rotate right</span>
               </button>
             </div>
@@ -34,6 +31,7 @@
             <div class="control">
               <div class="histogram-surface">
                 <canvas id="histogram" class="histogram" width="220" height="80" data-tooltip-dynamic="true"></canvas>
+                <div id="histogramValueMarker" class="histogram-value-marker" aria-hidden="true"></div>
               </div>
                           </div>
             <div class="control slider-inline">

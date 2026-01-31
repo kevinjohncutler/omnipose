@@ -7,7 +7,7 @@
   --slider-track-bg: rgba(255, 255, 255, 0.15);
   --slider-track-border: rgba(255, 255, 255, 0.18);
   --slider-knob-color: #f5f5f5;
-  --number-field-width: 62px;
+  --number-field-width: var(--toggle-width);
   --control-label-width: 52px;
   --segmented-inset: 1px;
   --control-inset: var(--segmented-inset);
@@ -74,6 +74,7 @@
   flex-direction: row;
   align-items: center;
   gap: 10px;
+  width: 100%;
 }
 
 .slider-inline label,
@@ -112,6 +113,7 @@
   display: flex;
   align-items: center;
   gap: 10px;
+  width: 100%;
 }
 
 .slider {
@@ -376,7 +378,7 @@
 .number-field {
   position: relative;
   display: inline-flex;
-  width: 62px;
+  width: var(--toggle-width);
   height: var(--slider-track-height);
   align-items: center;
   border-radius: var(--slider-track-radius);
@@ -464,6 +466,8 @@
 
 .slider-inline .slider-row .number-field {
   flex: 0 0 auto;
+  width: var(--toggle-width);
+  margin-left: auto;
 }
 
 .toggle-group {
@@ -894,6 +898,7 @@ button:not(:disabled):hover {
   flex-direction: row;
   align-items: center;
   gap: 10px;
+  width: 100%;
 }
 
 .label-style-row .control-heading--lower {
@@ -909,32 +914,39 @@ button:not(:disabled):hover {
 }
 
 .label-style-row .label-panel-row {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) var(--number-field-width);
+  display: flex;
   align-items: center;
-  column-gap: 10px;
+  gap: 10px;
 }
 
 .label-style-row .label-panel-row input {
   min-width: 0;
+  flex: 1;
   width: 100%;
 }
 
 .label-stepper-buttons {
+  position: relative;
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: 10px;
-  width: var(--number-field-width);
+  justify-content: center;
+  width: var(--toggle-width);
+  height: var(--slider-track-height);
+  border-radius: var(--slider-track-radius);
+  background: var(--slider-track-bg);
+  box-shadow: inset 0 0 0 1px var(--slider-track-border);
 }
 
 .label-style-row .label-stepper button {
-  width: var(--slider-track-height);
-  min-width: var(--slider-track-height);
-  height: var(--slider-track-height);
+  position: absolute;
+  top: 50%;
+  width: var(--slider-knob-size);
+  height: var(--slider-knob-size);
   padding: 0;
   border-radius: 50%;
+  background: transparent;
   color: var(--panel-text-color);
+  transform: translate(-50%, -50%);
 }
 
 .kernel-option {
@@ -1314,6 +1326,7 @@ button:not(:disabled):hover {
   display: flex;
   flex-direction: column;
   gap: 12px;
+  padding: 0;
 }
 
 .panel-toggle {
@@ -1333,7 +1346,9 @@ button:not(:disabled):hover {
 }
 
 .slider-inline .slider-row .number-field {
-  flex: 0 0 56px;
+  flex: 0 0 var(--toggle-width);
+  width: var(--toggle-width);
+  margin-left: auto;
 }
 
 .toggle-label-left {
@@ -1523,9 +1538,97 @@ button:not(:disabled):hover {
   flex-direction: row;
   align-items: center;
   gap: 10px;
+  width: 100%;
 }
 
 .seg-action-row .accent-button {
   flex: 1 1 0;
   width: auto;
+}
+
+.histogram-surface {
+  position: relative;
+}
+
+.histogram-value-marker {
+  position: absolute;
+  top: 6px;
+  bottom: 6px;
+  width: 2px;
+  background: rgba(255, 255, 255, 0.35);
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.25);
+  opacity: 0;
+  pointer-events: none;
+  transform: translateX(-1px);
+}
+
+.action-tray {
+  display: flex;
+  align-items: center;
+  gap: 0;
+  height: var(--slider-track-height);
+  padding: 0 var(--control-inset);
+  border-radius: var(--slider-track-radius);
+  background: var(--control-input-surface);
+  box-shadow: inset 0 0 0 1px var(--slider-track-border);
+}
+
+.action-tray > button {
+  border-radius: calc(var(--slider-track-height) / 2);
+  height: calc(var(--slider-track-height) - 2 * var(--control-inset));
+  min-width: calc(var(--slider-track-height) - 2 * var(--control-inset));
+  padding: 0 10px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  border: none;
+  color: var(--panel-text-color);
+  box-shadow: none;
+}
+
+.action-tray > button:active {
+  background: var(--accent-color);
+  color: var(--accent-ink, #161616);
+}
+
+.action-tray > button:focus-visible {
+  outline: 2px solid var(--accent-color);
+  outline-offset: 2px;
+}
+
+.action-tray--compact > button {
+  min-width: var(--slider-track-height);
+  padding: 0;
+}
+
+.action-tray > button:hover {
+  background: transparent;
+}
+
+.action-tray > button.history-button {
+  border: none;
+  background: transparent;
+  box-shadow: none;
+}
+
+.action-tray > .history-button {
+  border: none;
+  background: transparent;
+  box-shadow: none;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+
+#labelStepDown {
+  left: var(--slider-track-radius);
+}
+
+#labelStepUp {
+  left: calc(var(--toggle-width) - var(--slider-track-radius));
+}
+
+.label-style-row .label-stepper button:active {
+  background: var(--accent-color);
+  color: var(--accent-ink, #161616);
 }

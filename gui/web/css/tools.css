@@ -262,10 +262,39 @@
   mask: var(--tool-icon-picker) no-repeat center / contain;
 }
 
+
+/* Saved rotate icon config (rotate-2 / rotate-clockwise-2) for quick revert
+#intensityPanel {
+  --history-icon-rotate-left: url('/static/icons/rotate-rectangle.svg');
+  --history-icon-rotate-right: url('/static/icons/rotate-rectangle.svg');
+}
+
+.history-icon-rotate-left {
+  -webkit-mask: var(--history-icon-rotate-left) no-repeat center / contain;
+  mask: var(--history-icon-rotate-left) no-repeat center / contain;
+  transform: scaleX(-1) rotate(45deg);
+  transform-origin: center;
+  display: block;
+  margin: auto;
+  position: relative;
+  top: 1px;
+}
+
+.history-icon-rotate-right {
+  -webkit-mask: var(--history-icon-rotate-right) no-repeat center / contain;
+  mask: var(--history-icon-rotate-right) no-repeat center / contain;
+  transform: rotate(45deg);
+  transform-origin: center;
+  display: block;
+  margin: auto;
+  position: relative;
+  top: 1px;
+}
+*/
 #intensityPanel {
   --history-icon-home: url('/static/icons/home-2.svg');
-  --history-icon-rotate-left: url('/static/icons/rotate_left_icon_241159.svg');
-  --history-icon-rotate-right: url('/static/icons/rotate-clockwise-square.svg');
+  --history-icon-rotate-left: url('/static/icons/rotate-rectangle.svg');
+  --history-icon-rotate-right: url('/static/icons/rotate-rectangle.svg');
 }
 
 .history-icon-save {
@@ -276,12 +305,24 @@
 .history-icon-rotate-left {
   -webkit-mask: var(--history-icon-rotate-left) no-repeat center / contain;
   mask: var(--history-icon-rotate-left) no-repeat center / contain;
+  transform: scaleX(-1) rotate(45deg);
+  transform-origin: center;
+  display: block;
+  margin: auto;
+  position: relative;
+  top: 1px;
 }
 
+
 .history-icon-rotate-right {
-  -webkit-mask: none;
-  mask: none;
-  background: none;
+  -webkit-mask: var(--history-icon-rotate-right) no-repeat center / contain;
+  mask: var(--history-icon-rotate-right) no-repeat center / contain;
+  transform: rotate(45deg);
+  transform-origin: center;
+  display: block;
+  margin: auto;
+  position: relative;
+  top: 1px;
 }
 
 .panel-actions {
@@ -295,6 +336,7 @@
   width: var(--slider-track-height);
   height: var(--slider-track-height);
   padding: 0;
+  background: transparent;
 }
 
 .panel-actions .history-button:hover:not([disabled]),
@@ -305,28 +347,4 @@
 }
 
 
-#rotateRightButton {
-  position: relative;
-}
 
-#rotateRightButton::after {
-  content: '';
-  position: absolute;
-  width: 6px;
-  height: 6px;
-  border-right: 2px solid currentColor;
-  border-top: 2px solid currentColor;
-  transform: rotate(45deg);
-  right: 6px;
-  top: 6px;
-  opacity: 0.9;
-  pointer-events: none;
-}
-
-.history-icon-rotate-right-svg {
-  width: 18px;
-  height: 18px;
-  display: block;
-  stroke: currentColor;
-  fill: none;
-}
