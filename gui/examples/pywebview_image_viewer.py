@@ -557,6 +557,13 @@ class Segmenter:
             raise RuntimeError("no cached segmentation data available")
         parsed, merged_options = self._parse_options(settings, overrides)
         cache = self._cache or {}
+        required = ("dP", "dist", "bd", "mask_shape", "nclasses", "dim")
+        if any(key not in cache for key in required):
+            image = cache.get("image")
+            if image is None:
+                raise RuntimeError("cached flows missing and no image available; cannot resegment")
+            print("[resegment] cache missing flows; falling back to full segment")
+            return self.segment(image, settings=settings, **overrides)
         previous_threshold = cache.get("last_mask_threshold", parsed["mask_threshold"])
         have_enough_pixels = parsed["mask_threshold"] > previous_threshold
         dP = np.array(cache["dP"], dtype=np.float32, copy=True)
@@ -919,7 +926,7 @@ class Segmenter:
             return_edges=False,
             verbose=False,
         )
-        relabeled = np.array(relabeled, dtype=np.int32, copy=False)
+        relabeled = np.asarray(relabeled, dtype=np.int32)
         # Fallback: if relabel produced empty mask, keep the original
         if relabeled.size == 0 or int(np.max(relabeled)) == 0:
             print('[relabel_from_affinity] WARNING: empty relabel result; returning original mask')
@@ -2045,22 +2052,37 @@ def _get_system_info() -> dict[str, object]:
     cpu_cores = os.cpu_count() or 1
     gpu_available = False
     gpu_name = None
+    gpu_backend = None
+    gpu_label = None
     try:
         from omnipose import gpu as omni_gpu  # type: ignore
 
         device, gpu_ok = omni_gpu.use_gpu(0, use_torch=True)
         gpu_available = bool(gpu_ok)
-        gpu_name = getattr(device, 'type', None)
+        gpu_backend = getattr(device, 'type', None)
+        gpu_name = gpu_backend
         if gpu_available:
-            try:
-                import torch  # type: ignore
+            if gpu_backend == 'cuda':
+                try:
+                    import torch  # type: ignore
 
-                gpu_name = torch.cuda.get_device_name(0)
-            except Exception:
+                    gpu_name = torch.cuda.get_device_name(0)
+                except Exception:
+                    gpu_name = 'CUDA GPU'
+            elif gpu_backend == 'mps':
+                gpu_name = 'Apple MPS'
+            else:
                 gpu_name = 'GPU available'
+        if gpu_available:
+            if gpu_backend and gpu_name and gpu_backend != gpu_name:
+                gpu_label = f"{gpu_backend.upper()}: {gpu_name}"
+            elif gpu_name:
+                gpu_label = str(gpu_name)
     except Exception:
         gpu_available = False
         gpu_name = None
+        gpu_backend = None
+        gpu_label = None
     return {
         'ram_total': total,
         'ram_available': available,
@@ -2068,6 +2090,8 @@ def _get_system_info() -> dict[str, object]:
         'cpu_cores': cpu_cores,
         'gpu_available': gpu_available,
         'gpu_name': gpu_name,
+        'gpu_backend': gpu_backend,
+        'gpu_label': gpu_label,
         'use_gpu': _SEGMENTER.get_use_gpu(),
     }
 

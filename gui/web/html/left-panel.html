@@ -1,6 +1,58 @@
 <!-- Extracted from index.html lines 10-73 -->
 
       <div id="leftPanel" class="side-panel side-panel--left">
+        <div class="panel-section" id="intensityPanel">
+          <div class="panel-header panel-header--image">
+            <div class="control-heading" title="lookup table">Image</div>
+            <div class="panel-actions action-tray" aria-label="View controls">
+              <button type="button" id="resetViewButton" class="history-button" aria-label="Recenter view" title="Home">
+                <span class="history-icon history-icon-home" aria-hidden="true"></span>
+                <span class="sr-only">Recenter</span>
+              </button>
+              <button type="button" id="rotateLeftButton" class="history-button" aria-label="Rotate left 90 degrees" title="Rotate left">
+                <span class="history-icon history-icon-rotate-left" aria-hidden="true"></span>
+                <span class="sr-only">Rotate left</span>
+              </button>
+              <button type="button" id="rotateRightButton" class="history-button" aria-label="Rotate right 90 degrees" title="Rotate right">
+                <span class="history-icon history-icon-rotate-right" aria-hidden="true"></span>
+                <span class="sr-only">Rotate right</span>
+              </button>
+            </div>
+            <label class="toggle panel-toggle" title="Show image">
+              <input type="checkbox" id="imageVisibilityToggle" checked />
+              <span class="toggle-switch"></span>
+            </label>
+          </div>
+          <div class="panel-body">
+            <div class="image-hover-info" aria-hidden="true">
+              <span id="hoverValueDisplay">Y: --, X: --, Val: --</span>
+              <span id="hoverCoordDisplay"></span>
+            </div>
+            <div class="control">
+              <div class="histogram-surface">
+                <canvas id="histogram" class="histogram" width="220" height="80" data-tooltip-dynamic="true"></canvas>
+                <div id="histogramValueMarker" class="histogram-value-marker" aria-hidden="true"></div>
+              </div>
+            </div>
+            <div class="control slider-inline">
+              <span class="control-heading control-heading--lower">gamma</span>
+              <div class="slider-row">
+                <div class="slider" data-slider-id="gamma" data-slider-type="single">
+                  <input type="range" id="gamma" min="10" max="600" value="100" />
+                </div>
+                <div class="number-field" data-number-id="gammaInput">
+                  <input type="number" id="gammaInput" min="0.10" max="6.00" step="0.05" value="1.00" />
+                </div>
+              </div>
+            </div>
+            <div class="control">
+              <div class="dropdown" data-dropdown-id="imageNavigator" data-loop="true" data-count-label="images" data-apply="confirm">
+                <select id="imageNavigator"></select>
+              </div>
+            </div>
+          </div>
+        </div>
+
         <div class="panel-section">
           <div class="control-heading">Undo / Redo / Save</div>
           <div class="control history-panel">
@@ -121,6 +173,52 @@
               </div>
             </div>
           </div>
+          </div>
+        </div>
+        <div class="panel-section" id="ncolorPanel">
+          <div class="panel-header">
+            <div class="control-heading">N-Color</div>
+            <label class="toggle panel-toggle" title="Enable N-color mask display">
+              <input type="checkbox" id="autoNColorToggle" checked />
+              <span class="toggle-switch"></span>
+            </label>
+          </div>
+          <div class="panel-body">
+            <div class="ncolor-on">
+              <div class="ncolor-row">
+                <div class="ncolor-swatches" id="ncolorSwatches" aria-label="N-color palette"></div>
+                <div class="label-stepper-buttons action-tray action-tray--compact ncolor-stepper">
+                  <button type="button" id="ncolorRemoveColor" aria-label="Remove color">
+                    <span class="label-icon label-icon-decrement" aria-hidden="true"></span>
+                    <span class="sr-only">Remove color</span>
+                  </button>
+                  <button type="button" id="ncolorAddColor" aria-label="Add color">
+                    <span class="label-icon label-icon-increment" aria-hidden="true"></span>
+                    <span class="sr-only">Add color</span>
+                  </button>
+                </div>
+              </div>
+            </div>
+            <div class="ncolor-off">
+              <div class="control">
+                <div class="dropdown" data-dropdown-id="labelColormap" data-loop="true" data-count-label="colormaps" data-apply="confirm">
+                  <select id="labelColormap"></select>
+                </div>
+              </div>
+              <div class="control slider-inline">
+                <span class="control-heading control-heading--lower">Shuffle</span>
+                <label class="toggle toggle-left" title="Shuffle label colors">
+                  <input type="checkbox" id="labelShuffleToggle" checked />
+                  <span class="toggle-switch"></span>
+                </label>
+              </div>
+              <div class="control slider-inline">
+                <span class="control-heading control-heading--lower">Seed</span>
+                <div class="number-field" data-number-id="labelShuffleSeed">
+                  <input type="number" id="labelShuffleSeed" step="1" value="0" />
+                </div>
+              </div>
+            </div>
           </div>
         </div>
         <div class="control toggle-group" id="layerVisibilityControls">

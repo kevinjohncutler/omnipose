@@ -1,57 +1,7 @@
 <!-- Extracted from index.html lines 80-202 -->
 
       <div id="sidebar" class="side-panel side-panel--right">
-                        <div class="panel-section" id="intensityPanel">
-          <div class="panel-header panel-header--image">
-            <div class="control-heading" title="lookup table">Image</div>
-            <div class="panel-actions action-tray" aria-label="View controls">
-              <button type="button" id="resetViewButton" class="history-button" aria-label="Recenter view" title="Home">
-                <span class="history-icon history-icon-home" aria-hidden="true"></span>
-                <span class="sr-only">Recenter</span>
-              </button>
-              <button type="button" id="rotateLeftButton" class="history-button" aria-label="Rotate left 90 degrees" title="Rotate left">
-                <span class="history-icon history-icon-rotate-left" aria-hidden="true"></span>
-                <span class="sr-only">Rotate left</span>
-              </button>
-              <button type="button" id="rotateRightButton" class="history-button" aria-label="Rotate right 90 degrees" title="Rotate right">
-                <span class="history-icon history-icon-rotate-right" aria-hidden="true"></span>
-                <span class="sr-only">Rotate right</span>
-              </button>
-            </div>
-            <label class="toggle panel-toggle" title="Show image">
-              <input type="checkbox" id="imageVisibilityToggle" checked />
-              <span class="toggle-switch"></span>
-            </label>
-          </div>
-          <div class="panel-body">
-            <div class="image-hover-info" aria-hidden="true">
-              <span id="hoverValueDisplay">Y: --, X: --, Val: --</span>
-              <span id="hoverCoordDisplay"></span>
-            </div>
-            <div class="control">
-              <div class="histogram-surface">
-                <canvas id="histogram" class="histogram" width="220" height="80" data-tooltip-dynamic="true"></canvas>
-                <div id="histogramValueMarker" class="histogram-value-marker" aria-hidden="true"></div>
-              </div>
-                          </div>
-            <div class="control slider-inline">
-              <span class="control-heading control-heading--lower">gamma</span>
-              <div class="slider-row">
-                <div class="slider" data-slider-id="gamma" data-slider-type="single">
-                  <input type="range" id="gamma" min="10" max="600" value="100" />
-                </div>
-                <div class="number-field" data-number-id="gammaInput">
-                  <input type="number" id="gammaInput" min="0.10" max="6.00" step="0.05" value="1.00" />
-                </div>
-              </div>
-            </div>
-                      <div class="control">
-              <div class="dropdown" data-dropdown-id="imageNavigator" data-loop="true" data-count-label="images" data-apply="confirm">
-                <select id="imageNavigator"></select>
-              </div>
-            </div>
-</div>
-        </div>
+                        
                 <div class="panel-section" id="segmentationPanel">
           <div class="control">
             <div class="control-heading">Omnipose Model</div>
@@ -118,11 +68,6 @@
           <div class="control-heading">Mask Display</div>
           <div class="control toggle-group">
             <label class="toggle">
-              <input type="checkbox" id="autoNColorToggle" checked />
-              <span class="toggle-switch"></span>
-              <span class="toggle-label">N-Color Masks</span>
-            </label>
-            <label class="toggle">
               <input type="checkbox" id="affinityGraphToggle" />
               <span class="toggle-switch"></span>
               <span class="toggle-label">Affinity Graph</span>
@@ -132,13 +77,13 @@
               <span class="toggle-switch"></span>
               <span class="toggle-label">Final Points</span>
             </label>
-            <label class="toggle" id="vectorOverlayRow">
+            <label class="toggle" id="vectorOverlayRow" title="overall pixel displacement">
               <input type="checkbox" id="vectorOverlayToggle" disabled />
               <span class="toggle-switch"></span>
-              <span class="toggle-label">Displacement Vectors</span>
+              <span class="toggle-label">Displacement</span>
             </label>
           </div>
-          <div class="control-heading">Network Output Display</div>
+          <div class="control-heading">Network Predictions</div>
           <div class="control toggle-group" id="overlayControls">
             <label class="toggle">
               <input type="checkbox" id="flowOverlayToggle" disabled />

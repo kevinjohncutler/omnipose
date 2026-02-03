@@ -18,6 +18,8 @@
   --toggle-width: 45px;
   --icon-size: calc(var(--slider-track-height) * 0.8);
   --mask-icon-size: 14px;
+  --label-icon-decrement: url('/static/icons/minus.svg');
+  --label-icon-increment: url('/static/icons/plus.svg');
 }
 
 
@@ -1647,4 +1649,86 @@ button:not(:disabled):hover {
 .label-style-row .label-stepper button:active {
   background: var(--accent-color);
   color: var(--accent-ink, #161616);
+}
+
+
+#ncolorPanel.ncolor-active .ncolor-off {
+  display: none;
+}
+
+#ncolorPanel:not(.ncolor-active) .ncolor-on {
+  display: none;
+}
+
+#ncolorPanel .ncolor-on,
+#ncolorPanel .ncolor-off {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.ncolor-swatches {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.ncolor-swatch {
+  width: var(--slider-track-height);
+  height: var(--slider-track-height);
+  border-radius: calc(var(--slider-track-height) * 0.35);
+  border: 1px solid var(--panel-border);
+  background: var(--panel-surface);
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+}
+
+.ncolor-swatch::before {
+  content: '';
+  width: 100%;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--swatch-color, transparent);
+}
+
+.ncolor-swatch input[type='color'] {
+  position: absolute;
+  opacity: 0;
+  width: 1px;
+  height: 1px;
+  pointer-events: none;
+}
+
+
+
+.ncolor-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.ncolor-swatches {
+  flex: 1 1 auto;
+  min-width: 0;
+  align-items: center;
+}
+
+.ncolor-stepper {
+  flex: 0 0 auto;
+}
+
+.ncolor-stepper button {
+  width: var(--slider-track-height);
+  height: var(--slider-track-height);
+  border-radius: 50%;
+  padding: 0;
+}
+
+.ncolor-stepper .label-icon {
+  width: calc(var(--slider-track-height) * 0.55);
+  height: calc(var(--slider-track-height) * 0.55);
+  background-color: currentColor;
 }

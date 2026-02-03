@@ -48,6 +48,23 @@ const hasPrevImage = Boolean(CONFIG.hasPrev);
 const hasNextImage = Boolean(CONFIG.hasNext);
 let defaultPalette = [];
 let nColorPalette = [];
+let nColorPaletteColors = [];
+let labelColormap = 'classic';
+let labelShuffle = true;
+let labelShuffleSeed = 0;
+// Track current max label for dynamic palette sizing
+let currentMaxLabel = 128;
+// Permutation cache for shuffle - ensures bijective mapping (no color collisions)
+// Maps [1..N] to [1..N] using golden ratio for optimal visual separation
+let shufflePermutation = null;
+let shufflePermutationSize = 0;
+let shufflePermutationSeed = 0;
+const PALETTE_TEXTURE_SIZE = 1024;
+let paletteTextureDirty = true;
+const DEFAULT_NCOLOR_COUNT = 4;
+if (!Array.isArray(colorTable) || colorTable.length === 0) {
+  labelColormap = 'sinebow';
+}
 const DEBUG_FILL_PERF = Boolean(
   CONFIG.debugFillPerf
   ?? CONFIG.debugFillPerformance
@@ -438,6 +455,11 @@ let distanceOverlayImage = null;
 let distanceOverlaySource = null;
 let pointsOverlayInfo = null;
 let pointsOverlayData = null;
+let selectedPointCoords = [];
+let selectedPointIndices = new Set();
+const POINT_SELECT_COLOR = [255, 64, 64, 255];
+const POINT_DEFAULT_COLOR = [255, 255, 255, 255];
+const POINT_PICK_RADIUS = 6;
 let vectorOverlayInfo = null;
 let vectorOverlayData = null;
 let showFlowOverlay = false;
@@ -1246,6 +1268,7 @@ uniform sampler2D u_outlineSampler;
 uniform sampler2D u_flowSampler;
 uniform sampler2D u_distanceSampler;
 uniform sampler2D u_pointsSampler;
+uniform sampler2D u_paletteSampler;
 
 uniform float u_maskOpacity;
 uniform float u_maskVisible;
@@ -1259,6 +1282,8 @@ uniform float u_distanceOpacity;
 uniform float u_pointsVisible;
 uniform float u_pointsOpacity;
 uniform float u_colorOffset;
+uniform float u_paletteSize;
+uniform float u_usePalette;
 
 vec3 sinebow(float t) {
   float angle = 6.28318530718 * fract(t);
@@ -1272,6 +1297,15 @@ vec3 hashColor(float label) {
   float golden = 0.61803398875;
   float t = fract(label * golden + u_colorOffset);
   return sinebow(t);
+}
+
+vec3 paletteColor(float label) {
+  float size = max(u_paletteSize, 1.0);
+  // palette[0] = background, palette[1] = color for label 1, etc.
+  // So use label directly as index (no -1 offset)
+  float idx = mod(label, size);
+  float u = (idx + 0.5) / size;
+  return texture(u_paletteSampler, vec2(u, 0.5)).rgb;
 }
 
 void main() {
@@ -1298,7 +1332,7 @@ void main() {
       } else if (u_maskStyle < 0.5 && u_outlinesVisible > 0.5) {
         alpha = mix(alpha * 0.5, alpha, outline);
       }
-      vec3 maskColor = hashColor(label);
+      vec3 maskColor = (u_usePalette > 0.5) ? paletteColor(label) : hashColor(label);
       color = mix(color, maskColor, alpha);
     }
   }
@@ -1420,6 +1454,17 @@ const texCoords = new Float32Array([
   gl.texImage2D(gl.TEXTURE_2D, 0, gl.R8, imgWidth, imgHeight, 0, gl.RED, gl.UNSIGNED_BYTE, null);
   gl.bindTexture(gl.TEXTURE_2D, null);
 
+  const paletteTexture = gl.createTexture();
+  gl.bindTexture(gl.TEXTURE_2D, paletteTexture);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+  const paletteInitData = buildPaletteTextureData();
+  gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA8, PALETTE_TEXTURE_SIZE, 1, 0, gl.RGBA, gl.UNSIGNED_BYTE, paletteInitData);
+  gl.bindTexture(gl.TEXTURE_2D, null);
+  paletteTextureDirty = false;
+
   const emptyTexture = gl.createTexture();
   gl.bindTexture(gl.TEXTURE_2D, emptyTexture);
   gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
@@ -1446,9 +1491,12 @@ const texCoords = new Float32Array([
     distanceVisible: gl.getUniformLocation(program, 'u_distanceVisible'),
     distanceOpacity: gl.getUniformLocation(program, 'u_distanceOpacity'),
     pointsSampler: gl.getUniformLocation(program, 'u_pointsSampler'),
+    paletteSampler: gl.getUniformLocation(program, 'u_paletteSampler'),
     pointsVisible: gl.getUniformLocation(program, 'u_pointsVisible'),
     pointsOpacity: gl.getUniformLocation(program, 'u_pointsOpacity'),
     colorOffset: gl.getUniformLocation(program, 'u_colorOffset'),
+    paletteSize: gl.getUniformLocation(program, 'u_paletteSize'),
+    usePalette: gl.getUniformLocation(program, 'u_usePalette'),
   };
   gl.useProgram(program);
   gl.uniform1i(uniforms.baseSampler, 0);
@@ -1457,6 +1505,8 @@ const texCoords = new Float32Array([
   gl.uniform1i(uniforms.flowSampler, 3);
   gl.uniform1i(uniforms.distanceSampler, 4);
   gl.uniform1i(uniforms.pointsSampler, 5);
+  gl.uniform1i(uniforms.paletteSampler, 6);
+  gl.uniform1f(uniforms.paletteSize, PALETTE_TEXTURE_SIZE);
   gl.useProgram(null);
 
   const affinityProgram = createWebglProgram(gl, AFFINITY_LINE_VERTEX_SHADER, AFFINITY_LINE_FRAGMENT_SHADER);
@@ -1495,6 +1545,7 @@ const texCoords = new Float32Array([
     baseTexture,
     maskTexture,
     outlineTexture,
+    paletteTexture,
     flowTexture: null,
     distanceTexture: null,
     emptyTexture,
@@ -1518,6 +1569,7 @@ const texCoords = new Float32Array([
     }
   }
   webglPipelineReady = true;
+  updatePaletteTextureIfNeeded();
   applyPendingFullTextureUpdates();
   markMaskTextureFullDirty();
   markOutlineTextureFullDirty();
@@ -1701,6 +1753,7 @@ function drawWebglFrame() {
     baseTexture,
     maskTexture,
     outlineTexture,
+    paletteTexture,
     flowTexture,
     distanceTexture,
   } = webglPipeline;
@@ -1727,6 +1780,7 @@ function drawWebglFrame() {
   pipelineGl.uniform1f(uniforms.distanceOpacity, 0.6);
   pipelineGl.uniform1f(uniforms.pointsVisible, 0);
   pipelineGl.uniform1f(uniforms.pointsOpacity, 0);
+  pipelineGl.uniform1f(uniforms.usePalette, 1);
 
   pipelineGl.activeTexture(pipelineGl.TEXTURE0);
   pipelineGl.bindTexture(pipelineGl.TEXTURE_2D, baseTexture || webglPipeline.emptyTexture);
@@ -1734,6 +1788,8 @@ function drawWebglFrame() {
   pipelineGl.bindTexture(pipelineGl.TEXTURE_2D, maskTexture || webglPipeline.emptyTexture);
   pipelineGl.activeTexture(pipelineGl.TEXTURE2);
   pipelineGl.bindTexture(pipelineGl.TEXTURE_2D, outlineTexture || webglPipeline.emptyTexture);
+  pipelineGl.activeTexture(pipelineGl.TEXTURE6);
+  pipelineGl.bindTexture(pipelineGl.TEXTURE_2D, webglPipeline.paletteTexture || webglPipeline.emptyTexture);
   bindOverlayTextureOrEmpty(flowTexture, 3);
   bindOverlayTextureOrEmpty(distanceTexture, 4);
 
@@ -3085,6 +3141,13 @@ const maskVisibilityToggle = document.getElementById('maskVisibilityToggle');
 const intensityPanel = document.getElementById('intensityPanel');
 const labelStylePanel = document.getElementById('labelStylePanel');
 const autoNColorToggle = document.getElementById('autoNColorToggle');
+const ncolorPanel = document.getElementById('ncolorPanel');
+const ncolorSwatches = document.getElementById('ncolorSwatches');
+const ncolorAddColor = document.getElementById('ncolorAddColor');
+const ncolorRemoveColor = document.getElementById('ncolorRemoveColor');
+const labelColormapSelect = document.getElementById('labelColormap');
+const labelShuffleToggle = document.getElementById('labelShuffleToggle');
+const labelShuffleSeedInput = document.getElementById('labelShuffleSeed');
 const brushKernelToggle = document.getElementById('brushKernelToggle');
 const systemRamEl = document.getElementById('systemRam');
 const systemCpuEl = document.getElementById('systemCpu');
@@ -3356,6 +3419,21 @@ let maskThreshold = clamp(
   MASK_THRESHOLD_MAX,
 );
 const DEFAULT_SEGMENTATION_MODEL = 'bact_phase_affinity';
+const LABEL_COLORMAPS = [
+  { value: 'classic', label: 'Classic' },
+  { value: 'sinebow', label: 'Sinebow' },
+  { value: 'viridis', label: 'Viridis' },
+  { value: 'magma', label: 'Magma' },
+  { value: 'plasma', label: 'Plasma' },
+  { value: 'inferno', label: 'Inferno' },
+  { value: 'cividis', label: 'Cividis' },
+  { value: 'turbo', label: 'Turbo' },
+  { value: 'gist_ncar', label: 'Gist NCAR' },
+  { value: 'vivid', label: 'Vivid' },
+  { value: 'pastel', label: 'Pastel' },
+  { value: 'gray', label: 'Grayscale' },
+];
+
 const SEGMENTATION_MODELS = [
   'bact_phase_omni',
   'bact_fluor_omni',
@@ -4977,7 +5055,7 @@ function collectViewerState() {
     niter: niterAuto ? null : niter,
     affinityGraph: (savedAffinityGraphPayload && savedAffinityGraphPayload.encoded)
       ? savedAffinityGraphPayload
-      : ((affinityGraphInfo && affinityGraphInfo.values && affinityGraphInfo.values.length)
+      : ((affinityGraphSource === 'remote' && affinityGraphInfo && affinityGraphInfo.values && affinityGraphInfo.values.length)
         ? {
           width: affinityGraphInfo.width,
           height: affinityGraphInfo.height,
@@ -4999,6 +5077,12 @@ function collectViewerState() {
     maskDisplayMode,
     nColorActive,
     nColorValues: nColorActive && nColorValues ? base64FromUint32(nColorValues) : null,
+    nColorInstanceMask: nColorInstanceMask ? base64FromUint32(nColorInstanceMask) : null,
+    nColorPaletteColors: nColorPaletteColors && nColorPaletteColors.length ? nColorPaletteColors : null,
+    labelColormap,
+    labelShuffle,
+    labelShuffleSeed,
+    currentMaxLabel,
     clusterEnabled,
     affinitySegEnabled,
     showFlowOverlay,
@@ -5023,6 +5107,8 @@ function restoreViewerState(saved) {
       const restoredMask = uint32FromBase64(saved.mask, expectedLength);
       maskValues.set(restoredMask.subarray(0, expectedLength));
       maskHasNonZero = Boolean(saved.maskHasNonZero);
+      // Update max label for dynamic palette sizing
+      updateMaxLabelFromMask();
     } else {
       maskValues.fill(0);
       maskHasNonZero = false;
@@ -5163,6 +5249,29 @@ function restoreViewerState(saved) {
       nColorActive = true;
       nColorValues = null;
     }
+    if (saved.nColorInstanceMask) {
+      const restored = uint32FromBase64(saved.nColorInstanceMask, expectedLength);
+      if (restored.length === expectedLength) {
+        nColorInstanceMask = new Uint32Array(restored);
+      }
+    }
+    if (Array.isArray(saved.nColorPaletteColors)) {
+      setNColorPaletteColors(saved.nColorPaletteColors, { render: false, schedule: false });
+    }
+    if (typeof saved.labelColormap === 'string') {
+      labelColormap = saved.labelColormap;
+    }
+    if (typeof saved.labelShuffle === 'boolean') {
+      labelShuffle = saved.labelShuffle;
+    }
+    if (Number.isFinite(saved.labelShuffleSeed)) {
+      labelShuffleSeed = saved.labelShuffleSeed | 0;
+    }
+    if (Number.isFinite(saved.currentMaxLabel) && saved.currentMaxLabel > 0) {
+      currentMaxLabel = saved.currentMaxLabel | 0;
+      // Regenerate palette with correct size
+      defaultPalette = generateSinebowPalette(currentMaxLabel + 1, 0.0, true);
+    }
     if (segmentationModelSelect) {
       if (segmentationModel && segmentationModel.startsWith('file:')) {
         const label = segmentationModel.replace(/^file:/, '') || 'Custom Model';
@@ -5201,9 +5310,20 @@ function restoreViewerState(saved) {
     if (distanceOverlayToggle) distanceOverlayToggle.checked = showDistanceOverlay;
     if (pointsOverlayToggle) pointsOverlayToggle.checked = showPointsOverlay;
     if (autoNColorToggle) autoNColorToggle.checked = nColorActive;
-    if (useGpuToggle && typeof saved.useGpu === 'boolean') {
-      useGpuToggle.checked = saved.useGpu;
+    if (labelColormapSelect) {
+      labelColormapSelect.value = labelColormap || 'classic';
+      refreshDropdown('labelColormap');
     }
+    if (labelShuffleToggle) labelShuffleToggle.checked = labelShuffle;
+    if (labelShuffleSeedInput) labelShuffleSeedInput.value = String(labelShuffleSeed);
+    updateLabelShuffleControls();
+    // Invalidate shuffle permutation cache since seed may have changed
+    shufflePermutation = null;
+    // Force palette rebuild to match restored shuffle settings
+    paletteTextureDirty = true;
+    clearColorCaches();
+    renderNColorSwatches();
+    updateNColorPanel();
     if (isWebglPipelineActive()) {
       markMaskTextureFullDirty();
       markOutlineTextureFullDirty();
@@ -6821,6 +6941,14 @@ function drawAffinityGraphWebgl() {
   return true;
 }
 
+function getAffinitySourceMask() {
+  if (nColorActive && nColorInstanceMask && nColorInstanceMask.length === maskValues.length) {
+    return nColorInstanceMask;
+  }
+  return maskValues;
+}
+
+
 // Affinity graph rendering is handled exclusively by WebGL.
 
 function clearAffinityGraphData() {
@@ -6933,7 +7061,7 @@ function maybeApplySavedAffinityGraph() {
 
 function applyAffinityGraphPayload(payload) {
   resetAffinityUpdateQueue();
-  // If the backend did not provide an affinity graph, fall back to local only
+  // If the backend did not provide an affinity graph, fall back to local
   if (!payload || !payload.encoded || !payload.steps || !payload.steps.length) {
     if (affinityGraphInfo && affinityGraphInfo.values) {
       // Keep existing remote graph; just ensure overlays are rebuilt.
@@ -6943,18 +7071,14 @@ function applyAffinityGraphPayload(payload) {
       rebuildOutlineFromAffinity();
       return;
     }
-    // Reset to defaults and clear previous buffers
     clearAffinityGraphData();
-    // Rebuild a local graph from maskValues to keep outlines up-to-date
     rebuildLocalAffinityGraph();
     if (webglOverlay && webglOverlay.enabled) {
       webglOverlay.needsGeometryRebuild = true;
     }
-    // Build segments for overlay if the user toggle is on
     if (showAffinityGraph && affinityGraphInfo && affinityGraphInfo.values) {
       buildAffinityGraphSegments();
     }
-    // Always refresh outlines from the (local) graph
     if (affinityGraphInfo && affinityGraphInfo.values) {
       rebuildOutlineFromAffinity();
     }
@@ -7013,7 +7137,8 @@ function applyAffinityGraphPayload(payload) {
 function rebuildLocalAffinityGraph() {
   resetAffinityUpdateQueue();
   refreshOppositeStepMapping();
-  if (!maskValues || maskValues.length === 0) {
+  const sourceMask = getAffinitySourceMask();
+  if (!sourceMask || sourceMask.length === 0) {
     clearAffinityGraphData();
     affinityGraphSource = 'local';
     affinityGraphNeedsLocalRebuild = false;
@@ -7032,7 +7157,7 @@ function rebuildLocalAffinityGraph() {
   const values = new Uint8Array(stepCount * planeStride);
   // Always compute affinity based on raw instance labels (mode-invariant)
   for (let index = 0; index < planeStride; index += 1) {
-    const rawLabel = (maskValues[index] | 0);
+    const rawLabel = (sourceMask[index] | 0);
     if (rawLabel <= 0) {
       continue;
     }
@@ -7048,7 +7173,7 @@ function rebuildLocalAffinityGraph() {
       let value = 0;
       if (nx >= 0 && nx < width && ny >= 0 && ny < height) {
         const neighborIndex = ny * width + nx;
-        const neighborRaw = (maskValues[neighborIndex] | 0);
+        const neighborRaw = (sourceMask[neighborIndex] | 0);
         if (neighborRaw > 0 && neighborRaw === rawLabel) {
           value = 1;
         }
@@ -7289,6 +7414,11 @@ function updateAffinityGraphForIndices(indices) {
     }
   }
   const info = affinityGraphInfo;
+  // CRITICAL: Must get source mask for label comparisons (was previously undefined - bug fix)
+  const sourceMask = getAffinitySourceMask();
+  if (!sourceMask || sourceMask.length === 0) {
+    return;
+  }
   if (showAffinityGraph && !info.segments) {
     buildAffinityGraphSegments();
     if (!info.segments) {
@@ -7362,7 +7492,7 @@ function updateAffinityGraphForIndices(indices) {
   let outlineChanged = false;
   for (let listIdx = 0; listIdx < touchedCount; listIdx += 1) {
     const index = touchedList[listIdx];
-    const label = (maskValues[index] | 0);
+    const label = (sourceMask[index] | 0);
     const x = index % width;
     const y = (index / width) | 0;
     for (let s = 0; s < stepCount; s += 1) {
@@ -7376,7 +7506,7 @@ function updateAffinityGraphForIndices(indices) {
       let neighborIndex = -1;
       if (nx >= 0 && nx < width && ny >= 0 && ny < height) {
         neighborIndex = ny * width + nx;
-        const neighborRaw = (maskValues[neighborIndex] | 0);
+        const neighborRaw = (sourceMask[neighborIndex] | 0);
         if (label > 0 && neighborRaw > 0 && neighborRaw === label) {
           value = 1;
         }
@@ -7479,7 +7609,7 @@ function updateAffinityGraphForIndices(indices) {
       redrawMaskCanvas();
     }
   }
-  if (affinitySegEnabled) {
+  if (affinitySegEnabled && !nColorActive) {
     // Force affinity graph persistence to use the latest edited graph
     savedAffinityGraphPayload = null;
     scheduleStateSave();
@@ -7775,6 +7905,8 @@ function draw() {
     log('draw start scale=' + viewState.scale.toFixed(3) + ' offset=' + viewState.offsetX.toFixed(1) + ',' + viewState.offsetY.toFixed(1));
   }
   if (isWebglPipelineActive()) {
+    // CRITICAL: Must update palette texture before drawing if dirty (e.g., after segmentation or mode change)
+    updatePaletteTextureIfNeeded();
     if (needsMaskRedraw) {
       flushMaskTextureUpdates();
       needsMaskRedraw = false;
@@ -7851,6 +7983,40 @@ function recomputeNColorFromCurrentMask(forceActive = false) {
               console.warn('[ncolor] group mapping returned 0 for labeled pixels:', missing, 'labels:', Array.from(missingLabels));
             }
           }
+          // Only save instance mask if we don't already have one with more unique labels
+          // (prevents overwriting valid instance data with N-color groups)
+          const currentMaskUniqueCount = (() => {
+            const s = new Set();
+            for (let i = 0; i < maskValues.length; i++) {
+              if (maskValues[i] > 0) s.add(maskValues[i]);
+            }
+            return s.size;
+          })();
+          const existingInstanceUniqueCount = nColorInstanceMask ? (() => {
+            const s = new Set();
+            for (let i = 0; i < nColorInstanceMask.length; i++) {
+              if (nColorInstanceMask[i] > 0) s.add(nColorInstanceMask[i]);
+            }
+            return s.size;
+          })() : 0;
+          if (!nColorInstanceMask || nColorInstanceMask.length !== maskValues.length) {
+            nColorInstanceMask = new Uint32Array(maskValues);
+          } else if (currentMaskUniqueCount > existingInstanceUniqueCount) {
+            // Only overwrite if current mask has MORE labels (true instance data)
+            nColorInstanceMask.set(maskValues);
+          }
+          // else: keep existing instance mask (it has more labels, so it's the real instance data)
+          let maxGroup = 0;
+          for (let i = 0; i < groups.length; i += 1) {
+            const g = groups[i] | 0;
+            if (g > maxGroup) maxGroup = g;
+          }
+          if (maxGroup > 0) {
+            const updatedPalette = ensureNColorPaletteLength(maxGroup);
+            if (updatedPalette.length !== nColorPaletteColors.length) {
+              setNColorPaletteColors(updatedPalette, { render: true, schedule: false });
+            }
+          }
           // Overwrite maskValues with group IDs; no separate overlay state
           let hasNonZero = false;
           for (let i = 0; i < groups.length; i += 1) {
@@ -7862,7 +8028,11 @@ function recomputeNColorFromCurrentMask(forceActive = false) {
           maskHasNonZero = hasNonZero;
           nColorValues = null;
           nColorActive = true;
+          if (savedAffinityGraphPayload && savedAffinityGraphPayload.encoded) {
+            applyAffinityGraphPayload(savedAffinityGraphPayload);
+          }
           clearColorCaches();
+          paletteTextureDirty = true;
           if (isWebglPipelineActive()) {
             markMaskTextureFullDirty();
             markOutlineTextureFullDirty();
@@ -7896,30 +8066,59 @@ async function relabelFromAffinity() {
   const hasPywebview = Boolean(window.pywebview && window.pywebview.api && (window.pywebview.api.relabel_from_affinity));
   const canHttp = typeof fetch === 'function';
   if (!hasPywebview && !canHttp) return false;
+  log(`[ncolor] relabel_from_affinity start hasPywebview=${hasPywebview} canHttp=${canHttp} source=${affinityGraphSource}`);
   try {
-    const buf = maskValues.buffer.slice(maskValues.byteOffset, maskValues.byteOffset + maskValues.byteLength);
+    // CRITICAL: When in N-color mode, maskValues contains N-color group IDs (1,2,3,4), NOT instance labels.
+    // We must send the saved instance mask (nColorInstanceMask) so the backend can properly relabel using affinity.
+    const sourceMask = (nColorActive && nColorInstanceMask && nColorInstanceMask.length === maskValues.length)
+      ? nColorInstanceMask
+      : maskValues;
+    const buf = sourceMask.buffer.slice(sourceMask.byteOffset, sourceMask.byteOffset + sourceMask.byteLength);
     const bytes = new Uint8Array(buf);
     const b64 = base64FromUint8(bytes);
-    // Attach current affinity graph (required); do not rebuild locally
-    if (!affinityGraphInfo || !affinityGraphInfo.values || !affinityGraphInfo.stepCount) {
+    // Attach current affinity graph (required); prefer remote graph when available
+    let graphPayload = null;
+    if (affinityGraphSource === 'remote' && affinityGraphInfo && affinityGraphInfo.values) {
+      graphPayload = {
+        width: affinityGraphInfo.width,
+        height: affinityGraphInfo.height,
+        steps: affinitySteps.map((p) => [p[0] | 0, p[1] | 0]),
+        encoded: base64FromUint8(affinityGraphInfo.values),
+      };
+    } else if (savedAffinityGraphPayload && savedAffinityGraphPayload.encoded) {
+      graphPayload = savedAffinityGraphPayload;
+    } else if (affinityGraphInfo && affinityGraphInfo.values && affinityGraphInfo.stepCount) {
+      graphPayload = {
+        width: affinityGraphInfo.width,
+        height: affinityGraphInfo.height,
+        steps: affinitySteps.map((p) => [p[0] | 0, p[1] | 0]),
+        encoded: base64FromUint8(affinityGraphInfo.values),
+      };
+    }
+    if (!graphPayload || !graphPayload.encoded) {
       console.warn('No affinity graph available for relabel_from_affinity');
+      log(`[ncolor] relabel_from_affinity missing graph values=${affinityGraphInfo && affinityGraphInfo.values ? affinityGraphInfo.values.length : 0} stepCount=${affinityGraphInfo ? affinityGraphInfo.stepCount : 0}`);
       return false;
     }
-    const enc = base64FromUint8(affinityGraphInfo.values);
     const affinityGraph = {
-      width: affinityGraphInfo.width,
-      height: affinityGraphInfo.height,
-      steps: affinitySteps.map((p) => [p[0] | 0, p[1] | 0]),
-      encoded: enc,
+      width: Number(graphPayload.width) || imgWidth,
+      height: Number(graphPayload.height) || imgHeight,
+      steps: Array.isArray(graphPayload.steps) ? graphPayload.steps : affinitySteps.map((p) => [p[0] | 0, p[1] | 0]),
+      encoded: graphPayload.encoded,
     };
     const payload = { mask: b64, width: imgWidth, height: imgHeight, affinityGraph };
     if (hasPywebview) {
       const result = await window.pywebview.api.relabel_from_affinity(payload);
-      if (result && !result.error && result.mask) {
+      if (result && result.error) {
+        log(`[ncolor] relabel_from_affinity error (pywebview): ${result.error}`);
+        return false;
+      }
+      if (result && result.mask) {
         applySegmentationMask(result, { forceInstanceMask: true });
         log('Applied relabel_from_affinity from backend (pywebview).');
         return true;
       }
+      log(`[ncolor] relabel_from_affinity missing mask (pywebview); keys=${result ? Object.keys(result) : 'none'}`);
     }
     if (canHttp) {
       const res = await fetch('/api/relabel_from_affinity', {
@@ -7929,11 +8128,18 @@ async function relabelFromAffinity() {
       });
       if (res.ok) {
         const result = await res.json();
-        if (result && !result.error && result.mask) {
+        if (result && result.error) {
+          log(`[ncolor] relabel_from_affinity error (HTTP): ${result.error}`);
+          return false;
+        }
+        if (result && result.mask) {
           applySegmentationMask(result, { forceInstanceMask: true });
           log('Applied relabel_from_affinity from backend (HTTP).');
           return true;
         }
+        log(`[ncolor] relabel_from_affinity missing mask (HTTP); keys=${result ? Object.keys(result) : 'none'}`);
+      } else {
+        log(`[ncolor] relabel_from_affinity HTTP status ${res.status}`);
       }
     }
   } catch (err) {
@@ -8202,24 +8408,297 @@ function sinebowColor(t) {
   return [Math.round(r * 255), Math.round(g * 255), Math.round(b * 255), 200];
 }
 
-function generateSinebowPalette(size, offset = 0) {
+function rgbToHex(rgb) {
+  const [r, g, b] = rgb;
+  return '#' + [r, g, b]
+    .map((v) => Math.max(0, Math.min(255, v)).toString(16).padStart(2, '0'))
+    .join('');
+}
+
+function hexToRgb(hex) {
+  if (!hex) return [0, 0, 0];
+  const value = hex.replace('#', '');
+  if (value.length !== 6) return [0, 0, 0];
+  const r = parseInt(value.slice(0, 2), 16);
+  const g = parseInt(value.slice(2, 4), 16);
+  const b = parseInt(value.slice(4, 6), 16);
+  return [r, g, b];
+}
+
+function hslToRgb(h, s, l) {
+  const c = (1 - Math.abs(2 * l - 1)) * s;
+  const hp = h * 6;
+  const x = c * (1 - Math.abs((hp % 2) - 1));
+  let r = 0;
+  let g = 0;
+  let b = 0;
+  if (hp >= 0 && hp < 1) {
+    r = c; g = x; b = 0;
+  } else if (hp < 2) {
+    r = x; g = c; b = 0;
+  } else if (hp < 3) {
+    r = 0; g = c; b = x;
+  } else if (hp < 4) {
+    r = 0; g = x; b = c;
+  } else if (hp < 5) {
+    r = x; g = 0; b = c;
+  } else {
+    r = c; g = 0; b = x;
+  }
+  const m = l - c / 2;
+  return [Math.round((r + m) * 255), Math.round((g + m) * 255), Math.round((b + m) * 255)];
+}
+
+function ensureNColorPaletteLength(targetCount) {
+  const target = Math.max(2, targetCount | 0);
+  const base = (nColorPaletteColors && nColorPaletteColors.length)
+    ? nColorPaletteColors.slice()
+    : generateNColorSwatches(DEFAULT_NCOLOR_COUNT, 0.35);
+  if (base.length >= target) {
+    return base;
+  }
+  const next = base.slice();
+  for (let i = next.length; i < target; i += 1) {
+    const t = (0.35 + i / Math.max(target, 2)) % 1;
+    const rgb = sinebowColor(t);
+    next.push([rgb[0], rgb[1], rgb[2]]);
+  }
+  return next;
+}
+
+function generateNColorSwatches(count, offset = 0) {
+  const swatches = [];
+  const total = Math.max(2, count);
+  for (let i = 0; i < total; i += 1) {
+    const t = (offset + i / total) % 1;
+    const [r, g, b] = sinebowColor(t);
+    swatches.push([r, g, b]);
+  }
+  return swatches;
+}
+
+function seededRandom(seed) {
+  let t = seed + 0x6D2B79F5;
+  t = Math.imul(t ^ (t >>> 15), t | 1);
+  t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+  return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+}
+
+function getLabelShuffleKey(label) {
+  if (!labelShuffle) {
+    return label;
+  }
+  const seed = (labelShuffleSeed | 0) + 1;
+  const mix = label ^ (seed * 0x9e3779b9);
+  return Math.floor(seededRandom(mix) * 1e9);
+}
+
+const COLORMAP_STOPS = {
+  viridis: ['#440154', '#3b528b', '#21908c', '#5dc863', '#fde725'],
+  magma: ['#000004', '#1b0c41', '#4f0a6d', '#781c6d', '#a52c60', '#cf4446', '#ed6925', '#fb9b06', '#f7d13d', '#fcfdbf'],
+  plasma: ['#0d0887', '#5b02a3', '#9a179b', '#cb4679', '#ed7953', '#fb9f3a', '#fdca26', '#f0f921'],
+  inferno: ['#000004', '#1b0c41', '#4a0c6b', '#781c6d', '#a52c60', '#cf4446', '#ed6925', '#fb9b06', '#f7d13d', '#fcfdbf'],
+  cividis: ['#00204c', '#2a4c7e', '#5763a4', '#7a7aa9', '#9d90a8', '#c4b79a', '#e6e2a4', '#fdea45'],
+  turbo: ['#30123b', '#2a47a3', '#1f7acb', '#17b5b8', '#3ddc64', '#b8f130', '#f9c926', '#f57c1f', '#d73027'],
+  gist_ncar: ['#000080', '#0000ff', '#00ffff', '#00ff00', '#ffff00', '#ff8000', '#ff0000', '#800000'],
+};
+
+function interpolateStops(stops, t) {
+  if (!stops || !stops.length) {
+    return [0, 0, 0];
+  }
+  if (stops.length === 1) {
+    return hexToRgb(stops[0]);
+  }
+  const clamped = Math.min(Math.max(t, 0), 0.999999);
+  const scaled = clamped * (stops.length - 1);
+  const idx = Math.floor(scaled);
+  const frac = scaled - idx;
+  const a = hexToRgb(stops[idx]);
+  const b = hexToRgb(stops[Math.min(idx + 1, stops.length - 1)]);
+  return [
+    Math.round(a[0] + (b[0] - a[0]) * frac),
+    Math.round(a[1] + (b[1] - a[1]) * frac),
+    Math.round(a[2] + (b[2] - a[2]) * frac),
+  ];
+}
+
+/**
+ * Get palette index for a label.
+ * The defaultPalette is ALREADY generated with golden-ratio spacing for maximum visual distinction.
+ * So we just need to map labels to palette indices directly.
+ *
+ * Shuffle OFF: Labels map sequentially to palette (label 1 -> palette[1], etc.)
+ * Shuffle ON: Labels offset by seed, still getting golden-ratio spaced colors from palette
+ */
+function getLabelOrderValue(label, paletteSize = 256) {
+  // palette[0] is background (black/transparent), valid indices are 1 to paletteSize-1
+  const effectiveSize = paletteSize - 1;
+
+  if (!labelShuffle) {
+    // Shuffle OFF: sequential mapping - label 1 -> palette[1], label 2 -> palette[2], etc.
+    // The palette is golden-ratio spaced, so consecutive labels get well-separated colors
+    return ((label - 1) % effectiveSize) + 1;
+  }
+
+  // Shuffle ON: offset labels by seed to get different color assignment
+  // The palette itself provides the golden-ratio spreading, so just shift by seed
+  const seed = labelShuffleSeed | 0;
+
+  // Simple offset: (label + seed * prime) mod size
+  // Using a prime multiplier on seed ensures different seeds give very different offsets
+  const seedOffset = seed * 97;
+  const idx = ((label - 1 + seedOffset) % effectiveSize);
+
+  // Map to valid palette range [1, paletteSize-1]
+  return idx + 1;
+}
+
+function getLabelColorFraction(label) {
+  if (!labelShuffle) {
+    return ((label - 1) % 1024) / 1024;
+  }
+  return seededRandom(getLabelShuffleKey(label));
+}
+
+function getColormapColor(label) {
+  if (label <= 0) return null;
+  const table = Array.isArray(colorTable) && colorTable.length ? colorTable : null;
+  // CRITICAL: When colorTable is too small (< 64 colors), use defaultPalette for unique instance colors.
+  // This must match the logic in buildPaletteTextureData() to ensure color picker matches displayed colors.
+  const useDefaultPalette = labelColormap === 'classic' && (!table || table.length < 64);
+  if (useDefaultPalette && defaultPalette.length > 0) {
+    // defaultPalette is SEQUENTIAL sinebow with exactly currentMaxLabel colors
+    // spanning the full spectrum. Both modes use the SAME colors:
+    // - Shuffle OFF: sequential access (rainbow gradient)
+    // - Shuffle ON: bijective permutation (scrambled but same color set)
+    const paletteSize = defaultPalette.length - 1; // exclude index 0 (background)
+    let idx;
+    if (!labelShuffle) {
+      // Sequential: label i → palette[i] (wrapping if label > paletteSize)
+      idx = ((label - 1) % paletteSize) + 1;
+    } else {
+      // Shuffled: use bijective permutation to map label to a different index
+      // but within the same [1, paletteSize] range
+      const perm = buildShufflePermutation();
+      if (label <= paletteSize && perm && perm[label]) {
+        idx = perm[label];
+      } else {
+        // Fallback for labels beyond current max
+        idx = ((label - 1) % paletteSize) + 1;
+      }
+    }
+    const entry = defaultPalette[idx] || [0, 0, 0];
+    return [entry[0] || 0, entry[1] || 0, entry[2] || 0];
+  }
+  if (labelColormap === 'classic' && table) {
+    const idx = labelShuffle ? getLabelOrderValue(label, table.length) : ((label - 1) % table.length);
+    const entry = table[idx] || table[idx % table.length] || table[0];
+    return [entry[0], entry[1], entry[2]];
+  }
+  const t = getLabelColorFraction(label);
+  if (labelColormap === 'gray') {
+    const v = Math.round(t * 255);
+    return [v, v, v];
+  }
+  if (labelColormap === 'pastel') {
+    return hslToRgb(t, 0.55, 0.72);
+  }
+  if (labelColormap === 'vivid') {
+    return hslToRgb(t, 0.9, 0.5);
+  }
+  if (labelColormap === 'sinebow') {
+    const [r, g, b] = sinebowColor(t);
+    return [r, g, b];
+  }
+  const stops = COLORMAP_STOPS[labelColormap];
+  if (stops) {
+    return interpolateStops(stops, t);
+  }
+  const [r, g, b] = sinebowColor(t);
+  return [r, g, b];
+}
+
+function generateSinebowPalette(size, offset = 0, sequential = false) {
   const count = Math.max(size, 2);
   const palette = new Array(count);
   palette[0] = [0, 0, 0, 0];
   const golden = 0.61803398875;
   for (let i = 1; i < count; i += 1) {
-    const t = (offset + i * golden) % 1;
+    // Sequential: evenly spaced around the color wheel (rainbow order)
+    // Golden ratio: maximally separated colors (scrambled but distinct)
+    const t = sequential
+      ? (offset + (i - 1) / (count - 1)) % 1
+      : (offset + i * golden) % 1;
     palette[i] = sinebowColor(t);
   }
   return palette;
 }
 
-defaultPalette = generateSinebowPalette(Math.max(colorTable.length || 0, 256), 0.0);
+// Default palette is SEQUENTIAL sinebow - full rainbow in order
+// Regenerated dynamically when max label count changes
+defaultPalette = generateSinebowPalette(129, 0.0, true); // Initial: 128 colors + 1 for background
+
+/**
+ * Update max label tracking and regenerate palette if needed.
+ * Call this after any mask modification (segmentation, painting, loading).
+ */
+function updateMaxLabelFromMask() {
+  if (!maskValues || maskValues.length === 0) return;
+  let maxL = 0;
+  for (let i = 0; i < maskValues.length; i++) {
+    if (maskValues[i] > maxL) maxL = maskValues[i];
+  }
+  if (maxL > 0 && maxL !== currentMaxLabel) {
+    currentMaxLabel = maxL;
+    // Regenerate palette to have exactly maxL colors spanning full spectrum
+    defaultPalette = generateSinebowPalette(maxL + 1, 0.0, true);
+    // Invalidate shuffle permutation cache
+    shufflePermutation = null;
+    paletteTextureDirty = true;
+  }
+}
+
+/**
+ * Build shuffle permutation for current max label count.
+ * Creates a bijection [1..N] -> [1..N] using golden ratio for optimal visual separation.
+ */
+function buildShufflePermutation() {
+  const N = currentMaxLabel;
+  const seed = labelShuffleSeed | 0;
+  if (shufflePermutation && shufflePermutationSize === N && shufflePermutationSeed === seed) {
+    return shufflePermutation;
+  }
+  const golden = 0.61803398875;
+  // Create array of {label, sortKey} and sort by sortKey
+  const items = [];
+  for (let i = 1; i <= N; i++) {
+    const seedOffset = seed * 0.1;
+    const sortKey = ((i + seedOffset) * golden) % 1;
+    items.push({ label: i, sortKey });
+  }
+  items.sort((a, b) => a.sortKey - b.sortKey);
+  // Build permutation: perm[label] = rank (1-based)
+  const perm = new Array(N + 1);
+  perm[0] = 0; // background stays 0
+  for (let rank = 0; rank < items.length; rank++) {
+    perm[items[rank].label] = rank + 1; // 1-based rank
+  }
+  shufflePermutation = perm;
+  shufflePermutationSize = N;
+  shufflePermutationSeed = seed;
+  return perm;
+}
 // N-color palette is large enough; groups come from backend ncolor.label
 nColorPalette = generateSinebowPalette(Math.max(colorTable.length || 0, 1024), 0.35);
+nColorPaletteColors = generateNColorSwatches(DEFAULT_NCOLOR_COUNT, 0.35);
 
 let nColorActive = true;
 let nColorValues = null; // per-pixel group IDs for N-color display only
+let nColorInstanceMask = null;
+renderNColorSwatches();
+updateNColorPanel();
+updateLabelShuffleControls();
 // Single authoritative mask buffer: maskValues always holds instance labels.
 const rawColorMap = new Map();
 const nColorColorMap = new Map();
@@ -8240,6 +8719,10 @@ function hashColorForLabel(label, offset = 0.0) {
 function clearColorCaches() {
   rawColorMap.clear();
   nColorColorMap.clear();
+  // Also clear shuffle permutation cache to force regeneration
+  shufflePermutationCache = null;
+  shufflePermutationCacheSeed = null;
+  shufflePermutationCacheSize = null;
 }
 
 function getColorFromMap(label, map, offset = 0.0) {
@@ -8255,11 +8738,24 @@ function getColorFromMap(label, map, offset = 0.0) {
 }
 
 function getRawLabelColor(label) {
-  return getColorFromMap(label, rawColorMap, 0.0);
+  if (label <= 0) {
+    return null;
+  }
+  let rgb = rawColorMap.get(label);
+  if (!rgb) {
+    rgb = getColormapColor(label);
+    rawColorMap.set(label, rgb);
+  }
+  return rgb;
 }
 
 function getNColorLabelColor(label) {
-  return getColorFromMap(label, nColorColorMap, 0.0);
+  if (label <= 0) {
+    return null;
+  }
+  const palette = nColorPaletteColors.length ? nColorPaletteColors : generateNColorSwatches(DEFAULT_NCOLOR_COUNT, 0.35);
+  const idx = (label - 1) % palette.length;
+  return palette[idx];
 }
 
 function getDisplayColor(index) {
@@ -8713,6 +9209,139 @@ function updateColorModeLabel() {
 }
 
 
+function updateNColorPanel() {
+  if (!ncolorPanel || typeof nColorActive === 'undefined') {
+    return;
+  }
+  ncolorPanel.classList.toggle('ncolor-active', Boolean(nColorActive));
+}
+
+function renderNColorSwatches() {
+  if (!ncolorSwatches) {
+    return;
+  }
+  ncolorSwatches.innerHTML = '';
+  const palette = nColorPaletteColors.length ? nColorPaletteColors : generateNColorSwatches(DEFAULT_NCOLOR_COUNT, 0.35);
+  palette.forEach((rgb, idx) => {
+    const swatch = document.createElement('button');
+    swatch.type = 'button';
+    swatch.className = 'ncolor-swatch';
+    swatch.style.setProperty('--swatch-color', rgbToHex(rgb));
+    const input = document.createElement('input');
+    input.type = 'color';
+    input.value = rgbToHex(rgb);
+    input.addEventListener('input', (evt) => {
+      const next = hexToRgb(evt.target.value);
+      const updated = palette.slice();
+      updated[idx] = next;
+      setNColorPaletteColors(updated, { render: true });
+    });
+    swatch.appendChild(input);
+    swatch.addEventListener('click', () => input.click());
+    ncolorSwatches.appendChild(swatch);
+  });
+}
+
+function setNColorPaletteColors(colors, { render = true, schedule = true } = {}) {
+  nColorPaletteColors = Array.isArray(colors) ? colors.map((c) => c.slice(0, 3)) : [];
+  if (render) {
+    renderNColorSwatches();
+  }
+  if (nColorActive) {
+    clearColorCaches();
+    paletteTextureDirty = true;
+    if (isWebglPipelineActive()) {
+      markMaskTextureFullDirty();
+      markOutlineTextureFullDirty();
+    } else {
+      redrawMaskCanvas();
+    }
+    draw();
+  }
+  if (schedule) {
+    scheduleStateSave();
+  }
+}
+
+function buildPaletteTextureData() {
+  const size = PALETTE_TEXTURE_SIZE;
+  const data = new Uint8Array(size * 4);
+  if (nColorActive) {
+    const palette = nColorPaletteColors.length ? nColorPaletteColors : generateNColorSwatches(DEFAULT_NCOLOR_COUNT, 0.35);
+    const count = palette.length || 1;
+    for (let i = 0; i < size; i += 1) {
+      const rgb = palette[i % count] || [0, 0, 0];
+      const base = i * 4;
+      data[base] = rgb[0] || 0;
+      data[base + 1] = rgb[1] || 0;
+      data[base + 2] = rgb[2] || 0;
+      data[base + 3] = 255;
+    }
+    return data;
+  }
+  // Instance mode: generate unique colors for each label
+  // CRITICAL: The shader accesses palette[label] directly, so palette[i] must contain the color for label i.
+  // palette[0] = background (label 0), palette[1] = color for label 1, etc.
+  const useDefaultPalette = labelColormap === 'classic' && (!Array.isArray(colorTable) || colorTable.length < 64);
+  for (let i = 0; i < size; i += 1) {
+    let rgb;
+    if (i === 0) {
+      // Background/label 0 - use black/transparent
+      rgb = [0, 0, 0];
+    } else if (useDefaultPalette && defaultPalette.length > 0) {
+      // defaultPalette is SEQUENTIAL sinebow with exactly currentMaxLabel colors
+      // spanning the full spectrum. Both modes use the SAME colors:
+      // - Shuffle OFF: sequential access (rainbow gradient)
+      // - Shuffle ON: bijective permutation (scrambled but same color set)
+      const paletteSize = defaultPalette.length - 1; // exclude index 0 (background)
+      let idx;
+      if (!labelShuffle) {
+        // Sequential: label i → palette[i] (wrapping if label > paletteSize)
+        idx = ((i - 1) % paletteSize) + 1;
+      } else {
+        // Shuffled: use bijective permutation to map label to a different index
+        const perm = buildShufflePermutation();
+        if (i <= paletteSize && perm && perm[i]) {
+          idx = perm[i];
+        } else {
+          // Fallback for labels beyond current max
+          idx = ((i - 1) % paletteSize) + 1;
+        }
+      }
+      const entry = defaultPalette[idx] || [0, 0, 0];
+      rgb = [entry[0] || 0, entry[1] || 0, entry[2] || 0];
+    } else {
+      rgb = getColormapColor(i) || [0, 0, 0];
+    }
+    const base = i * 4;
+    data[base] = rgb[0] || 0;
+    data[base + 1] = rgb[1] || 0;
+    data[base + 2] = rgb[2] || 0;
+    data[base + 3] = 255;
+  }
+  return data;
+}
+
+function updatePaletteTextureIfNeeded() {
+  if (!paletteTextureDirty) return;
+  if (!isWebglPipelineActive() || !webglPipeline || !webglPipeline.paletteTexture) return;
+  const { gl } = webglPipeline;
+  const data = buildPaletteTextureData();
+  gl.bindTexture(gl.TEXTURE_2D, webglPipeline.paletteTexture);
+  gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, PALETTE_TEXTURE_SIZE, 1, gl.RGBA, gl.UNSIGNED_BYTE, data);
+  gl.bindTexture(gl.TEXTURE_2D, null);
+  paletteTextureDirty = false;
+}
+
+function updateLabelShuffleControls() {
+  if (!labelShuffleToggle) {
+    return;
+  }
+  if (labelShuffleSeedInput) {
+    labelShuffleSeedInput.disabled = !labelShuffle;
+  }
+}
+
 function formatLabelsFromCurrentMask() {
   return new Promise((resolve) => {
     try {
@@ -8738,6 +9367,7 @@ function formatLabelsFromCurrentMask() {
           }
           maskHasNonZero = hasNonZero;
           clearColorCaches();
+          paletteTextureDirty = true;
           if (isWebglPipelineActive()) {
             markMaskTextureFullDirty();
             markOutlineTextureFullDirty();
@@ -8791,55 +9421,96 @@ function toggleColorMode() {
       } catch (_) { currentLabel = 1; }
       updateMaskLabel();
       updateColorModeLabel();
+      paletteTextureDirty = true;
       if (autoNColorToggle) autoNColorToggle.checked = nColorActive;
-    if (useGpuToggle && typeof saved.useGpu === 'boolean') {
-      useGpuToggle.checked = saved.useGpu;
-    }
+      updateNColorPanel();
       draw();
       scheduleStateSave();
     });
     return;
   }
-  // OFF: relabel using affinity graph to restore instance IDs
+  // OFF: restore saved instance mask directly (don't recompute from affinity graph)
+  // The nColorInstanceMask was saved when N-color was turned ON - use it directly
   const prevLabel = currentLabel | 0;
-  relabelFromAffinity()
-    .then((ok) => {
-      if (!ok) console.warn('relabel_from_affinity failed during N-color OFF');
-      nColorActive = false;
-      clearColorCaches();
-      if (isWebglPipelineActive()) {
-        markMaskTextureFullDirty();
-        markOutlineTextureFullDirty();
+  const savedInstance = (nColorInstanceMask && nColorInstanceMask.length === maskValues.length)
+    ? nColorInstanceMask
+    : null;
+
+  if (savedInstance) {
+    // Restore directly from saved instance mask
+    // Count unique labels to verify
+    const uniqueLabels = new Set();
+    for (let i = 0; i < savedInstance.length; i++) {
+      if (savedInstance[i] > 0) uniqueLabels.add(savedInstance[i]);
+    }
+    log(`[ncolor] OFF: restoring saved instance mask directly (${uniqueLabels.size} unique labels)`);
+    maskValues.set(savedInstance);
+    maskHasNonZero = true;
+    nColorActive = false;
+    nColorInstanceMask = null;
+  } else {
+    // No saved mask - fall back to relabeling from affinity (legacy behavior)
+    log('[ncolor] OFF: no saved instance mask, falling back to relabelFromAffinity');
+    if (!affinityGraphInfo || !affinityGraphInfo.values) {
+      if (savedAffinityGraphPayload && savedAffinityGraphPayload.encoded) {
+        applyAffinityGraphPayload(savedAffinityGraphPayload);
       } else {
-        redrawMaskCanvas();
+        rebuildLocalAffinityGraph();
       }
-      // Preserve currentLabel if still present; else default to 1
-      try {
-        let found = false;
-        if (prevLabel > 0) {
-          for (let i = 0; i < maskValues.length; i += Math.max(1, Math.floor(maskValues.length / 2048))) {
-            if ((maskValues[i] | 0) === prevLabel) { found = true; break; }
-          }
-          if (!found) {
-            for (let i = 0; i < maskValues.length; i += 1) { if ((maskValues[i] | 0) === prevLabel) { found = true; break; } }
-          }
+    }
+    relabelFromAffinity()
+      .then((ok) => {
+        if (!ok) {
+          console.warn('relabel_from_affinity failed during N-color OFF');
+        }
+        nColorActive = false;
+        nColorInstanceMask = null;
+        finishNColorOff(prevLabel);
+      })
+      .catch((err) => {
+        console.warn('N-color OFF relabel failed', err);
+        nColorActive = false;
+        nColorInstanceMask = null;
+        finishNColorOff(prevLabel);
+      });
+    return; // async path
+  }
+
+  // Synchronous path - finish immediately
+  finishNColorOff(prevLabel);
+
+  function finishNColorOff(prevLabel) {
+    clearColorCaches();
+    paletteTextureDirty = true;
+    if (isWebglPipelineActive()) {
+      markMaskTextureFullDirty();
+      markOutlineTextureFullDirty();
+    } else {
+      redrawMaskCanvas();
+    }
+    // Preserve currentLabel if still present; else default to 1
+    try {
+      let found = false;
+      if (prevLabel > 0) {
+        for (let i = 0; i < maskValues.length; i += Math.max(1, Math.floor(maskValues.length / 2048))) {
+          if ((maskValues[i] | 0) === prevLabel) { found = true; break; }
         }
         if (!found) {
-          currentLabel = 1;
+          for (let i = 0; i < maskValues.length; i += 1) { if ((maskValues[i] | 0) === prevLabel) { found = true; break; } }
         }
-      } catch (_) { currentLabel = 1; }
-      updateMaskLabel();
-      updateColorModeLabel();
-      if (autoNColorToggle) autoNColorToggle.checked = nColorActive;
-    if (useGpuToggle && typeof saved.useGpu === 'boolean') {
-      useGpuToggle.checked = saved.useGpu;
-    }
-      draw();
-      scheduleStateSave();
-    })
-    .catch((err) => {
-      console.warn('N-color OFF relabel failed', err);
-    });
+      }
+      if (!found) {
+        currentLabel = 1;
+      }
+    } catch (_) { currentLabel = 1; }
+    updateMaskLabel();
+    updateColorModeLabel();
+    paletteTextureDirty = true;
+    if (autoNColorToggle) autoNColorToggle.checked = nColorActive;
+    updateNColorPanel();
+    draw();
+    scheduleStateSave();
+  }
 }
 
 
@@ -9445,6 +10116,86 @@ function buildVectorOverlayData(pointsPositions, count, width, height) {
   };
 }
 
+function findNearestPointIndex(world, maxDist = POINT_PICK_RADIUS) {
+  if (!pointsOverlay || !pointsOverlay.pointsPositions || !pointsOverlay.pointsCount) {
+    return -1;
+  }
+  const positions = pointsOverlay.pointsPositions;
+  let best = -1;
+  let bestDist = maxDist;
+  for (let i = 0; i < pointsOverlay.pointsCount; i += 1) {
+    const dx = positions[i * 2] - world.x;
+    const dy = positions[i * 2 + 1] - world.y;
+    const d = Math.hypot(dx, dy);
+    if (d <= bestDist) {
+      bestDist = d;
+      best = i;
+    }
+  }
+  return best;
+}
+
+function setPointColor(index, color) {
+  if (!pointsOverlay || !pointsOverlay.pointsColors || index < 0) {
+    return;
+  }
+  const colors = pointsOverlay.pointsColors;
+  const offset = index * 4;
+  colors[offset] = color[0];
+  colors[offset + 1] = color[1];
+  colors[offset + 2] = color[2];
+  colors[offset + 3] = color[3];
+  if (webglOverlay && webglOverlay.pointsColors) {
+    webglOverlay.pointsColors.set(colors);
+  }
+  updatePointsOverlayBuffers();
+}
+
+function restoreSelectedPoints() {
+  if (!selectedPointCoords.length || !pointsOverlay || !pointsOverlay.pointsPositions) {
+    return;
+  }
+  selectedPointIndices = new Set();
+  const positions = pointsOverlay.pointsPositions;
+  selectedPointCoords.forEach((pt) => {
+    let best = -1;
+    let bestDist = POINT_PICK_RADIUS;
+    for (let i = 0; i < pointsOverlay.pointsCount; i += 1) {
+      const dx = positions[i * 2] - pt.x;
+      const dy = positions[i * 2 + 1] - pt.y;
+      const d = Math.hypot(dx, dy);
+      if (d <= bestDist) {
+        bestDist = d;
+        best = i;
+      }
+    }
+    if (best >= 0) {
+      selectedPointIndices.add(best);
+      setPointColor(best, POINT_SELECT_COLOR);
+    }
+  });
+}
+
+function togglePointSelectionAt(world) {
+  const index = findNearestPointIndex(world);
+  if (index < 0) {
+    return false;
+  }
+  const positions = pointsOverlay.pointsPositions;
+  const x = positions[index * 2];
+  const y = positions[index * 2 + 1];
+  if (selectedPointIndices.has(index)) {
+    selectedPointIndices.delete(index);
+    selectedPointCoords = selectedPointCoords.filter((pt) => Math.hypot(pt.x - x, pt.y - y) > 0.5);
+    setPointColor(index, POINT_DEFAULT_COLOR);
+  } else {
+    selectedPointIndices.add(index);
+    selectedPointCoords.push({ x, y });
+    setPointColor(index, POINT_SELECT_COLOR);
+  }
+  return true;
+}
+
 function applyPointsPayload(pointsPayload) {
   const gl = webglOverlay && webglOverlay.gl ? webglOverlay.gl : null;
   if (!pointsPayload || !pointsPayload.encoded || !pointsPayload.count) {
@@ -9452,6 +10203,8 @@ function applyPointsPayload(pointsPayload) {
     pointsOverlayData = null;
     vectorOverlayInfo = null;
     vectorOverlayData = null;
+    selectedPointCoords = [];
+    selectedPointIndices = new Set();
     if (pointsOverlay) {
       pointsOverlay.pointsCount = 0;
       pointsOverlay.pointsPositions = null;
@@ -9512,10 +10265,10 @@ function applyPointsPayload(pointsPayload) {
     const x = coords[i * 2 + 1];
     positions[i * 2] = x + 0.5;
     positions[i * 2 + 1] = y + 0.5;
-    colors[i * 4] = 255;
-    colors[i * 4 + 1] = 255;
-    colors[i * 4 + 2] = 255;
-    colors[i * 4 + 3] = 255;
+    colors[i * 4] = POINT_DEFAULT_COLOR[0];
+    colors[i * 4 + 1] = POINT_DEFAULT_COLOR[1];
+    colors[i * 4 + 2] = POINT_DEFAULT_COLOR[2];
+    colors[i * 4 + 3] = POINT_DEFAULT_COLOR[3];
   }
   pointsOverlayInfo = {
     width: pointsPayload.width,
@@ -9524,6 +10277,7 @@ function applyPointsPayload(pointsPayload) {
   };
   pointsOverlayData = pointsPayload;
   if (pointsOverlay) { pointsOverlay.pointsPositions = positions; pointsOverlay.pointsColors = colors; pointsOverlay.pointsCount = count; }
+  restoreSelectedPoints();
   if (webglOverlay) { webglOverlay.pointsCount = count; }
   if (webglOverlay) { webglOverlay.pointsPositions = positions; }
   if (webglOverlay) { webglOverlay.pointsColors = colors; }
@@ -9574,8 +10328,28 @@ function applySegmentationMask(payload, options = {}) {
   }
   const forceInstanceMask = Boolean(options.forceInstanceMask);
   let maskPayload = payload.mask;
+  // Debug: log what conditions are met
+  log(`[applySegmentationMask] forceInstanceMask=${forceInstanceMask} nColorActive=${nColorActive} hasNColorMask=${Boolean(payload.nColorMask)}`);
   if (!forceInstanceMask && nColorActive && payload.nColorMask) {
     maskPayload = payload.nColorMask;
+    try {
+      const instBin = atob(payload.mask);
+      log(`[applySegmentationMask] saving instance mask: instBin.length=${instBin.length} expected=${maskValues.length * 4}`);
+      if (instBin.length === maskValues.length * 4) {
+        const instBuf = new ArrayBuffer(instBin.length);
+        const instArr = new Uint8Array(instBuf);
+        for (let i = 0; i < instBin.length; i += 1) instArr[i] = instBin.charCodeAt(i);
+        nColorInstanceMask = new Uint32Array(instBuf);
+        // Count unique labels in saved instance mask
+        const uniqueInst = new Set();
+        for (let i = 0; i < nColorInstanceMask.length; i++) {
+          if (nColorInstanceMask[i] > 0) uniqueInst.add(nColorInstanceMask[i]);
+        }
+        log(`[applySegmentationMask] saved instance mask with ${uniqueInst.size} unique labels`);
+      }
+    } catch (e) {
+      log(`[applySegmentationMask] error saving instance mask: ${e.message}`);
+    }
   }
   const binary = atob(maskPayload);
   const byteLength = binary.length;
@@ -9617,9 +10391,13 @@ function applySegmentationMask(payload, options = {}) {
     paintingApi.rebuildComponents();
   }
   maskHasNonZero = hasNonZero;
+  // Update max label for dynamic palette sizing
+  updateMaxLabelFromMask();
   // Switching to a new mask implicitly leaves current color mode as-is; caller controls nColorActive.
   resetNColorAssignments();
   clearColorCaches();
+  // CRITICAL: Must rebuild palette texture to reflect current nColorActive state
+  paletteTextureDirty = true;
   if (isWebglPipelineActive()) {
     markMaskTextureFullDirty();
     markOutlineTextureFullDirty();
@@ -9649,10 +10427,12 @@ function applySegmentationMask(payload, options = {}) {
     affinityGraphNeedsLocalRebuild = true;
     rebuildLocalAffinityGraph();
   } else if (!savedAffinityGraphPayload && (!affinityGraphInfo || !affinityGraphInfo.values)) {
-    // Cold-start fallback when affinity mode is on but no graph exists yet.
-    affinityGraphSource = 'local';
-    affinityGraphNeedsLocalRebuild = true;
-    rebuildLocalAffinityGraph();
+    // Cold-start fallback: do not build local graph in affinity mode.
+    if (!affinitySegEnabled) {
+      affinityGraphSource = 'local';
+      affinityGraphNeedsLocalRebuild = true;
+      rebuildLocalAffinityGraph();
+    }
   }
   applyPointsPayload(payload.points);
   scheduleStateSave();
@@ -9732,9 +10512,13 @@ async function runSegmentation() {
     }
     applySegmentationMask(payload);
     if (nColorActive) {
-      const ok = await recomputeNColorFromCurrentMask(true);
-      if (!ok) {
-        console.warn('Auto N-color mapping failed');
+      // Only recompute N-color if payload didn't already include pre-computed nColorMask
+      // (applySegmentationMask already applied it and saved the instance mask correctly)
+      if (!payload.nColorMask) {
+        const ok = await recomputeNColorFromCurrentMask(true);
+        if (!ok) {
+          console.warn('Auto N-color mapping failed');
+        }
       }
       updateColorModeLabel();
       updateMaskLabel();
@@ -9904,6 +10688,10 @@ canvas.addEventListener('pointerdown', (evt) => {
       return;
     }
     if (mode === 'picker') {
+      if (showPointsOverlay && pointsOverlayInfo && togglePointSelectionAt(world)) {
+        scheduleStateSave();
+        return;
+      }
       pickColor(world);
       scheduleStateSave();
       return;
@@ -9944,6 +10732,10 @@ canvas.addEventListener('pointerdown', (evt) => {
       return;
     }
     if (tool === 'picker') {
+      if (showPointsOverlay && pointsOverlayInfo && togglePointSelectionAt(world)) {
+        scheduleStateSave();
+        return;
+      }
       pickColor(world);
       return;
     }
@@ -10974,9 +11766,15 @@ function updateSystemInfo(info) {
     systemCpuEl.textContent = cores > 0 ? `${cores} cores` : '--';
   }
   if (systemGpuEl) {
-    systemGpuEl.textContent = info.gpu_available
-      ? (info.gpu_name || 'GPU available')
-      : 'Not available';
+    if (info.gpu_available) {
+      const label = info.gpu_label
+        || (info.gpu_backend ? String(info.gpu_backend).toUpperCase() : null)
+        || info.gpu_name
+        || 'GPU available';
+      systemGpuEl.textContent = label;
+    } else {
+      systemGpuEl.textContent = 'Not available';
+    }
   }
   if (useGpuToggle) {
     useGpuToggle.disabled = !info.gpu_available;
@@ -10998,6 +11796,36 @@ async function fetchSystemInfo() {
   } catch (err) {
     // silent
   }
+}
+
+function initLabelColormapSelect() {
+  if (!labelColormapSelect) {
+    return;
+  }
+  labelColormapSelect.innerHTML = '';
+  LABEL_COLORMAPS.forEach((entry) => {
+    const option = document.createElement('option');
+    option.value = entry.value;
+    option.textContent = entry.label;
+    labelColormapSelect.appendChild(option);
+  });
+  labelColormapSelect.value = labelColormap;
+  refreshDropdown('labelColormap');
+  labelColormapSelect.addEventListener('change', () => {
+    labelColormap = labelColormapSelect.value || 'classic';
+    clearColorCaches();
+    paletteTextureDirty = true;
+    if (!nColorActive) {
+      if (isWebglPipelineActive()) {
+        markMaskTextureFullDirty();
+        markOutlineTextureFullDirty();
+      } else {
+        redrawMaskCanvas();
+      }
+      draw();
+    }
+    scheduleStateSave();
+  });
 }
 
 function initSegmentationModelSelect() {
@@ -11060,6 +11888,8 @@ function initSegmentationModelSelect() {
 
 initSegmentationModelSelect();
 
+initLabelColormapSelect();
+
 if (segmentationModelSelect) {
   segmentationModelSelect.addEventListener('change', (evt) => {
     const value = String(evt.target.value || '');
@@ -11117,6 +11947,72 @@ if (autoNColorToggle) {
     } else {
       autoNColorToggle.checked = nColorActive;
       scheduleStateSave();
+    }
+  });
+}
+if (ncolorAddColor) {
+  ncolorAddColor.addEventListener('click', () => {
+    const next = (nColorPaletteColors && nColorPaletteColors.length)
+      ? nColorPaletteColors.slice()
+      : generateNColorSwatches(DEFAULT_NCOLOR_COUNT, 0.35);
+    next.push(sinebowColor((next.length / Math.max(2, next.length + 1)) % 1).slice(0, 3));
+    setNColorPaletteColors(next);
+  });
+}
+if (ncolorRemoveColor) {
+  ncolorRemoveColor.addEventListener('click', () => {
+    const next = (nColorPaletteColors && nColorPaletteColors.length)
+      ? nColorPaletteColors.slice()
+      : generateNColorSwatches(DEFAULT_NCOLOR_COUNT, 0.35);
+    if (next.length <= 2) {
+      return;
+    }
+    next.pop();
+    setNColorPaletteColors(next);
+  });
+}
+if (labelShuffleToggle) {
+  labelShuffleToggle.addEventListener('change', (evt) => {
+    labelShuffle = Boolean(evt.target.checked);
+    paletteTextureDirty = true;
+    updateLabelShuffleControls();
+    clearColorCaches();
+    paletteTextureDirty = true;
+    if (!nColorActive) {
+      if (isWebglPipelineActive()) {
+        markMaskTextureFullDirty();
+        markOutlineTextureFullDirty();
+      } else {
+        redrawMaskCanvas();
+      }
+      draw();
+    }
+    scheduleStateSave();
+  });
+}
+if (labelShuffleSeedInput) {
+  const applySeed = (evt) => {
+    const value = parseInt(evt.target.value, 10);
+    labelShuffleSeed = Number.isFinite(value) ? value : 0;
+    paletteTextureDirty = true;
+    evt.target.value = String(labelShuffleSeed);
+    clearColorCaches();
+    paletteTextureDirty = true;
+    if (!nColorActive) {
+      if (isWebglPipelineActive()) {
+        markMaskTextureFullDirty();
+        markOutlineTextureFullDirty();
+      } else {
+        redrawMaskCanvas();
+      }
+      draw();
+    }
+    scheduleStateSave();
+  };
+  labelShuffleSeedInput.addEventListener('change', applySeed);
+  labelShuffleSeedInput.addEventListener('keydown', (evt) => {
+    if (evt.key === 'Enter') {
+      applySeed(evt);
     }
   });
 }
