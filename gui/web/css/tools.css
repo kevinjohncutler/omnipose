@@ -170,6 +170,13 @@
   -moz-appearance: textfield;
   appearance: textfield;
   transition: background 0.2s ease, border-color 0.2s ease, color 0.2s ease;
+  border: 1px solid var(--slider-track-border);
+  border-radius: var(--slider-track-radius);
+  height: var(--slider-track-height);
+  padding: 0 8px;
+  text-align: center;
+  font-size: 0.9rem;
+  background: var(--control-input-surface);
 }
 
 #labelValueInput::-webkit-outer-spin-button,

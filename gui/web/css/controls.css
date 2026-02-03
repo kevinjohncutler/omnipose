@@ -12,6 +12,8 @@
   --slider-fill-radius: var(--control-inset-radius);
   --slider-track-bg: rgba(255, 255, 255, 0.15);
   --slider-track-border: rgba(255, 255, 255, 0.18);
+  /* Opaque border for elements with colored backgrounds (no blending) */
+  --border-opaque: rgba(90, 90, 90, 1);
   --slider-knob-color: #f5f5f5;
   --number-field-width: var(--toggle-width);
   --control-label-width: 52px;
@@ -1684,6 +1686,7 @@ button:not(:disabled):hover {
   align-items: center;
   justify-content: center;
   cursor: pointer;
+  box-sizing: border-box;
 }
 
 .ncolor-swatch::before {
@@ -1706,18 +1709,21 @@ button:not(:disabled):hover {
 
 .ncolor-row {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   gap: 10px;
 }
 
 .ncolor-swatches {
   flex: 1 1 auto;
   min-width: 0;
-  align-items: center;
+  /* Allow 5 swatches per row: 5 * 24px + 4 * 8px gap = 152px */
+  max-width: calc(5 * var(--slider-track-height) + 4 * 8px);
 }
 
 .ncolor-stepper {
   flex: 0 0 auto;
+  /* Keep buttons at top when swatches wrap */
+  align-self: flex-start;
 }
 
 .ncolor-stepper button {
@@ -1731,4 +1737,117 @@ button:not(:disabled):hover {
   width: calc(var(--slider-track-height) * 0.55);
   height: calc(var(--slider-track-height) * 0.55);
   background-color: currentColor;
+}
+
+/* Colormap preview pill - same width as sliders */
+.colormap-preview {
+  height: var(--slider-track-height);
+  border-radius: var(--slider-track-radius);
+  margin: 6px 0;
+  border: 1px solid var(--slider-track-border);
+  overflow: hidden;
+  /* Will be filled with gradient via JS */
+  background: linear-gradient(to right, #f00, #ff0, #0f0, #0ff, #00f, #f0f, #f00);
+}
+
+/* Compact dropdown for panel headers */
+.dropdown--compact {
+  flex: 1;
+  max-width: 120px;
+}
+
+.dropdown--compact select {
+  padding: 2px 6px;
+  font-size: 0.75rem;
+}
+
+/* Subsection styling */
+.subsection {
+  margin-top: 0;
+}
+
+.subsection-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 6px;
+}
+
+/* Gradient track slider - uses same geometry as .slider but with static gradient background */
+.slider--gradient-track .slider-track {
+  /* Override the default track background with a gradient */
+  background: linear-gradient(to right, #f00, #ff0, #0f0, #0ff, #00f, #f0f, #f00);
+}
+
+/* Hide the dynamic fill for gradient track sliders */
+.slider--gradient-track .slider-track::before {
+  display: none;
+}
+
+/* When colormap doesn't support offset, hide thumb and disable interaction */
+.slider--gradient-track.no-offset {
+  pointer-events: none;
+}
+
+.slider--gradient-track.no-offset .slider-thumb {
+  opacity: 0;
+}
+
+/* Cmap panel specific - use same grid as tools/labels panels */
+#cmapPanel .panel-header {
+  display: grid;
+  grid-template-columns: var(--control-label-width) 1fr;
+  align-items: center;
+  column-gap: 10px;
+}
+
+#cmapPanel .dropdown--compact {
+  width: 100%;
+  max-width: 100%;
+}
+
+/* Hide offset section for non-cyclic colormaps, show preview pill instead */
+#cmapPanel.cmap-no-offset .cmap-offset-section {
+  display: none;
+}
+
+#cmapPanel .cmap-preview-section {
+  display: none;
+}
+
+#cmapPanel.cmap-no-offset .cmap-preview-section {
+  display: block;
+}
+
+/* Colormap preview pill - same dimensions as slider track */
+.cmap-preview-pill {
+  height: var(--slider-track-height);
+  border-radius: var(--slider-track-radius);
+  overflow: hidden;
+  box-sizing: border-box;
+  border: 1px solid var(--border-opaque);
+  /* Prevent gradient from wrapping/repeating */
+  background-repeat: no-repeat;
+  background-size: 100% 100%;
+  /* Gradient set via JS */
+}
+
+/* N-color subsection: show swatches when N-color is active, show shuffle/seed when inactive */
+#ncolorSubsection .ncolor-on {
+  display: none;
+}
+
+#ncolorSubsection .ncolor-off {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+#ncolorSubsection.ncolor-active .ncolor-on {
+  display: block;
+}
+
+#ncolorSubsection.ncolor-active .ncolor-off {
+  display: none;
 }

@@ -46,10 +46,11 @@ let hasPendingSavedNiter = false;
 let pendingSavedNiter = null;
 const hasPrevImage = Boolean(CONFIG.hasPrev);
 const hasNextImage = Boolean(CONFIG.hasNext);
-let defaultPalette = [];
 let nColorPalette = [];
 let nColorPaletteColors = [];
-let labelColormap = 'classic';
+let labelColormap = 'sinebow'; // Default to sinebow (cyclic with hue offset support)
+let nColorColormap = 'sinebow'; // Colormap for N-color mode (legacy, now uses labelColormap)
+let nColorHueOffset = 0; // Hue offset for N-color palette
 let labelShuffle = true;
 let labelShuffleSeed = 0;
 // Track current max label for dynamic palette sizing
@@ -3141,11 +3142,21 @@ const maskVisibilityToggle = document.getElementById('maskVisibilityToggle');
 const intensityPanel = document.getElementById('intensityPanel');
 const labelStylePanel = document.getElementById('labelStylePanel');
 const autoNColorToggle = document.getElementById('autoNColorToggle');
-const ncolorPanel = document.getElementById('ncolorPanel');
+const cmapPanel = document.getElementById('cmapPanel');
+const cmapSelect = document.getElementById('cmapSelect');
+const cmapHueOffsetSlider = document.getElementById('cmapHueOffset');
+const cmapHueOffsetWrapper = document.querySelector('[data-slider-id="cmapHueOffset"]');
+const cmapPreviewPill = document.getElementById('cmapPreviewPill');
+const ncolorSubsection = document.getElementById('ncolorSubsection');
 const ncolorSwatches = document.getElementById('ncolorSwatches');
 const ncolorAddColor = document.getElementById('ncolorAddColor');
 const ncolorRemoveColor = document.getElementById('ncolorRemoveColor');
-const labelColormapSelect = document.getElementById('labelColormap');
+// Legacy references for compatibility
+const ncolorPanel = cmapPanel;
+const ncolorHueOffsetSlider = cmapHueOffsetSlider;
+const ncolorColormapPreview = cmapPreviewPill;
+const instanceColormapPreview = cmapPreviewPill;
+const labelColormapSelect = cmapSelect;
 const labelShuffleToggle = document.getElementById('labelShuffleToggle');
 const labelShuffleSeedInput = document.getElementById('labelShuffleSeed');
 const brushKernelToggle = document.getElementById('brushKernelToggle');
@@ -3419,19 +3430,20 @@ let maskThreshold = clamp(
   MASK_THRESHOLD_MAX,
 );
 const DEFAULT_SEGMENTATION_MODEL = 'bact_phase_affinity';
+// Colormaps with hasOffset=true are cyclic and support hue rotation
+// Colormaps with hasOffset=false are linear gradients (no offset control)
 const LABEL_COLORMAPS = [
-  { value: 'classic', label: 'Classic' },
-  { value: 'sinebow', label: 'Sinebow' },
-  { value: 'viridis', label: 'Viridis' },
-  { value: 'magma', label: 'Magma' },
-  { value: 'plasma', label: 'Plasma' },
-  { value: 'inferno', label: 'Inferno' },
-  { value: 'cividis', label: 'Cividis' },
-  { value: 'turbo', label: 'Turbo' },
-  { value: 'gist_ncar', label: 'Gist NCAR' },
-  { value: 'vivid', label: 'Vivid' },
-  { value: 'pastel', label: 'Pastel' },
-  { value: 'gray', label: 'Grayscale' },
+  { value: 'sinebow', label: 'Sinebow', hasOffset: true },
+  { value: 'viridis', label: 'Viridis', hasOffset: false },
+  { value: 'magma', label: 'Magma', hasOffset: false },
+  { value: 'plasma', label: 'Plasma', hasOffset: false },
+  { value: 'inferno', label: 'Inferno', hasOffset: false },
+  { value: 'cividis', label: 'Cividis', hasOffset: false },
+  { value: 'turbo', label: 'Turbo', hasOffset: false },
+  { value: 'gist_ncar', label: 'Gist NCAR', hasOffset: false },
+  { value: 'vivid', label: 'Vivid', hasOffset: true },
+  { value: 'pastel', label: 'Pastel', hasOffset: true },
+  { value: 'gray', label: 'Grayscale', hasOffset: false },
 ];
 
 const SEGMENTATION_MODELS = [
@@ -4135,7 +4147,7 @@ function updateLabelControls() {
       const color = 'rgb(' + (r | 0) + ', ' + (g | 0) + ', ' + (b | 0) + ')';
       const textColor = readableTextColor([r, g, b]);
       labelValueInput.style.setProperty('background', color);
-      labelValueInput.style.setProperty('border-color', 'var(--slider-track-border)');
+      labelValueInput.style.setProperty('border-color', 'var(--border-opaque)');
       labelValueInput.style.setProperty('color', textColor);
       labelValueInput.style.setProperty('caret-color', textColor);
       updateAccentColorsFromRgb(rgb);
@@ -5079,6 +5091,8 @@ function collectViewerState() {
     nColorValues: nColorActive && nColorValues ? base64FromUint32(nColorValues) : null,
     nColorInstanceMask: nColorInstanceMask ? base64FromUint32(nColorInstanceMask) : null,
     nColorPaletteColors: nColorPaletteColors && nColorPaletteColors.length ? nColorPaletteColors : null,
+    nColorHueOffset,
+    nColorColormap,
     labelColormap,
     labelShuffle,
     labelShuffleSeed,
@@ -5255,6 +5269,12 @@ function restoreViewerState(saved) {
         nColorInstanceMask = new Uint32Array(restored);
       }
     }
+    if (Number.isFinite(saved.nColorHueOffset)) {
+      nColorHueOffset = saved.nColorHueOffset;
+    }
+    if (typeof saved.nColorColormap === 'string') {
+      nColorColormap = saved.nColorColormap;
+    }
     if (Array.isArray(saved.nColorPaletteColors)) {
       setNColorPaletteColors(saved.nColorPaletteColors, { render: false, schedule: false });
     }
@@ -5269,8 +5289,6 @@ function restoreViewerState(saved) {
     }
     if (Number.isFinite(saved.currentMaxLabel) && saved.currentMaxLabel > 0) {
       currentMaxLabel = saved.currentMaxLabel | 0;
-      // Regenerate palette with correct size
-      defaultPalette = generateSinebowPalette(currentMaxLabel + 1, 0.0, true);
     }
     if (segmentationModelSelect) {
       if (segmentationModel && segmentationModel.startsWith('file:')) {
@@ -5311,11 +5329,12 @@ function restoreViewerState(saved) {
     if (pointsOverlayToggle) pointsOverlayToggle.checked = showPointsOverlay;
     if (autoNColorToggle) autoNColorToggle.checked = nColorActive;
     if (labelColormapSelect) {
-      labelColormapSelect.value = labelColormap || 'classic';
+      labelColormapSelect.value = labelColormap || 'sinebow';
       refreshDropdown('labelColormap');
     }
     if (labelShuffleToggle) labelShuffleToggle.checked = labelShuffle;
     if (labelShuffleSeedInput) labelShuffleSeedInput.value = String(labelShuffleSeed);
+    if (ncolorHueOffsetSlider) ncolorHueOffsetSlider.value = Math.round(nColorHueOffset * 100);
     updateLabelShuffleControls();
     // Invalidate shuffle permutation cache since seed may have changed
     shufflePermutation = null;
@@ -5324,6 +5343,7 @@ function restoreViewerState(saved) {
     clearColorCaches();
     renderNColorSwatches();
     updateNColorPanel();
+    updateInstanceColormapPreview();
     if (isWebglPipelineActive()) {
       markMaskTextureFullDirty();
       markOutlineTextureFullDirty();
@@ -8466,12 +8486,46 @@ function ensureNColorPaletteLength(targetCount) {
   return next;
 }
 
-function generateNColorSwatches(count, offset = 0) {
+/**
+ * Get a color from the current labelColormap at position t (0-1).
+ * Used for generating N-color swatches with any colormap.
+ */
+function getColormapColorAtT(t, cmap = null) {
+  const cmapName = cmap || labelColormap;
+  if (cmapName === 'gray') {
+    const v = Math.round(t * 255);
+    return [v, v, v];
+  }
+  if (cmapName === 'pastel') {
+    return hslToRgb(t, 0.55, 0.72);
+  }
+  if (cmapName === 'vivid') {
+    return hslToRgb(t, 0.9, 0.5);
+  }
+  if (cmapName === 'sinebow') {
+    return sinebowColor(t);
+  }
+  const stops = COLORMAP_STOPS[cmapName];
+  if (stops) {
+    return interpolateStops(stops, t);
+  }
+  // Fallback to sinebow
+  return sinebowColor(t);
+}
+
+function generateNColorSwatches(count, offset = null) {
   const swatches = [];
   const total = Math.max(2, count);
+  // Use global nColorHueOffset if no offset specified (only for cyclic colormaps)
+  const hueOffset = offset !== null ? offset : nColorHueOffset;
+  const hasCyclicOffset = colormapHasOffset(labelColormap);
+
   for (let i = 0; i < total; i += 1) {
-    const t = (offset + i / total) % 1;
-    const [r, g, b] = sinebowColor(t);
+    // For cyclic colormaps, apply hue offset; for linear, just use even spacing
+    const t = hasCyclicOffset
+      ? (hueOffset + i / total) % 1
+      : i / (total - 1 || 1);  // Linear colormaps: 0 to 1
+    const [r, g, b] = getColormapColorAtT(t);
     swatches.push([r, g, b]);
   }
   return swatches;
@@ -8493,14 +8547,44 @@ function getLabelShuffleKey(label) {
   return Math.floor(seededRandom(mix) * 1e9);
 }
 
+// Colormap stops from matplotlib/cmap package (pypi cmap)
+// Using 16 evenly-spaced stops for accurate interpolation
 const COLORMAP_STOPS = {
-  viridis: ['#440154', '#3b528b', '#21908c', '#5dc863', '#fde725'],
-  magma: ['#000004', '#1b0c41', '#4f0a6d', '#781c6d', '#a52c60', '#cf4446', '#ed6925', '#fb9b06', '#f7d13d', '#fcfdbf'],
-  plasma: ['#0d0887', '#5b02a3', '#9a179b', '#cb4679', '#ed7953', '#fb9f3a', '#fdca26', '#f0f921'],
-  inferno: ['#000004', '#1b0c41', '#4a0c6b', '#781c6d', '#a52c60', '#cf4446', '#ed6925', '#fb9b06', '#f7d13d', '#fcfdbf'],
-  cividis: ['#00204c', '#2a4c7e', '#5763a4', '#7a7aa9', '#9d90a8', '#c4b79a', '#e6e2a4', '#fdea45'],
-  turbo: ['#30123b', '#2a47a3', '#1f7acb', '#17b5b8', '#3ddc64', '#b8f130', '#f9c926', '#f57c1f', '#d73027'],
-  gist_ncar: ['#000080', '#0000ff', '#00ffff', '#00ff00', '#ffff00', '#ff8000', '#ff0000', '#800000'],
+  viridis: [
+    '#440154', '#481a6c', '#472f7d', '#414487', '#39568c',
+    '#31688e', '#2a788e', '#23888e', '#1f988b', '#22a884',
+    '#35b779', '#54c568', '#7ad151', '#a5db36', '#d2e21b', '#fde725'
+  ],
+  magma: [
+    '#000004', '#0c0926', '#1b0c41', '#2f0f60', '#4a0c6b',
+    '#65156e', '#7e2482', '#982d80', '#b73779', '#d5446d',
+    '#ed6059', '#f88a5f', '#feb078', '#fed799', '#fcfdbf'
+  ],
+  plasma: [
+    '#0d0887', '#3a049a', '#5c01a6', '#7e03a8', '#9c179e',
+    '#b52f8c', '#cc4778', '#de5f65', '#ed7953', '#f89540',
+    '#fdb42f', '#fbd524', '#f0f921'
+  ],
+  inferno: [
+    '#000004', '#0d0829', '#1b0c41', '#320a5e', '#4a0c6b',
+    '#61136e', '#78206c', '#932667', '#ad305e', '#c73e53',
+    '#df5543', '#f17336', '#f9932e', '#fbb535', '#fad948', '#fcffa4'
+  ],
+  cividis: [
+    '#00204c', '#00336c', '#2a4858', '#43598e', '#5a6c8a',
+    '#6e7f8e', '#808f8a', '#93a08a', '#a8b08c', '#bdc18d',
+    '#d3d291', '#e8e395', '#fdea45'
+  ],
+  turbo: [
+    '#30123b', '#4145ab', '#4675ed', '#39a2fc', '#1bcfd4',
+    '#24eca6', '#61fc6c', '#a4fc3c', '#d1e834', '#f3c63a',
+    '#fe9b2d', '#f56516', '#d93806', '#b11901', '#7a0402'
+  ],
+  gist_ncar: [
+    '#000080', '#0000d4', '#0044ff', '#0099ff', '#00eeff',
+    '#00ff99', '#00ff00', '#66ff00', '#ccff00', '#ffcc00',
+    '#ff6600', '#ff0000', '#cc0000', '#800000'
+  ],
 };
 
 function interpolateStops(stops, t) {
@@ -8525,11 +8609,8 @@ function interpolateStops(stops, t) {
 
 /**
  * Get palette index for a label.
- * The defaultPalette is ALREADY generated with golden-ratio spacing for maximum visual distinction.
- * So we just need to map labels to palette indices directly.
- *
  * Shuffle OFF: Labels map sequentially to palette (label 1 -> palette[1], etc.)
- * Shuffle ON: Labels offset by seed, still getting golden-ratio spaced colors from palette
+ * Shuffle ON: Labels offset by seed for different color assignment
  */
 function getLabelOrderValue(label, paletteSize = 256) {
   // palette[0] is background (black/transparent), valid indices are 1 to paletteSize-1
@@ -8555,47 +8636,18 @@ function getLabelOrderValue(label, paletteSize = 256) {
 }
 
 function getLabelColorFraction(label) {
+  // Use currentMaxLabel to spread colors across full colormap range
+  const maxLabel = Math.max(currentMaxLabel, 2);
   if (!labelShuffle) {
-    return ((label - 1) % 1024) / 1024;
+    // Sequential: labels 1..maxLabel map to t=0..1
+    return ((label - 1) % maxLabel) / (maxLabel - 1);
   }
+  // Shuffled: use seeded random but still within 0..1 range
   return seededRandom(getLabelShuffleKey(label));
 }
 
 function getColormapColor(label) {
   if (label <= 0) return null;
-  const table = Array.isArray(colorTable) && colorTable.length ? colorTable : null;
-  // CRITICAL: When colorTable is too small (< 64 colors), use defaultPalette for unique instance colors.
-  // This must match the logic in buildPaletteTextureData() to ensure color picker matches displayed colors.
-  const useDefaultPalette = labelColormap === 'classic' && (!table || table.length < 64);
-  if (useDefaultPalette && defaultPalette.length > 0) {
-    // defaultPalette is SEQUENTIAL sinebow with exactly currentMaxLabel colors
-    // spanning the full spectrum. Both modes use the SAME colors:
-    // - Shuffle OFF: sequential access (rainbow gradient)
-    // - Shuffle ON: bijective permutation (scrambled but same color set)
-    const paletteSize = defaultPalette.length - 1; // exclude index 0 (background)
-    let idx;
-    if (!labelShuffle) {
-      // Sequential: label i → palette[i] (wrapping if label > paletteSize)
-      idx = ((label - 1) % paletteSize) + 1;
-    } else {
-      // Shuffled: use bijective permutation to map label to a different index
-      // but within the same [1, paletteSize] range
-      const perm = buildShufflePermutation();
-      if (label <= paletteSize && perm && perm[label]) {
-        idx = perm[label];
-      } else {
-        // Fallback for labels beyond current max
-        idx = ((label - 1) % paletteSize) + 1;
-      }
-    }
-    const entry = defaultPalette[idx] || [0, 0, 0];
-    return [entry[0] || 0, entry[1] || 0, entry[2] || 0];
-  }
-  if (labelColormap === 'classic' && table) {
-    const idx = labelShuffle ? getLabelOrderValue(label, table.length) : ((label - 1) % table.length);
-    const entry = table[idx] || table[idx % table.length] || table[0];
-    return [entry[0], entry[1], entry[2]];
-  }
   const t = getLabelColorFraction(label);
   if (labelColormap === 'gray') {
     const v = Math.round(t * 255);
@@ -8635,12 +8687,8 @@ function generateSinebowPalette(size, offset = 0, sequential = false) {
   return palette;
 }
 
-// Default palette is SEQUENTIAL sinebow - full rainbow in order
-// Regenerated dynamically when max label count changes
-defaultPalette = generateSinebowPalette(129, 0.0, true); // Initial: 128 colors + 1 for background
-
 /**
- * Update max label tracking and regenerate palette if needed.
+ * Update max label tracking.
  * Call this after any mask modification (segmentation, painting, loading).
  */
 function updateMaxLabelFromMask() {
@@ -8651,8 +8699,6 @@ function updateMaxLabelFromMask() {
   }
   if (maxL > 0 && maxL !== currentMaxLabel) {
     currentMaxLabel = maxL;
-    // Regenerate palette to have exactly maxL colors spanning full spectrum
-    defaultPalette = generateSinebowPalette(maxL + 1, 0.0, true);
     // Invalidate shuffle permutation cache
     shufflePermutation = null;
     paletteTextureDirty = true;
@@ -8690,8 +8736,8 @@ function buildShufflePermutation() {
   return perm;
 }
 // N-color palette is large enough; groups come from backend ncolor.label
-nColorPalette = generateSinebowPalette(Math.max(colorTable.length || 0, 1024), 0.35);
-nColorPaletteColors = generateNColorSwatches(DEFAULT_NCOLOR_COUNT, 0.35);
+nColorPalette = generateSinebowPalette(Math.max(colorTable.length || 0, 1024), nColorHueOffset);
+nColorPaletteColors = generateNColorSwatches(DEFAULT_NCOLOR_COUNT);
 
 let nColorActive = true;
 let nColorValues = null; // per-pixel group IDs for N-color display only
@@ -8699,6 +8745,13 @@ let nColorInstanceMask = null;
 renderNColorSwatches();
 updateNColorPanel();
 updateLabelShuffleControls();
+// Initialize colormap preview after DOM is ready
+setTimeout(() => {
+  updateInstanceColormapPreview();
+  if (ncolorHueOffsetSlider) {
+    ncolorHueOffsetSlider.value = Math.round(nColorHueOffset * 100);
+  }
+}, 0);
 // Single authoritative mask buffer: maskValues always holds instance labels.
 const rawColorMap = new Map();
 const nColorColorMap = new Map();
@@ -9210,10 +9263,14 @@ function updateColorModeLabel() {
 
 
 function updateNColorPanel() {
-  if (!ncolorPanel || typeof nColorActive === 'undefined') {
+  if (!cmapPanel || typeof nColorActive === 'undefined') {
     return;
   }
-  ncolorPanel.classList.toggle('ncolor-active', Boolean(nColorActive));
+  cmapPanel.classList.toggle('ncolor-active', Boolean(nColorActive));
+  // Also update the subsection visibility
+  if (ncolorSubsection) {
+    ncolorSubsection.classList.toggle('ncolor-active', Boolean(nColorActive));
+  }
 }
 
 function renderNColorSwatches() {
@@ -9221,7 +9278,7 @@ function renderNColorSwatches() {
     return;
   }
   ncolorSwatches.innerHTML = '';
-  const palette = nColorPaletteColors.length ? nColorPaletteColors : generateNColorSwatches(DEFAULT_NCOLOR_COUNT, 0.35);
+  const palette = nColorPaletteColors.length ? nColorPaletteColors : generateNColorSwatches(DEFAULT_NCOLOR_COUNT);
   palette.forEach((rgb, idx) => {
     const swatch = document.createElement('button');
     swatch.type = 'button';
@@ -9240,6 +9297,24 @@ function renderNColorSwatches() {
     swatch.addEventListener('click', () => input.click());
     ncolorSwatches.appendChild(swatch);
   });
+  // Update colormap preview
+  updateNColorColormapPreview();
+}
+
+/**
+ * Update the N-color colormap preview pill with current palette colors.
+ */
+function updateNColorColormapPreview() {
+  // Now handled by updateCmapPanelUI for the unified preview
+  updateCmapPanelUI();
+}
+
+/**
+ * Update the instance colormap preview pill with current colormap.
+ */
+function updateInstanceColormapPreview() {
+  // Now handled by updateCmapPanelUI for the unified preview
+  updateCmapPanelUI();
 }
 
 function setNColorPaletteColors(colors, { render = true, schedule = true } = {}) {
@@ -9282,37 +9357,8 @@ function buildPaletteTextureData() {
   // Instance mode: generate unique colors for each label
   // CRITICAL: The shader accesses palette[label] directly, so palette[i] must contain the color for label i.
   // palette[0] = background (label 0), palette[1] = color for label 1, etc.
-  const useDefaultPalette = labelColormap === 'classic' && (!Array.isArray(colorTable) || colorTable.length < 64);
   for (let i = 0; i < size; i += 1) {
-    let rgb;
-    if (i === 0) {
-      // Background/label 0 - use black/transparent
-      rgb = [0, 0, 0];
-    } else if (useDefaultPalette && defaultPalette.length > 0) {
-      // defaultPalette is SEQUENTIAL sinebow with exactly currentMaxLabel colors
-      // spanning the full spectrum. Both modes use the SAME colors:
-      // - Shuffle OFF: sequential access (rainbow gradient)
-      // - Shuffle ON: bijective permutation (scrambled but same color set)
-      const paletteSize = defaultPalette.length - 1; // exclude index 0 (background)
-      let idx;
-      if (!labelShuffle) {
-        // Sequential: label i → palette[i] (wrapping if label > paletteSize)
-        idx = ((i - 1) % paletteSize) + 1;
-      } else {
-        // Shuffled: use bijective permutation to map label to a different index
-        const perm = buildShufflePermutation();
-        if (i <= paletteSize && perm && perm[i]) {
-          idx = perm[i];
-        } else {
-          // Fallback for labels beyond current max
-          idx = ((i - 1) % paletteSize) + 1;
-        }
-      }
-      const entry = defaultPalette[idx] || [0, 0, 0];
-      rgb = [entry[0] || 0, entry[1] || 0, entry[2] || 0];
-    } else {
-      rgb = getColormapColor(i) || [0, 0, 0];
-    }
+    const rgb = i === 0 ? [0, 0, 0] : (getColormapColor(i) || [0, 0, 0]);
     const base = i * 4;
     data[base] = rgb[0] || 0;
     data[base + 1] = rgb[1] || 0;
@@ -11798,35 +11844,108 @@ async function fetchSystemInfo() {
   }
 }
 
-function initLabelColormapSelect() {
-  if (!labelColormapSelect) {
+/**
+ * Check if a colormap supports hue offset (cyclic colormaps).
+ */
+function colormapHasOffset(cmapValue) {
+  const entry = LABEL_COLORMAPS.find(c => c.value === cmapValue);
+  return entry ? entry.hasOffset : false;
+}
+
+/**
+ * Generate CSS gradient string for a colormap.
+ */
+function generateColormapGradient(cmapValue, numStops = 32) {
+  const stops = [];
+  for (let i = 0; i < numStops; i++) {
+    const t = i / (numStops - 1);
+    let rgb;
+    if (cmapValue === 'sinebow') {
+      rgb = sinebowColor(t);
+    } else if (cmapValue === 'vivid') {
+      rgb = hslToRgb(t, 0.9, 0.5);
+    } else if (cmapValue === 'pastel') {
+      rgb = hslToRgb(t, 0.55, 0.72);
+    } else if (cmapValue === 'gray') {
+      const v = Math.round(t * 255);
+      rgb = [v, v, v];
+    } else if (COLORMAP_STOPS[cmapValue]) {
+      rgb = interpolateStops(COLORMAP_STOPS[cmapValue], t);
+    } else {
+      rgb = sinebowColor(t);
+    }
+    const pct = (t * 100).toFixed(1);
+    stops.push(`rgb(${rgb[0]},${rgb[1]},${rgb[2]}) ${pct}%`);
+  }
+  return `linear-gradient(to right, ${stops.join(', ')})`;
+}
+
+/**
+ * Update the cmap panel UI based on current colormap selection.
+ */
+function updateCmapPanelUI() {
+  if (!cmapPanel) return;
+  const hasOffset = colormapHasOffset(labelColormap);
+  const gradient = generateColormapGradient(labelColormap);
+  // Update panel class for CSS targeting
+  cmapPanel.classList.toggle('cmap-no-offset', !hasOffset);
+  // Update slider track gradient and knob visibility
+  if (cmapHueOffsetWrapper) {
+    const track = cmapHueOffsetWrapper.querySelector('.slider-track');
+    if (track) {
+      track.style.background = gradient;
+    }
+    cmapHueOffsetWrapper.classList.toggle('no-offset', !hasOffset);
+  }
+  // Update preview pill gradient (shown for non-cyclic colormaps)
+  if (cmapPreviewPill) {
+    cmapPreviewPill.style.background = gradient;
+  }
+}
+
+function initCmapSelect() {
+  if (!cmapSelect) {
     return;
   }
-  labelColormapSelect.innerHTML = '';
+  cmapSelect.innerHTML = '';
   LABEL_COLORMAPS.forEach((entry) => {
     const option = document.createElement('option');
     option.value = entry.value;
     option.textContent = entry.label;
-    labelColormapSelect.appendChild(option);
+    cmapSelect.appendChild(option);
   });
-  labelColormapSelect.value = labelColormap;
-  refreshDropdown('labelColormap');
-  labelColormapSelect.addEventListener('change', () => {
-    labelColormap = labelColormapSelect.value || 'classic';
+  cmapSelect.value = labelColormap;
+  // Update dropdown entry's options array (it was empty at registration time)
+  const dropdownEntry = dropdownRegistry.get('cmapSelect');
+  if (dropdownEntry) {
+    dropdownEntry.options = LABEL_COLORMAPS.map(e => ({ value: e.value, label: e.label }));
+  }
+  refreshDropdown('cmapSelect');
+  updateCmapPanelUI();
+  cmapSelect.addEventListener('change', () => {
+    labelColormap = cmapSelect.value || 'sinebow';
     clearColorCaches();
     paletteTextureDirty = true;
-    if (!nColorActive) {
-      if (isWebglPipelineActive()) {
-        markMaskTextureFullDirty();
-        markOutlineTextureFullDirty();
-      } else {
-        redrawMaskCanvas();
-      }
-      draw();
+    updateCmapPanelUI();
+    // Regenerate N-color palette with new colormap
+    const count = nColorPaletteColors.length || DEFAULT_NCOLOR_COUNT;
+    nColorPaletteColors = generateNColorSwatches(count);
+    renderNColorSwatches();
+    // Update active label color to reflect new colormap
+    updateLabelControls();
+    if (isWebglPipelineActive()) {
+      markMaskTextureFullDirty();
+      markOutlineTextureFullDirty();
+    } else {
+      redrawMaskCanvas();
     }
+    draw();
     scheduleStateSave();
   });
 }
+
+// Legacy alias
+const initLabelColormapSelect = initCmapSelect;
 
 function initSegmentationModelSelect() {
   if (!segmentationModelSelect) {
@@ -11952,32 +12071,61 @@ if (autoNColorToggle) {
 }
 if (ncolorAddColor) {
   ncolorAddColor.addEventListener('click', () => {
-    const next = (nColorPaletteColors && nColorPaletteColors.length)
-      ? nColorPaletteColors.slice()
-      : generateNColorSwatches(DEFAULT_NCOLOR_COUNT, 0.35);
-    next.push(sinebowColor((next.length / Math.max(2, next.length + 1)) % 1).slice(0, 3));
+    const currentCount = (nColorPaletteColors && nColorPaletteColors.length)
+      ? nColorPaletteColors.length
+      : DEFAULT_NCOLOR_COUNT;
+    // Regenerate entire palette with new count for even spacing
+    const next = generateNColorSwatches(currentCount + 1);
     setNColorPaletteColors(next);
   });
 }
 if (ncolorRemoveColor) {
   ncolorRemoveColor.addEventListener('click', () => {
-    const next = (nColorPaletteColors && nColorPaletteColors.length)
-      ? nColorPaletteColors.slice()
-      : generateNColorSwatches(DEFAULT_NCOLOR_COUNT, 0.35);
-    if (next.length <= 2) {
+    const currentCount = (nColorPaletteColors && nColorPaletteColors.length)
+      ? nColorPaletteColors.length
+      : DEFAULT_NCOLOR_COUNT;
+    if (currentCount <= 2) {
       return;
     }
-    next.pop();
+    // Regenerate entire palette with new count for even spacing
+    const next = generateNColorSwatches(currentCount - 1);
     setNColorPaletteColors(next);
+  });
+}
+if (cmapHueOffsetSlider) {
+  // Initialize slider to current value and gradient
+  cmapHueOffsetSlider.value = Math.round(nColorHueOffset * 100);
+  refreshSlider('cmapHueOffset');
+  updateCmapPanelUI();
+  cmapHueOffsetSlider.addEventListener('input', (evt) => {
+    nColorHueOffset = parseInt(evt.target.value, 10) / 100;
+    // Regenerate N-color palette with new hue offset
+    const count = nColorPaletteColors.length || DEFAULT_NCOLOR_COUNT;
+    nColorPaletteColors = generateNColorSwatches(count);
+    renderNColorSwatches();
+    // Always update display (affects both N-color and instance mode for cyclic colormaps)
+    clearColorCaches();
+    paletteTextureDirty = true;
+    if (isWebglPipelineActive()) {
+      markMaskTextureFullDirty();
+      markOutlineTextureFullDirty();
+    } else {
+      redrawMaskCanvas();
+    }
+    draw();
+    scheduleStateSave();
   });
 }
 if (labelShuffleToggle) {
   labelShuffleToggle.addEventListener('change', (evt) => {
     labelShuffle = Boolean(evt.target.checked);
+    // Invalidate shuffle permutation cache
+    shufflePermutation = null;
     paletteTextureDirty = true;
     updateLabelShuffleControls();
     clearColorCaches();
     paletteTextureDirty = true;
+    updateInstanceColormapPreview();
     if (!nColorActive) {
       if (isWebglPipelineActive()) {
         markMaskTextureFullDirty();
@@ -11994,10 +12142,13 @@ if (labelShuffleSeedInput) {
   const applySeed = (evt) => {
     const value = parseInt(evt.target.value, 10);
     labelShuffleSeed = Number.isFinite(value) ? value : 0;
+    // Invalidate shuffle permutation cache
+    shufflePermutation = null;
     paletteTextureDirty = true;
     evt.target.value = String(labelShuffleSeed);
     clearColorCaches();
     paletteTextureDirty = true;
+    updateInstanceColormapPreview();
     if (!nColorActive) {
       if (isWebglPipelineActive()) {
         markMaskTextureFullDirty();

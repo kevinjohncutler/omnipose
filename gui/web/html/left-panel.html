@@ -175,47 +175,65 @@
           </div>
           </div>
         </div>
-        <div class="panel-section" id="ncolorPanel">
+        <div class="panel-section" id="cmapPanel">
           <div class="panel-header">
-            <div class="control-heading">N-Color</div>
-            <label class="toggle panel-toggle" title="Enable N-color mask display">
-              <input type="checkbox" id="autoNColorToggle" checked />
-              <span class="toggle-switch"></span>
-            </label>
+            <div class="control-heading">Cmap</div>
+            <div class="dropdown dropdown--compact" data-dropdown-id="cmapSelect" data-loop="true">
+              <select id="cmapSelect"></select>
+            </div>
           </div>
           <div class="panel-body">
-            <div class="ncolor-on">
-              <div class="ncolor-row">
-                <div class="ncolor-swatches" id="ncolorSwatches" aria-label="N-color palette"></div>
-                <div class="label-stepper-buttons action-tray action-tray--compact ncolor-stepper">
-                  <button type="button" id="ncolorRemoveColor" aria-label="Remove color">
-                    <span class="label-icon label-icon-decrement" aria-hidden="true"></span>
-                    <span class="sr-only">Remove color</span>
-                  </button>
-                  <button type="button" id="ncolorAddColor" aria-label="Add color">
-                    <span class="label-icon label-icon-increment" aria-hidden="true"></span>
-                    <span class="sr-only">Add color</span>
-                  </button>
+            <!-- Colormap preview/offset - shown for sinebow-type colormaps -->
+            <div class="cmap-offset-section" id="cmapOffsetSection">
+              <div class="control slider-inline">
+                <span class="control-heading control-heading--lower">Offset</span>
+                <div class="slider slider--gradient-track" data-slider-id="cmapHueOffset" data-slider-type="single">
+                  <input type="range" id="cmapHueOffset" min="0" max="100" value="0" />
                 </div>
               </div>
             </div>
-            <div class="ncolor-off">
-              <div class="control">
-                <div class="dropdown" data-dropdown-id="labelColormap" data-loop="true" data-count-label="colormaps" data-apply="confirm">
-                  <select id="labelColormap"></select>
-                </div>
-              </div>
-              <div class="control slider-inline">
-                <span class="control-heading control-heading--lower">Shuffle</span>
-                <label class="toggle toggle-left" title="Shuffle label colors">
-                  <input type="checkbox" id="labelShuffleToggle" checked />
+            <!-- Colormap preview pill - shown for non-cyclic colormaps (no offset) -->
+            <div class="cmap-preview-section" id="cmapPreviewSection">
+              <div class="cmap-preview-pill" id="cmapPreviewPill"></div>
+            </div>
+            <!-- Ncolor subsection -->
+            <div class="subsection" id="ncolorSubsection">
+              <div class="subsection-header">
+                <span class="control-heading control-heading--lower">Ncolor</span>
+                <label class="toggle toggle-left" title="Enable N-color mask display">
+                  <input type="checkbox" id="autoNColorToggle" checked />
                   <span class="toggle-switch"></span>
                 </label>
               </div>
-              <div class="control slider-inline">
-                <span class="control-heading control-heading--lower">Seed</span>
-                <div class="number-field" data-number-id="labelShuffleSeed">
-                  <input type="number" id="labelShuffleSeed" step="1" value="0" />
+              <div class="ncolor-on">
+                <div class="ncolor-row">
+                  <div class="ncolor-swatches" id="ncolorSwatches" aria-label="N-color palette"></div>
+                  <div class="label-stepper-buttons action-tray action-tray--compact ncolor-stepper">
+                    <button type="button" id="ncolorRemoveColor" aria-label="Remove color">
+                      <span class="label-icon label-icon-decrement" aria-hidden="true"></span>
+                      <span class="sr-only">Remove color</span>
+                    </button>
+                    <button type="button" id="ncolorAddColor" aria-label="Add color">
+                      <span class="label-icon label-icon-increment" aria-hidden="true"></span>
+                      <span class="sr-only">Add color</span>
+                    </button>
+                  </div>
+                </div>
+              </div>
+              <!-- Instance mode controls (shown when Ncolor is off) -->
+              <div class="ncolor-off">
+                <div class="control slider-inline">
+                  <span class="control-heading control-heading--lower">Shuffle</span>
+                  <label class="toggle toggle-left" title="Shuffle label colors">
+                    <input type="checkbox" id="labelShuffleToggle" checked />
+                    <span class="toggle-switch"></span>
+                  </label>
+                </div>
+                <div class="control slider-inline">
+                  <span class="control-heading control-heading--lower">Seed</span>
+                  <div class="number-field" data-number-id="labelShuffleSeed">
+                    <input type="number" id="labelShuffleSeed" step="1" value="0" />
+                  </div>
                 </div>
               </div>
             </div>
