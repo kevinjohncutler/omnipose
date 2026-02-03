@@ -1,0 +1,155 @@
+<!-- Extracted from index.html lines 80-202 -->
+
+      <div id="sidebar" class="side-panel">
+                        <div class="panel-section" id="intensityPanel">
+          <div class="control">
+            <label>Intensity Window</label>
+            <div class="histogram-surface">
+              <canvas id="histogram" class="histogram" width="220" height="80"></canvas>
+            </div>
+            <div id="histRange" class="status">Window: [0, 255]</div>
+          </div>
+          <div class="control slider-inline">
+            <label for="gamma">&gamma;</label>
+            <div class="slider-row">
+              <div class="slider" data-slider-id="gamma" data-slider-type="single">
+                <input type="range" id="gamma" min="10" max="600" value="100" />
+              </div>
+              <div class="number-field" data-number-id="gammaInput">
+                <input type="number" id="gammaInput" min="0.10" max="6.00" step="0.05" value="1.00" />
+              </div>
+            </div>
+          </div>
+        </div>
+                <div class="panel-section" id="segmentationPanel">
+          <div class="control">
+            <div class="control-heading">Omnipose Model</div>
+            <div class="dropdown" data-dropdown-id="segmentationModel" data-loop="true">
+              <select id="segmentationModel"></select>
+            </div>
+            <input type="file" id="segmentationModelFile" accept=".pth,.pt,.onnx,.ckpt" style="display:none" />
+          </div>
+          <div class="control-heading">Parameters</div>
+          <div class="control slider-inline">
+            <label for="niterSlider">niter</label>
+            <div class="slider-row">
+              <div class="slider" data-slider-id="niter" data-slider-type="single">
+                <input type="range" id="niterSlider" min="0" max="400" step="1" value="0" />
+              </div>
+              <div class="number-field" data-number-id="niterInput">
+                <input type="number" id="niterInput" min="0" max="400" step="1" value="0" />
+              </div>
+            </div>
+          </div>
+          <div class="control slider-inline">
+            <label for="maskThresholdSlider">Mask</label>
+            <div class="slider-row">
+              <div class="slider" data-slider-id="maskThreshold" data-slider-type="single">
+                <input type="range" id="maskThresholdSlider" min="-5" max="5" step="0.1" value="-2" />
+              </div>
+              <div class="number-field" data-number-id="maskThresholdInput">
+                <input type="number" id="maskThresholdInput" min="-5" max="5" step="0.1" value="-2.0" />
+              </div>
+            </div>
+          </div>
+          <div class="control slider-inline">
+            <label for="flowThresholdSlider">Flow</label>
+            <div class="slider-row">
+              <div class="slider" data-slider-id="flowThreshold" data-slider-type="single">
+                <input type="range" id="flowThresholdSlider" min="0" max="5" step="0.1" value="0" />
+              </div>
+              <div class="number-field" data-number-id="flowThresholdInput">
+                <input type="number" id="flowThresholdInput" min="0" max="5" step="0.1" value="0.0" />
+              </div>
+            </div>
+          </div>
+          <div class="control toggle-group">
+            <label class="toggle">
+              <input type="checkbox" id="clusterToggle" checked />
+              <span class="toggle-switch"></span>
+              <span class="toggle-label">Enable Clustering</span>
+            </label>
+            <label class="toggle">
+              <input type="checkbox" id="affinityToggle" checked />
+              <span class="toggle-switch"></span>
+              <span class="toggle-label">Affinity Segmentation</span>
+            </label>
+          </div>
+          <div class="control">
+            <button id="segmentButton" class="accent-button">Segment</button>
+            <div id="segmentStatus" class="status"></div>
+          </div>
+          <div class="control">
+            <button id="clearMasksButton" class="accent-button" title="Clear all masks (Cmd/Ctrl+X)">Clear Masks</button>
+          </div>
+          <div class="control">
+              </div>
+          <div class="control-heading">Mask Display</div>
+          <div class="control">
+            <div id="maskStyleToggle" class="kernel-toggle mask-style-toggle" role="group" aria-label="Mask style">
+              <button type="button" class="kernel-option" data-mask-style="outlined" aria-label="Outlined masks" title="Outlined">
+                <span class="mask-style-icon"></span>
+              </button>
+              <button type="button" class="kernel-option" data-mask-style="solid" aria-label="Solid masks" title="Solid">
+                <span class="mask-style-icon"></span>
+              </button>
+              <button type="button" class="kernel-option" data-mask-style="outline" aria-label="Outline-only masks" title="Outline only">
+                <span class="mask-style-icon"></span>
+              </button>
+            </div>
+          </div>
+          <div class="control toggle-group">
+            <label class="toggle">
+              <input type="checkbox" id="autoNColorToggle" checked />
+              <span class="toggle-switch"></span>
+              <span class="toggle-label">N-Color Masks</span>
+            </label>
+            <label class="toggle">
+              <input type="checkbox" id="affinityGraphToggle" />
+              <span class="toggle-switch"></span>
+              <span class="toggle-label">Affinity Graph</span>
+            </label>
+          </div>
+          <div class="control-heading">Network Output Display</div>
+          <div class="control toggle-group" id="overlayControls">
+            <label class="toggle">
+              <input type="checkbox" id="flowOverlayToggle" disabled />
+              <span class="toggle-switch"></span>
+              <span class="toggle-label">Flow</span>
+            </label>
+            <label class="toggle">
+              <input type="checkbox" id="distanceOverlayToggle" disabled />
+              <span class="toggle-switch"></span>
+              <span class="toggle-label">Distance</span>
+            </label>
+          </div>
+        </div>
+</div>
+        <div class="panel-section" id="systemInfoPanel">
+          <div class="control-heading">System</div>
+          <div class="control system-info">
+            <div class="system-row">
+              <span class="system-label">RAM</span>
+              <span id="systemRam" class="system-value">--</span>
+            </div>
+            <div class="system-row">
+              <span class="system-label">CPU</span>
+              <span id="systemCpu" class="system-value">--</span>
+            </div>
+            <div class="system-row">
+              <span class="system-label">GPU</span>
+              <span id="systemGpu" class="system-value">--</span>
+            </div>
+          </div>
+          <div class="control toggle-group">
+            <label class="toggle">
+              <input type="checkbox" id="useGpuToggle" />
+              <span class="toggle-switch"></span>
+              <span class="toggle-label">Use GPU</span>
+            </label>
+          </div>
+        </div>
+        <div class="hint">
+          Use B/G/I to switch tools, [ ] to resize brush, digits 0-9 set label. Hold Space to pan, scroll to zoom, W/S to traverse directory.
+        </div>
+      </div>

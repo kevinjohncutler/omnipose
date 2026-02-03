@@ -1,0 +1,413 @@
+{
+  "totalLabels": 50,
+  "sampledLabels": 20,
+  "uniqueRenderedColors": 1,
+  "viewState": {
+    "scale": 1,
+    "offsetX": 0,
+    "offsetY": 0
+  },
+  "samples": [
+    {
+      "label": 1,
+      "imageCoords": {
+        "x": 37,
+        "y": 24
+      },
+      "canvasCoords": {
+        "x": 837,
+        "y": 524
+      },
+      "pixelCount": 1128,
+      "renderedColor": "error: Cannot read properties of null (reading 'getImageData')",
+      "expectedColor": [
+        173,
+        208,
+        2
+      ],
+      "match": false
+    },
+    {
+      "label": 2,
+      "imageCoords": {
+        "x": 78,
+        "y": 26
+      },
+      "canvasCoords": {
+        "x": 878,
+        "y": 526
+      },
+      "pixelCount": 3337,
+      "renderedColor": "error: Cannot read properties of null (reading 'getImageData')",
+      "expectedColor": [
+        136,
+        234,
+        13
+      ],
+      "match": false
+    },
+    {
+      "label": 3,
+      "imageCoords": {
+        "x": 108,
+        "y": 1
+      },
+      "canvasCoords": {
+        "x": 908,
+        "y": 501
+      },
+      "pixelCount": 37,
+      "renderedColor": "error: Cannot read properties of null (reading 'getImageData')",
+      "expectedColor": [
+        91,
+        40,
+        252
+      ],
+      "match": false
+    },
+    {
+      "label": 4,
+      "imageCoords": {
+        "x": 141,
+        "y": 14
+      },
+      "canvasCoords": {
+        "x": 941,
+        "y": 514
+      },
+      "pixelCount": 1968,
+      "renderedColor": "error: Cannot read properties of null (reading 'getImageData')",
+      "expectedColor": [
+        135,
+        13,
+        234
+      ],
+      "match": false
+    },
+    {
+      "label": 5,
+      "imageCoords": {
+        "x": 346,
+        "y": 3
+      },
+      "canvasCoords": {
+        "x": 1146,
+        "y": 503
+      },
+      "pixelCount": 35,
+      "renderedColor": "error: Cannot read properties of null (reading 'getImageData')",
+      "expectedColor": [
+        14,
+        135,
+        234
+      ],
+      "match": false
+    },
+    {
+      "label": 6,
+      "imageCoords": {
+        "x": 202,
+        "y": 63
+      },
+      "canvasCoords": {
+        "x": 1002,
+        "y": 563
+      },
+      "pixelCount": 1211,
+      "renderedColor": "error: Cannot read properties of null (reading 'getImageData')",
+      "expectedColor": [
+        230,
+        143,
+        10
+      ],
+      "match": false
+    },
+    {
+      "label": 7,
+      "imageCoords": {
+        "x": 218,
+        "y": 66
+      },
+      "canvasCoords": {
+        "x": 1018,
+        "y": 566
+      },
+      "pixelCount": 1252,
+      "renderedColor": "error: Cannot read properties of null (reading 'getImageData')",
+      "expectedColor": [
+        53,
+        75,
+        254
+      ],
+      "match": false
+    },
+    {
+      "label": 8,
+      "imageCoords": {
+        "x": 53,
+        "y": 55
+      },
+      "canvasCoords": {
+        "x": 853,
+        "y": 555
+      },
+      "pixelCount": 1049,
+      "renderedColor": "error: Cannot read properties of null (reading 'getImageData')",
+      "expectedColor": [
+        112,
+        245,
+        26
+      ],
+      "match": false
+    },
+    {
+      "label": 9,
+      "imageCoords": {
+        "x": 171,
+        "y": 57
+      },
+      "canvasCoords": {
+        "x": 971,
+        "y": 557
+      },
+      "pixelCount": 986,
+      "renderedColor": "error: Cannot read properties of null (reading 'getImageData')",
+      "expectedColor": [
+        212,
+        3,
+        167
+      ],
+      "match": false
+    },
+    {
+      "label": 10,
+      "imageCoords": {
+        "x": 116,
+        "y": 79
+      },
+      "canvasCoords": {
+        "x": 916,
+        "y": 579
+      },
+      "pixelCount": 898,
+      "renderedColor": "error: Cannot read properties of null (reading 'getImageData')",
+      "expectedColor": [
+        162,
+        4,
+        216
+      ],
+      "match": false
+    },
+    {
+      "label": 11,
+      "imageCoords": {
+        "x": 42,
+        "y": 64
+      },
+      "canvasCoords": {
+        "x": 842,
+        "y": 564
+      },
+      "pixelCount": 666,
+      "renderedColor": "error: Cannot read properties of null (reading 'getImageData')",
+      "expectedColor": [
+        21,
+        120,
+        241
+      ],
+      "match": false
+    },
+    {
+      "label": 12,
+      "imageCoords": {
+        "x": 31,
+        "y": 138
+      },
+      "canvasCoords": {
+        "x": 831,
+        "y": 638
+      },
+      "pixelCount": 6179,
+      "renderedColor": "error: Cannot read properties of null (reading 'getImageData')",
+      "expectedColor": [
+        203,
+        179,
+        1
+      ],
+      "match": false
+    },
+    {
+      "label": 13,
+      "imageCoords": {
+        "x": 84,
+        "y": 82
+      },
+      "canvasCoords": {
+        "x": 884,
+        "y": 582
+      },
+      "pixelCount": 879,
+      "renderedColor": "error: Cannot read properties of null (reading 'getImageData')",
+      "expectedColor": [
+        62,
+        255,
+        65
+      ],
+      "match": false
+    },
+    {
+      "label": 14,
+      "imageCoords": {
+        "x": 383,
+        "y": 118
+      },
+      "canvasCoords": {
+        "x": 1183,
+        "y": 618
+      },
+      "pixelCount": 1237,
+      "renderedColor": "error: Cannot read properties of null (reading 'getImageData')",
+      "expectedColor": [
+        0,
+        193,
+        189
+      ],
+      "match": false
+    },
+    {
+      "label": 15,
+      "imageCoords": {
+        "x": 87,
+        "y": 101
+      },
+      "canvasCoords": {
+        "x": 887,
+        "y": 601
+      },
+      "pixelCount": 766,
+      "renderedColor": "error: Cannot read properties of null (reading 'getImageData')",
+      "expectedColor": [
+        91,
+        251,
+        40
+      ],
+      "match": false
+    },
+    {
+      "label": 16,
+      "imageCoords": {
+        "x": 178,
+        "y": 111
+      },
+      "canvasCoords": {
+        "x": 978,
+        "y": 611
+      },
+      "pixelCount": 1079,
+      "renderedColor": "error: Cannot read properties of null (reading 'getImageData')",
+      "expectedColor": [
+        125,
+        18,
+        239
+      ],
+      "match": false
+    },
+    {
+      "label": 17,
+      "imageCoords": {
+        "x": 93,
+        "y": 122
+      },
+      "canvasCoords": {
+        "x": 893,
+        "y": 622
+      },
+      "pixelCount": 807,
+      "renderedColor": "error: Cannot read properties of null (reading 'getImageData')",
+      "expectedColor": [
+        169,
+        2,
+        211
+      ],
+      "match": false
+    },
+    {
+      "label": 18,
+      "imageCoords": {
+        "x": 57,
+        "y": 133
+      },
+      "canvasCoords": {
+        "x": 857,
+        "y": 633
+      },
+      "pixelCount": 969,
+      "renderedColor": "error: Cannot read properties of null (reading 'getImageData')",
+      "expectedColor": [
+        235,
+        134,
+        14
+      ],
+      "match": false
+    },
+    {
+      "label": 19,
+      "imageCoords": {
+        "x": 75,
+        "y": 142
+      },
+      "canvasCoords": {
+        "x": 875,
+        "y": 642
+      },
+      "pixelCount": 1083,
+      "renderedColor": "error: Cannot read properties of null (reading 'getImageData')",
+      "expectedColor": [
+        237,
+        130,
+        16
+      ],
+      "match": false
+    },
+    {
+      "label": 20,
+      "imageCoords": {
+        "x": 358,
+        "y": 146
+      },
+      "canvasCoords": {
+        "x": 1158,
+        "y": 646
+      },
+      "pixelCount": 1234,
+      "renderedColor": "error: Cannot read properties of null (reading 'getImageData')",
+      "expectedColor": [
+        60,
+        255,
+        67
+      ],
+      "match": false
+    }
+  ],
+  "duplicateColors": [
+    "invalid",
+    "invalid",
+    "invalid",
+    "invalid",
+    "invalid",
+    "invalid",
+    "invalid",
+    "invalid",
+    "invalid",
+    "invalid",
+    "invalid",
+    "invalid",
+    "invalid",
+    "invalid",
+    "invalid",
+    "invalid",
+    "invalid",
+    "invalid",
+    "invalid"
+  ]
+}

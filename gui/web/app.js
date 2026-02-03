@@ -3519,6 +3519,12 @@ const paintingInitOptions = {
   getCurrentLabel: () => currentLabel,
   setCurrentLabel: (value) => {
     currentLabel = value;
+    if (value > currentMaxLabel) {
+      currentMaxLabel = value;
+      shufflePermutation = null;
+      paletteTextureDirty = true;
+      clearColorCaches();
+    }
     updateMaskLabel();
   },
   hasNColor,
@@ -4147,7 +4153,8 @@ function updateLabelControls() {
       const color = 'rgb(' + (r | 0) + ', ' + (g | 0) + ', ' + (b | 0) + ')';
       const textColor = readableTextColor([r, g, b]);
       labelValueInput.style.setProperty('background', color);
-      labelValueInput.style.setProperty('border-color', 'var(--border-opaque)');
+      labelValueInput.style.setProperty('background-clip', 'padding-box');
+      labelValueInput.style.setProperty('border-color', 'var(--slider-track-border)');
       labelValueInput.style.setProperty('color', textColor);
       labelValueInput.style.setProperty('caret-color', textColor);
       updateAccentColorsFromRgb(rgb);
@@ -4155,6 +4162,7 @@ function updateLabelControls() {
     }
   }
   labelValueInput.style.removeProperty('background');
+  labelValueInput.style.removeProperty('background-clip');
   labelValueInput.style.removeProperty('border-color');
   labelValueInput.style.removeProperty('color');
   labelValueInput.style.removeProperty('caret-color');
@@ -4202,6 +4210,13 @@ function applyCurrentLabel(nextLabel, { scheduleSave = true } = {}) {
     stopEraseOverride();
   }
   currentLabel = normalized;
+  // Update max label tracking if selecting a higher label
+  if (normalized > currentMaxLabel) {
+    currentMaxLabel = normalized;
+    shufflePermutation = null;
+    paletteTextureDirty = true;
+    clearColorCaches();
+  }
   updateMaskLabel();
   if (scheduleSave) {
     scheduleStateSave();
@@ -4721,6 +4736,7 @@ function performClearMasks({ recordHistory = true } = {}) {
   maskHasNonZero = false;
   outlineState.fill(0);
   nColorValues = null;
+  nColorInstanceMask = null;  // Clear instance mask to prevent ghost affinity graph
   nColorLabelToGroup.clear();
   clearColorCaches();
   clearAffinityGraphData();
@@ -5067,7 +5083,7 @@ function collectViewerState() {
     niter: niterAuto ? null : niter,
     affinityGraph: (savedAffinityGraphPayload && savedAffinityGraphPayload.encoded)
       ? savedAffinityGraphPayload
-      : ((affinityGraphSource === 'remote' && affinityGraphInfo && affinityGraphInfo.values && affinityGraphInfo.values.length)
+      : ((affinityGraphSource !== 'none' && affinityGraphInfo && affinityGraphInfo.values && affinityGraphInfo.values.length)
         ? {
           width: affinityGraphInfo.width,
           height: affinityGraphInfo.height,
@@ -5354,6 +5370,11 @@ function restoreViewerState(saved) {
     markAffinityGeometryDirty();
   } finally {
     isRestoringState = false;
+  }
+  // Apply saved affinity graph if not already applied (e.g., when not in affinity seg mode)
+  if (savedAffinityGraphPayload && savedAffinityGraphPayload.encoded && affinityGraphSource === 'none') {
+    applyAffinityGraphPayload(savedAffinityGraphPayload);
+    affinityGraphSource = 'remote';
   }
   if (affinityGraphSource === 'remote' && affinityGraphInfo && affinityGraphInfo.values) {
     buildAffinityGraphSegments();
@@ -6976,6 +6997,7 @@ function clearAffinityGraphData() {
   affinityGraphInfo = null;
   affinityGraphNeedsLocalRebuild = true;
   affinityGraphSource = 'none';
+  savedAffinityGraphPayload = null;
   affinitySteps = DEFAULT_AFFINITY_STEPS.map((step) => step.slice());
   refreshOppositeStepMapping();
   clearOutline();
@@ -7434,8 +7456,11 @@ function updateAffinityGraphForIndices(indices) {
     }
   }
   const info = affinityGraphInfo;
-  // CRITICAL: Must get source mask for label comparisons (was previously undefined - bug fix)
-  const sourceMask = getAffinitySourceMask();
+  // CRITICAL: Use maskValues directly for incremental updates during painting.
+  // In nColor mode, getAffinitySourceMask() returns nColorInstanceMask which isn't
+  // updated during painting - only maskValues is modified. Using maskValues ensures
+  // the affinity graph reflects the actual painted state.
+  const sourceMask = maskValues;
   if (!sourceMask || sourceMask.length === 0) {
     return;
   }
@@ -7613,6 +7638,8 @@ function updateAffinityGraphForIndices(indices) {
     updateOutlineForIndices(indicesSet);
   }
   affinityGraphNeedsLocalRebuild = false;
+  // Mark as locally modified since we've updated the affinity data
+  affinityGraphSource = 'local';
   for (let listIdx = 0; listIdx < touchedCount; listIdx += 1) {
     const idx = touchedList[listIdx];
     const before = outlineState[idx];
@@ -7629,11 +7656,9 @@ function updateAffinityGraphForIndices(indices) {
       redrawMaskCanvas();
     }
   }
-  if (affinitySegEnabled && !nColorActive) {
-    // Force affinity graph persistence to use the latest edited graph
-    savedAffinityGraphPayload = null;
-    scheduleStateSave();
-  }
+  // Force affinity graph persistence to use the latest edited graph (always clear saved payload on edit)
+  savedAffinityGraphPayload = null;
+  scheduleStateSave();
   if (showAffinityGraph && (!webglOverlay || !webglOverlay.enabled || !LIVE_AFFINITY_OVERLAY_UPDATES)) {
     markAffinityGeometryDirty();
   }
@@ -8702,6 +8727,7 @@ function updateMaxLabelFromMask() {
     // Invalidate shuffle permutation cache
     shufflePermutation = null;
     paletteTextureDirty = true;
+    clearColorCaches();
   }
 }
 
@@ -9345,7 +9371,9 @@ function buildPaletteTextureData() {
     const palette = nColorPaletteColors.length ? nColorPaletteColors : generateNColorSwatches(DEFAULT_NCOLOR_COUNT, 0.35);
     const count = palette.length || 1;
     for (let i = 0; i < size; i += 1) {
-      const rgb = palette[i % count] || [0, 0, 0];
+      // Use same indexing as getNColorLabelColor: (label - 1) % count
+      // For i=0 (background), use black. For i>=1, use (i-1) % count
+      const rgb = i === 0 ? [0, 0, 0] : (palette[(i - 1) % count] || [0, 0, 0]);
       const base = i * 4;
       data[base] = rgb[0] || 0;
       data[base + 1] = rgb[1] || 0;
@@ -11893,13 +11921,14 @@ function updateCmapPanelUI() {
   if (cmapHueOffsetWrapper) {
     const track = cmapHueOffsetWrapper.querySelector('.slider-track');
     if (track) {
-      track.style.background = gradient;
+      // Set gradient via CSS custom property - ::before uses clip-path for rounded inset
+      track.style.setProperty('--cmap-gradient', gradient);
     }
     cmapHueOffsetWrapper.classList.toggle('no-offset', !hasOffset);
   }
   // Update preview pill gradient (shown for non-cyclic colormaps)
   if (cmapPreviewPill) {
-    cmapPreviewPill.style.background = gradient;
+    cmapPreviewPill.style.backgroundImage = gradient;
   }
 }
 
@@ -12491,6 +12520,101 @@ if (typeof window !== 'undefined') {
     firstByte: affinityGraphInfo && affinityGraphInfo.values ? affinityGraphInfo.values[0] : null,
     savedGraph: Boolean(savedViewerState && savedViewerState.affinityGraph && savedViewerState.affinityGraph.encoded),
   });
+  // Debug function to get full affinity state for testing
+  window.__OMNI_DEBUG__.getAffinityState = () => ({
+    showAffinityGraph,
+    affinitySegEnabled,
+    affinityGraphSource,
+    affinityGraphNeedsLocalRebuild,
+    hasAffinityGraphInfo: Boolean(affinityGraphInfo),
+    hasValues: Boolean(affinityGraphInfo && affinityGraphInfo.values),
+    hasSegments: Boolean(affinityGraphInfo && affinityGraphInfo.segments),
+    stepCount: affinityGraphInfo ? affinityGraphInfo.stepCount : 0,
+    width: affinityGraphInfo ? affinityGraphInfo.width : 0,
+    height: affinityGraphInfo ? affinityGraphInfo.height : 0,
+    valuesLength: affinityGraphInfo && affinityGraphInfo.values ? affinityGraphInfo.values.length : 0,
+    webglOverlayEnabled: Boolean(webglOverlay && webglOverlay.enabled),
+    nextSlot: webglOverlay ? webglOverlay.nextSlot : 0,
+    maxUsedSlotIndex: webglOverlay ? webglOverlay.maxUsedSlotIndex : -1,
+    savedAffinityGraphPayload: Boolean(savedAffinityGraphPayload),
+  });
+  // Debug function to access maskValues
+  window.__OMNI_DEBUG__.getMaskValues = () => maskValues;
+  // Debug function to access nColorInstanceMask
+  window.__OMNI_DEBUG__.getNColorInstanceMask = () => nColorInstanceMask;
+  // Debug function to get the actual affinity source mask
+  window.__OMNI_DEBUG__.getAffinitySourceMask = () => getAffinitySourceMask();
+  // Debug function to check nColor state
+  window.__OMNI_DEBUG__.getNColorState = () => ({
+    nColorActive,
+    hasNColorInstanceMask: Boolean(nColorInstanceMask),
+    instanceMaskLength: nColorInstanceMask ? nColorInstanceMask.length : 0,
+    maskValuesLength: maskValues ? maskValues.length : 0,
+  });
+  // Debug function to update affinity for indices
+  window.__OMNI_DEBUG__.updateAffinityForIndices = (indices) => {
+    if (!indices || !indices.length) return { error: 'no indices' };
+    const before = window.__OMNI_DEBUG__.getAffinityState();
+    updateAffinityGraphForIndices(indices);
+    const after = window.__OMNI_DEBUG__.getAffinityState();
+    return { before, after, indicesCount: indices.length };
+  };
+  // Debug function to check affinity edges in a region
+  window.__OMNI_DEBUG__.checkAffinityInRegion = (x, y, w, h) => {
+    if (!affinityGraphInfo || !affinityGraphInfo.values) {
+      return { error: 'no affinity graph' };
+    }
+    const info = affinityGraphInfo;
+    const planeStride = info.width * info.height;
+    let edgeCount = 0;
+    for (let dy = 0; dy < h; dy++) {
+      for (let dx = 0; dx < w; dx++) {
+        const px = x + dx;
+        const py = y + dy;
+        const idx = py * info.width + px;
+        if (idx < 0 || idx >= planeStride) continue;
+        for (let s = 0; s < info.stepCount; s++) {
+          if (info.values[s * planeStride + idx]) {
+            edgeCount++;
+          }
+        }
+      }
+    }
+    return {
+      region: { x, y, w, h },
+      edgeCount,
+      stepCount: info.stepCount,
+    };
+  };
+  // Debug function to paint a region and update affinity
+  window.__OMNI_DEBUG__.paintAndUpdateAffinity = (x, y, w, h, label) => {
+    if (!maskValues) return { error: 'no maskValues' };
+    const width = imgWidth;
+    const height = imgHeight;
+    const indices = [];
+    for (let dy = 0; dy < h; dy++) {
+      for (let dx = 0; dx < w; dx++) {
+        const px = x + dx;
+        const py = y + dy;
+        const idx = py * width + px;
+        if (idx >= 0 && idx < maskValues.length) {
+          maskValues[idx] = label;
+          indices.push(idx);
+        }
+      }
+    }
+    const stateBefore = window.__OMNI_DEBUG__.getAffinityState();
+    updateAffinityGraphForIndices(indices);
+    const stateAfter = window.__OMNI_DEBUG__.getAffinityState();
+    const affinityInRegion = window.__OMNI_DEBUG__.checkAffinityInRegion(x, y, w, h);
+    return {
+      paintedCount: indices.length,
+      label,
+      stateBefore,
+      stateAfter,
+      affinityInRegion,
+    };
+  };
 }
 // no incremental rebuild method; geometry rebuilds in ensureWebglGeometry
 

@@ -225,7 +225,10 @@
   padding: 0 12px;
   border-radius: var(--slider-track-radius);
   color: var(--accent-ink, #161616);
-  border: 1px solid var(--accent-color);
+  /* Outline around the fill - background stops at border edge */
+  border: 1px solid var(--slider-track-border);
+  background-clip: padding-box;
+  box-shadow: none;
   text-align: left;
   font-size: 0.9rem;
   display: flex;
@@ -242,7 +245,6 @@
   background: var(--accent-color);
   color: var(--accent-ink, #161616) !important;
   border-color: var(--slider-track-border);
-  box-shadow: none;
 }
 
 .dropdown-toggle::after {
@@ -384,9 +386,10 @@
   align-items: center;
   border-radius: var(--slider-track-radius);
   background: var(--control-input-surface);
+  background-clip: padding-box;
   backdrop-filter: blur(var(--control-blur));
   -webkit-backdrop-filter: blur(var(--control-blur));
-  border: 1px solid var(--panel-border);
+  border: 1px solid var(--slider-track-border);
   box-shadow: none;
   padding: 0;
   transition: background 0.14s ease, border-color 0.14s ease, box-shadow 0.14s ease;
@@ -1773,15 +1776,24 @@ button:not(:disabled):hover {
   margin-bottom: 6px;
 }
 
-/* Gradient track slider - uses same geometry as .slider but with static gradient background */
+/* Gradient track slider - inherits all geometry from .slider-track */
 .slider--gradient-track .slider-track {
-  /* Override the default track background with a gradient */
-  background: linear-gradient(to right, #f00, #ff0, #0f0, #0ff, #00f, #f0f, #f00);
+  /* Keep track background for outline visibility */
+  background: var(--slider-track-bg);
+  box-shadow: inset 0 0 0 1px var(--slider-track-border);
 }
 
-/* Hide the dynamic fill for gradient track sliders */
+/* Use ::before for gradient with rounded inset clip-path */
 .slider--gradient-track .slider-track::before {
-  display: none;
+  content: '';
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  /* Gradient set via CSS custom property from JS */
+  background: var(--cmap-gradient, linear-gradient(to right, #f00, #ff0, #0f0, #0ff, #00f, #f0f, #f00));
+  border-radius: var(--slider-track-radius);
+  /* Clip to create rounded inset - same as regular slider fill */
+  clip-path: inset(var(--control-inset) round var(--control-inset-radius));
 }
 
 /* When colormap doesn't support offset, hide thumb and disable interaction */
@@ -1793,12 +1805,11 @@ button:not(:disabled):hover {
   opacity: 0;
 }
 
-/* Cmap panel specific - use same grid as tools/labels panels */
-#cmapPanel .panel-header {
-  display: grid;
-  grid-template-columns: var(--control-label-width) 1fr;
-  align-items: center;
-  column-gap: 10px;
+/* Cmap section (merged into Labels panel) */
+.cmap-section {
+  display: flex;
+  flex-direction: column;
+  gap: var(--control-gap, 8px);
 }
 
 #cmapPanel .dropdown--compact {
@@ -1825,7 +1836,10 @@ button:not(:disabled):hover {
   border-radius: var(--slider-track-radius);
   overflow: hidden;
   box-sizing: border-box;
-  border: 1px solid var(--border-opaque);
+  /* Outline with clear separation - gradient stops at border edge */
+  border: 1px solid var(--slider-track-border);
+  background-clip: padding-box;
+  box-shadow: none;
   /* Prevent gradient from wrapping/repeating */
   background-repeat: no-repeat;
   background-size: 100% 100%;

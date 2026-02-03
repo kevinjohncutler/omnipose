@@ -1,0 +1,268 @@
+{
+  "timestamp": "2026-02-03T20-53-03-465Z",
+  "browser": "chromium",
+  "url": "http://127.0.0.1:18778",
+  "pageInfo": {
+    "viewport": {
+      "width": 1600,
+      "height": 1000
+    },
+    "canvas": {
+      "width": 1600,
+      "height": 1000,
+      "offsetWidth": 1600,
+      "offsetHeight": 1000,
+      "boundingRect": {
+        "x": 0,
+        "y": 0,
+        "width": 1600,
+        "height": 1000,
+        "top": 0,
+        "right": 1600,
+        "bottom": 1000,
+        "left": 0
+      }
+    },
+    "viewer": {
+      "x": 0,
+      "y": 0,
+      "width": 1600,
+      "height": 1000,
+      "top": 0,
+      "right": 1600,
+      "bottom": 1000,
+      "left": 0
+    },
+    "leftPanel": {
+      "x": 0,
+      "y": 0,
+      "width": 260,
+      "height": 1000,
+      "top": 0,
+      "right": 260,
+      "bottom": 1000,
+      "left": 0
+    },
+    "sidebar": {
+      "x": 1340,
+      "y": 0,
+      "width": 260,
+      "height": 1000,
+      "top": 0,
+      "right": 1600,
+      "bottom": 1000,
+      "left": 1340
+    },
+    "omniPaintingLoaded": true,
+    "omniDebugAvailable": true
+  },
+  "layoutReport": {
+    "leftPanel": {
+      "rect": {
+        "x": 0,
+        "y": 0,
+        "width": 260,
+        "height": 1000
+      },
+      "display": "flex",
+      "position": "absolute",
+      "visibility": "visible",
+      "zIndex": "4"
+    },
+    "viewer": {
+      "rect": {
+        "x": 0,
+        "y": 0,
+        "width": 1600,
+        "height": 1000
+      },
+      "display": "block",
+      "position": "relative",
+      "visibility": "visible",
+      "zIndex": "0"
+    },
+    "sidebar": {
+      "rect": {
+        "x": 1340,
+        "y": 0,
+        "width": 260,
+        "height": 1000
+      },
+      "display": "flex",
+      "position": "absolute",
+      "visibility": "visible",
+      "zIndex": "5"
+    },
+    "canvas": {
+      "rect": {
+        "x": 0,
+        "y": 0,
+        "width": 1600,
+        "height": 1000
+      },
+      "display": "block",
+      "position": "relative",
+      "visibility": "visible",
+      "zIndex": "0"
+    },
+    "brushPreview": {
+      "rect": {
+        "x": 0,
+        "y": 0,
+        "width": 1600,
+        "height": 1000
+      },
+      "display": "block",
+      "position": "absolute",
+      "visibility": "visible",
+      "zIndex": "3"
+    }
+  },
+  "consoleLogs": [
+    {
+      "type": "warning",
+      "text": "[.WebGL-0x1040019c600]GL Driver Message (OpenGL, Performance, GL_CLOSE_PATH_NV, High): GPU stall due to ReadPixels",
+      "location": {
+        "url": "http://127.0.0.1:18778/",
+        "lineNumber": 442,
+        "columnNumber": 0
+      }
+    },
+    {
+      "type": "warning",
+      "text": "[.WebGL-0x1040019c600]GL Driver Message (OpenGL, Performance, GL_CLOSE_PATH_NV, High): GPU stall due to ReadPixels",
+      "location": {
+        "url": "http://127.0.0.1:18778/",
+        "lineNumber": 445,
+        "columnNumber": 0
+      }
+    },
+    {
+      "type": "log",
+      "text": "[pywebview] [  102.2 ms] boot (readyState=complete)",
+      "location": {
+        "url": "http://127.0.0.1:18778/static/js/logging.js?v=1770151962",
+        "lineNumber": 92,
+        "columnNumber": 16
+      }
+    },
+    {
+      "type": "log",
+      "text": "[pywebview] [  102.4 ms] initialize",
+      "location": {
+        "url": "http://127.0.0.1:18778/static/js/logging.js?v=1770151962",
+        "lineNumber": 92,
+        "columnNumber": 16
+      }
+    },
+    {
+      "type": "warning",
+      "text": "[.WebGL-0x104001a4a00]GL Driver Message (OpenGL, Performance, GL_CLOSE_PATH_NV, High): GPU stall due to ReadPixels",
+      "location": {
+        "url": "http://127.0.0.1:18778/",
+        "lineNumber": 0,
+        "columnNumber": 0
+      }
+    },
+    {
+      "type": "warning",
+      "text": "[.WebGL-0x104001a5600]GL Driver Message (OpenGL, Performance, GL_CLOSE_PATH_NV, High): GPU stall due to ReadPixels (this message will no longer repeat)",
+      "location": {
+        "url": "http://127.0.0.1:18778/",
+        "lineNumber": 0,
+        "columnNumber": 0
+      }
+    },
+    {
+      "type": "log",
+      "text": "[pywebview] [  118.5 ms] image loaded: 392x384",
+      "location": {
+        "url": "http://127.0.0.1:18778/static/js/logging.js?v=1770151962",
+        "lineNumber": 92,
+        "columnNumber": 16
+      }
+    },
+    {
+      "type": "log",
+      "text": "[pywebview] [  126.4 ms] draw start scale=1.000 offset=0.0,0.0",
+      "location": {
+        "url": "http://127.0.0.1:18778/static/js/logging.js?v=1770151962",
+        "lineNumber": 92,
+        "columnNumber": 16
+      }
+    },
+    {
+      "type": "log",
+      "text": "[pywebview] [  134.9 ms] draw start scale=1.000 offset=0.0,0.0",
+      "location": {
+        "url": "http://127.0.0.1:18778/static/js/logging.js?v=1770151962",
+        "lineNumber": 92,
+        "columnNumber": 16
+      }
+    },
+    {
+      "type": "log",
+      "text": "[pywebview] [  135.2 ms] draw start scale=1.000 offset=0.0,0.0",
+      "location": {
+        "url": "http://127.0.0.1:18778/static/js/logging.js?v=1770151962",
+        "lineNumber": 92,
+        "columnNumber": 16
+      }
+    },
+    {
+      "type": "log",
+      "text": "[pywebview] [  249.0 ms] recenter to 290.6,1.0",
+      "location": {
+        "url": "http://127.0.0.1:18778/static/js/logging.js?v=1770151962",
+        "lineNumber": 92,
+        "columnNumber": 16
+      }
+    },
+    {
+      "type": "log",
+      "text": "[pywebview] [  249.2 ms] draw start scale=2.599 offset=290.6,1.0",
+      "location": {
+        "url": "http://127.0.0.1:18778/static/js/logging.js?v=1770151962",
+        "lineNumber": 92,
+        "columnNumber": 16
+      }
+    },
+    {
+      "type": "log",
+      "text": "[pywebview] [  280.9 ms] recenter to 290.6,1.0",
+      "location": {
+        "url": "http://127.0.0.1:18778/static/js/logging.js?v=1770151962",
+        "lineNumber": 92,
+        "columnNumber": 16
+      }
+    },
+    {
+      "type": "log",
+      "text": "[pywebview] [  280.9 ms] draw start scale=2.599 offset=290.6,1.0",
+      "location": {
+        "url": "http://127.0.0.1:18778/static/js/logging.js?v=1770151962",
+        "lineNumber": 92,
+        "columnNumber": 16
+      }
+    },
+    {
+      "type": "log",
+      "text": "[pywebview] [ 1554.7 ms] [debug-fill]",
+      "location": {
+        "url": "http://127.0.0.1:18778/static/js/logging.js?v=1770151962",
+        "lineNumber": 92,
+        "columnNumber": 16
+      }
+    },
+    {
+      "type": "log",
+      "text": "[pywebview] [ 1674.9 ms] draw start scale=2.599 offset=290.6,1.0",
+      "location": {
+        "url": "http://127.0.0.1:18778/static/js/logging.js?v=1770151962",
+        "lineNumber": 92,
+        "columnNumber": 16
+      }
+    }
+  ],
+  "errors": []
+}

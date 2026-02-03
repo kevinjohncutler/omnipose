@@ -1,0 +1,2 @@
+- highlight cell underneath cursor, show average value of image in that region
+- if multichannel, show spectrum of that cell 

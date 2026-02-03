@@ -173,16 +173,14 @@
               </div>
             </div>
           </div>
-          </div>
-        </div>
-        <div class="panel-section" id="cmapPanel">
-          <div class="panel-header">
-            <div class="control-heading">Cmap</div>
-            <div class="dropdown dropdown--compact" data-dropdown-id="cmapSelect" data-loop="true">
-              <select id="cmapSelect"></select>
+          <!-- Cmap section (merged into Labels panel) -->
+          <div class="cmap-section" id="cmapPanel">
+            <div class="control slider-inline">
+              <span class="control-heading control-heading--lower">Cmap</span>
+              <div class="dropdown dropdown--compact" data-dropdown-id="cmapSelect" data-loop="true">
+                <select id="cmapSelect"></select>
+              </div>
             </div>
-          </div>
-          <div class="panel-body">
             <!-- Colormap preview/offset - shown for sinebow-type colormaps -->
             <div class="cmap-offset-section" id="cmapOffsetSection">
               <div class="control slider-inline">
@@ -237,6 +235,7 @@
                 </div>
               </div>
             </div>
+          </div>
           </div>
         </div>
         <div class="control toggle-group" id="layerVisibilityControls">

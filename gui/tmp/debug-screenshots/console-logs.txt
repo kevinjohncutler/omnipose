@@ -1,0 +1,26 @@
+[warning] [.WebGL-0x12c0019ba00]GL Driver Message (OpenGL, Performance, GL_CLOSE_PATH_NV, High): GPU stall due to ReadPixels
+[warning] [.WebGL-0x12c0019ba00]GL Driver Message (OpenGL, Performance, GL_CLOSE_PATH_NV, High): GPU stall due to ReadPixels
+[log] [pywebview] [   86.2 ms] boot (readyState=complete)
+[log] [pywebview] [   86.4 ms] initialize
+[warning] [.WebGL-0x12c001a2000]GL Driver Message (OpenGL, Performance, GL_CLOSE_PATH_NV, High): GPU stall due to ReadPixels
+[warning] [.WebGL-0x12c001a3800]GL Driver Message (OpenGL, Performance, GL_CLOSE_PATH_NV, High): GPU stall due to ReadPixels (this message will no longer repeat)
+[log] [pywebview] [  104.9 ms] image loaded: 392x384
+[log] [pywebview] [  113.4 ms] draw start scale=1.000 offset=0.0,0.0
+[log] [pywebview] [  122.5 ms] draw start scale=1.000 offset=0.0,0.0
+[log] [pywebview] [  122.7 ms] draw start scale=1.000 offset=0.0,0.0
+[log] [pywebview] [  240.2 ms] recenter to 290.6,1.0
+[log] [pywebview] [  240.3 ms] draw start scale=2.599 offset=290.6,1.0
+[log] [pywebview] [  272.5 ms] recenter to 290.6,1.0
+[log] [pywebview] [  272.6 ms] draw start scale=2.599 offset=290.6,1.0
+[log] [pywebview] [ 1543.5 ms] draw start scale=2.599 offset=290.6,1.0
+[log] [pywebview] [ 1808.7 ms] draw start scale=2.599 offset=290.6,1.0
+[log] [pywebview] [ 1810.5 ms] draw start scale=2.599 offset=290.6,1.0
+[log] [pywebview] [ 1817.5 ms] [warn] [ncolor] sample label->group: [object Object]
+[warning] [ncolor] sample label->group: {1: 1, 2: 2, 3: 3, 4: 4}
+[log] [pywebview] [ 1859.2 ms] draw start scale=2.599 offset=290.6,1.0
+[log] [pywebview] [ 4086.1 ms] [ncolor] OFF: restoring saved instance mask directly
+[log] [pywebview] [ 4088.8 ms] draw start scale=2.599 offset=290.6,1.0
+[log] [pywebview] [ 7341.7 ms] [warn] [ncolor] sample label->group: [object Object]
+[warning] [ncolor] sample label->group: {1: 1, 2: 2, 3: 3, 4: 4}
+[log] [pywebview] [ 7385.0 ms] draw start scale=2.599 offset=290.6,1.0
+[log] [pywebview] [ 7422.7 ms] draw start scale=2.599 offset=290.6,1.0
