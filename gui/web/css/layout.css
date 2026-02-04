@@ -95,7 +95,7 @@ body {
   backdrop-filter: none;
   -webkit-backdrop-filter: none;
   overflow-y: auto;
-  overflow-x: hidden;
+  overflow-x: visible;
   overscroll-behavior: contain;
   touch-action: manipulation;
 }

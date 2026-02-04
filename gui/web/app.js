@@ -53,6 +53,20 @@ let nColorColormap = 'sinebow'; // Colormap for N-color mode (legacy, now uses l
 let nColorHueOffset = 0; // Hue offset for N-color palette
 let labelShuffle = true;
 let labelShuffleSeed = 0;
+// Image colormap (for grayscale images)
+let imageColormap = 'gray'; // Default grayscale
+const IMAGE_COLORMAPS = [
+  { value: 'gray', label: 'grayscale' },
+  { value: 'gray-clip', label: 'grayclip' },
+  { value: 'magma', label: 'magma' },
+  { value: 'viridis', label: 'viridis' },
+  { value: 'inferno', label: 'inferno' },
+  { value: 'plasma', label: 'plasma' },
+  { value: 'hot', label: 'hot' },
+  { value: 'turbo', label: 'turbo' },
+];
+let imageCmapLutTexture = null;
+let imageCmapLutDirty = true;
 // Track current max label for dynamic palette sizing
 let currentMaxLabel = 128;
 // Permutation cache for shuffle - ensures bijective mapping (no color collisions)
@@ -1270,6 +1284,7 @@ uniform sampler2D u_flowSampler;
 uniform sampler2D u_distanceSampler;
 uniform sampler2D u_pointsSampler;
 uniform sampler2D u_paletteSampler;
+uniform sampler2D u_imageCmapSampler;
 
 uniform float u_maskOpacity;
 uniform float u_maskVisible;
@@ -1285,6 +1300,7 @@ uniform float u_pointsOpacity;
 uniform float u_colorOffset;
 uniform float u_paletteSize;
 uniform float u_usePalette;
+uniform float u_imageCmapType;
 
 vec3 sinebow(float t) {
   float angle = 6.28318530718 * fract(t);
@@ -1309,11 +1325,32 @@ vec3 paletteColor(float label) {
   return texture(u_paletteSampler, vec2(u, 0.5)).rgb;
 }
 
+// Apply image colormap to grayscale value
+vec3 applyImageCmap(float intensity) {
+  // 0 = grayscale (passthrough)
+  if (u_imageCmapType < 0.5) {
+    return vec3(intensity);
+  }
+  // 1 = grayscale with red clipping indicator
+  if (u_imageCmapType < 1.5) {
+    if (intensity > 0.999) {
+      return vec3(1.0, 0.0, 0.0); // Red for clipped pixels
+    }
+    return vec3(intensity);
+  }
+  // 2+ = use LUT texture
+  return texture(u_imageCmapSampler, vec2(intensity, 0.5)).rgb;
+}
+
 void main() {
   vec2 baseCoord = vec2(v_texCoord.x, 1.0 - v_texCoord.y);
   vec4 baseColor = vec4(0.0, 0.0, 0.0, 1.0);
   if (u_imageVisible > 0.5) {
-    baseColor = texture(u_baseSampler, baseCoord);
+    vec4 rawColor = texture(u_baseSampler, baseCoord);
+    // Convert to grayscale intensity (use luminance for color images, or just R for grayscale)
+    float intensity = dot(rawColor.rgb, vec3(0.299, 0.587, 0.114));
+    // Apply colormap
+    baseColor = vec4(applyImageCmap(intensity), rawColor.a);
   }
   vec3 color = baseColor.rgb;
   if (u_maskVisible > 0.5 && u_maskOpacity > 0.0) {
@@ -1498,6 +1535,8 @@ const texCoords = new Float32Array([
     colorOffset: gl.getUniformLocation(program, 'u_colorOffset'),
     paletteSize: gl.getUniformLocation(program, 'u_paletteSize'),
     usePalette: gl.getUniformLocation(program, 'u_usePalette'),
+    imageCmapSampler: gl.getUniformLocation(program, 'u_imageCmapSampler'),
+    imageCmapType: gl.getUniformLocation(program, 'u_imageCmapType'),
   };
   gl.useProgram(program);
   gl.uniform1i(uniforms.baseSampler, 0);
@@ -1507,7 +1546,9 @@ const texCoords = new Float32Array([
   gl.uniform1i(uniforms.distanceSampler, 4);
   gl.uniform1i(uniforms.pointsSampler, 5);
   gl.uniform1i(uniforms.paletteSampler, 6);
+  gl.uniform1i(uniforms.imageCmapSampler, 7);
   gl.uniform1f(uniforms.paletteSize, PALETTE_TEXTURE_SIZE);
+  gl.uniform1f(uniforms.imageCmapType, 0.0); // Default to grayscale
   gl.useProgram(null);
 
   const affinityProgram = createWebglProgram(gl, AFFINITY_LINE_VERTEX_SHADER, AFFINITY_LINE_FRAGMENT_SHADER);
@@ -1782,6 +1823,7 @@ function drawWebglFrame() {
   pipelineGl.uniform1f(uniforms.pointsVisible, 0);
   pipelineGl.uniform1f(uniforms.pointsOpacity, 0);
   pipelineGl.uniform1f(uniforms.usePalette, 1);
+  pipelineGl.uniform1f(uniforms.imageCmapType, getImageCmapTypeValue());
 
   pipelineGl.activeTexture(pipelineGl.TEXTURE0);
   pipelineGl.bindTexture(pipelineGl.TEXTURE_2D, baseTexture || webglPipeline.emptyTexture);
@@ -1791,6 +1833,8 @@ function drawWebglFrame() {
   pipelineGl.bindTexture(pipelineGl.TEXTURE_2D, outlineTexture || webglPipeline.emptyTexture);
   pipelineGl.activeTexture(pipelineGl.TEXTURE6);
   pipelineGl.bindTexture(pipelineGl.TEXTURE_2D, webglPipeline.paletteTexture || webglPipeline.emptyTexture);
+  pipelineGl.activeTexture(pipelineGl.TEXTURE7);
+  pipelineGl.bindTexture(pipelineGl.TEXTURE_2D, webglPipeline.imageCmapTexture || webglPipeline.emptyTexture);
   bindOverlayTextureOrEmpty(flowTexture, 3);
   bindOverlayTextureOrEmpty(distanceTexture, 4);
 
@@ -2543,6 +2587,10 @@ function registerDropdown(root) {
   button.className = 'dropdown-toggle';
   button.setAttribute('aria-haspopup', 'listbox');
   button.setAttribute('aria-expanded', 'false');
+  // Create label span for gradient text support
+  const labelSpan = document.createElement('span');
+  labelSpan.className = 'dropdown-label';
+  button.appendChild(labelSpan);
   const menu = document.createElement('div');
   menu.className = 'dropdown-menu';
   menu.setAttribute('role', 'listbox');
@@ -2573,7 +2621,7 @@ function registerDropdown(root) {
     const applySelection = () => {
     const selectedOption = select.options[select.selectedIndex];
     const displayLabel = selectedOption ? selectedOption.textContent : 'Select';
-    button.textContent = displayLabel;
+    labelSpan.textContent = displayLabel;
     if (selectedOption) {
       const fullLabel = selectedOption.dataset.fullPath || selectedOption.dataset.fullLabel || selectedOption.title || selectedOption.textContent;
       if (fullLabel) {
@@ -3147,6 +3195,9 @@ const cmapSelect = document.getElementById('cmapSelect');
 const cmapHueOffsetSlider = document.getElementById('cmapHueOffset');
 const cmapHueOffsetWrapper = document.querySelector('[data-slider-id="cmapHueOffset"]');
 const cmapPreviewPill = document.getElementById('cmapPreviewPill');
+const imageCmapPanel = document.getElementById('imageCmapPanel');
+const imageCmapSelect = document.getElementById('imageCmapSelect');
+const imageCmapPreviewPill = document.getElementById('imageCmapPreviewPill');
 const ncolorSubsection = document.getElementById('ncolorSubsection');
 const ncolorSwatches = document.getElementById('ncolorSwatches');
 const ncolorAddColor = document.getElementById('ncolorAddColor');
@@ -5110,6 +5161,7 @@ function collectViewerState() {
     nColorHueOffset,
     nColorColormap,
     labelColormap,
+    imageColormap,
     labelShuffle,
     labelShuffleSeed,
     currentMaxLabel,
@@ -5297,6 +5349,13 @@ function restoreViewerState(saved) {
     if (typeof saved.labelColormap === 'string') {
       labelColormap = saved.labelColormap;
     }
+    if (typeof saved.imageColormap === 'string') {
+      const validCmaps = IMAGE_COLORMAPS.map(c => c.value);
+      if (validCmaps.includes(saved.imageColormap)) {
+        imageColormap = saved.imageColormap;
+        imageCmapLutDirty = true;
+      }
+    }
     if (typeof saved.labelShuffle === 'boolean') {
       labelShuffle = saved.labelShuffle;
     }
@@ -5348,6 +5407,12 @@ function restoreViewerState(saved) {
       labelColormapSelect.value = labelColormap || 'sinebow';
       refreshDropdown('labelColormap');
     }
+    if (imageCmapSelect) {
+      imageCmapSelect.value = imageColormap || 'gray';
+      refreshDropdown('imageCmapSelect');
+    }
+    updateImageCmapPanelUI();
+    updateImageCmapTexture();
     if (labelShuffleToggle) labelShuffleToggle.checked = labelShuffle;
     if (labelShuffleSeedInput) labelShuffleSeedInput.value = String(labelShuffleSeed);
     if (ncolorHueOffsetSlider) ncolorHueOffsetSlider.value = Math.round(nColorHueOffset * 100);
@@ -8610,7 +8675,89 @@ const COLORMAP_STOPS = {
     '#00ff99', '#00ff00', '#66ff00', '#ccff00', '#ffcc00',
     '#ff6600', '#ff0000', '#cc0000', '#800000'
   ],
+  hot: [
+    '#000000', '#230000', '#460000', '#690000', '#8c0000',
+    '#af0000', '#d20000', '#f50000', '#ff1800', '#ff3b00',
+    '#ff5e00', '#ff8100', '#ffa400', '#ffc700', '#ffea00',
+    '#ffff0d', '#ffff4d', '#ffff8d', '#ffffcd', '#ffffff'
+  ],
 };
+
+// Image colormap LUT size (256 entries for full 8-bit range)
+const IMAGE_CMAP_LUT_SIZE = 256;
+
+/**
+ * Get the numeric colormap type value for the shader.
+ * 0 = grayscale (passthrough)
+ * 1 = grayscale with red clipping
+ * 2+ = use LUT texture
+ */
+function getImageCmapTypeValue() {
+  if (imageColormap === 'gray') return 0;
+  if (imageColormap === 'gray-clip') return 1;
+  return 2; // LUT-based
+}
+
+/**
+ * Generate LUT data for an image colormap.
+ * Returns Uint8Array of RGBA values (size * 4 bytes).
+ */
+function generateImageCmapLut(cmapName) {
+  const data = new Uint8Array(IMAGE_CMAP_LUT_SIZE * 4);
+  const stops = COLORMAP_STOPS[cmapName];
+
+  for (let i = 0; i < IMAGE_CMAP_LUT_SIZE; i++) {
+    const t = i / (IMAGE_CMAP_LUT_SIZE - 1);
+    let rgb;
+
+    if (stops) {
+      rgb = interpolateStops(stops, t);
+    } else {
+      // Fallback to grayscale
+      const v = Math.round(t * 255);
+      rgb = [v, v, v];
+    }
+
+    const offset = i * 4;
+    data[offset] = rgb[0];
+    data[offset + 1] = rgb[1];
+    data[offset + 2] = rgb[2];
+    data[offset + 3] = 255;
+  }
+
+  return data;
+}
+
+/**
+ * Create or update the image colormap LUT texture.
+ */
+function updateImageCmapTexture() {
+  if (!webglPipeline || !webglPipeline.gl) return;
+
+  const gl = webglPipeline.gl;
+
+  // Only create LUT for non-grayscale colormaps
+  if (imageColormap === 'gray' || imageColormap === 'gray-clip') {
+    return;
+  }
+
+  // Create texture if needed
+  if (!webglPipeline.imageCmapTexture) {
+    webglPipeline.imageCmapTexture = gl.createTexture();
+  }
+
+  const lutData = generateImageCmapLut(imageColormap);
+
+  gl.bindTexture(gl.TEXTURE_2D, webglPipeline.imageCmapTexture);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+  gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, IMAGE_CMAP_LUT_SIZE, 1, 0, gl.RGBA, gl.UNSIGNED_BYTE, lutData);
+  gl.bindTexture(gl.TEXTURE_2D, null);
+
+  imageCmapLutDirty = false;
+}
 
 function interpolateStops(stops, t) {
   if (!stops || !stops.length) {
@@ -11976,6 +12123,87 @@ function initCmapSelect() {
 // Legacy alias
 const initLabelColormapSelect = initCmapSelect;
 
+/**
+ * Compute relative luminance from RGB values (0-255).
+ * Returns value 0-1 where 0 is black, 1 is white.
+ */
+function getLuminance(r, g, b) {
+  return (0.299 * r + 0.587 * g + 0.114 * b) / 255;
+}
+
+/**
+ * Update the image colormap panel UI (gradient preview on dropdown).
+ */
+function updateImageCmapPanelUI() {
+  const hasGradient = imageColormap !== 'gray' && imageColormap !== 'gray-clip';
+  const dropdownWrapper = imageCmapSelect ? imageCmapSelect.closest('.dropdown--gradient-preview') : null;
+  const toggle = dropdownWrapper ? dropdownWrapper.querySelector('.dropdown-toggle') : null;
+
+  if (dropdownWrapper) {
+    dropdownWrapper.classList.toggle('has-gradient', hasGradient);
+
+    // Get display label for tooltip
+    const cmapEntry = IMAGE_COLORMAPS.find(c => c.value === imageColormap);
+    const cmapLabel = cmapEntry ? cmapEntry.label : imageColormap;
+
+    if (hasGradient) {
+      const stops = COLORMAP_STOPS[imageColormap];
+      if (stops && stops.length) {
+        // Build colormap gradient
+        const gradientStops = stops.map((hex, i) => {
+          const pct = (i / (stops.length - 1)) * 100;
+          return `${hex} ${pct.toFixed(1)}%`;
+        });
+        dropdownWrapper.style.setProperty('--cmap-gradient', `linear-gradient(to right, ${gradientStops.join(', ')})`);
+
+        // Arrow color based on rightmost stop
+        const lastRgb = hexToRgb(stops[stops.length - 1]);
+        const lastLum = getLuminance(lastRgb[0], lastRgb[1], lastRgb[2]);
+        dropdownWrapper.style.setProperty('--cmap-arrow-color', lastLum < 0.5 ? '#fff' : '#000');
+      }
+      // Set tooltip to show colormap name on hover
+      if (toggle) toggle.title = cmapLabel;
+    } else {
+      dropdownWrapper.style.removeProperty('--cmap-gradient');
+      dropdownWrapper.style.removeProperty('--cmap-arrow-color');
+      // Clear tooltip for grayscale options (text is visible)
+      if (toggle) toggle.removeAttribute('title');
+    }
+  }
+}
+
+/**
+ * Initialize the image colormap dropdown.
+ */
+function initImageCmapSelect() {
+  if (!imageCmapSelect) {
+    return;
+  }
+  imageCmapSelect.innerHTML = '';
+  IMAGE_COLORMAPS.forEach((entry) => {
+    const option = document.createElement('option');
+    option.value = entry.value;
+    option.textContent = entry.label;
+    imageCmapSelect.appendChild(option);
+  });
+  imageCmapSelect.value = imageColormap;
+  // Update dropdown entry's options array
+  const dropdownEntry = dropdownRegistry.get('imageCmapSelect');
+  if (dropdownEntry) {
+    dropdownEntry.options = IMAGE_COLORMAPS.map(e => ({ value: e.value, label: e.label }));
+  }
+  refreshDropdown('imageCmapSelect');
+  updateImageCmapPanelUI();
+  imageCmapSelect.addEventListener('change', () => {
+    imageColormap = imageCmapSelect.value || 'gray';
+    imageCmapLutDirty = true;
+    updateImageCmapTexture();
+    updateImageCmapPanelUI();
+    draw();
+    scheduleStateSave();
+  });
+}
+
 function initSegmentationModelSelect() {
   if (!segmentationModelSelect) {
     return;
@@ -12037,6 +12265,8 @@ function initSegmentationModelSelect() {
 initSegmentationModelSelect();
 
 initLabelColormapSelect();
+
+initImageCmapSelect();
 
 if (segmentationModelSelect) {
   segmentationModelSelect.addEventListener('change', (evt) => {

@@ -17,6 +17,39 @@
   gap: 8px;
   flex: 1 1 auto;
   min-width: 0;
+  position: relative;
+}
+
+/* Track background + border for the input via parent pseudo-element */
+.label-stepper::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 0;
+  /* Width = 100% minus buttons width minus gap */
+  right: calc(var(--toggle-width) + 8px);
+  height: var(--slider-track-height);
+  background: var(--slider-track-bg);
+  border-radius: var(--slider-track-radius);
+  box-shadow: inset 0 0 0 1px var(--slider-track-border);
+  pointer-events: none;
+  z-index: 0;
+}
+
+/* Accent fill inset to reveal border (inputs can't have ::before) */
+.label-stepper::after {
+  content: '';
+  position: absolute;
+  /* Inset by 1px on all sides to reveal the gray border */
+  left: 1px;
+  top: 1px;
+  /* Width = track width minus 2px (1px inset on each side) */
+  width: calc(100% - var(--toggle-width) - 8px - 2px);
+  height: calc(var(--slider-track-height) - 2px);
+  background: var(--accent-color);
+  border-radius: calc(var(--slider-track-radius) - 1px);
+  pointer-events: none;
+  z-index: 1;
 }
 
 .label-stepper button {
@@ -49,14 +82,17 @@
   min-width: 0;
   height: var(--label-stepper-size);
   border-radius: calc(var(--slider-track-height) / 2);
-  border: 1px solid var(--slider-track-border);
-  background: transparent;
-  color: var(--panel-text-color);
-  background: transparent;
+  border: none;
+  /* !important overrides JS inline style - let ::after provide the fill */
+  background: transparent !important;
+  color: var(--accent-ink, #161616);
+  box-shadow: none;
   padding: 0 12px;
   font-size: 0.95rem;
   outline: none;
   text-align: center;
+  position: relative;
+  z-index: 2; /* Above ::after accent fill */
 }
 
 .label-icon {
@@ -74,7 +110,7 @@
 }
 
 .label-stepper input[type="number"]:focus {
-  border-color: var(--accent-hover);
+  box-shadow: 0 0 0 2px rgba(216, 162, 0, 0.25);
 }
 
 .history-panel {
@@ -169,14 +205,7 @@
 #labelValueInput {
   -moz-appearance: textfield;
   appearance: textfield;
-  transition: background 0.2s ease, border-color 0.2s ease, color 0.2s ease;
-  border: 1px solid var(--slider-track-border);
-  border-radius: var(--slider-track-radius);
-  height: var(--slider-track-height);
-  padding: 0 8px;
-  text-align: center;
-  font-size: 0.9rem;
-  background: var(--control-input-surface);
+  /* Fill provided by parent .label-stepper pseudo-elements */
 }
 
 #labelValueInput::-webkit-outer-spin-button,

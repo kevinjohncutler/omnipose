@@ -225,10 +225,10 @@
   padding: 0 12px;
   border-radius: var(--slider-track-radius);
   color: var(--accent-ink, #161616);
-  /* Outline around the fill - background stops at border edge */
-  border: 1px solid var(--slider-track-border);
-  background-clip: padding-box;
-  box-shadow: none;
+  /* Transparent so ::before accent/gradient shows through clearly */
+  background: transparent;
+  border: none;
+  box-shadow: inset 0 0 0 1px var(--slider-track-border);
   text-align: left;
   font-size: 0.9rem;
   display: flex;
@@ -236,15 +236,28 @@
   justify-content: space-between;
   cursor: pointer;
   position: relative;
-  z-index: 2;
-  transition: background 0.14s ease, color 0.14s ease, border-color 0.14s ease, opacity 0.12s ease;
+  /* Note: No z-index here to avoid creating stacking context (allows ::before z-index: -1 to work) */
+  transition: background 0.14s ease, color 0.14s ease, box-shadow 0.14s ease, opacity 0.12s ease;
+}
+
+/* Accent fill via ::before with proper rounded clip-path */
+.dropdown-toggle::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: var(--accent-color);
+  border-radius: inherit;
+  clip-path: inset(var(--control-inset) round var(--control-inset-radius));
+  pointer-events: none;
+  z-index: -1;
 }
 
 .dropdown[data-open='true'] .dropdown-toggle,
 .dropdown-toggle:hover {
-  background: var(--accent-color);
+  /* Keep transparent so accent/gradient ::before stays visible */
+  background: transparent;
   color: var(--accent-ink, #161616) !important;
-  border-color: var(--slider-track-border);
+  box-shadow: inset 0 0 0 1px var(--slider-track-border);
 }
 
 .dropdown-toggle::after {
@@ -385,14 +398,11 @@
   height: var(--slider-track-height);
   align-items: center;
   border-radius: var(--slider-track-radius);
-  background: var(--control-input-surface);
-  background-clip: padding-box;
-  backdrop-filter: blur(var(--control-blur));
-  -webkit-backdrop-filter: blur(var(--control-blur));
-  border: 1px solid var(--slider-track-border);
-  box-shadow: none;
+  background: var(--slider-track-bg);
+  border: none;
+  box-shadow: inset 0 0 0 1px var(--slider-track-border);
   padding: 0;
-  transition: background 0.14s ease, border-color 0.14s ease, box-shadow 0.14s ease;
+  transition: background 0.14s ease, box-shadow 0.14s ease;
 }
 
 .number-field input[type='number'],
@@ -425,9 +435,8 @@
 }
 
 .number-field:focus-within {
-  border-color: var(--slider-track-border);
-  background: var(--control-hover-surface);
-  box-shadow: 0 0 0 2px rgba(216, 162, 0, 0.25);
+  background: var(--slider-track-bg);
+  box-shadow: inset 0 0 0 1px var(--slider-track-border), 0 0 0 2px rgba(216, 162, 0, 0.25);
 }
 
 #gamma,
@@ -1123,25 +1132,30 @@ button:not(:disabled):hover {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 10px;
-  padding: 6px 10px 0;
+  flex-wrap: nowrap;
+  gap: 6px;
+  padding: 6px 8px 0;
   color: var(--panel-text-color);
   opacity: 0.75;
-  font-size: 0.78rem;
+  font-size: 0.72rem;
+  white-space: nowrap;
 }
 
 .dropdown-count {
-  font-size: 0.78rem;
+  font-size: inherit;
+  flex-shrink: 0;
 }
 
 .dropdown-expand {
   border: none;
   background: transparent;
   color: var(--panel-text-color);
-  font-size: 0.78rem;
+  font-size: inherit;
   cursor: pointer;
-  padding: 2px 6px;
+  padding: 2px 4px;
   border-radius: var(--slider-track-radius);
+  flex-shrink: 0;
+  white-space: nowrap;
 }
 
 .dropdown-expand:hover {
@@ -1336,8 +1350,17 @@ button:not(:disabled):hover {
   flex: 1 1 auto;
 }
 
+.panel-header--image {
+  display: grid;
+  grid-template-columns: var(--control-label-width) 1fr auto;
+  align-items: center;
+  column-gap: 10px;
+}
 
-
+.panel-header--image .panel-actions {
+  justify-self: stretch;
+  justify-content: flex-start;
+}
 
 .panel-body {
   display: flex;
@@ -1586,7 +1609,7 @@ button:not(:disabled):hover {
   height: var(--slider-track-height);
   padding: 0 var(--control-inset);
   border-radius: var(--slider-track-radius);
-  background: var(--control-input-surface);
+  background: var(--slider-track-bg);
   box-shadow: inset 0 0 0 1px var(--slider-track-border);
 }
 
@@ -1864,4 +1887,75 @@ button:not(:disabled):hover {
 
 #ncolorSubsection.ncolor-active .ncolor-off {
   display: none;
+}
+
+/* Image colormap section - no extra gap, parent handles spacing */
+.image-cmap-section {
+  display: contents;
+}
+
+/* Dropdowns in Image panel fill available space to align with other controls */
+#intensityPanel .slider-inline {
+  min-width: 0;
+}
+#intensityPanel .dropdown--compact {
+  flex: 1;
+  min-width: 0;
+  max-width: none;
+}
+
+/* File dropdown expands wider when open to show full filenames */
+#intensityPanel [data-dropdown-id="imageNavigator"] .dropdown-menu-wrap {
+  min-width: 200%;
+  right: 0;
+  left: auto;
+}
+
+/* Gradient preview dropdown - shows colormap as pill with proper clipping */
+.dropdown--gradient-preview.has-gradient .dropdown-toggle {
+  position: relative;
+  /* Transparent so gradient ::before shows through clearly */
+  background: transparent;
+  border-color: var(--slider-track-border);
+}
+
+/* Gradient via ::before with proper inset clip-path */
+.dropdown--gradient-preview.has-gradient .dropdown-toggle::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: var(--cmap-gradient);
+  border-radius: inherit;
+  clip-path: inset(var(--control-inset) round var(--control-inset-radius));
+  pointer-events: none;
+  z-index: -1;
+}
+
+/* Hide label text - tooltip shows name instead */
+.dropdown--gradient-preview.has-gradient .dropdown-label {
+  visibility: hidden;
+  width: 0;
+  overflow: hidden;
+}
+
+/* Keep gradient on hover and when open */
+.dropdown--gradient-preview.has-gradient .dropdown-toggle:hover,
+.dropdown--gradient-preview.has-gradient[data-open='true'] .dropdown-toggle {
+  background: transparent;
+}
+
+/* Arrow adapts to rightmost colormap color */
+.dropdown--gradient-preview.has-gradient .dropdown-toggle::after {
+  position: relative;
+  z-index: 1;
+  border-top-color: var(--cmap-arrow-color, #666);
+}
+
+/* Keep toggle at top when dropdown is open */
+.dropdown--gradient-preview[data-open='true'] {
+  align-items: flex-start;
+}
+
+.dropdown--gradient-preview[data-open='true'] .dropdown-toggle {
+  flex-shrink: 0;
 }

@@ -45,9 +45,19 @@
                 </div>
               </div>
             </div>
-            <div class="control">
-              <div class="dropdown" data-dropdown-id="imageNavigator" data-loop="true" data-count-label="images" data-apply="confirm">
+            <div class="control slider-inline">
+              <span class="control-heading control-heading--lower">file</span>
+              <div class="dropdown dropdown--compact" data-dropdown-id="imageNavigator" data-loop="true" data-count-label="images" data-apply="confirm">
                 <select id="imageNavigator"></select>
+              </div>
+            </div>
+            <!-- Image colormap section -->
+            <div class="image-cmap-section" id="imageCmapPanel">
+              <div class="control slider-inline">
+                <span class="control-heading control-heading--lower">cmap</span>
+                <div class="dropdown dropdown--compact dropdown--gradient-preview" data-dropdown-id="imageCmapSelect" data-loop="true">
+                  <select id="imageCmapSelect"></select>
+                </div>
               </div>
             </div>
           </div>
@@ -97,7 +107,7 @@
           <div class="panel-body">
             <div class="tool-options tool-options--brush" data-tool="draw,erase">
               <div class="brush-slider slider-inline">
-                <span class="control-heading control-heading--lower">Size</span>
+                <span class="control-heading control-heading--lower">size</span>
                 <div class="slider-row">
                   <div class="slider" data-slider-id="brushSizeSlider" data-slider-type="single">
                     <input type="range" id="brushSizeSlider" min="1" max="25" step="1" value="3" />
@@ -108,7 +118,7 @@
                 </div>
               </div>
               <div class="control label-style-row">
-                <span class="control-heading control-heading--lower">Snap</span>
+                <span class="control-heading control-heading--lower">snap</span>
                 <label class="toggle toggle-left" title="Snap exact kernel to pixel grid (on) or interpolate circle onto local grid (off, default)">
                   <input type="checkbox" id="brushKernelToggle" />
                   <span class="toggle-switch"></span>
@@ -147,7 +157,7 @@
           </div>
           <div class="panel-body">
           <div class="control label-style-row">
-            <span class="control-heading control-heading--lower">Alpha</span>
+            <span class="control-heading control-heading--lower">alpha</span>
             <div class="slider-row">
               <div class="slider" data-slider-id="maskOpacity" data-slider-type="single">
                 <input type="range" id="maskOpacity" min="0" max="1" step="0.01" value="0.8" />
@@ -158,7 +168,7 @@
             </div>
           </div>
           <div class="control label-style-row">
-            <span class="control-heading control-heading--lower">Value</span>
+            <span class="control-heading control-heading--lower">value</span>
             <div class="label-panel-row label-stepper">
               <input type="number" id="labelValueInput" min="0" step="1" value="" placeholder="—" />
               <div class="label-stepper-buttons action-tray action-tray--compact">
@@ -176,7 +186,7 @@
           <!-- Cmap section (merged into Labels panel) -->
           <div class="cmap-section" id="cmapPanel">
             <div class="control slider-inline">
-              <span class="control-heading control-heading--lower">Cmap</span>
+              <span class="control-heading control-heading--lower">cmap</span>
               <div class="dropdown dropdown--compact" data-dropdown-id="cmapSelect" data-loop="true">
                 <select id="cmapSelect"></select>
               </div>
@@ -184,7 +194,7 @@
             <!-- Colormap preview/offset - shown for sinebow-type colormaps -->
             <div class="cmap-offset-section" id="cmapOffsetSection">
               <div class="control slider-inline">
-                <span class="control-heading control-heading--lower">Offset</span>
+                <span class="control-heading control-heading--lower">offset</span>
                 <div class="slider slider--gradient-track" data-slider-id="cmapHueOffset" data-slider-type="single">
                   <input type="range" id="cmapHueOffset" min="0" max="100" value="0" />
                 </div>
@@ -197,7 +207,7 @@
             <!-- Ncolor subsection -->
             <div class="subsection" id="ncolorSubsection">
               <div class="subsection-header">
-                <span class="control-heading control-heading--lower">Ncolor</span>
+                <span class="control-heading control-heading--lower">ncolor</span>
                 <label class="toggle toggle-left" title="Enable N-color mask display">
                   <input type="checkbox" id="autoNColorToggle" checked />
                   <span class="toggle-switch"></span>
@@ -221,14 +231,14 @@
               <!-- Instance mode controls (shown when Ncolor is off) -->
               <div class="ncolor-off">
                 <div class="control slider-inline">
-                  <span class="control-heading control-heading--lower">Shuffle</span>
+                  <span class="control-heading control-heading--lower">shuffle</span>
                   <label class="toggle toggle-left" title="Shuffle label colors">
                     <input type="checkbox" id="labelShuffleToggle" checked />
                     <span class="toggle-switch"></span>
                   </label>
                 </div>
                 <div class="control slider-inline">
-                  <span class="control-heading control-heading--lower">Seed</span>
+                  <span class="control-heading control-heading--lower">seed</span>
                   <div class="number-field" data-number-id="labelShuffleSeed">
                     <input type="number" id="labelShuffleSeed" step="1" value="0" />
                   </div>
