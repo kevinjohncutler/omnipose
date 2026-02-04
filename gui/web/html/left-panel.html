@@ -24,6 +24,12 @@
             </label>
           </div>
           <div class="panel-body">
+            <div class="control slider-inline">
+              <span class="control-heading control-heading--lower">file</span>
+              <div class="dropdown dropdown--compact" data-dropdown-id="imageNavigator" data-loop="true" data-count-label="images" data-apply="confirm">
+                <select id="imageNavigator"></select>
+              </div>
+            </div>
             <div class="image-hover-info" aria-hidden="true">
               <span id="hoverValueDisplay">Y: --, X: --, Val: --</span>
               <span id="hoverCoordDisplay"></span>
@@ -43,12 +49,6 @@
                 <div class="number-field" data-number-id="gammaInput">
                   <input type="number" id="gammaInput" min="0.10" max="6.00" step="0.05" value="1.00" />
                 </div>
-              </div>
-            </div>
-            <div class="control slider-inline">
-              <span class="control-heading control-heading--lower">file</span>
-              <div class="dropdown dropdown--compact" data-dropdown-id="imageNavigator" data-loop="true" data-count-label="images" data-apply="confirm">
-                <select id="imageNavigator"></select>
               </div>
             </div>
             <!-- Image colormap section -->
@@ -84,7 +84,7 @@
         </div>
         <div class="panel-section" id="brushPanel">
           <div class="panel-header panel-header--tools">
-            <div class="control-heading">Tools</div>
+            <div class="control-heading">Tool</div>
             <div class="kernel-toggle segmented-toggle tool-toggle tool-toggle--compact" role="group" aria-label="Tools" title="Shortcuts: Cmd/Ctrl+1..4">
               <button type="button" class="tool-stop kernel-option" data-mode="draw" title="Brush (B)">
                 <span class="tool-icon tool-icon-draw" aria-hidden="true"></span>
@@ -139,7 +139,7 @@
         </div>
 <div class="panel-section label-panel" id="labelStylePanel">
           <div class="panel-header panel-header--labels">
-            <div class="control-heading">Labels</div>
+            <div class="control-heading">Label</div>
             <div id="maskStyleToggle" class="kernel-toggle segmented-toggle mask-style-toggle mask-style-toggle--compact" role="group" aria-label="Mask style">
               <button type="button" class="kernel-option" data-mask-style="outlined" aria-label="Outline+fill masks" title="outline+fill">
                 <span class="mask-style-icon"></span>

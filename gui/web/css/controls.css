@@ -16,7 +16,7 @@
   --border-opaque: rgba(90, 90, 90, 1);
   --slider-knob-color: #f5f5f5;
   --number-field-width: var(--toggle-width);
-  --control-label-width: 52px;
+  --control-label-width: 44px;
   --toggle-width: 45px;
   --icon-size: calc(var(--slider-track-height) * 0.8);
   --mask-icon-size: 14px;
@@ -1359,7 +1359,7 @@ button:not(:disabled):hover {
 
 .panel-header--image .panel-actions {
   justify-self: stretch;
-  justify-content: flex-start;
+  justify-content: space-evenly;
 }
 
 .panel-body {
@@ -1904,11 +1904,14 @@ button:not(:disabled):hover {
   max-width: none;
 }
 
-/* File dropdown expands wider when open to show full filenames */
-#intensityPanel [data-dropdown-id="imageNavigator"] .dropdown-menu-wrap {
-  min-width: 200%;
-  right: 0;
-  left: auto;
+/* File dropdown spans full width with no label */
+#intensityPanel [data-dropdown-id="imageNavigator"] {
+  flex: 1;
+  width: 100%;
+}
+/* Hide the "file" label */
+#intensityPanel .slider-inline:has([data-dropdown-id="imageNavigator"]) > .control-heading {
+  display: none;
 }
 
 /* Gradient preview dropdown - shows colormap as pill with proper clipping */
