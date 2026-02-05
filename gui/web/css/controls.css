@@ -1666,16 +1666,16 @@ button:not(:disabled):hover {
   -webkit-backdrop-filter: none;
 }
 
-/* Image panel action tray: pill-shaped segmented hovers (matches segmented-toggle pattern) */
+/* Action tray: concentric pill hovers */
 .panel-header--image .action-tray {
   padding: 0;
   overflow: hidden;
+  justify-content: center;
+  gap: 0;
 }
 
 .panel-header--image .action-tray > .history-button {
-  flex: 1;
-  width: auto;
-  min-width: 0;
+  flex: 1 1 0;
   height: 100%;
   border-radius: 0;
   padding: 0;
@@ -1687,8 +1687,8 @@ button:not(:disabled):hover {
   content: '';
   position: absolute;
   inset: var(--control-inset);
+  border-radius: calc(var(--slider-track-radius) - var(--control-inset));
   background: transparent;
-  border-radius: var(--slider-track-radius);
   pointer-events: none;
   z-index: 0;
 }
