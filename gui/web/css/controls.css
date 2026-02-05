@@ -1666,6 +1666,48 @@ button:not(:disabled):hover {
   -webkit-backdrop-filter: none;
 }
 
+/* Image panel action tray: pill-shaped segmented hovers (matches segmented-toggle pattern) */
+.panel-header--image .action-tray {
+  padding: 0;
+  overflow: hidden;
+}
+
+.panel-header--image .action-tray > .history-button {
+  flex: 1;
+  width: auto;
+  min-width: 0;
+  height: 100%;
+  border-radius: 0;
+  padding: 0;
+  position: relative;
+  background: transparent !important;
+}
+
+.panel-header--image .action-tray > .history-button::before {
+  content: '';
+  position: absolute;
+  inset: var(--control-inset);
+  background: transparent;
+  border-radius: var(--slider-track-radius);
+  pointer-events: none;
+  z-index: 0;
+}
+
+.panel-header--image .action-tray > .history-button:hover:not([disabled])::before,
+.panel-header--image .action-tray > .history-button:active::before {
+  background: var(--accent-color);
+}
+
+.panel-header--image .action-tray > .history-button:hover:not([disabled]),
+.panel-header--image .action-tray > .history-button:active {
+  color: var(--accent-ink, #161616);
+}
+
+.panel-header--image .action-tray > .history-button > *:not(.sr-only) {
+  position: relative;
+  z-index: 1;
+}
+
 #labelStepDown {
   left: var(--slider-track-radius);
 }

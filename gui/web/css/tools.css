@@ -183,6 +183,8 @@
 .history-icon-home {
   -webkit-mask: var(--history-icon-home) no-repeat center / contain;
   mask: var(--history-icon-home) no-repeat center / contain;
+  display: block;
+  margin: auto;
 }
 
 .history-icon-prev {

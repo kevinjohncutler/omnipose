@@ -661,8 +661,8 @@ function nextStateDirtySeq() {
 }
 
 function scheduleStateSave(delay = 600) {
-  if (!sessionId || isRestoringState) {
-    stateDebugLog('skip schedule', { session: Boolean(sessionId), restoring: Boolean(isRestoringState) });
+  if (isRestoringState) {
+    stateDebugLog('skip schedule (restoring)', {});
     return;
   }
   stateDirty = true;
@@ -683,10 +683,6 @@ function scheduleStateSave(delay = 600) {
 }
 
 async function saveViewerState({ immediate = false, seq = null } = {}) {
-  if (!sessionId) {
-    stateDebugLog('skip save (no session)', { immediate, seq });
-    return false;
-  }
   if (!stateDirty && !immediate) {
     stateDebugLog('skip save (clean state)', { seq: stateDirtySeq, immediate });
     return true;
@@ -699,12 +695,19 @@ async function saveViewerState({ immediate = false, seq = null } = {}) {
     lastSavedSeq,
   });
   const viewerState = collectViewerState();
+  // Always save to localStorage (works without sessionId)
   if (typeof window !== 'undefined' && window.localStorage) {
     try {
       window.localStorage.setItem(localStateKey, JSON.stringify(viewerState));
     } catch (_) {
       /* ignore */
     }
+  }
+  // Server-side save requires sessionId
+  if (!sessionId) {
+    stateDebugLog('skip server save (no session)', { immediate, seq });
+    stateDirty = false;
+    return true;
   }
   const payload = {
     sessionId,
@@ -3484,17 +3487,17 @@ const DEFAULT_SEGMENTATION_MODEL = 'bact_phase_affinity';
 // Colormaps with hasOffset=true are cyclic and support hue rotation
 // Colormaps with hasOffset=false are linear gradients (no offset control)
 const LABEL_COLORMAPS = [
-  { value: 'sinebow', label: 'Sinebow', hasOffset: true },
-  { value: 'viridis', label: 'Viridis', hasOffset: false },
-  { value: 'magma', label: 'Magma', hasOffset: false },
-  { value: 'plasma', label: 'Plasma', hasOffset: false },
-  { value: 'inferno', label: 'Inferno', hasOffset: false },
-  { value: 'cividis', label: 'Cividis', hasOffset: false },
-  { value: 'turbo', label: 'Turbo', hasOffset: false },
-  { value: 'gist_ncar', label: 'Gist NCAR', hasOffset: false },
-  { value: 'vivid', label: 'Vivid', hasOffset: true },
-  { value: 'pastel', label: 'Pastel', hasOffset: true },
-  { value: 'gray', label: 'Grayscale', hasOffset: false },
+  { value: 'sinebow', label: 'sinebow', hasOffset: true },
+  { value: 'viridis', label: 'viridis', hasOffset: false },
+  { value: 'magma', label: 'magma', hasOffset: false },
+  { value: 'plasma', label: 'plasma', hasOffset: false },
+  { value: 'inferno', label: 'inferno', hasOffset: false },
+  { value: 'cividis', label: 'cividis', hasOffset: false },
+  { value: 'turbo', label: 'turbo', hasOffset: false },
+  { value: 'gist_ncar', label: 'gist ncar', hasOffset: false },
+  { value: 'vivid', label: 'vivid', hasOffset: true },
+  { value: 'pastel', label: 'pastel', hasOffset: true },
+  { value: 'gray', label: 'grayscale', hasOffset: false },
 ];
 
 const SEGMENTATION_MODELS = [
@@ -3524,6 +3527,7 @@ let clusterEnabled = typeof CONFIG.cluster === 'boolean' ? CONFIG.cluster : true
 let affinitySegEnabled = typeof CONFIG.affinitySeg === 'boolean' ? CONFIG.affinitySeg : true;
 let segMode = clusterEnabled ? (affinitySegEnabled ? 'none' : 'cluster') : (affinitySegEnabled ? 'affinity' : 'none');
 let userAdjustedScale = false;
+let viewStateRestored = false;
 const touchPointers = new Map();
 window.addEventListener('blur', handleWindowBlur);
 const brushTapHistory = { pen: 0, mouse: 0 };
@@ -4716,8 +4720,18 @@ function undo() {
     return;
   }
   applyHistoryEntry(entry, false);
-  // Update affinity graph incrementally for the edited indices
-  try { updateAffinityGraphForIndices(entry.indices); } catch (_) {}
+  // For large operations (>35% of image), do a full affinity rebuild like fill does
+  // Otherwise, use incremental update
+  const totalPixels = maskValues ? maskValues.length : 0;
+  const indicesCount = entry.indices ? entry.indices.length : totalPixels;
+  const isLargeOperation = totalPixels > 0 && indicesCount >= totalPixels * 0.35;
+  try {
+    if (isLargeOperation || !entry.indices) {
+      rebuildLocalAffinityGraph();
+    } else {
+      updateAffinityGraphForIndices(entry.indices);
+    }
+  } catch (_) {}
   clearColorCaches();
   if (isWebglPipelineActive()) {
     markMaskIndicesDirty(entry.indices);
@@ -4736,8 +4750,18 @@ function redo() {
     return;
   }
   applyHistoryEntry(entry, true);
-  // Update affinity graph incrementally for the edited indices
-  try { updateAffinityGraphForIndices(entry.indices); } catch (_) {}
+  // For large operations (>35% of image), do a full affinity rebuild like fill does
+  // Otherwise, use incremental update
+  const totalPixels = maskValues ? maskValues.length : 0;
+  const indicesCount = entry.indices ? entry.indices.length : totalPixels;
+  const isLargeOperation = totalPixels > 0 && indicesCount >= totalPixels * 0.35;
+  try {
+    if (isLargeOperation || !entry.indices) {
+      rebuildLocalAffinityGraph();
+    } else {
+      updateAffinityGraphForIndices(entry.indices);
+    }
+  } catch (_) {}
   clearColorCaches();
   if (isWebglPipelineActive()) {
     markMaskIndicesDirty(entry.indices);
@@ -5252,6 +5276,10 @@ function restoreViewerState(saved) {
       if (typeof vs.offsetX === 'number') viewState.offsetX = vs.offsetX;
       if (typeof vs.offsetY === 'number') viewState.offsetY = vs.offsetY;
       if (typeof vs.rotation === 'number') viewState.rotation = vs.rotation;
+      // Prevent auto-fit and recenter from overriding restored view
+      userAdjustedScale = true;
+      autoFitPending = false;
+      viewStateRestored = true;
     }
     if (typeof saved.brushDiameter === 'number') {
       setBrushDiameter(saved.brushDiameter, false);
@@ -7047,13 +7075,6 @@ function drawAffinityGraphWebgl() {
   return true;
 }
 
-function getAffinitySourceMask() {
-  if (nColorActive && nColorInstanceMask && nColorInstanceMask.length === maskValues.length) {
-    return nColorInstanceMask;
-  }
-  return maskValues;
-}
-
 
 // Affinity graph rendering is handled exclusively by WebGL.
 
@@ -7244,7 +7265,8 @@ function applyAffinityGraphPayload(payload) {
 function rebuildLocalAffinityGraph() {
   resetAffinityUpdateQueue();
   refreshOppositeStepMapping();
-  const sourceMask = getAffinitySourceMask();
+  // Use maskValues directly - this is the current editing state
+  const sourceMask = maskValues;
   if (!sourceMask || sourceMask.length === 0) {
     clearAffinityGraphData();
     affinityGraphSource = 'local';
@@ -7521,10 +7543,7 @@ function updateAffinityGraphForIndices(indices) {
     }
   }
   const info = affinityGraphInfo;
-  // CRITICAL: Use maskValues directly for incremental updates during painting.
-  // In nColor mode, getAffinitySourceMask() returns nColorInstanceMask which isn't
-  // updated during painting - only maskValues is modified. Using maskValues ensures
-  // the affinity graph reflects the actual painted state.
+  // Use maskValues directly - this is the current editing state
   const sourceMask = maskValues;
   if (!sourceMask || sourceMask.length === 0) {
     return;
@@ -7859,9 +7878,11 @@ function rotateView(deltaRadians) {
   setOffsetForImagePoint(imageCenter, anchorScreen);
   userAdjustedScale = true;
   autoFitPending = false;
+  viewStateRestored = false;
   draw();
   drawBrushPreview(getHoverPoint());
   viewStateDirty = true;
+  scheduleStateSave();
   // Briefly show dot cursor for keyboard rotation
   setCursorTemporary(dotCursorCss, 700);
   // Show a simple dot cursor briefly
@@ -8406,7 +8427,9 @@ function resizeCanvas() {
   resizePointsOverlay();
   resizeVectorOverlay();
   resizePreviewCanvas();
-  if (!fitViewToWindow(v)) {
+  // Skip fit/recenter if viewState was restored from saved state
+  // viewStateRestored stays true until user explicitly resets view
+  if (!viewStateRestored && !fitViewToWindow(v)) {
     recenterView(v);
   }
   draw();
@@ -8459,6 +8482,7 @@ function resetView() {
   const metrics = getViewportSize();
   autoFitPending = true;
   userAdjustedScale = false;
+  viewStateRestored = false;
   viewState.rotation = 0;
   if (!fitViewToWindow(metrics)) {
     viewState.rotation = 0;
@@ -8468,6 +8492,7 @@ function resetView() {
   updateHoverInfo(getHoverPoint() || null);
   renderHoverPreview();
   viewStateDirty = true;
+  scheduleStateSave();
 }
 
 function clampGammaValue(value) {
@@ -9701,6 +9726,8 @@ function toggleColorMode() {
   finishNColorOff(prevLabel);
 
   function finishNColorOff(prevLabel) {
+    // CRITICAL: Update currentMaxLabel to reflect actual labels in restored mask
+    updateMaxLabelFromMask();
     clearColorCaches();
     paletteTextureDirty = true;
     if (isWebglPipelineActive()) {
@@ -10800,7 +10827,9 @@ canvas.addEventListener('wheel', (evt) => {
     setOffsetForImagePoint(imagePoint, pointer);
     userAdjustedScale = true;
     autoFitPending = false;
+    viewStateRestored = false;
     scheduleDraw();
+    scheduleStateSave();
   }
   if (!rotationApplied && deltaY !== 0) {
     setCursorTemporary(dotCursorCss, 350);
@@ -11532,15 +11561,14 @@ window.addEventListener('keyup', (evt) => {
   }
 });
 
-if (sessionId) {
-  window.addEventListener('beforeunload', () => {
-    try {
-      saveViewerState({ immediate: true, seq: stateDirtySeq });
-    } catch (_) {
-      /* ignore */
-    }
-  });
-}
+// Always save to localStorage on page unload (server save requires sessionId)
+window.addEventListener('beforeunload', () => {
+  try {
+    saveViewerState({ immediate: true, seq: stateDirtySeq });
+  } catch (_) {
+    /* ignore */
+  }
+});
 
 function initialize() {
   log('initialize');
@@ -11552,6 +11580,7 @@ function initialize() {
   }
   autoFitPending = true;
   userAdjustedScale = false;
+  viewStateRestored = false;
   const img = new Image();
   img.onload = () => {
     log('image loaded: ' + imgWidth + 'x' + imgHeight);
@@ -12772,8 +12801,6 @@ if (typeof window !== 'undefined') {
   window.__OMNI_DEBUG__.getMaskValues = () => maskValues;
   // Debug function to access nColorInstanceMask
   window.__OMNI_DEBUG__.getNColorInstanceMask = () => nColorInstanceMask;
-  // Debug function to get the actual affinity source mask
-  window.__OMNI_DEBUG__.getAffinitySourceMask = () => getAffinitySourceMask();
   // Debug function to check nColor state
   window.__OMNI_DEBUG__.getNColorState = () => ({
     nColorActive,
