@@ -7854,6 +7854,14 @@ function suppressDoubleTapZoom(element) {
   }, { passive: false });
 }
 
+function flashButton(btn) {
+  if (!btn) return;
+  btn.classList.remove('shortcut-flash');
+  void btn.offsetWidth; // force reflow to restart animation
+  btn.classList.add('shortcut-flash');
+  btn.addEventListener('animationend', () => btn.classList.remove('shortcut-flash'), { once: true });
+}
+
 function rotateView(deltaRadians) {
   if (!Number.isFinite(deltaRadians) || deltaRadians === 0) {
     return;
@@ -11448,6 +11456,7 @@ window.addEventListener('keydown', (evt) => {
   }
   if (!modifier && !evt.altKey && key === 'h') {
     resetView();
+    flashButton(resetViewButton);
     evt.preventDefault();
     return;
   }
@@ -11492,6 +11501,7 @@ window.addEventListener('keydown', (evt) => {
     if (key === 'r') {
       const direction = evt.shiftKey ? -1 : 1;
       rotateView(direction * (Math.PI / 4));
+      flashButton(direction === -1 ? rotateLeftButton : rotateRightButton);
       evt.preventDefault();
       return;
     }

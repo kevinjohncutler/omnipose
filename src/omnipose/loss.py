@@ -417,9 +417,9 @@ class DerivativeLoss(torch.nn.Module):
         self.WMSE = WeightedMSELoss()
 
     def forward(self, y, Y, w, mask):
-        # Number of spatial dimensions inferred the same way as before
-        dim = y.shape[1]
-        spatial_axes = [k for k in range(-dim, 0)]
+        # Spatial dimensions are all dims after batch and channel
+        spatial_dims = y.ndim - 2
+        spatial_axes = list(range(-spatial_dims, 0))
 
         # Gradients along each spatial axis → stack then bring batch dim first
         dy = torch.stack(torch.gradient(y, dim=spatial_axes)).transpose(0, 1)

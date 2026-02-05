@@ -839,6 +839,8 @@ button:not(:disabled):hover {
   box-shadow: inset 0 0 0 1px var(--slider-track-border);
   border-radius: var(--slider-track-radius);
   overflow: hidden;
+  /* Force clipping to rounded corners for all child content */
+  clip-path: inset(0 round var(--slider-track-radius));
 }
 
 .tool-toggle .tool-stop {
@@ -1004,7 +1006,7 @@ button:not(:disabled):hover {
   content: '';
   position: absolute;
   inset: var(--control-inset);
-  border-radius: var(--slider-track-radius);
+  border-radius: calc(var(--slider-track-radius) - var(--control-inset));
   background: transparent;
 }
 
@@ -1666,46 +1668,112 @@ button:not(:disabled):hover {
   -webkit-backdrop-filter: none;
 }
 
-/* Action tray: concentric pill hovers */
-.panel-header--image .action-tray {
+/* View actions toggle: transient segmented-toggle (hover only, no persistent selection) */
+.view-actions-toggle {
+  --view-icon-size: 16px;
+  /* Fill grid cell in panel-header--image */
+  justify-self: stretch;
+}
+
+.view-actions-toggle .kernel-option {
+  /* Equal-width buttons filling the tray = icons centered in each third */
+  flex: 1;
   padding: 0;
-  overflow: hidden;
+  display: flex;
+  align-items: center;
   justify-content: center;
-  gap: 0;
 }
 
-.panel-header--image .action-tray > .history-button {
-  flex: 1 1 0;
-  height: 100%;
-  border-radius: 0;
-  padding: 0;
-  position: relative;
-  background: transparent !important;
-}
-
-.panel-header--image .action-tray > .history-button::before {
-  content: '';
-  position: absolute;
-  inset: var(--control-inset);
+/* Hover pills tile edge-to-edge within the inset area */
+.view-actions-toggle .kernel-option::before {
+  /* Top/bottom inset from tray outline */
+  top: var(--control-inset);
+  bottom: var(--control-inset);
+  /* Pills tile edge-to-edge */
+  left: 0;
+  right: 0;
+  /* All pills get rounded corners */
   border-radius: calc(var(--slider-track-radius) - var(--control-inset));
-  background: transparent;
-  pointer-events: none;
-  z-index: 0;
 }
 
-.panel-header--image .action-tray > .history-button:hover:not([disabled])::before,
-.panel-header--image .action-tray > .history-button:active::before {
+/* First pill: left edge inset, rounded left corners */
+.view-actions-toggle .kernel-option:first-child::before {
+  left: var(--control-inset);
+  border-top-left-radius: calc(var(--slider-track-radius) - var(--control-inset));
+  border-bottom-left-radius: calc(var(--slider-track-radius) - var(--control-inset));
+}
+
+/* Offset icon to center within visible pill (not full button) */
+.view-actions-toggle .kernel-option:first-child {
+  padding-left: calc(var(--control-inset) / 2);
+}
+
+/* Last pill: right edge inset, rounded right corners */
+.view-actions-toggle .kernel-option:last-child::before {
+  right: var(--control-inset);
+  border-top-right-radius: calc(var(--slider-track-radius) - var(--control-inset));
+  border-bottom-right-radius: calc(var(--slider-track-radius) - var(--control-inset));
+}
+
+/* Offset icon to center within visible pill (not full button) */
+.view-actions-toggle .kernel-option:last-child {
+  padding-right: calc(var(--control-inset) / 2);
+}
+
+/* Shortcut flash animation for view action buttons */
+.view-actions-toggle .kernel-option.shortcut-flash::before {
   background: var(--accent-color);
+  animation: shortcut-flash 0.25s ease-out;
 }
 
-.panel-header--image .action-tray > .history-button:hover:not([disabled]),
-.panel-header--image .action-tray > .history-button:active {
-  color: var(--accent-ink, #161616);
+@keyframes shortcut-flash {
+  0% { opacity: 1; }
+  100% { opacity: 0; }
 }
 
-.panel-header--image .action-tray > .history-button > *:not(.sr-only) {
-  position: relative;
-  z-index: 1;
+/* Override global button:hover - only ::before should show hover, not the button itself */
+.view-actions-toggle .kernel-option:hover {
+  background: transparent;
+}
+
+/* Transient: only show hover state, never active state */
+.view-actions-toggle .kernel-option[data-active='true']::before {
+  background: transparent;
+}
+
+.view-actions-toggle .kernel-option[data-active='true'] {
+  color: inherit;
+}
+
+/* View icons */
+.view-icon {
+  display: block;
+  width: var(--view-icon-size);
+  height: var(--view-icon-size);
+  background: currentColor;
+}
+
+.view-icon-home {
+  -webkit-mask: var(--history-icon-home) no-repeat center / contain;
+  mask: var(--history-icon-home) no-repeat center / contain;
+}
+
+.view-icon-rotate-left {
+  -webkit-mask: var(--history-icon-rotate-left) no-repeat center / contain;
+  mask: var(--history-icon-rotate-left) no-repeat center / contain;
+  width: 18px;
+  height: 18px;
+  transform: translateY(5%) scaleX(-1) rotate(45deg);
+  transform-origin: center;
+}
+
+.view-icon-rotate-right {
+  -webkit-mask: var(--history-icon-rotate-right) no-repeat center / contain;
+  mask: var(--history-icon-rotate-right) no-repeat center / contain;
+  width: 18px;
+  height: 18px;
+  transform: translateY(5%) rotate(45deg);
+  transform-origin: center;
 }
 
 #labelStepDown {

@@ -339,24 +339,19 @@
 .history-icon-rotate-left {
   -webkit-mask: var(--history-icon-rotate-left) no-repeat center / contain;
   mask: var(--history-icon-rotate-left) no-repeat center / contain;
-  transform: scaleX(-1) rotate(45deg);
+  transform: translateY(5%) scaleX(-1) rotate(45deg);
   transform-origin: center;
   display: block;
   margin: auto;
-  position: relative;
-  top: 1px;
 }
-
 
 .history-icon-rotate-right {
   -webkit-mask: var(--history-icon-rotate-right) no-repeat center / contain;
   mask: var(--history-icon-rotate-right) no-repeat center / contain;
-  transform: rotate(45deg);
+  transform: translateY(5%) rotate(45deg);
   transform-origin: center;
   display: block;
   margin: auto;
-  position: relative;
-  top: 1px;
 }
 
 .panel-actions {
