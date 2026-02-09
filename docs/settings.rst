@@ -43,7 +43,7 @@ for a solid introduction and figure notebooks for more advanced examples.
 Use ``channels = [0,0]`` for mono-channel images or multi-channel images that you would like converted to grayscale prior to segmentation. 
 ``[0,0]`` is what we used to train and evaluate our ``bact_phase_omni``, ``bact_fluor_omni``, ``worm_omni``, ``worm_high_res_omni``, and ``plant_omni`` models. 
 If you do want to run segmentation on a specific channel of multi-channel images, use `1-based-indexing` ``[i,0]`` with ``i = 1,2,3,...`` for red, green, blue, ..., respectively. 
-For example, you might have blue nuclei that look a lot like fluorescent bacteria, so could use the ``bact_fluor_omni`` model with ``channels = [2,0]``. 
+For example, you might have blue nuclei that look a lot like fluorescent bacteria, so could use the ``bact_fluor_omni`` model with ``channels = [3,0]``. 
 
 You can also use two channels for segmentation: a cytoplasm channel and a nuclear channel. 
 The ``cyto2_omni`` model was trained with image channels re-ordered to have red cytoplasm and green nucleus 
