@@ -182,9 +182,9 @@ def masks_to_flows(masks, affinity_graph=None, dists=None, coords=None, links=No
 
 # @torch.no_grad() # try to solve memory leak in mps
 
-def masks_to_flows_batch(batch, links=[None], device=torch.device('cpu'), 
-                         omni=True, dim=2, normalize=False, 
-                         affinity_field=False, initialize=False, n_iter=None, 
+def masks_to_flows_batch(batch, links=[None], device=torch.device('cpu'),
+                         omni=True, dim=2, normalize=False,
+                         affinity_field=False, initialize=False, n_iter=None,
                          verbose=False):
     """
     Batch process flows. This includes padding with relection to not have weird cutoff flows.
@@ -226,8 +226,8 @@ def masks_to_flows_batch(batch, links=[None], device=torch.device('cpu'),
     # if I am do carry through the warped distance fields, I should probably use them here too to seed the iterations for faster convergence... have not doen that yet
     T, mu = masks_to_flows_torch(clabels, affinity_graph, ccoords,
                                  device=device, omni=omni,
-                                 normalize=normalize, initialize=initialize, 
-                                 affinity_field=affinity_field, n_iter=n_iter, 
+                                 normalize=normalize, initialize=initialize,
+                                 affinity_field=affinity_field, n_iter=n_iter,
                                  edges=edges, verbose=verbose)
 
     slices = [tuple([slice(i*dL,(i+1)*dL)]+[slice(None,None)]*(dim-1)) for i in range(nsample)]
@@ -318,8 +318,8 @@ def batch_labels(masks,bd,T,mu,tyx,dim,nclasses,device,dist_bg=5):
 def masks_to_flows_torch(masks, affinity_graph, coords=None, dists=None, device=torch.device('cpu'), omni=True,
                          affinity_field=False, normalize=False, n_iter=None, weight=1,
                          return_flows=True, edges=None, initialize=False, verbose=False):
-    """Convert ND masks to flows. 
-    
+    """Convert ND masks to flows.
+
     Omnipose find distance field, Cellpose uses diffusion from center of mass.
 
     Parameters
@@ -333,11 +333,11 @@ def masks_to_flows_torch(masks, affinity_graph, coords=None, dists=None, device=
     omni: bool
         flag to generate Omnipose flows instead of Cellpose flows
     n_iter: int
-        override number of iterations 
+        override number of iterations
 
     Returns
     -------------
-    mu: float, 3D or 4D array 
+    mu: float, 3D or 4D array
         flows in Y = mu[-2], flows in X = mu[-1].
         if masks are 3D, flows in Z or T = mu[0].
     dist: float, 2D or 3D array
@@ -380,14 +380,14 @@ def masks_to_flows_torch(masks, affinity_graph, coords=None, dists=None, device=
             
 
         out = _extend_centers_torch(masks, centers, affinity_graph, coords,
-                                    n_iter=n_iter, device=device, omni=omni, 
+                                    n_iter=n_iter, device=device, omni=omni,
                                     weight=weight, return_flows=return_flows, affinity_field=affinity_field,
                                     edges=edges, initialize=initialize, verbose=verbose)
-        
+
         if return_flows:
             T, mu = out
             if normalize:
-                mu = normalize_field(mu, use_torch=True, cutoff=0)  ##### transforms.normalize_field(mu,omni) 
+                mu = normalize_field(mu, use_torch=True, cutoff=0)
                 if verbose:
                     print('normalizing field')
             return T, mu
@@ -438,14 +438,14 @@ def get_links(masks,labels,bd,connectivity=1):   # pragma: no cover
 
 
     
-def _extend_centers_torch(masks, centers, affinity_graph, coords=None, n_iter=200, 
-                          device=torch.device('cpu'), omni=True, 
-                          weight=1, return_flows=True, affinity_field=False, 
+def _extend_centers_torch(masks, centers, affinity_graph, coords=None, n_iter=200,
+                          device=torch.device('cpu'), omni=True,
+                          weight=1, return_flows=True, affinity_field=False,
                           edges=None, initialize=False, verbose=False):
     """ runs diffusion on GPU to generate flows for training images or quality control
-    PyTorch implementation is faster than jitted CPU implementation, therefore only the 
-    GPU optimized code is being used moving forward. 
-    
+    PyTorch implementation is faster than jitted CPU implementation, therefore only the
+    GPU optimized code is being used moving forward.
+
     Parameters
     -------------
 
@@ -456,22 +456,22 @@ def _extend_centers_torch(masks, centers, affinity_graph, coords=None, n_iter=20
     n_inter: int
         number of iterations
     device: torch device
-        what compute hardware to use to run the code (GPU VS CPU)  
+        what compute hardware to use to run the code (GPU VS CPU)
     omni: bool
-        whether to generate Omnipose field (solve Eikonal equation) 
-        or the Cellpose field (solve heat equation from "center") 
-        
+        whether to generate Omnipose field (solve Eikonal equation)
+        or the Cellpose field (solve heat equation from "center")
+
     Returns
     -------------
-    mu: float, 3D or 4D array 
+    mu: float, 3D or 4D array
         flows in Y = mu[-2], flows in X = mu[-1].
         if masks are 3D, flows in Z (or T) = mu[0].
     dist: float, 2D or 3D array
         the distance field (Omnipose)
         or temperature distribution (Cellpose)
     boundaries: bool, 2D or 3D array
-        binary field representing 1-connected boundary 
-         
+        binary field representing 1-connected boundary
+
     """
     d = masks.ndim
     shape = masks.shape
@@ -507,7 +507,7 @@ def _extend_centers_torch(masks, centers, affinity_graph, coords=None, n_iter=20
     d = torch.tensor(d)
     idx = torch.tensor(idx)
     fact = torch.tensor(fact)
-    steps = torch.tensor(steps,device=device)        
+    steps = torch.tensor(steps,device=device)
     inds = tuple([torch.tensor(i) for i in inds])
     omni = torch.tensor(omni)
     verbose = torch.tensor(verbose)

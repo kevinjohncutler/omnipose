@@ -113,7 +113,14 @@ def _gradient(T, d, steps, fact,
                        (mu[:, neigh_inds] * weight).sum(dim=1) / wsum,
                        torch.zeros_like(wsum))
 
-@torch.compile
+# torch.compile doesn't support MPS - use conditional decorator
+def _maybe_compile(fn):
+    """Apply torch.compile only on CUDA, skip on MPS/CPU."""
+    if torch.cuda.is_available():
+        return torch.compile(fn)
+    return fn
+
+@_maybe_compile
 def eikonal_update_torch(Tneigh: torch.Tensor,
                              r: torch.Tensor,
                              d: torch.Tensor,

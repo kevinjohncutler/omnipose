@@ -37,7 +37,7 @@ def get_arg_parser():
 
     # model settings
     model_args = parser.add_argument_group("model arguments")
-    model_args.add_argument("--pretrained_model", required=False, default="cyto",
+    model_args.add_argument("--pretrained_model", required=False, default=None,
                             type=none_or_str, help="model to use")
     model_args.add_argument("--nclasses", default=2, type=int,
                             help="number of prediction classes for model (3 for Cellpose, 4 for Omnipose boundary field)")
@@ -167,6 +167,8 @@ def get_arg_parser():
     training_args.add_argument("--amp", action="store_true", help="Use Automatic Mixed Precision.")
     training_args.add_argument("--affinity_field", action="store_true",
                                help="Use summed affinity instead of distance field.")
+    training_args.add_argument("--tensorboard", action="store_true",
+                               help="Enable TensorBoard logging for training visualization")
 
     # settings for CPU vs GPU
     hardware_args = parser.add_argument_group("hardware arguments")
