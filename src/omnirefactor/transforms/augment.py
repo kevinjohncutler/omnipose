@@ -75,8 +75,9 @@ def mode_filter(masks):
 # Omnipose has special training settings. Loss function and augmentation.
 # Spacetime segmentation: augmentations need to treat time differently
 # Need to assume a particular axis is the temporal axis; most convenient is tyx.
-def random_rotate_and_resize(X, Y=None, scale_range=1., gamma_range=[.75, 2.5], tyx=(224, 224),
-                             do_flip=True, rescale_factor=None, inds=None, nchan=1, allow_blank_masks=False):
+def random_rotate_and_resize(X, Y=None, scale_range=1., gamma_range=[.5, 4], tyx=(224, 224),
+                             do_flip=True, rescale_factor=None, inds=None, nchan=1, allow_blank_masks=False,
+                             return_meta=False):
 
     """ augmentation by random rotation and resizing
 
@@ -138,20 +139,36 @@ def random_rotate_and_resize(X, Y=None, scale_range=1., gamma_range=[.75, 2.5], 
     else:
         rescale = np.array(rescale_factor)
 
+    meta_list = [] if return_meta else None
     for n in range(nimg):
         img = X[n].copy()
         y = None if Y is None else Y[n]
-        imgi[n], lbl[n], scale[n] = random_crop_warp(img, y, tyx, v1, v2, nchan,
-                                                     rescale[n],
-                                                     scale_range, gamma_range, do_flip,
-                                                     inds is None if inds is None else inds[n],
-                                                     allow_blank_masks=allow_blank_masks)
+        if return_meta:
+            imgi[n], lbl[n], scale[n], meta = random_crop_warp(
+                img, y, tyx, v1, v2, nchan,
+                rescale[n],
+                scale_range, gamma_range, do_flip,
+                inds is None if inds is None else inds[n],
+                allow_blank_masks=allow_blank_masks,
+                return_meta=True,
+            )
+            meta_list.append(meta)
+        else:
+            imgi[n], lbl[n], scale[n] = random_crop_warp(
+                img, y, tyx, v1, v2, nchan,
+                rescale[n],
+                scale_range, gamma_range, do_flip,
+                inds is None if inds is None else inds[n],
+                allow_blank_masks=allow_blank_masks,
+            )
 
+    if return_meta:
+        return imgi, lbl, np.mean(scale), meta_list
     return imgi, lbl, np.mean(scale)
 
 
 def random_crop_warp(img, Y, tyx, v1, v2, nchan, rescale_factor, scale_range, gamma_range, do_flip, ind,
-                     do_labels=True, depth=0, augment=True, allow_blank_masks=False):
+                     do_labels=True, depth=0, augment=True, allow_blank_masks=False, return_meta=False):
     """
     This sub-fuction of `random_rotate_and_resize()` recursively performs random cropping until
     a minimum number of cell pixels are found, then proceeds with augemntations.
@@ -253,9 +270,11 @@ def random_crop_warp(img, Y, tyx, v1, v2, nchan, rescale_factor, scale_range, ga
     lbl = do_warp(labels, M_inv, tyx, offset=offset, order=0, mode=mode)
 
     if len(fastremap.unique(lbl)) < 2 and not allow_blank_masks:
-            return random_crop_warp(img, Y, tyx, v1, v2, nchan, rescale_factor, scale_range,
-                                    gamma_range, do_flip, ind, do_labels, depth=depth + 1,
-                                    augment=augment, allow_blank_masks=allow_blank_masks)
+            return random_crop_warp(
+                img, Y, tyx, v1, v2, nchan, rescale_factor, scale_range,
+                gamma_range, do_flip, ind, do_labels, depth=depth + 1,
+                augment=augment, allow_blank_masks=allow_blank_masks, return_meta=return_meta,
+            )
     else:
         lbl = mode_filter(lbl)
 
@@ -352,6 +371,28 @@ def random_crop_warp(img, Y, tyx, v1, v2, nchan, rescale_factor, scale_range, ga
                 if Y is not None:
                     lbl = np.flip(lbl, axis=-d)
 
+    if return_meta:
+        meta = {
+            "shape_in": s,
+            "offset": offset,
+            "M_inv": M_inv,
+        }
+        if dim == 2:
+            corners_out = np.array(
+                [
+                    [0, 0],
+                    [0, tyx[1] - 1],
+                    [tyx[0] - 1, 0],
+                    [tyx[0] - 1, tyx[1] - 1],
+                ],
+                dtype=np.float32,
+            )
+            corners_in = np.stack([M_inv.dot(c) + offset for c in corners_out], axis=0)
+            ymin, xmin = corners_in.min(axis=0)
+            ymax, xmax = corners_in.max(axis=0)
+            meta["corners_in"] = corners_in
+            meta["bbox_in"] = (float(ymin), float(xmin), float(ymax), float(xmax))
+        return imgi, lbl, scale, meta
     return imgi, lbl, scale
 
 

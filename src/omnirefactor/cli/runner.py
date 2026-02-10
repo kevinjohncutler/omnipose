@@ -250,6 +250,7 @@ def _run_training(args) -> None:
         timing=args.timing,
         do_autocast=args.amp,
         affinity_field=args.affinity_field,
+        tensorboard=args.tensorboard,
     )
     model.pretrained_model = cpmodel_path
     if save_path is None:

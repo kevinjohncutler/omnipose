@@ -18,7 +18,9 @@ def loss(self, lbl, y, ext_loss=0):
         cm = cellmask.float()
         flow_mse = self.MSELoss(y[:, 0], cm)
         BCE = self.BCELoss(y[:, 0], cm)
-        return flow_mse + BCE / 20
+        total = flow_mse + BCE / 20
+        raw_losses = {'flow_mse': flow_mse.detach(), 'BCE': BCE.detach()}
+        return total, total.detach(), raw_losses
 
     else:
         veci = lbl[:, -self.dim:]
@@ -52,6 +54,19 @@ def loss(self, lbl, y, ext_loss=0):
 
         flow_mse = self.WeightedMSE(flow, veci, wt)
 
+        # Individual raw losses (before scaling) for visualization
+        raw_losses = {
+            'flow_mse': flow_mse.detach(),
+            'SSL': SSL.detach(),
+            'bd_loss': bd_loss.detach(),
+            'norm_loss': norm_loss.detach(),
+            'dist_loss': dist_loss.detach(),
+            'lossA': lossA.detach(),
+            'lossE': lossE.detach(),
+            'lossB': lossB.detach(),
+            'lossDC': lossDC.detach(),
+        }
+
         losses = [flow_mse, SSL, bd_loss, norm_loss, dist_loss,
                   lossA, lossE, lossB,
                   lossDC,
@@ -61,7 +76,7 @@ def loss(self, lbl, y, ext_loss=0):
         losses += ext_loss if isinstance(ext_loss, list) else [ext_loss]
 
         losses = [scale_to_tenths(l, max_gain=1e12) for l in losses]
-        return sum(losses), raw_loss
+        return sum(losses), raw_loss, raw_losses
 
 
 def bg_flow_corr_penalty(flow, cellmask, eps=1e-6):  # pragma: no cover

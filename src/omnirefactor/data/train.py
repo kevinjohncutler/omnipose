@@ -7,7 +7,7 @@ import torch
 
 from torch.utils.data import BatchSampler
 
-from ..transforms.augment import random_crop_warp
+from ..transforms.augment import random_rotate_and_resize
 from ..core.flows import masks_to_flows_batch, batch_labels
 
 
@@ -37,7 +37,9 @@ class train_set(torch.utils.data.Dataset):
         self.do_flip = True
         self.dist_bg = 5
         self.normalize = False
-        self.gamma_range = [.75, 2.5]
+        # gamma_range must match omnipose MANUAL path default [.5, 4] for parity
+        # (the manual path doesn't pass gamma_range so uses the default from random_rotate_and_resize)
+        self.gamma_range = [.5, 4]
         self.nimg = len(data)
         do_rescale = getattr(self, "do_rescale", getattr(self, "rescale", True))
         self.do_rescale = bool(do_rescale)
@@ -89,6 +91,19 @@ class train_set(torch.utils.data.Dataset):
     def __len__(self):
         return self.nimg
 
+    def __getitems__(self, inds):
+        """
+        Batched getter that PyTorch DataLoader uses when available.
+
+        This ensures all indices in a batch are processed together through
+        masks_to_flows_batch, matching omnipose's manual batching behavior
+        where flows are computed on the concatenated mask batch at once.
+
+        Without this method, DataLoader calls __getitem__ per-index separately,
+        then collates - which computes flows per-image instead of per-batch.
+        """
+        return [self.__getitem__(inds)]
+
     def __getitem__(self, inds):
         if isinstance(inds, int):
             inds = [inds]
@@ -96,27 +111,22 @@ class train_set(torch.utils.data.Dataset):
         if self.timing:
             tic = time.time()
 
-        nimg = len(inds)
-        imgi = np.zeros((nimg, self.nchan) + self.tyx, np.float32)
-        labels = np.zeros((nimg,) + self.tyx, np.float32)
-        scale = np.zeros((nimg, self.dim), np.float32)
         links = [self.links[idx] for idx in inds]
+        rsc = np.array([self.rescale_factor[idx] for idx in inds]) if self.do_rescale else None
 
-        for i, idx in enumerate(inds):
-            imgi[i], labels[i], scale[i] = random_crop_warp(img=self.data[idx],
-                                                            Y=self.labels[idx],
-                                                            tyx=self.tyx,
-                                                            v1=self.v1,
-                                                            v2=self.v2,
-                                                            nchan=self.nchan,
-                                                            rescale_factor=self.rescale_factor[idx],
-                                                            scale_range=self.scale_range,
-                                                            gamma_range=self.gamma_range,
-                                                            do_flip=self.do_flip,
-                                                            ind=idx,
-                                                            augment=self.augment,
-                                                            allow_blank_masks=self.allow_blank_masks
-                                                            )
+        # Use random_rotate_and_resize on full batch (matches omnipose manual path)
+        imgi, labels, scale = random_rotate_and_resize(
+            X=[self.data[idx] for idx in inds],
+            Y=[self.labels[idx] for idx in inds],
+            scale_range=self.scale_range,
+            gamma_range=self.gamma_range,
+            tyx=self.tyx,
+            do_flip=self.do_flip,
+            rescale_factor=rsc,
+            inds=inds,
+            nchan=self.nchan,
+            allow_blank_masks=self.allow_blank_masks
+        )
         if self.timing:
             toc = time.time()
             print('image augmentation time: {:.2f}'.format(toc - tic))
@@ -151,7 +161,7 @@ class train_set(torch.utils.data.Dataset):
             print('batching time: {:.2f}'.format(toc - tic))
             tic = toc
 
-        imgi = torch.tensor(imgi, device=self.device)
+        imgi = torch.tensor(imgi, device=self.device, dtype=torch.float32)
 
         if self.timing:
             print('inds', len(inds))
@@ -195,34 +205,50 @@ class DataPrefetcher:
 
 class CyclingRandomBatchSampler(BatchSampler):
     """
-    Infinite stream of shuffled, non-overlapping indices.
+    Infinite stream of shuffled, non-overlapping batch indices.
+
+    Pre-generates all indices upfront using np.random.seed(0) to match
+    the omnipose manual batching path when num_workers=0. This ensures
+    identical index sequences for reproducibility.
+
+    The batching follows omnipose's structure exactly:
+    - Generate indices for n_epochs * nimg_per_epoch
+    - For each epoch, slice nimg_per_epoch indices
+    - Within each epoch, yield batches of size batch_size
     """
 
-    def __init__(self, data_source, batch_size, generator=None):
+    def __init__(self, data_source, batch_size, n_epochs=None, nimg_per_epoch=None, generator=None):
         self.data_source = data_source
         self.batch_size = batch_size
-        self.generator = generator or torch.Generator()
         self.N = len(data_source)
+        self.n_epochs = n_epochs or 500  # default from training
+        self.nimg_per_epoch = nimg_per_epoch if nimg_per_epoch is not None else self.N
 
-        self._perm = torch.randperm(self.N, generator=self.generator).tolist()
-        self._pos = 0
+        # Pre-generate ALL indices upfront (matches omnipose manual batching)
+        # This uses np.random.seed(0) like the manual path for reproducibility
+        np.random.seed(0)
+        inds_all = np.zeros((0,), 'int32')
+        while len(inds_all) < self.n_epochs * self.nimg_per_epoch:
+            rperm = np.random.permutation(self.N)
+            inds_all = np.hstack((inds_all, rperm))
+        self._inds_all = inds_all
         self.epoch = 0
 
     def __iter__(self):
-        while True:
-            start, end = self._pos, self._pos + self.batch_size
-            if end < self.N:
-                yield self._perm[start:end]
-                self._pos = end
-            else:
-                yield self._perm[start:self.N]
-                self.epoch += 1
-                self._perm = torch.randperm(self.N, generator=self.generator).tolist()
-                self._pos = 0
-                spill = end - self.N
-                if spill:
-                    yield self._perm[0:spill]
-                    self._pos = spill
+        # Match omnipose manual path batch generation:
+        # for epoch in range(n_epochs):
+        #     rperm = inds_all[epoch*nimg_per_epoch:(epoch+1)*nimg_per_epoch]
+        #     for ibatch in range(0, nimg_per_epoch, batch_size):
+        #         inds = rperm[ibatch:ibatch+batch_size]
+        for epoch in range(self.n_epochs):
+            self.epoch = epoch
+            start = epoch * self.nimg_per_epoch
+            end = (epoch + 1) * self.nimg_per_epoch
+            rperm = self._inds_all[start:end]
+            for ibatch in range(0, self.nimg_per_epoch, self.batch_size):
+                batch_end = min(ibatch + self.batch_size, self.nimg_per_epoch)
+                yield rperm[ibatch:batch_end].tolist()
 
     def __len__(self):
-        return (self.N + self.batch_size - 1) // self.batch_size
+        """Number of batches per epoch."""
+        return (self.nimg_per_epoch + self.batch_size - 1) // self.batch_size
