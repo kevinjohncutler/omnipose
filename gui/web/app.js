@@ -3523,9 +3523,9 @@ let flowThreshold = clamp(
   FLOW_THRESHOLD_MIN,
   FLOW_THRESHOLD_MAX,
 );
-let clusterEnabled = typeof CONFIG.cluster === 'boolean' ? CONFIG.cluster : true;
+let clusterEnabled = typeof CONFIG.cluster === 'boolean' ? CONFIG.cluster : false;
 let affinitySegEnabled = typeof CONFIG.affinitySeg === 'boolean' ? CONFIG.affinitySeg : true;
-let segMode = clusterEnabled ? (affinitySegEnabled ? 'none' : 'cluster') : (affinitySegEnabled ? 'affinity' : 'none');
+let segMode = affinitySegEnabled ? 'affinity' : (clusterEnabled ? 'cluster' : 'none');
 let userAdjustedScale = false;
 let viewStateRestored = false;
 const touchPointers = new Map();
@@ -5198,6 +5198,7 @@ function collectViewerState() {
     showAffinityGraph: Boolean(showAffinityGraph),
     segMode,
     useGpu: useGpuToggle ? Boolean(useGpuToggle.checked) : undefined,
+    gamma: currentGamma,
     timestamp: Date.now(),
   };
 }
@@ -5255,6 +5256,9 @@ function restoreViewerState(saved) {
     if (typeof saved.flowThreshold === 'number') {
       flowThreshold = saved.flowThreshold;
       syncFlowThresholdControls();
+    }
+    if (typeof saved.gamma === 'number') {
+      setGamma(saved.gamma, { emit: false });
     }
     if (saved.niter === null) {
       niterAuto = true;
@@ -11205,10 +11209,16 @@ function stopInteraction(evt) {
   if (typeof paintingApi.cancelStroke === 'function') {
     paintingApi.cancelStroke();
   }
+  const wasPanning = isPanning;
   isPanning = false;
   spacePan = false;
   updateCursor();
   clearInteractionPending();
+  // Save state after pan/zoom gesture completes
+  if ((wasPanning || viewStateDirty) && !wasPainting) {
+    scheduleStateSave();
+    viewStateDirty = false;
+  }
   if (evt && evt.type === 'pointerleave') {
     clearHoverPreview();
   } else {

@@ -91,6 +91,9 @@
   margin: 0;
   min-width: var(--control-label-width);
   font-weight: 500;
+  /* Pin label at top so it doesn't re-center when dropdowns expand */
+  align-self: flex-start;
+  line-height: var(--slider-track-height);
 }
 
 .slider-inline .slider-row {
@@ -2071,4 +2074,15 @@ button:not(:disabled):hover {
 
 .dropdown--gradient-preview[data-open='true'] .dropdown-toggle {
   flex-shrink: 0;
+}
+
+/* Remove closed menu-wrap border so it adds 0px to flow (not 2px) */
+.dropdown-menu-wrap {
+  border-color: transparent;
+  border-width: 0;
+}
+
+.dropdown[data-open='true'] .dropdown-menu-wrap {
+  border-width: 1px;
+  border-color: var(--panel-border);
 }
