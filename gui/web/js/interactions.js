@@ -207,9 +207,6 @@
     const imagePoint = context.screenToImage(origin);
     gestureState.imagePoint = imagePoint;
     setHoverState(imagePoint, origin);
-    if (typeof context.setCursorHold === 'function' && context.cursorStyles && context.cursorStyles.dot) {
-      context.setCursorHold(context.cursorStyles.dot);
-    }
     if (touchOptions.enablePinchZoom) {
       const startScale = Number.isFinite(gestureState.startScale) ? gestureState.startScale : 1;
       const nextScale = startScale * scale;
@@ -230,9 +227,6 @@
           : startRotation + radians;
         if (typeof context.setViewStateRotation === 'function') {
           context.setViewStateRotation(normalized);
-        }
-        if (typeof context.setCursorHold === 'function' && context.cursorStyles && context.cursorStyles.dot) {
-          context.setCursorHold(context.cursorStyles.dot);
         }
       } else if (typeof context.setViewStateRotation === 'function') {
         context.setViewStateRotation(startRotation);
@@ -290,9 +284,6 @@
       state.hoverUpdatePending = false;
       state.pendingHoverScreenPoint = null;
       state.pendingHoverHasPreview = false;
-      if (typeof context.setCursorHold === 'function' && context.cursorStyles && context.cursorStyles.dot) {
-        context.setCursorHold(context.cursorStyles.dot);
-      }
       state.pendingPanPointer = null;
     }
 

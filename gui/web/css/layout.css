@@ -52,6 +52,7 @@ body {
   background: #111;
   color: #eee;
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  touch-action: none;
 }
 
 #app {

@@ -3041,10 +3041,6 @@ function handleGestureStart(evt) {
   renderHoverPreview();
   isPanning = false;
   spacePan = false;
-  // Set a helpful cursor at gesture start
-  setCursorHold(dotCursorCss);
-  // Show simple dot cursor during gesture
-  setCursorHold(dotCursorCss);
 }
 
 function handleGestureChange(evt) {
@@ -4156,10 +4152,7 @@ function updateCursor() {
     canvas.style.cursor = 'default';
     return;
   }
-  // Prefer dot cursor during any interaction
-  if (isPanning || spacePan || gestureState) {
-    canvas.style.cursor = dotCursorCss;
-  } else if (CROSSHAIR_TOOL_TYPES.has(tool) && cursorInsideImage) {
+  if (CROSSHAIR_TOOL_TYPES.has(tool) && cursorInsideImage) {
     canvas.style.cursor = 'none';
   } else {
     canvas.style.cursor = 'default';
@@ -7895,10 +7888,6 @@ function rotateView(deltaRadians) {
   drawBrushPreview(getHoverPoint());
   viewStateDirty = true;
   scheduleStateSave();
-  // Briefly show dot cursor for keyboard rotation
-  setCursorTemporary(dotCursorCss, 700);
-  // Show a simple dot cursor briefly
-  setCursorTemporary(dotCursorCss, 600);
 }
 
 function scheduleDraw(options = {}) {
@@ -10829,7 +10818,6 @@ canvas.addEventListener('wheel', (evt) => {
       wheelRotationBuffer = 0;
       log('wheel rotation applied ' + appliedDegrees.toFixed(2) + ' deg');
       rotationApplied = true;
-      setCursorTemporary(dotCursorCss, 500);
     }
   } else if (deltaZ === 0) {
     wheelRotationBuffer = 0;
@@ -10843,11 +10831,6 @@ canvas.addEventListener('wheel', (evt) => {
     scheduleDraw();
     scheduleStateSave();
   }
-  if (!rotationApplied && deltaY !== 0) {
-    setCursorTemporary(dotCursorCss, 350);
-  }
-  // Show simple dot cursor during wheel interactions
-  setCursorTemporary(dotCursorCss, 350);
 }, { passive: false });
 
 function startPointerPan(evt) {
@@ -10857,7 +10840,6 @@ function startPointerPan(evt) {
   }
   isPanning = true;
   lastPoint = getPointerPosition(evt);
-  setCursorHold(dotCursorCss);
   wheelRotationBuffer = 0;
   try {
     canvas.setPointerCapture(evt.pointerId);
@@ -11164,6 +11146,12 @@ if (supportsGestureEvents && viewer && viewer !== canvas) {
   viewer.addEventListener('gesturestart', handleGestureStart, { passive: false });
   viewer.addEventListener('gesturechange', handleGestureChange, { passive: false });
   viewer.addEventListener('gestureend', handleGestureEnd, { passive: false });
+}
+// Suppress Safari's native pinch-zoom circle by preventing default at document level
+if (supportsGestureEvents) {
+  for (const evtName of ['gesturestart', 'gesturechange', 'gestureend']) {
+    document.addEventListener(evtName, (e) => e.preventDefault(), { passive: false });
+  }
 }
 
 function stopInteraction(evt) {
