@@ -984,7 +984,7 @@ class UnetModel():
                 y_sym = self.net(batch_sym)[0]
                 y_sym = align_prediction(y_sym, perm, flips)
                 # keep both branches “honest” by letting gradients flow through each, no detach on y_main
-                sym_losses.append(self.MSELoss(y_sym, y_main))
+                sym_losses.append(self.MSELoss(y_sym.detach(), y_main))
             sym_loss = torch.stack(sym_losses).mean()
             return y_main, sym_loss
 
