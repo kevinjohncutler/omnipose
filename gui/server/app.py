@@ -154,7 +154,7 @@ def create_app() -> "Any":
     from contextlib import asynccontextmanager
     from fastapi import FastAPI
     from fastapi.middleware.cors import CORSMiddleware
-    from fastapi.responses import HTMLResponse, JSONResponse
+    from fastapi.responses import HTMLResponse, JSONResponse, Response
     from fastapi.staticfiles import StaticFiles
 
     api = DebugAPI(log_path=WEBGL_LOG_PATH)
@@ -255,8 +255,9 @@ def create_app() -> "Any":
                 SESSION_MANAGER.set_image(state, target)
             else:
                 return JSONResponse({"error": "path or direction required"}, status_code=400)
+            config = SESSION_MANAGER.build_config(state, embed_image=False)
             print(f"[perf] open_image: {(time.perf_counter()-t_start)*1000:.0f}ms", flush=True)
-            return JSONResponse({"ok": True})
+            return JSONResponse({"ok": True, "config": config})
         except FileNotFoundError:
             return JSONResponse({"error": "file_not_found"}, status_code=404)
         except Exception as exc:
@@ -291,7 +292,8 @@ def create_app() -> "Any":
             else:
                 target = files[0]
             SESSION_MANAGER.set_image(state, target)
-            return JSONResponse({"ok": True})
+            config = SESSION_MANAGER.build_config(state, embed_image=False)
+            return JSONResponse({"ok": True, "config": config})
         except Exception as exc:
             return JSONResponse({"error": str(exc)}, status_code=500)
 
@@ -348,7 +350,8 @@ def create_app() -> "Any":
             if not path_obj.exists() or not path_obj.is_file():
                 return JSONResponse({"error": "file_not_found"}, status_code=404)
             SESSION_MANAGER.set_image(state, path_obj)
-            return JSONResponse({"ok": True})
+            config = SESSION_MANAGER.build_config(state, embed_image=False)
+            return JSONResponse({"ok": True, "config": config})
         except Exception as exc:
             return JSONResponse({"error": str(exc)}, status_code=500)
 
@@ -402,9 +405,25 @@ def create_app() -> "Any":
                 return JSONResponse({"error": "no_images"}, status_code=404)
             target = files[0]
             SESSION_MANAGER.set_image(state, target)
-            return JSONResponse({"ok": True})
+            config = SESSION_MANAGER.build_config(state, embed_image=False)
+            return JSONResponse({"ok": True, "config": config})
         except Exception as exc:
             return JSONResponse({"error": str(exc)}, status_code=500)
+
+    @app.get("/api/image/{session_id}")
+    async def api_image(session_id: str) -> Response:
+        """Serve the current image as raw PNG bytes (avoids base64 overhead)."""
+        try:
+            state = SESSION_MANAGER.get(session_id)
+        except KeyError:
+            return JSONResponse({"error": "unknown session"}, status_code=404)
+        if not state.encoded_image_bytes:
+            return JSONResponse({"error": "no_image"}, status_code=404)
+        return Response(
+            content=state.encoded_image_bytes,
+            media_type=state.encoded_image_mime,
+            headers={"Cache-Control": "no-cache"},
+        )
 
     @app.get("/api/system_info", response_class=JSONResponse)
     async def api_system_info() -> JSONResponse:

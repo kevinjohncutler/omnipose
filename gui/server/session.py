@@ -50,6 +50,8 @@ class SessionState:
     current_image: Optional[np.ndarray] = None
     image_is_rgb: bool = False
     encoded_image: Optional[str] = None
+    encoded_image_bytes: Optional[bytes] = None  # raw PNG bytes (no base64)
+    encoded_image_mime: str = "image/png"
 
     def path_key(self, path: Optional[Path] = None) -> str:
         return _session_path_key(path if path is not None else self.current_path)
@@ -83,7 +85,15 @@ class SessionManager:
             encoded_image=None,
         )
         self._sessions[session_id] = state
-        state.encoded_image = self._encode_image(state.current_image, is_rgb=is_rgb)
+        t0 = time.perf_counter()
+        raw_bytes = self._encode_image_bytes(state.current_image, is_rgb=is_rgb)
+        t1 = time.perf_counter()
+        state.encoded_image_bytes = raw_bytes
+        state.encoded_image_mime = "image/png"
+        data = base64.b64encode(raw_bytes).decode("ascii")
+        state.encoded_image = f"data:image/png;base64,{data}"
+        t2 = time.perf_counter()
+        print(f"[perf] png_encode: {(t1-t0)*1000:.0f}ms ({len(raw_bytes)//1024}KB), b64: {(t2-t1)*1000:.0f}ms ({len(data)//1024}KB)", flush=True)
         return state
 
     def get_or_create(self, session_id: Optional[str]) -> SessionState:
@@ -142,15 +152,22 @@ class SessionManager:
         state.files = files
         state.current_image = np.ascontiguousarray(image, dtype=np.uint8)
         state.image_is_rgb = is_rgb
-        state.encoded_image = self._encode_image(state.current_image, is_rgb=is_rgb)
+        t0 = time.perf_counter()
+        raw_bytes = self._encode_image_bytes(state.current_image, is_rgb=is_rgb)
+        t1 = time.perf_counter()
+        state.encoded_image_bytes = raw_bytes
+        state.encoded_image_mime = "image/png"
+        data = base64.b64encode(raw_bytes).decode("ascii")
+        state.encoded_image = f"data:image/png;base64,{data}"
+        t2 = time.perf_counter()
+        print(f"[perf] png_encode: {(t1-t0)*1000:.0f}ms ({len(raw_bytes)//1024}KB), b64: {(t2-t1)*1000:.0f}ms ({len(data)//1024}KB)", flush=True)
 
-    def build_config(self, state: SessionState) -> dict[str, Any]:
+    def build_config(self, state: SessionState, *, embed_image: bool = True) -> dict[str, Any]:
         image = state.current_image if state.current_image is not None else load_image_uint8(as_rgb=True)
         is_rgb = state.image_is_rgb
         height, width = image.shape[:2]
         if not state.encoded_image:
             state.encoded_image = self._encode_image(image, is_rgb=is_rgb)
-        encoded = state.encoded_image
         directory_entries: list[dict[str, Any]] = []
         index = None
         if state.current_path and state.files:
@@ -169,7 +186,6 @@ class SessionManager:
             "sessionId": state.session_id,
             "width": int(width),
             "height": int(height),
-            "imageDataUrl": encoded,
             "colorTable": get_instance_color_table().tolist(),
             "maskOpacity": 0.8,
             "maskThreshold": -2.0,
@@ -186,6 +202,11 @@ class SessionManager:
             "isRgb": is_rgb,
             "useWebglPipeline": True,
         }
+        if embed_image:
+            config["imageDataUrl"] = state.encoded_image
+        else:
+            # Provide URL for browser-native image fetch (avoids base64 overhead)
+            config["imageUrl"] = f"/api/image/{state.session_id}?t={int(time.time() * 1000)}"
         saved_state = state.saved_states.get(state.path_key())
         if saved_state:
             try:
@@ -198,21 +219,24 @@ class SessionManager:
 
     def _encode_image(self, array: np.ndarray, *, is_rgb: bool) -> str:
         t0 = time.perf_counter()
-        buffer = io.BytesIO()
-        if is_rgb and array.ndim == 3 and array.shape[-1] == 2:
-            # promote 2-channel images to 3 for PNG compatibility
-            rgb = np.empty((*array.shape[:-1], 3), dtype=array.dtype)
-            rgb[..., :2] = array
-            rgb[..., 2] = 0
-            imageio.imwrite(buffer, rgb, format="png")
-        else:
-            imageio.imwrite(buffer, array, format="png")
+        raw_bytes = self._encode_image_bytes(array, is_rgb=is_rgb)
         t1 = time.perf_counter()
-        raw_bytes = buffer.getvalue()
         data = base64.b64encode(raw_bytes).decode("ascii")
         t2 = time.perf_counter()
         print(f"[perf] png_encode: {(t1-t0)*1000:.0f}ms ({len(raw_bytes)//1024}KB), b64: {(t2-t1)*1000:.0f}ms ({len(data)//1024}KB)", flush=True)
         return f"data:image/png;base64,{data}"
+
+    def _encode_image_bytes(self, array: np.ndarray, *, is_rgb: bool) -> bytes:
+        """Encode image to PNG bytes using fast compression (level 1)."""
+        buffer = io.BytesIO()
+        if is_rgb and array.ndim == 3 and array.shape[-1] == 2:
+            rgb = np.empty((*array.shape[:-1], 3), dtype=array.dtype)
+            rgb[..., :2] = array
+            rgb[..., 2] = 0
+            imageio.imwrite(buffer, rgb, format="png", compress_level=1)
+        else:
+            imageio.imwrite(buffer, array, format="png", compress_level=1)
+        return buffer.getvalue()
 
     def navigate(self, state: SessionState, delta: int) -> Optional[Path]:
         if not state.files or state.current_path is None:

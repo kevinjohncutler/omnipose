@@ -1,9 +1,9 @@
 const CONFIG = window.__OMNI_CONFIG__ || {};
-const imgWidth = CONFIG.width || 0;
-const imgHeight = CONFIG.height || 0;
-const imageDataUrl = CONFIG.imageDataUrl || '';
+let imgWidth = CONFIG.width || 0;
+let imgHeight = CONFIG.height || 0;
+let imageDataUrl = CONFIG.imageDataUrl || '';
 const colorTable = CONFIG.colorTable || [];
-const hasNColor = Boolean(
+let hasNColor = Boolean(
   CONFIG.hasNColor
   ?? CONFIG.nColor
   ?? CONFIG.ncolor
@@ -14,9 +14,9 @@ const hasNColor = Boolean(
 );
 const initialBrushRadius = CONFIG.brushRadius ?? 6;
 const sessionId = CONFIG.sessionId || null;
-const currentImagePath = CONFIG.imagePath || null;
-const currentImageName = CONFIG.imageName || null;
-const localStateKey = `OMNI_VIEWER_STATE:${CONFIG.imagePath || CONFIG.imageName || 'default'}`;
+let currentImagePath = CONFIG.imagePath || null;
+let currentImageName = CONFIG.imageName || null;
+let localStateKey = `OMNI_VIEWER_STATE:${CONFIG.imagePath || CONFIG.imageName || 'default'}`;
 
 const OmniColormap = window.OmniColormap;
 const OmniUI = window.OmniUI;
@@ -92,14 +92,14 @@ const generateColormapGradient = OmniColormap.generateColormapGradient;
 function loadLocalViewerState() {
   return OmniState.loadLocalViewerState(localStateKey);
 }
-const directoryEntries = Array.isArray(CONFIG.directoryEntries) ? CONFIG.directoryEntries : [];
-const directoryIndex = typeof CONFIG.directoryIndex === 'number' ? CONFIG.directoryIndex : null;
-const directoryPath = CONFIG.directoryPath || null;
-const savedViewerState = CONFIG.savedViewerState || loadLocalViewerState();
+let directoryEntries = Array.isArray(CONFIG.directoryEntries) ? CONFIG.directoryEntries : [];
+let directoryIndex = typeof CONFIG.directoryIndex === 'number' ? CONFIG.directoryIndex : null;
+let directoryPath = CONFIG.directoryPath || null;
+let savedViewerState = CONFIG.savedViewerState || loadLocalViewerState();
 let hasPendingSavedNiter = false;
 let pendingSavedNiter = null;
-const hasPrevImage = Boolean(CONFIG.hasPrev);
-const hasNextImage = Boolean(CONFIG.hasNext);
+let hasPrevImage = Boolean(CONFIG.hasPrev);
+let hasNextImage = Boolean(CONFIG.hasNext);
 let nColorPalette = [];
 let nColorPaletteColors = [];
 let labelColormap = 'sinebow'; // Default to sinebow (cyclic with hue offset support)
@@ -402,11 +402,11 @@ const maskCanvas = document.createElement('canvas');
 maskCanvas.width = imgWidth;
 maskCanvas.height = imgHeight;
 const maskCtx = maskCanvas.getContext('2d');
-const maskData = maskCtx.createImageData(imgWidth, imgHeight);
+let maskData = maskCtx.createImageData(imgWidth, imgHeight);
 let maskValues = new Uint32Array(imgWidth * imgHeight);
 let maskHasNonZero = false;
 // Outline state bitmap (1 = boundary), used to modulate per-pixel alpha in mask rendering
-const outlineState = new Uint8Array(maskValues.length);
+let outlineState = new Uint8Array(maskValues.length);
 const MASK_DISPLAY_MODES = {
   OUTLINED: 'outlined',
   SOLID: 'solid',
@@ -591,10 +591,14 @@ function applyMaskRedrawImmediate() {
 OmniFileNav.init({
   getSessionId: function () { return sessionId; },
   saveBeforeNavigate: function () { return saveViewerState({ immediate: true }); },
+  onReinitialize: function (config) { reinitializeForNewImage(config); },
 });
 
+let _dragAndDropReady = false;
 function setupDragAndDrop() {
+  if (_dragAndDropReady) { return; }
   OmniFileNav.setupDragAndDrop(viewer, dropOverlay);
+  _dragAndDropReady = true;
 }
 
 
@@ -1271,6 +1275,62 @@ const texCoords = new Float32Array([
     updateOverlayTexture('distance', distanceOverlayImage);
   }
   affinityGeometryDirty = true;
+}
+
+// Resize existing WebGL pipeline for new image dimensions without recompiling shaders.
+// Returns true if successful; false if pipeline doesn't exist (caller should do full init).
+function resizeWebglPipelineForNewImage(newWidth, newHeight) {
+  if (!webglPipeline || !webglPipeline.gl || !webglPipelineReady) {
+    return false;
+  }
+  const pgl = webglPipeline.gl;
+
+  // Update position buffer for new dimensions
+  const positions = new Float32Array([
+    0, 0,
+    newWidth, 0,
+    0, newHeight,
+    newWidth, newHeight,
+  ]);
+  pgl.bindBuffer(pgl.ARRAY_BUFFER, webglPipeline.positionBuffer);
+  pgl.bufferData(pgl.ARRAY_BUFFER, positions, pgl.STATIC_DRAW);
+  pgl.bindBuffer(pgl.ARRAY_BUFFER, null);
+
+  // Resize base texture (will be filled by uploadBaseTextureFromCanvas later)
+  pgl.bindTexture(pgl.TEXTURE_2D, webglPipeline.baseTexture);
+  pgl.texImage2D(pgl.TEXTURE_2D, 0, pgl.RGBA, newWidth, newHeight, 0, pgl.RGBA, pgl.UNSIGNED_BYTE, null);
+  pgl.bindTexture(pgl.TEXTURE_2D, null);
+
+  // Resize mask texture
+  pgl.bindTexture(pgl.TEXTURE_2D, webglPipeline.maskTexture);
+  pgl.texImage2D(pgl.TEXTURE_2D, 0, pgl.RG8, newWidth, newHeight, 0, pgl.RG, pgl.UNSIGNED_BYTE, null);
+  pgl.bindTexture(pgl.TEXTURE_2D, null);
+
+  // Resize outline texture
+  pgl.bindTexture(pgl.TEXTURE_2D, webglPipeline.outlineTexture);
+  pgl.texImage2D(pgl.TEXTURE_2D, 0, pgl.R8, newWidth, newHeight, 0, pgl.RED, pgl.UNSIGNED_BYTE, null);
+  pgl.bindTexture(pgl.TEXTURE_2D, null);
+
+  // Clear overlay textures (flow/distance are per-image, will be re-uploaded if needed)
+  if (webglPipeline.flowTexture) {
+    pgl.deleteTexture(webglPipeline.flowTexture);
+    webglPipeline.flowTexture = null;
+  }
+  if (webglPipeline.distanceTexture) {
+    pgl.deleteTexture(webglPipeline.distanceTexture);
+    webglPipeline.distanceTexture = null;
+  }
+
+  // Reset scratch buffers (will be re-allocated on demand at correct size)
+  webglPipeline.maskScratch = null;
+  webglPipeline.outlineScratch = null;
+
+  // Reset affinity geometry
+  if (webglPipeline.affinity) {
+    webglPipeline.affinity.vertexCount = 0;
+  }
+
+  return true;
 }
 
 function uploadBaseTextureFromCanvas() {
@@ -9663,6 +9723,7 @@ window.addEventListener('beforeunload', () => {
 
 function initialize() {
   log('initialize');
+  const _initT0 = typeof performance !== 'undefined' ? performance.now() : 0;
   refreshOppositeStepMapping();
   clearAffinityGraphData();
   showAffinityGraph = true;
@@ -9674,6 +9735,7 @@ function initialize() {
   viewStateRestored = false;
   const img = new Image();
   img.onload = () => {
+    const _decodeT = typeof performance !== 'undefined' ? performance.now() : 0;
     log('image loaded: ' + imgWidth + 'x' + imgHeight);
     offCtx.drawImage(img, 0, 0);
     if (gl && webglPipelineRequested && !webglPipelineReady) {
@@ -9719,6 +9781,8 @@ function initialize() {
     updateToolButtons();
     updateImageInfo();
     updateHistoryButtons();
+    const _doneT = typeof performance !== 'undefined' ? performance.now() : 0;
+    console.log(`[perf] initialize: decode=${Math.round(_decodeT - _initT0)}ms, render=${Math.round(_doneT - _decodeT)}ms, total=${Math.round(_doneT - _initT0)}ms`);
     // Reveal the page now that everything is rendered
     document.documentElement.style.opacity = '1';
   };
@@ -9734,6 +9798,106 @@ function initialize() {
   setupDragAndDrop();
   updateImageInfo();
 }
+
+// ---------------------------------------------------------------------------
+// In-place image swap — called by OmniFileNav when the server returns config
+// ---------------------------------------------------------------------------
+function reinitializeForNewImage(config) {
+  if (!config) {
+    console.warn('reinitializeForNewImage: no config');
+    return;
+  }
+  const t0 = typeof performance !== 'undefined' ? performance.now() : 0;
+
+  // 1. Update per-image variables from new config
+  // (state was already saved by saveBeforeNavigate in file-navigation.js)
+  imgWidth = config.width || 0;
+  imgHeight = config.height || 0;
+  // Prefer imageUrl (raw binary fetch) over embedded imageDataUrl (base64 in JSON)
+  imageDataUrl = config.imageUrl || config.imageDataUrl || '';
+  currentImagePath = config.imagePath || null;
+  currentImageName = config.imageName || null;
+  localStateKey = `OMNI_VIEWER_STATE:${config.imagePath || config.imageName || 'default'}`;
+  directoryEntries = Array.isArray(config.directoryEntries) ? config.directoryEntries : [];
+  directoryIndex = typeof config.directoryIndex === 'number' ? config.directoryIndex : null;
+  directoryPath = config.directoryPath || null;
+  hasPrevImage = Boolean(config.hasPrev);
+  hasNextImage = Boolean(config.hasNext);
+  hasNColor = Boolean(
+    config.hasNColor
+    ?? config.nColor
+    ?? config.ncolor
+    ?? config.enableNColor
+    ?? config.nColorMask
+    ?? config.ncolorMask
+    ?? false,
+  );
+  savedViewerState = config.savedViewerState || OmniState.loadLocalViewerState(localStateKey);
+
+  // 2. Resize offscreen + mask canvases
+  const px = imgWidth * imgHeight;
+  offscreen.width = imgWidth;
+  offscreen.height = imgHeight;
+  maskCanvas.width = imgWidth;
+  maskCanvas.height = imgHeight;
+  maskData = maskCtx.createImageData(imgWidth, imgHeight);
+
+  // 3. Reallocate pixel buffers
+  maskValues = new Uint32Array(px);
+  outlineState = new Uint8Array(px);
+  maskHasNonZero = false;
+
+  // 4. Resize WebGL pipeline (reuse shaders/programs, just resize textures)
+  const webglResized = resizeWebglPipelineForNewImage(imgWidth, imgHeight);
+  if (!webglResized) {
+    // No existing pipeline — full rebuild will happen in initialize()
+    webglPipeline = null;
+    webglPipelineReady = false;
+  }
+  pendingMaskTextureFull = false;
+  pendingOutlineTextureFull = false;
+  maskTextureFullDirty = false;
+  outlineTextureFullDirty = false;
+  maskDirtyRegions.length = 0;
+  outlineDirtyRegions.length = 0;
+  needsMaskRedraw = false;
+
+  // 5. Clear history, nColor, affinity state
+  if (typeof OmniHistory.clear === 'function') { OmniHistory.clear(); }
+  nColorValues = null;
+  nColorInstanceMask = null;
+  nColorLabelToGroup.clear();
+  nColorActive = true;
+  clearColorCaches();
+  clearAffinityGraphData();
+  applyPointsPayload(null);
+
+  // 6. Reset label/palette state
+  currentLabel = 1;
+  currentMaxLabel = 128;
+  shufflePermutation = null;
+  paletteTextureDirty = true;
+
+  // 7. Re-init painting module with new buffer references
+  paintingInitOptions.maskValues = maskValues;
+  paintingInitOptions.outlineState = outlineState;
+  paintingInitOptions.hasNColor = hasNColor;
+  paintingInitApplied = false;
+  applyPaintingInit();
+
+  // 8. Rebuild image navigator dropdown
+  setupImageNavigator();
+
+  // 9. Update nav button visibility
+  updateImageInfo();
+
+  const t1 = typeof performance !== 'undefined' ? performance.now() : 0;
+  console.log(`[perf] reinit setup: ${Math.round(t1 - t0)}ms (webgl reuse: ${webglResized})`);
+
+  // 10. Run existing initialize() — handles image load, histogram, state restore, draw
+  initialize();
+}
+window.__omni_reinitialize = reinitializeForNewImage;
 
 window.addEventListener('resize', resizeCanvas);
 let orientationResizePending = false;
