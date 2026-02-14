@@ -487,7 +487,9 @@ def fill_holes_and_remove_small_masks(masks, min_size=15, hole_size=3, scale_fac
                 else:          
                     if OMNI_INSTALLED and SKIMAGE_ENABLED: # Omnipose version (passes 2D tests)
                         hsz = np.count_nonzero(msk)*hole_size/100 #turn hole size into percentage
-                        padmsk = remove_small_holes(np.pad(msk,1,mode='constant'),hsz)
+                        # Keep legacy behavior (< hsz) while using the new max_size API (<= max_size).
+                        hsz_legacy = np.nextafter(float(hsz), -np.inf)
+                        padmsk = remove_small_holes(np.pad(msk,1,mode='constant'), max_size=hsz_legacy)
                         msk = padmsk[1:-1,1:-1]
                     else: #Cellpose version
                         msk = binary_fill_holes(msk)
@@ -515,5 +517,4 @@ def fill_holes_and_remove_small_masks(masks, min_size=15, hole_size=3, scale_fac
     #             masks[slc][msk] = (j+1)
     #             j+=1
     # return masks
-
 

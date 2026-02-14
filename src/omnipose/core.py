@@ -3122,7 +3122,9 @@ def fill_holes_and_remove_small_masks(masks, min_size=None, max_size=None, hole_
                 if SKIMAGE_ENABLED: # Omnipose version (passes 2D tests)
                     pad = 1
                     unpad = tuple([slice(pad,-pad)]*dim) 
-                    padmsk = remove_small_holes(np.pad(msk,pad,mode='constant'),area_threshold=hsz)
+                    # Keep legacy behavior (< hsz) while using the new max_size API (<= max_size).
+                    hsz_legacy = np.nextafter(float(hsz), -np.inf)
+                    padmsk = remove_small_holes(np.pad(msk,pad,mode='constant'), max_size=hsz_legacy)
                     msk = padmsk[unpad]
                 else: #Cellpose version
                     msk = binary_fill_holes(msk)
