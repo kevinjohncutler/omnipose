@@ -18,25 +18,79 @@ const currentImagePath = CONFIG.imagePath || null;
 const currentImageName = CONFIG.imageName || null;
 const localStateKey = `OMNI_VIEWER_STATE:${CONFIG.imagePath || CONFIG.imageName || 'default'}`;
 
+const OmniColormap = window.OmniColormap;
+const OmniUI = window.OmniUI;
+const OmniState = window.OmniState;
+const OmniFileNav = window.OmniFileNav;
+
+// Module delegates – imported here to avoid TDZ (const is not hoisted like function)
+const IMAGE_COLORMAPS = OmniColormap.IMAGE_COLORMAPS;
+const PALETTE_TEXTURE_SIZE = OmniColormap.PALETTE_TEXTURE_SIZE;
+const DEFAULT_NCOLOR_COUNT = OmniColormap.DEFAULT_NCOLOR_COUNT;
+const isIOSDevice = OmniUI.isIOSDevice;
+const isSafariWebKit = OmniUI.isSafariWebKit;
+const rgbToCss = OmniUI.rgbToCss;
+const parseCssColor = OmniUI.parseCssColor;
+const readableTextColor = OmniUI.readableTextColor;
+const lightenRgb = OmniUI.lightenRgb;
+const svgCursorUrl = OmniUI.svgCursorUrl;
+const buildDotCursorCss = OmniUI.buildDotCursorCss;
+const stateDebugLog = OmniState.stateDebugLog;
+const scheduleStateSave = OmniState.scheduleStateSave;
+const saveViewerState = OmniState.saveViewerState;
+const requestImageChange = OmniFileNav.requestImageChange;
+const selectImageFolder = OmniFileNav.selectImageFolder;
+const selectImageFile = OmniFileNav.selectImageFile;
+const openImageFolder = OmniFileNav.openImageFolder;
+const openImageByPath = OmniFileNav.openImageByPath;
+const navigateDirectory = OmniFileNav.navigateDirectory;
+const clamp = OmniUI.clamp;
+const truncateFilename = OmniUI.truncateFilename;
+const pointerPercent = OmniUI.pointerPercent;
+const valueToPercent = OmniUI.valueToPercent;
+const percentToValue = OmniUI.percentToValue;
+const updateNativeRangeFill = OmniUI.updateNativeRangeFill;
+const registerSlider = OmniUI.registerSlider;
+const refreshSlider = OmniUI.refreshSlider;
+const attachNumberInputStepper = OmniUI.attachNumberInputStepper;
+const closeDropdown = OmniUI.closeDropdown;
+const openDropdown = OmniUI.openDropdown;
+const toggleDropdown = OmniUI.toggleDropdown;
+const positionDropdown = OmniUI.positionDropdown;
+const registerDropdown = OmniUI.registerDropdown;
+const refreshDropdown = OmniUI.refreshDropdown;
+const LABEL_COLORMAPS = OmniColormap.LABEL_COLORMAPS;
+const setPanelCollapsed = OmniUI.setPanelCollapsed;
+const decodeBase64ToUint8 = OmniState.decodeBase64ToUint8;
+const base64FromUint32 = OmniState.base64FromUint32;
+const uint32FromBase64 = OmniState.uint32FromBase64;
+const base64FromUint8Array = OmniState.base64FromUint8Array;
+const encodeHistoryField = OmniState.encodeHistoryField;
+const decodeHistoryField = OmniState.decodeHistoryField;
+const normalizeAngle = OmniUI.normalizeAngle;
+const suppressDoubleTapZoom = OmniUI.suppressDoubleTapZoom;
+const flashButton = OmniUI.flashButton;
+const base64FromUint8 = OmniState.base64FromUint8;
+const sinebowColor = OmniColormap.sinebowColor;
+const rgbToHex = OmniColormap.rgbToHex;
+const hexToRgb = OmniColormap.hexToRgb;
+const hslToRgb = OmniColormap.hslToRgb;
+const interpolateStops = OmniColormap.interpolateStops;
+const seededRandom = OmniColormap.seededRandom;
+const hashColorForLabel = OmniColormap.hashColorForLabel;
+const COLORMAP_STOPS = OmniColormap.COLORMAP_STOPS;
+const generateImageCmapLut = OmniColormap.generateImageCmapLut;
+const IMAGE_CMAP_LUT_SIZE = OmniColormap.IMAGE_CMAP_LUT_SIZE;
+const generateSinebowPalette = OmniColormap.generateSinebowPalette;
+const collectLabelsFromMask = OmniColormap.collectLabelsFromMask;
+const showConfirmDialog = OmniUI.showConfirmDialog;
+const initTooltips = OmniUI.initTooltips;
+const formatBytes = OmniUI.formatBytes;
+const generateColormapGradient = OmniColormap.generateColormapGradient;
+
+
 function loadLocalViewerState() {
-  if (typeof window === 'undefined' || !window.localStorage) {
-    return null;
-  }
-  try {
-    const raw = window.localStorage.getItem(localStateKey);
-    if (!raw) {
-      return null;
-    }
-    const parsed = JSON.parse(raw);
-    if (!parsed || typeof parsed !== 'object') {
-      return null;
-    }
-    delete parsed.imageVisible;
-    delete parsed.maskVisible;
-    return parsed;
-  } catch (_) {
-    return null;
-  }
+  return OmniState.loadLocalViewerState(localStateKey);
 }
 const directoryEntries = Array.isArray(CONFIG.directoryEntries) ? CONFIG.directoryEntries : [];
 const directoryIndex = typeof CONFIG.directoryIndex === 'number' ? CONFIG.directoryIndex : null;
@@ -55,16 +109,6 @@ let labelShuffle = true;
 let labelShuffleSeed = 0;
 // Image colormap (for grayscale images)
 let imageColormap = 'gray'; // Default grayscale
-const IMAGE_COLORMAPS = [
-  { value: 'gray', label: 'grayscale' },
-  { value: 'gray-clip', label: 'grayclip' },
-  { value: 'magma', label: 'magma' },
-  { value: 'viridis', label: 'viridis' },
-  { value: 'inferno', label: 'inferno' },
-  { value: 'plasma', label: 'plasma' },
-  { value: 'hot', label: 'hot' },
-  { value: 'turbo', label: 'turbo' },
-];
 let imageCmapLutTexture = null;
 let imageCmapLutDirty = true;
 // Track current max label for dynamic palette sizing
@@ -74,9 +118,7 @@ let currentMaxLabel = 128;
 let shufflePermutation = null;
 let shufflePermutationSize = 0;
 let shufflePermutationSeed = 0;
-const PALETTE_TEXTURE_SIZE = 1024;
 let paletteTextureDirty = true;
-const DEFAULT_NCOLOR_COUNT = 4;
 if (!Array.isArray(colorTable) || colorTable.length === 0) {
   labelColormap = 'sinebow';
 }
@@ -136,13 +178,6 @@ const MAIN_WEBGL_CONTEXT_ATTRIBUTES = {
 
 const supportsGestureEvents = typeof window !== 'undefined'
   && (typeof window.GestureEvent === 'function' || 'ongesturestart' in window);
-const isIOSDevice = typeof navigator !== 'undefined' && (
-  /iPad|iPhone|iPod/.test(navigator.userAgent)
-  || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1)
-);
-const isSafariWebKit = typeof navigator !== 'undefined'
-  && /AppleWebKit/.test(navigator.userAgent)
-  && !/Chrome|CriOS|Edg|Firefox|FxiOS/.test(navigator.userAgent);
 const pointerOptionsOverride = CONFIG.pointerOptions || {};
 const pointerState = createPointerState({
   stylus: { ...POINTER_OPTIONS.stylus, ...(pointerOptionsOverride.stylus || {}) },
@@ -279,57 +314,6 @@ function getViewportSize() {
   };
 }
 
-function rgbToCss(rgb) {
-  return 'rgb(' + (rgb[0] | 0) + ', ' + (rgb[1] | 0) + ', ' + (rgb[2] | 0) + ')';
-}
-
-function parseCssColor(value) {
-  if (!value || typeof value !== 'string') {
-    return null;
-  }
-  const trimmed = value.trim();
-  if (trimmed.startsWith('#')) {
-    const hex = trimmed.slice(1);
-    if (hex.length === 3) {
-      return [
-        parseInt(hex[0] + hex[0], 16),
-        parseInt(hex[1] + hex[1], 16),
-        parseInt(hex[2] + hex[2], 16),
-      ];
-    }
-    if (hex.length === 6) {
-      return [
-        parseInt(hex.slice(0, 2), 16),
-        parseInt(hex.slice(2, 4), 16),
-        parseInt(hex.slice(4, 6), 16),
-      ];
-    }
-  }
-  const match = trimmed.match(/rgba?\(([^)]+)\)/i);
-  if (match) {
-    const parts = match[1].split(',').map((part) => Number(part.trim()));
-    if (parts.length >= 3 && parts.every((val) => Number.isFinite(val))) {
-      return parts.slice(0, 3).map((val) => Math.max(0, Math.min(255, val)));
-    }
-  }
-  return null;
-}
-
-function readableTextColor(rgb) {
-  const [r, g, b] = rgb;
-  const luminance = (0.2126 * r + 0.7152 * g + 0.0722 * b) / 255;
-  return luminance > 0.62 ? 'rgba(20, 20, 20, 0.86)' : '#f6f6f6';
-}
-
-function lightenRgb(rgb, amount = 0.25) {
-  const clampChannel = (value) => Math.max(0, Math.min(255, value));
-  const mix = (a, b) => Math.round(a + (b - a) * amount);
-  return [
-    clampChannel(mix(rgb[0], 255)),
-    clampChannel(mix(rgb[1], 255)),
-    clampChannel(mix(rgb[2], 255)),
-  ];
-}
 
 function updateAccentColorsFromRgb(rgb) {
   if (!rootStyleWrite || !Array.isArray(rgb) || rgb.length < 3) {
@@ -342,6 +326,10 @@ function updateAccentColorsFromRgb(rgb) {
   rootStyleWrite.setProperty('--accent-hover', hover);
   rootStyleWrite.setProperty('--accent-ink', ink);
   accentColor = base;
+  // Persist accent for instant restore on reload (avoids yellow flash)
+  try {
+    localStorage.setItem('__omni_accent', JSON.stringify({ c: base, h: hover, k: ink }));
+  } catch (_) {}
   if (typeof renderHistogram === 'function') {
     renderHistogram();
   }
@@ -358,6 +346,7 @@ function resetAccentColors() {
     rootStyleWrite.setProperty('--accent-ink', readableTextColor(parsed));
   }
   accentColor = accentColorDefault;
+  try { localStorage.removeItem('__omni_accent'); } catch (_) {}
   if (typeof renderHistogram === 'function') {
     renderHistogram();
   }
@@ -370,21 +359,6 @@ const panelTextColor = (rootStyle.getPropertyValue('--panel-text-color') || '#f4
 // Custom cursor assets and override control
 let cursorOverride = null;
 let cursorOverrideTimer = null;
-function svgCursorUrl(svg) {
-  return 'url("data:image/svg+xml;utf8,' + encodeURIComponent(svg) + '") 16 16, auto';
-}
-function buildDotCursorCss(size = 16, rgba = [128, 128, 128, 0.5]) {
-  const [r, g, b, a] = rgba;
-  const radius = Math.max(2, Math.floor(size / 4));
-  const cx = Math.floor(size / 2);
-  const cy = Math.floor(size / 2);
-  const svg = `<?xml version="1.0" encoding="UTF-8"?>
-<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}" viewBox="0 0 ${size} ${size}">
-  <circle cx="${cx}" cy="${cy}" r="${radius}" fill="rgb(${r},${g},${b})" fill-opacity="${a}" />
-</svg>`;
-  // hotspot at center
-  return 'url("data:image/svg+xml;utf8,' + encodeURIComponent(svg) + '") ' + cx + ' ' + cy + ', auto';
-}
 // 3x larger dot cursor (48px box, ~12px radius)
 const dotCursorCss = buildDotCursorCss(48, [128, 128, 128, 0.5]);
 function setCursorTemporary(style, durationMs = 400) {
@@ -448,12 +422,7 @@ function normalizeMaskDisplayMode(value) {
   }
   return MASK_DISPLAY_MODES.OUTLINED;
 }
-let stateSaveTimer = null;
-let stateDirty = false;
-let stateDirtySeq = 0;
-let lastSavedSeq = 0;
 let viewStateDirty = false;
-let isRestoringState = false;
 const imageInfo = document.getElementById('imageInfo');
 let webglPipeline = null;
 let webglPipelineReady = false;
@@ -482,43 +451,6 @@ let showDistanceOverlay = false;
 let showPointsOverlay = false;
 let showVectorOverlay = false;
 let vectorOverlayPreferred = false;
-function stateDebugEnabled() {
-  if (DEBUG_STATE_SAVE) {
-    return true;
-  }
-  if (typeof window !== 'undefined' && window.__OMNI_SAVE_DEBUG__) {
-    return Boolean(window.__OMNI_SAVE_DEBUG__);
-  }
-  return false;
-}
-
-function formatStateDebugPart(part) {
-  if (part === null || part === undefined) {
-    return String(part);
-  }
-  if (typeof part === 'object') {
-    try {
-      return JSON.stringify(part);
-    } catch (_) {
-      return Object.prototype.toString.call(part);
-    }
-  }
-  return String(part);
-}
-
-function stateDebugLog(...parts) {
-  if (!stateDebugEnabled()) {
-    return;
-  }
-  const message = parts.map((part) => formatStateDebugPart(part)).join(' ');
-  try {
-    log('[state-save] ' + message);
-  } catch (err) {
-    if (typeof console !== 'undefined' && typeof console.debug === 'function') {
-      console.debug('[state-save]', message);
-    }
-  }
-}
 const DEFAULT_AFFINITY_STEPS = [
   [-1, -1],
   [-1, 0],
@@ -655,303 +587,14 @@ function applyMaskRedrawImmediate() {
   needsMaskRedraw = false;
 }
 
-function nextStateDirtySeq() {
-  stateDirtySeq += 1;
-  return stateDirtySeq;
-}
 
-function scheduleStateSave(delay = 600) {
-  if (isRestoringState) {
-    stateDebugLog('skip schedule (restoring)', {});
-    return;
-  }
-  stateDirty = true;
-  const scheduledSeq = nextStateDirtySeq();
-  const delayMs = Math.max(150, delay | 0);
-  stateDebugLog('schedule', { seq: scheduledSeq, delay: delayMs, immediate: false });
-  if (stateSaveTimer) {
-    clearTimeout(stateSaveTimer);
-  }
-  stateSaveTimer = setTimeout(() => {
-    stateSaveTimer = null;
-    stateDebugLog('timer fire', { seq: scheduledSeq });
-    saveViewerState({ seq: scheduledSeq }).catch((err) => {
-      console.warn('saveViewerState failed', err);
-      stateDebugLog('save error (scheduled)', { seq: scheduledSeq, message: err && err.message ? err.message : String(err) });
-    });
-  }, delayMs);
-}
-
-async function saveViewerState({ immediate = false, seq = null } = {}) {
-  if (!stateDirty && !immediate) {
-    stateDebugLog('skip save (clean state)', { seq: stateDirtySeq, immediate });
-    return true;
-  }
-  const requestSeq = typeof seq === 'number' ? seq : stateDirtySeq;
-  stateDebugLog('save start', {
-    seq: requestSeq,
-    immediate,
-    dirtySeq: stateDirtySeq,
-    lastSavedSeq,
-  });
-  const viewerState = collectViewerState();
-  // Always save to localStorage (works without sessionId)
-  if (typeof window !== 'undefined' && window.localStorage) {
-    try {
-      window.localStorage.setItem(localStateKey, JSON.stringify(viewerState));
-    } catch (_) {
-      /* ignore */
-    }
-  }
-  // Server-side save requires sessionId
-  if (!sessionId) {
-    stateDebugLog('skip server save (no session)', { immediate, seq });
-    stateDirty = false;
-    return true;
-  }
-  const payload = {
-    sessionId,
-    imagePath: currentImagePath,
-    viewerState,
-  };
-  const body = JSON.stringify(payload);
-  try {
-    if (immediate && typeof navigator !== 'undefined' && navigator.sendBeacon) {
-      const blob = new Blob([body], { type: 'application/json' });
-      navigator.sendBeacon('/api/save_state', blob);
-      lastSavedSeq = Math.max(lastSavedSeq, requestSeq);
-      if (requestSeq === stateDirtySeq) {
-        stateDirty = false;
-        stateDebugLog('state clean (beacon)', { seq: requestSeq });
-      } else {
-        stateDebugLog('stale beacon save', { seq: requestSeq, latest: stateDirtySeq });
-      }
-      return true;
-    }
-    const response = await fetch('/api/save_state', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body,
-      keepalive: immediate,
-    });
-    if (!response.ok) {
-      throw new Error('HTTP ' + response.status);
-    }
-    lastSavedSeq = Math.max(lastSavedSeq, requestSeq);
-    if (requestSeq === stateDirtySeq) {
-      stateDirty = false;
-      stateDebugLog('state clean (fetch)', { seq: requestSeq, status: response.status });
-    } else {
-      stateDebugLog('stale fetch save', { seq: requestSeq, latest: stateDirtySeq, status: response.status });
-    }
-    return true;
-  } catch (err) {
-    if (!immediate) {
-      stateDirty = true;
-      stateDebugLog('save failed, state remains dirty', {
-        seq: requestSeq,
-        message: err && err.message ? err.message : String(err),
-      });
-    }
-    throw err;
-  }
-}
-
-async function requestImageChange({ path = null, direction = null } = {}) {
-  if (!sessionId) {
-    console.warn('Session not initialized; cannot change image');
-    return;
-  }
-  const payload = { sessionId };
-  if (typeof path === 'string' && path) {
-    payload.path = path;
-  }
-  if (typeof direction === 'string' && direction) {
-    payload.direction = direction;
-  }
-  await saveViewerState({ immediate: true, seq: stateDirtySeq }).catch(() => {});
-  try {
-    const response = await fetch('/api/open_image', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload),
-    });
-    if (!response.ok) {
-      const message = await response.text().catch(() => 'unknown');
-      console.warn('open_image failed', response.status, message);
-      return;
-    }
-    const result = await response.json().catch(() => ({}));
-    if (result && result.ok) {
-      window.location.reload();
-    } else if (result && result.error) {
-      console.warn('open_image error', result.error);
-    }
-  } catch (err) {
-    console.warn('open_image request failed', err);
-  }
-}
-
-
-
-async function selectImageFolder() {
-  await saveViewerState({ immediate: true, seq: stateDirtySeq }).catch(() => {});
-  try {
-    const response = await fetch('/api/select_image_folder', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ sessionId }),
-    });
-    const result = await response.json().catch(async () => {
-      const message = await response.text().catch(() => 'unknown');
-      return { error: message || 'unknown' };
-    });
-    if (!response.ok) {
-      console.warn('select_image_folder failed', response.status, result);
-      return;
-    }
-    if (result && result.ok) {
-      window.location.reload();
-    } else if (result && result.error) {
-      console.warn('select_image_folder error', result.error);
-    }
-  } catch (err) {
-    console.warn('select_image_folder request failed', err);
-  }
-}
-
-async function selectImageFile() {
-  await saveViewerState({ immediate: true, seq: stateDirtySeq }).catch(() => {});
-  try {
-    const response = await fetch('/api/select_image_file', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ sessionId }),
-    });
-    const result = await response.json().catch(async () => {
-      const message = await response.text().catch(() => 'unknown');
-      return { error: message || 'unknown' };
-    });
-    if (!response.ok) {
-      console.warn('select_image_file failed', response.status, result);
-      return;
-    }
-    if (result && result.ok) {
-      window.location.reload();
-    } else if (result && result.error) {
-      console.warn('select_image_file error', result.error);
-    }
-  } catch (err) {
-    console.warn('select_image_file request failed', err);
-  }
-}
-
-async function openImageFolder(path) {
-  if (!path) {
-    console.warn('No path provided for openImageFolder');
-    return;
-  }
-  await saveViewerState({ immediate: true, seq: stateDirtySeq }).catch(() => {});
-  try {
-    const response = await fetch('/api/open_image_folder', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ sessionId, path }),
-    });
-    if (!response.ok) {
-      const message = await response.text().catch(() => 'unknown');
-      console.warn('open_image_folder failed', response.status, message);
-      return;
-    }
-    const result = await response.json().catch(() => ({}));
-    if (result && result.ok) {
-      window.location.reload();
-    } else if (result && result.error) {
-      console.warn('open_image_folder error', result.error);
-    }
-  } catch (err) {
-    console.warn('open_image_folder request failed', err);
-  }
-}
-
-async function openImageByPath(path) {
-  if (!path) {
-    console.warn('No path provided for openImageByPath');
-    return;
-  }
-  await requestImageChange({ path });
-}
-
-async function navigateDirectory(delta) {
-  if (delta === 0) {
-    return;
-  }
-  const direction = delta > 0 ? 'next' : 'prev';
-  await requestImageChange({ direction });
-}
+OmniFileNav.init({
+  getSessionId: function () { return sessionId; },
+  saveBeforeNavigate: function () { return saveViewerState({ immediate: true }); },
+});
 
 function setupDragAndDrop() {
-  if (!viewer || !dropOverlay || !sessionId) {
-    return;
-  }
-  let dragDepth = 0;
-
-  const showOverlay = () => {
-    if (!dropOverlay) return;
-    dropOverlay.classList.add('drop-overlay--visible');
-  };
-
-  const hideOverlay = () => {
-    dragDepth = 0;
-    if (!dropOverlay) return;
-    dropOverlay.classList.remove('drop-overlay--visible');
-  };
-
-  viewer.addEventListener('dragenter', (evt) => {
-    evt.preventDefault();
-    dragDepth += 1;
-    showOverlay();
-  });
-
-  viewer.addEventListener('dragover', (evt) => {
-    evt.preventDefault();
-    evt.dataTransfer.dropEffect = 'copy';
-  });
-
-  viewer.addEventListener('dragleave', (evt) => {
-    evt.preventDefault();
-    dragDepth = Math.max(0, dragDepth - 1);
-    if (dragDepth === 0) {
-      hideOverlay();
-    }
-  });
-
-  viewer.addEventListener('drop', async (evt) => {
-    evt.preventDefault();
-    hideOverlay();
-    const files = evt.dataTransfer && evt.dataTransfer.files;
-    if (!files || files.length === 0) {
-      return;
-    }
-    const file = files[0];
-    if (file && typeof file.path === 'string') {
-      await openImageByPath(file.path);
-    } else if (file && file.webkitRelativePath) {
-      await openImageByPath(file.webkitRelativePath);
-    } else {
-      console.warn('Dropped file has no accessible path; drag-and-drop requires file path support.');
-    }
-  });
-
-  window.addEventListener('dragover', (evt) => {
-    evt.preventDefault();
-  });
-  window.addEventListener('drop', (evt) => {
-    evt.preventDefault();
-    if (!viewer.contains(evt.target)) {
-      hideOverlay();
-    }
-  });
+  OmniFileNav.setupDragAndDrop(viewer, dropOverlay);
 }
 
 
@@ -2152,751 +1795,6 @@ function clearHoverPreview() {
   updateHoverInfo(null);
 }
 
-function clamp(value, min, max) {
-  if (!Number.isFinite(value)) {
-    return min;
-  }
-  return Math.min(max, Math.max(min, value));
-}
-
-const sliderRegistry = new Map();
-const dropdownRegistry = new Map();
-let dropdownOpenId = null;
-
-function valueToPercent(input) {
-  const min = Number(input.min || 0);
-  const max = Number(input.max || 1);
-  const span = max - min;
-  if (!Number.isFinite(span) || span === 0) {
-    return 0;
-  }
-  const value = Number(input.value || min);
-  return clamp((value - min) / span, 0, 1);
-}
-
-function percentToValue(percent, input) {
-  const min = Number(input.min || 0);
-  const max = Number(input.max || 1);
-  const span = max - min;
-  const raw = min + clamp(percent, 0, 1) * span;
-  const step = Number(input.step || '1');
-  if (!Number.isFinite(step) || step <= 0) {
-    return clamp(raw, min, max);
-  }
-  const snapped = Math.round((raw - min) / step) * step + min;
-  const precision = (step.toString().split('.')[1] || '').length;
-  const factor = 10 ** precision;
-  return clamp(Math.round(snapped * factor) / factor, min, max);
-}
-
-
-const FILENAME_TRUNCATE = 10;
-
-function truncateFilename(name, keep = FILENAME_TRUNCATE) {
-  if (!name || typeof name !== 'string') {
-    return '';
-  }
-  const lastDot = name.lastIndexOf('.');
-  const hasExt = lastDot > 0 && lastDot < name.length - 1;
-  const base = hasExt ? name.slice(0, lastDot) : name;
-  const ext = hasExt ? name.slice(lastDot) : '';
-  if (base.length <= keep * 2) {
-    return base + ext;
-  }
-  return `${base.slice(0, keep)}...${base.slice(-keep)}${ext}`;
-}
-
-function pointerPercent(evt, container) {
-  const rect = container.getBoundingClientRect();
-  if (rect.width <= 0) {
-    return 0;
-  }
-  const ratio = (evt.clientX - rect.left) / rect.width;
-  return clamp(ratio, 0, 1);
-}
-
-function updateNativeRangeFill(input) {
-  if (!input || !(isIOSDevice && isSafariWebKit)) {
-    return;
-  }
-  const percent = valueToPercent(input);
-  const root = input.closest('.slider');
-  if (!root) {
-    return;
-  }
-  const trackRadius = parseFloat(getComputedStyle(root).getPropertyValue('--slider-track-radius'))
-    || Math.round(root.clientHeight / 2);
-  const usable = Math.max(0, root.clientWidth - trackRadius * 2);
-  const fillPx = Math.round(usable * percent);
-  root.style.setProperty('--slider-fill-px', `${fillPx}px`);
-  const knob = root.querySelector('.slider-native-knob');
-  if (knob) {
-    knob.style.left = `${trackRadius + fillPx}px`;
-  }
-}
-
-function registerSlider(root) {
-  const id = root.dataset.sliderId || root.dataset.slider || root.id;
-  if (!id) {
-    return;
-  }
-  const type = (root.dataset.sliderType || 'single').toLowerCase();
-  const inputs = Array.from(root.querySelectorAll('input[type=\"range\"]'));
-  if (!inputs.length) {
-    return;
-  }
-  if (type === 'dual' && inputs.length < 2) {
-    console.warn(`slider ${id} configured as dual but only one range input found`);
-    return;
-  }
-  if (isIOSDevice && isSafariWebKit) {
-    root.classList.add('slider-native');
-    if (!root.querySelector('.slider-native-track')) {
-      const track = document.createElement('div');
-      track.className = 'slider-native-track';
-      const fill = document.createElement('div');
-      fill.className = 'slider-native-fill';
-      track.appendChild(fill);
-      const knob = document.createElement('div');
-      knob.className = 'slider-native-knob';
-      root.appendChild(track);
-      root.appendChild(knob);
-    }
-    inputs.forEach((input) => {
-      updateNativeRangeFill(input);
-      input.addEventListener('input', () => updateNativeRangeFill(input));
-      input.addEventListener('change', () => updateNativeRangeFill(input));
-    });
-    return;
-  }
-
-  root.innerHTML = '';
-  const track = document.createElement('div');
-  track.className = 'slider-track';
-  root.appendChild(track);
-  const thumbs = inputs.map(() => {
-    const thumb = document.createElement('div');
-    thumb.className = 'slider-thumb';
-    root.appendChild(thumb);
-    return thumb;
-  });
-
-  const entry = {
-    id,
-    type: type === 'dual' ? 'dual' : 'single',
-    root,
-    inputs,
-    track,
-    thumbs,
-    activePointer: null,
-    activeThumb: null,
-  };
-
-  if (!entry.root.hasAttribute('tabindex')) {
-    entry.root.tabIndex = 0;
-  }
-
-  const apply = () => {
-    if (entry.type === 'dual') {
-      const minInput = entry.inputs[0];
-      const maxInput = entry.inputs[1];
-      let minValue = Number(minInput.value);
-      let maxValue = Number(maxInput.value);
-      if (minValue > maxValue) {
-        const temp = minValue;
-        minValue = maxValue;
-        maxValue = temp;
-        minInput.value = String(minValue);
-        maxInput.value = String(maxValue);
-      }
-      const minPercent = valueToPercent(minInput);
-      const maxPercent = valueToPercent(maxInput);
-      const left = (minPercent * 100).toFixed(3) + '%';
-      const rightPercent = (maxPercent * 100).toFixed(3) + '%';
-      entry.track.style.setProperty('--slider-fill-start', left);
-      entry.track.style.setProperty('--slider-fill-end', rightPercent);
-      entry.thumbs[0].style.left = left;
-      entry.thumbs[1].style.left = rightPercent;
-    } else {
-      const input = entry.inputs[0];
-      const percent = valueToPercent(input);
-      const trackStyle = getComputedStyle(entry.track);
-      const trackRadius = parseFloat(trackStyle.getPropertyValue('--slider-track-radius'))
-        || Math.round(entry.track.clientHeight / 2);
-      const usable = Math.max(0, entry.track.clientWidth - trackRadius * 2);
-      const fillPx = Math.round(usable * percent);
-      entry.track.style.setProperty('--slider-fill-px', `${fillPx}px`);
-      entry.track.style.setProperty('--slider-track-radius', `${trackRadius}px`);
-      entry.thumbs[0].style.left = `${trackRadius + fillPx}px`;
-    }
-  };
-
-  const stepInputValue = (input, direction) => {
-    if (!input) {
-      return;
-    }
-    const min = Number(input.min || 0);
-    const max = Number(input.max || 1);
-    let step = Number(input.step || '1');
-    if (!Number.isFinite(step) || step <= 0) {
-      step = 1;
-    }
-    const precision = (step.toString().split('.')[1] || '').length;
-    const factor = 10 ** precision;
-    const current = Number(input.value || min);
-    let next = current + direction * step;
-    next = clamp(next, min, max);
-    next = Math.round(next * factor) / factor;
-    input.value = String(next);
-    input.dispatchEvent(new Event('input', { bubbles: true }));
-    apply();
-  };
-
-  const setValueFromPercent = (index, percent) => {
-    const input = entry.inputs[index];
-    if (!input) {
-      return;
-    }
-    let value = percentToValue(percent, input);
-    if (entry.type === 'dual') {
-      if (index === 0) {
-        const other = Number(entry.inputs[1].value);
-        if (value > other) {
-          value = other;
-        }
-      } else {
-        const other = Number(entry.inputs[0].value);
-        if (value < other) {
-          value = other;
-        }
-      }
-    }
-    input.value = String(value);
-    input.dispatchEvent(new Event('input', { bubbles: true }));
-    apply();
-  };
-
-  const pickThumb = (percent) => {
-    if (entry.type !== 'dual') {
-      return 0;
-    }
-    const distances = entry.inputs.map((input) => Math.abs(percent - valueToPercent(input)));
-    let bestIndex = 0;
-    let bestDistance = distances[0];
-    for (let i = 1; i < distances.length; i += 1) {
-      if (distances[i] < bestDistance) {
-        bestDistance = distances[i];
-        bestIndex = i;
-      }
-    }
-    return bestIndex;
-  };
-
-  const onPointerDown = (evt) => {
-    evt.preventDefault();
-    const percent = pointerPercent(evt, entry.root);
-    const thumbIndex = entry.type === 'dual' ? pickThumb(percent) : 0;
-    entry.activePointer = evt.pointerId;
-    entry.activeThumb = thumbIndex;
-    entry.root.setPointerCapture(entry.activePointer);
-    entry.root.dataset.active = 'true';
-    if (entry.root.focus) {
-      entry.root.focus({ preventScroll: true });
-    }
-    const targetInput = entry.inputs[thumbIndex];
-    if (targetInput) {
-      targetInput.focus();
-    }
-    setValueFromPercent(thumbIndex, percent);
-  };
-
-  const onPointerMove = (evt) => {
-    if (entry.activePointer === null || evt.pointerId !== entry.activePointer) {
-      return;
-    }
-    const percent = pointerPercent(evt, entry.root);
-    setValueFromPercent(entry.activeThumb ?? 0, percent);
-  };
-
-  entry.root.addEventListener('keydown', (evt) => {
-    if (evt.key === 'ArrowLeft' || evt.key === 'ArrowDown') {
-      evt.preventDefault();
-      const index = entry.type === 'dual' ? (entry.activeThumb ?? 0) : 0;
-      stepInputValue(entry.inputs[index], -1);
-      return;
-    }
-    if (evt.key === 'ArrowRight' || evt.key === 'ArrowUp') {
-      evt.preventDefault();
-      const index = entry.type === 'dual' ? (entry.activeThumb ?? 0) : 0;
-      stepInputValue(entry.inputs[index], 1);
-      return;
-    }
-    if (evt.key === 'Home') {
-      evt.preventDefault();
-      const index = entry.type === 'dual' ? (entry.activeThumb ?? 0) : 0;
-      const input = entry.inputs[index];
-      if (input) {
-        input.value = String(input.min || 0);
-        input.dispatchEvent(new Event('input', { bubbles: true }));
-        apply();
-      }
-      return;
-    }
-    if (evt.key === 'End') {
-      evt.preventDefault();
-      const index = entry.type === 'dual' ? (entry.activeThumb ?? 0) : 0;
-      const input = entry.inputs[index];
-      if (input) {
-        input.value = String(input.max || 1);
-        input.dispatchEvent(new Event('input', { bubbles: true }));
-        apply();
-      }
-    }
-  });
-
-  const onPointerRelease = (evt) => {
-    if (entry.activePointer === null || evt.pointerId !== entry.activePointer) {
-      return;
-    }
-    try {
-      entry.root.releasePointerCapture(entry.activePointer);
-    } catch (_) {
-      /* ignore */
-    }
-    const percent = pointerPercent(evt, entry.root);
-    setValueFromPercent(entry.activeThumb ?? 0, percent);
-    entry.activePointer = null;
-    entry.activeThumb = null;
-    entry.root.dataset.active = 'false';
-  };
-
-  entry.root.addEventListener('pointerdown', onPointerDown);
-  entry.root.addEventListener('pointermove', onPointerMove);
-  entry.root.addEventListener('pointerup', onPointerRelease);
-  entry.root.addEventListener('pointercancel', onPointerRelease);
-
-  inputs.forEach((input) => {
-    input.addEventListener('focus', () => {
-      entry.root.dataset.focused = 'true';
-    });
-    input.addEventListener('blur', () => {
-      entry.root.dataset.focused = 'false';
-    });
-    input.addEventListener('input', apply);
-    input.addEventListener('change', apply);
-  });
-
-  entry.apply = apply;
-  apply();
-  sliderRegistry.set(id, entry);
-}
-
-function refreshSlider(id) {
-  const entry = sliderRegistry.get(id);
-  if (entry && typeof entry.apply === 'function') {
-    entry.apply();
-  }
-}
-
-function attachNumberInputStepper(input, onAdjust) {
-  if (!input || typeof onAdjust !== 'function') {
-    return;
-  }
-  input.addEventListener('keydown', (evt) => {
-    if (evt.key !== 'ArrowUp' && evt.key !== 'ArrowDown') {
-      return;
-    }
-    evt.preventDefault();
-    const base = Number(input.step || '1');
-    const step = Number.isFinite(base) && base > 0 ? base : 1;
-    const factor = evt.shiftKey ? 5 : 1;
-    const direction = evt.key === 'ArrowUp' ? 1 : -1;
-    onAdjust(step * factor * direction);
-  });
-}
-
-function closeDropdown(entry) {
-  if (!entry) {
-    return;
-  }
-  entry.root.dataset.open = 'false';
-  entry.button.setAttribute('aria-expanded', 'false');
-  if (entry.menu) {
-    entry.menu.setAttribute('aria-hidden', 'true');
-    entry.menu.scrollTop = 0;
-  }
-  dropdownOpenId = null;
-}
-
-function openDropdown(entry) {
-  if (!entry) {
-    return;
-  }
-  if (dropdownOpenId && dropdownOpenId !== entry.id) {
-    closeDropdown(dropdownRegistry.get(dropdownOpenId));
-  }
-  entry.root.dataset.open = 'true';
-  positionDropdown(entry);
-  entry.button.setAttribute('aria-expanded', 'true');
-  if (entry.menuWrapper) {
-    entry.menuWrapper.focus({ preventScroll: true });
-  }
-  if (entry.menu) {
-    entry.menu.setAttribute('aria-hidden', 'false');
-  }
-  dropdownOpenId = entry.id;
-}
-
-function toggleDropdown(entry) {
-  if (!entry) {
-    return;
-  }
-  const isOpen = entry.root.dataset.open === 'true';
-  if (isOpen) {
-    closeDropdown(entry);
-  } else {
-    openDropdown(entry);
-  }
-}
-
-function positionDropdown(entry) {
-  if (!entry || !entry.menu) {
-    return;
-  }
-  entry.menu.style.minWidth = '100%';
-}
-
-function registerDropdown(root) {
-  const select = root.querySelector('select');
-  if (!select) {
-    return;
-  }
-  const id = root.dataset.dropdownId || select.id || `dropdown-${dropdownRegistry.size}`;
-  root.dataset.dropdownId = id;
-  root.dataset.open = root.dataset.open || 'false';
-
-  const originalOptions = Array.from(select.options).map((opt) => ({
-    value: opt.value,
-    label: opt.textContent || opt.value,
-    disabled: opt.disabled,
-  }));
-
-  select.classList.add('dropdown-input');
-  root.innerHTML = '';
-  root.appendChild(select);
-
-  const button = document.createElement('button');
-  button.type = 'button';
-  button.className = 'dropdown-toggle';
-  button.setAttribute('aria-haspopup', 'listbox');
-  button.setAttribute('aria-expanded', 'false');
-  // Create label span for gradient text support
-  const labelSpan = document.createElement('span');
-  labelSpan.className = 'dropdown-label';
-  button.appendChild(labelSpan);
-  const menu = document.createElement('div');
-  menu.className = 'dropdown-menu';
-  menu.setAttribute('role', 'listbox');
-  menu.setAttribute('aria-hidden', 'true');
-  menu.id = `${id}-menu`;
-  button.setAttribute('aria-controls', menu.id);
-  root.appendChild(button);
-  const menuWrapper = document.createElement('div');
-  menuWrapper.className = 'dropdown-menu-wrap';
-  menuWrapper.appendChild(menu);
-  menuWrapper.tabIndex = -1;
-  root.appendChild(menuWrapper);
-
-  const entry = {
-    id,
-    root,
-    select,
-    button,
-    menu,
-    menuWrapper,
-    options: originalOptions,
-    loop: root.dataset.loop === 'true' ? { size: 5, mode: 'loop' } : null,
-    countLabel: root.dataset.countLabel || 'items',
-    confirm: root.dataset.apply === 'confirm',
-    tooltipDisabled: root.dataset.tooltipDisabled === 'true',
-  };
-
-    const applySelection = () => {
-    const selectedOption = select.options[select.selectedIndex];
-    const displayLabel = selectedOption ? selectedOption.textContent : 'Select';
-    labelSpan.textContent = displayLabel;
-    if (selectedOption) {
-      const fullLabel = selectedOption.dataset.fullPath || selectedOption.dataset.fullLabel || selectedOption.title || selectedOption.textContent;
-      if (fullLabel) {
-        if (entry.tooltipDisabled) {
-          button.removeAttribute('title');
-          button.removeAttribute('data-tooltip');
-        } else if (entry.id === 'imageNavigator') {
-          button.dataset.tooltip = fullLabel;
-          button.removeAttribute('title');
-        } else {
-          button.removeAttribute('title');
-          button.removeAttribute('data-tooltip');
-        }
-      }
-    }
-    menu.querySelectorAll('.dropdown-option').forEach((child) => {
-      const isSelected = child.dataset.value === select.value;
-      child.dataset.selected = isSelected ? 'true' : 'false';
-      const color = isSelected ? 'var(--accent-ink, #161616)' : 'var(--panel-text-color)';
-      child.style.setProperty('color', color, 'important');
-    });
-  };
-
-  const buildOption = (opt) => {
-    const item = document.createElement('div');
-    item.className = 'dropdown-option';
-    item.dataset.value = opt.value;
-    item.textContent = opt.label;
-    item.setAttribute('role', 'option');
-    if (opt.title && !entry.tooltipDisabled && entry.id === 'imageNavigator') {
-      item.dataset.tooltip = opt.title;
-    }
-    if (opt.disabled) {
-      item.setAttribute('aria-disabled', 'true');
-      item.style.opacity = '0.45';
-      item.style.pointerEvents = 'none';
-    }
-    item.addEventListener('pointerdown', (evt) => {
-      evt.preventDefault();
-      if (opt.disabled) {
-        return;
-      }
-      select.value = opt.value;
-      select.dispatchEvent(new Event('change', { bubbles: true }));
-      applySelection();
-      closeDropdown(entry);
-    });
-    return item;
-  };
-
-    const buildMenu = () => {
-    menu.innerHTML = '';
-    const opts = entry.options || [];
-    const loopEnabled = Boolean(entry.loop && entry.loop.mode === 'loop');
-    if (loopEnabled && opts.length) {
-      const loopOptions = opts.filter((opt) => !['__add__','__open_folder__'].includes(opt.value));
-      const addOption = opts.find((opt) => opt.value === '__add__');
-      const openFolderOption = opts.find((opt) => opt.value === '__open_folder__');
-      const size = entry.loop.size || 5;
-      const half = Math.floor(size / 2);
-      const total = loopOptions.length;
-      const currentIndex = Math.max(0, loopOptions.findIndex((opt) => opt.value === select.value));
-      for (let i = -half; i <= half; i += 1) {
-        const idx = total > 0 ? (currentIndex + i + total) % total : 0;
-        const opt = loopOptions[idx];
-        if (!opt) continue;
-        menu.appendChild(buildOption(opt));
-      }
-      if (addOption) {
-        const addRow = buildOption(addOption);
-        addRow.classList.add('dropdown-add');
-        menu.appendChild(addRow);
-      }
-      if (openFolderOption) {
-        const openRow = buildOption(openFolderOption);
-        openRow.classList.add('dropdown-add');
-        menu.appendChild(openRow);
-      }
-      const footer = document.createElement('div');
-      footer.className = 'dropdown-footer';
-      const count = document.createElement('span');
-      count.className = 'dropdown-count';
-      count.textContent = total ? `${total} ${entry.countLabel}` : `0 ${entry.countLabel}`;
-      const toggleBtn = document.createElement('button');
-      toggleBtn.type = 'button';
-      toggleBtn.className = 'dropdown-expand';
-      toggleBtn.textContent = 'Show all';
-      toggleBtn.addEventListener('click', (evt) => {
-        evt.preventDefault();
-        entry.loop.mode = 'full';
-        buildMenu();
-      });
-      footer.appendChild(count);
-      footer.appendChild(toggleBtn);
-      menu.appendChild(footer);
-    } else {
-      opts.forEach((opt) => {
-        menu.appendChild(buildOption(opt));
-      });
-      if (entry.loop) {
-        const footer = document.createElement('div');
-        footer.className = 'dropdown-footer';
-        const count = document.createElement('span');
-        count.className = 'dropdown-count';
-        count.textContent = opts.filter((opt) => !['__add__','__open_folder__'].includes(opt.value)).length + ` ${entry.countLabel}`;
-        const toggleBtn = document.createElement('button');
-        toggleBtn.type = 'button';
-        toggleBtn.className = 'dropdown-expand';
-        toggleBtn.textContent = 'Show less';
-        toggleBtn.addEventListener('click', (evt) => {
-          evt.preventDefault();
-          entry.loop.mode = 'loop';
-          buildMenu();
-        });
-        footer.appendChild(count);
-        footer.appendChild(toggleBtn);
-        menu.appendChild(footer);
-      }
-    }
-    applySelection();
-  };
-
-  const shiftSelection = (delta) => {
-    if (!entry.loop || entry.loop.mode !== 'loop') return;
-    const loopOptions = entry.options.filter((opt) => !['__add__','__open_folder__'].includes(opt.value));
-    if (!loopOptions.length) return;
-    const currentIndex = Math.max(0, loopOptions.findIndex((opt) => opt.value === select.value));
-    const nextIndex = (currentIndex + delta + loopOptions.length) % loopOptions.length;
-    const nextValue = loopOptions[nextIndex].value;
-    select.value = nextValue;
-    if (!entry.confirm) {
-      select.dispatchEvent(new Event('change', { bubbles: true }));
-    }
-    buildMenu();
-  };
-
-  button.addEventListener('click', () => {
-    toggleDropdown(entry);
-  });
-
-  select.addEventListener('change', () => {
-    if (entry.loop) {
-      buildMenu();
-    } else {
-      applySelection();
-    }
-  });
-
-  if (entry.loop) {
-    let wheelVelocity = 0;
-    let wheelAccumulator = 0;
-    let wheelAnimating = false;
-    let wheelLastTime = 0;
-    let wheelRaf = 0;
-
-    const getStepPx = () => {
-      const styles = getComputedStyle(menuWrapper);
-      const raw = styles.getPropertyValue('--slider-track-height')
-        || getComputedStyle(document.documentElement).getPropertyValue('--slider-track-height');
-      const parsed = parseFloat(raw);
-      return Number.isFinite(parsed) && parsed > 0 ? parsed : 32;
-    };
-
-    const animateWheel = (ts) => {
-      if (!entry.loop || entry.loop.mode !== 'loop') {
-        wheelAnimating = false;
-        wheelVelocity = 0;
-        wheelAccumulator = 0;
-        return;
-      }
-      if (!wheelLastTime) {
-        wheelLastTime = ts;
-      }
-      const dt = Math.min(48, ts - wheelLastTime);
-      wheelLastTime = ts;
-      const friction = Math.pow(0.9, dt / 16);
-      wheelVelocity *= friction;
-      wheelAccumulator += wheelVelocity * (dt / 16);
-
-      const stepPx = getStepPx();
-      while (Math.abs(wheelAccumulator) >= stepPx) {
-        const direction = wheelAccumulator > 0 ? 1 : -1;
-        shiftSelection(direction);
-        wheelAccumulator -= direction * stepPx;
-      }
-
-      if (Math.abs(wheelVelocity) < 0.05) {
-        wheelAnimating = false;
-        wheelVelocity = 0;
-        wheelAccumulator = 0;
-        wheelLastTime = 0;
-        return;
-      }
-      wheelRaf = requestAnimationFrame(animateWheel);
-    };
-
-    menuWrapper.addEventListener('wheel', (evt) => {
-      if (!entry.loop || entry.loop.mode !== 'loop') {
-        return;
-      }
-      evt.preventDefault();
-      wheelVelocity += evt.deltaY * 0.6;
-      if (!wheelAnimating) {
-        wheelAnimating = true;
-        wheelLastTime = 0;
-        wheelRaf = requestAnimationFrame(animateWheel);
-      }
-    }, { passive: false });
-  }
-  menuWrapper.addEventListener('keydown', (evt) => {
-    if (evt.key === 'ArrowDown' || evt.key === 'ArrowUp') {
-      evt.preventDefault();
-      const delta = evt.key === 'ArrowDown' ? 1 : -1;
-      if (entry.loop && entry.loop.mode === 'loop') {
-        shiftSelection(delta);
-        return;
-      }
-      const opts = entry.options.filter((opt) => !opt.disabled);
-      if (!opts.length) return;
-      const currentIndex = Math.max(0, opts.findIndex((opt) => opt.value === select.value));
-      const nextIndex = Math.min(opts.length - 1, Math.max(0, currentIndex + delta));
-      const nextValue = opts[nextIndex].value;
-      select.value = nextValue;
-      if (!entry.confirm) {
-        select.dispatchEvent(new Event('change', { bubbles: true }));
-      }
-      applySelection();
-      return;
-    }
-    if (evt.key === 'Enter') {
-      evt.preventDefault();
-      if (entry.confirm) {
-        select.dispatchEvent(new Event('change', { bubbles: true }));
-      }
-      closeDropdown(entry);
-      return;
-    }
-  });
-
-  buildMenu();
-  entry.applySelection = applySelection;
-  entry.buildMenu = buildMenu;
-  positionDropdown(entry);
-  dropdownRegistry.set(id, entry);
-}
-
-
-function refreshDropdown(id) {
-  const entry = dropdownRegistry.get(id);
-  if (!entry) return;
-  if (entry.loop && typeof entry.buildMenu === 'function') {
-    entry.buildMenu();
-    return;
-  }
-  if (typeof entry.applySelection === 'function') {
-    entry.applySelection();
-  }
-}
-
-document.addEventListener('pointerdown', (evt) => {
-  if (!dropdownOpenId) {
-    return;
-  }
-  const entry = dropdownRegistry.get(dropdownOpenId);
-  if (!entry) {
-    dropdownOpenId = null;
-    return;
-  }
-  if (!entry.root.contains(evt.target)) {
-    closeDropdown(entry);
-  }
-});
 
 function handleWindowBlur() {
   if (touchPointers && typeof touchPointers.clear === 'function') {
@@ -2908,14 +1806,7 @@ function handleWindowBlur() {
   gestureState = null;
   wheelRotationBuffer = 0;
   clearHoverPreview();
-  if (dropdownOpenId) {
-    const entry = dropdownRegistry.get(dropdownOpenId);
-    if (entry) {
-      closeDropdown(entry);
-    } else {
-      dropdownOpenId = null;
-    }
-  }
+  OmniUI.closeOpenDropdown();
 }
 
 document.addEventListener('mouseleave', (evt) => {
@@ -3113,14 +2004,7 @@ if (brushKernelModeSelect) {
 }
 
 window.addEventListener('resize', () => {
-  if (dropdownOpenId) {
-    const entry = dropdownRegistry.get(dropdownOpenId);
-    if (entry) {
-      positionDropdown(entry);
-    } else {
-      dropdownOpenId = null;
-    }
-  }
+  OmniUI.repositionOpenDropdown();
 });
 
 const gammaSlider = document.getElementById('gamma');
@@ -3302,7 +2186,7 @@ if (resetViewButton) {
 }
 if (saveStateButton) {
   saveStateButton.addEventListener('click', () => {
-    saveViewerState({ immediate: true, seq: stateDirtySeq }).catch(() => {});
+    saveViewerState({ immediate: true }).catch(() => {});
   });
 }
 if (rotateLeftButton) {
@@ -3319,82 +2203,14 @@ setupImageNavigator();
 
 
 function setupImageNavigator() {
-  if (!imageNavigator) {
-    return;
-  }
-  if (!Array.isArray(directoryEntries) || directoryEntries.length === 0) {
-    imageNavigator.innerHTML = '';
-    const opt = document.createElement('option');
-    opt.value = '';
-    opt.textContent = currentImageName || 'Select';
-    imageNavigator.appendChild(opt);
-    const openFileOption = document.createElement('option');
-    openFileOption.value = '__open_file__';
-    openFileOption.textContent = 'Open image file...';
-    openFileOption.title = 'Open image file';
-    imageNavigator.appendChild(openFileOption);
-    const openFolderOption = document.createElement('option');
-    openFolderOption.value = '__open_folder__';
-    openFolderOption.textContent = 'Open image folder...';
-    openFolderOption.title = 'Open image folder';
-    imageNavigator.appendChild(openFolderOption);
-    return;
-  }
-  imageNavigator.innerHTML = '';
-  directoryEntries.forEach((entry) => {
-    const opt = document.createElement('option');
-    opt.value = entry.path || entry.name;
-    opt.textContent = truncateFilename(entry.name);
-    opt.dataset.fullLabel = entry.name;
-    opt.dataset.fullPath = entry.path || entry.name;
-    opt.title = entry.path || entry.name;
-    if (entry.isCurrent) {
-      opt.selected = true;
-    }
-    imageNavigator.appendChild(opt);
-  });
-  const openFileOption = document.createElement('option');
-  openFileOption.value = '__open_file__';
-  openFileOption.textContent = 'Open image file...';
-  openFileOption.title = 'Open image file';
-  imageNavigator.appendChild(openFileOption);
-  const openFolderOption = document.createElement('option');
-  openFolderOption.value = '__open_folder__';
-  openFolderOption.textContent = 'Open image folder...';
-  openFolderOption.title = 'Open image folder';
-  imageNavigator.appendChild(openFolderOption);
-  const dropdownEntry = dropdownRegistry.get('imageNavigator');
-  if (dropdownEntry) {
-    dropdownEntry.options = Array.from(imageNavigator.options).map((opt) => ({
-      value: opt.value,
-      label: opt.textContent || opt.value,
-      disabled: opt.disabled,
-      title: opt.dataset.fullPath || opt.dataset.fullLabel || opt.title || opt.textContent || opt.value,
-    }));
-    if (typeof dropdownEntry.buildMenu === 'function') {
-      dropdownEntry.buildMenu();
-    }
-  }
-  imageNavigator.addEventListener('change', async () => {
-    const nextPath = imageNavigator.value;
-    if (!nextPath || nextPath === currentImagePath) {
-      return;
-    }
-    if (nextPath === '__open_file__') {
-      await selectImageFile();
-      imageNavigator.value = currentImagePath || '';
-      refreshDropdown('imageNavigator');
-      return;
-    }
-    if (nextPath === '__open_folder__') {
-      await selectImageFolder();
-      imageNavigator.value = currentImagePath || '';
-      refreshDropdown('imageNavigator');
-      return;
-    }
-    openImageByPath(nextPath).catch((err) => {
-      console.warn('openImageByPath failed', err);
-    });
+  OmniFileNav.setupImageNavigator({
+    imageNavigator: imageNavigator,
+    directoryEntries: directoryEntries,
+    currentImageName: currentImageName,
+    currentImagePath: currentImagePath,
+    truncateFilename: truncateFilename,
+    refreshDropdown: refreshDropdown,
+    getDropdown: OmniUI.getDropdown,
   });
 }
 
@@ -3417,6 +2233,14 @@ if (typeof OmniHistory.init === 'function') {
     console.warn('OmniHistory init failed', err);
   }
 }
+OmniState.init({
+  debugStateSave: DEBUG_STATE_SAVE,
+  log: typeof log === 'function' ? log : null,
+  collectViewerState: function () { return collectViewerState(); },
+  getLocalStateKey: function () { return localStateKey; },
+  getSessionId: function () { return sessionId; },
+  getCurrentImagePath: function () { return currentImagePath; },
+});
 const undoStack = typeof OmniHistory.getUndoStack === 'function'
   ? OmniHistory.getUndoStack()
   : [];
@@ -3482,19 +2306,6 @@ let maskThreshold = clamp(
 const DEFAULT_SEGMENTATION_MODEL = 'bact_phase_affinity';
 // Colormaps with hasOffset=true are cyclic and support hue rotation
 // Colormaps with hasOffset=false are linear gradients (no offset control)
-const LABEL_COLORMAPS = [
-  { value: 'sinebow', label: 'sinebow', hasOffset: true },
-  { value: 'viridis', label: 'viridis', hasOffset: false },
-  { value: 'magma', label: 'magma', hasOffset: false },
-  { value: 'plasma', label: 'plasma', hasOffset: false },
-  { value: 'inferno', label: 'inferno', hasOffset: false },
-  { value: 'cividis', label: 'cividis', hasOffset: false },
-  { value: 'turbo', label: 'turbo', hasOffset: false },
-  { value: 'gist_ncar', label: 'gist ncar', hasOffset: false },
-  { value: 'vivid', label: 'vivid', hasOffset: true },
-  { value: 'pastel', label: 'pastel', hasOffset: true },
-  { value: 'gray', label: 'grayscale', hasOffset: false },
-];
 
 const SEGMENTATION_MODELS = [
   'bact_phase_omni',
@@ -4320,6 +3131,7 @@ function setTool(nextTool) {
   updateToolInfo();
   updateCursor();
   updateToolButtons();
+  renderHoverPreview();
 }
 
 function getActiveToolMode() {
@@ -4623,17 +3435,6 @@ function setAffinitySegEnabled(value, { silent = false } = {}) {
   }
 }
 
-
-function setPanelCollapsed(panel, collapsed) {
-  if (!panel) {
-    return;
-  }
-  if (collapsed) {
-    panel.classList.add('panel-collapsed');
-  } else {
-    panel.classList.remove('panel-collapsed');
-  }
-}
 
 function setImageVisible(value, { silent = false } = {}) {
   const next = Boolean(value);
@@ -5033,79 +3834,6 @@ function redrawMaskCanvas() {
   maskCtx.putImageData(maskData, 0, 0);
 }
 
-function decodeBase64ToUint8(encoded) {
-  if (!encoded) {
-    return new Uint8Array(0);
-  }
-  const binary = atob(encoded);
-  const len = binary.length;
-  const bytes = new Uint8Array(len);
-  for (let i = 0; i < len; i += 1) {
-    bytes[i] = binary.charCodeAt(i);
-  }
-  return bytes;
-}
-
-function base64FromUint32(array) {
-  if (!array || array.length === 0) {
-    return '';
-  }
-  const bytes = new Uint8Array(array.buffer, array.byteOffset, array.byteLength);
-  return base64FromUint8(bytes);
-}
-
-function uint32FromBase64(encoded, expectedLength = null) {
-  const bytes = decodeBase64ToUint8(encoded);
-  if (bytes.length % 4 !== 0) {
-    throw new Error('uint32FromBase64 length mismatch');
-  }
-  const view = new Uint32Array(bytes.buffer, bytes.byteOffset, bytes.byteLength / 4);
-  if (typeof expectedLength === 'number' && expectedLength > 0 && view.length !== expectedLength) {
-    const copy = new Uint32Array(expectedLength);
-    copy.set(view.subarray(0, Math.min(view.length, expectedLength)));
-    return copy;
-  }
-  return view;
-}
-
-function base64FromUint8Array(array) {
-  if (!array || array.length === 0) {
-    return '';
-  }
-  return base64FromUint8(array instanceof Uint8Array ? array : new Uint8Array(array.buffer));
-}
-
-function encodeHistoryField(array) {
-  if (!array || array.length === 0) {
-    return '';
-  }
-  const view = array instanceof Uint32Array ? array : new Uint32Array(array);
-  return base64FromUint32(view);
-}
-
-function decodeHistoryField(value, expectedLength) {
-  if (value == null || value === '') {
-    if (typeof expectedLength === 'number' && expectedLength > 0) {
-      return new Uint32Array(expectedLength);
-    }
-    return new Uint32Array(0);
-  }
-  if (value instanceof Uint32Array) {
-    if (typeof expectedLength === 'number' && expectedLength > 0 && value.length !== expectedLength) {
-      const copy = new Uint32Array(expectedLength);
-      copy.set(value.subarray(0, Math.min(value.length, expectedLength)));
-      return copy;
-    }
-    return value;
-  }
-  if (Array.isArray(value)) {
-    return new Uint32Array(value);
-  }
-  if (typeof value === 'string') {
-    return uint32FromBase64(value, expectedLength);
-  }
-  return new Uint32Array(0);
-}
 
 function serializeHistoryState() {
   if (typeof OmniHistory.serialize === 'function') {
@@ -5200,7 +3928,7 @@ function restoreViewerState(saved) {
   if (!saved || typeof saved !== 'object') {
     return;
   }
-  isRestoringState = true;
+  OmniState.setRestoringState(true);
   try {
     const expectedLength = maskValues.length;
     if (saved.mask) {
@@ -5459,7 +4187,7 @@ function restoreViewerState(saved) {
     updateToolButtons();
     markAffinityGeometryDirty();
   } finally {
-    isRestoringState = false;
+    OmniState.setRestoringState(false);
   }
   // Apply saved affinity graph if not already applied (e.g., when not in affinity seg mode)
   if (savedAffinityGraphPayload && savedAffinityGraphPayload.encoded && affinityGraphSource === 'none') {
@@ -5483,9 +4211,7 @@ function restoreViewerState(saved) {
   applyMaskRedrawImmediate();
   draw();
   scheduleAffinityRebuildIfStale('restore');
-  stateDirty = false;
-  stateDirtySeq = 0;
-  lastSavedSeq = 0;
+  OmniState.resetSaveState();
   stateDebugLog('restore reset sequences');
   updateImageInfo();
 }
@@ -5755,7 +4481,6 @@ void main() {
   updatePointsOverlayBuffers();
   return true;
 }
-
 
 
 function initializeVectorOverlay() {
@@ -7800,64 +6525,6 @@ function normalizeAngleDelta(delta) {
   return Math.atan2(Math.sin(delta), Math.cos(delta));
 }
 
-function normalizeAngle(angle) {
-  if (!Number.isFinite(angle)) {
-    return 0;
-  }
-  return Math.atan2(Math.sin(angle), Math.cos(angle));
-}
-
-function suppressDoubleTapZoom(element) {
-  if (!element || typeof element.addEventListener !== 'function') {
-    return;
-  }
-  let lastTouchTime = 0;
-  let lastTouchX = 0;
-  let lastTouchY = 0;
-  const reset = () => {
-    lastTouchTime = 0;
-    lastTouchX = 0;
-    lastTouchY = 0;
-  };
-  element.addEventListener('touchend', (evt) => {
-    if (!evt || (evt.touches && evt.touches.length > 0)) {
-      return;
-    }
-    const changed = evt.changedTouches && evt.changedTouches[0];
-    if (!changed) {
-      return;
-    }
-    if (evt.target && typeof evt.target.closest === 'function') {
-      const interactive = evt.target.closest('input, textarea, select, [contenteditable="true"]');
-      if (interactive) {
-        reset();
-        return;
-      }
-    }
-    const now = typeof performance !== 'undefined' ? performance.now() : Date.now();
-    const dt = now - lastTouchTime;
-    const dx = changed.clientX - lastTouchX;
-    const dy = changed.clientY - lastTouchY;
-    const distanceSq = (dx * dx) + (dy * dy);
-    if (Number.isFinite(dt) && dt > 0 && dt < 350 && distanceSq < 400) {
-      evt.preventDefault();
-      evt.stopPropagation();
-      reset();
-      return;
-    }
-    lastTouchTime = now;
-    lastTouchX = changed.clientX;
-    lastTouchY = changed.clientY;
-  }, { passive: false });
-}
-
-function flashButton(btn) {
-  if (!btn) return;
-  btn.classList.remove('shortcut-flash');
-  void btn.offsetWidth; // force reflow to restart animation
-  btn.classList.add('shortcut-flash');
-  btn.addEventListener('animationend', () => btn.classList.remove('shortcut-flash'), { once: true });
-}
 
 function rotateView(deltaRadians) {
   if (!Number.isFinite(deltaRadians) || deltaRadians === 0) {
@@ -8065,15 +6732,6 @@ function draw() {
   }
 }
 
-function base64FromUint8(bytes) {
-  let binary = '';
-  const chunk = 0x8000;
-  for (let i = 0; i < bytes.length; i += chunk) {
-    const sub = bytes.subarray(i, i + chunk);
-    binary += String.fromCharCode.apply(null, sub);
-  }
-  return btoa(binary);
-}
 
 // Recompute N-color mapping from the CURRENT client mask for display grouping.
 function recomputeNColorFromCurrentMask(forceActive = false) {
@@ -8536,222 +7194,27 @@ function applyGamma(gamma) {
   setGamma(gamma, { emit: true });
 }
 
-function sinebowColor(t) {
-  const angle = 2 * Math.PI * (t - Math.floor(t));
-  const r = Math.sin(angle) * 0.5 + 0.5;
-  const g = Math.sin(angle + (2 * Math.PI) / 3) * 0.5 + 0.5;
-  const b = Math.sin(angle + (4 * Math.PI) / 3) * 0.5 + 0.5;
-  return [Math.round(r * 255), Math.round(g * 255), Math.round(b * 255), 200];
-}
+// ── Colormap delegates (pure functions from OmniColormap) ────────────────
 
-function rgbToHex(rgb) {
-  const [r, g, b] = rgb;
-  return '#' + [r, g, b]
-    .map((v) => Math.max(0, Math.min(255, v)).toString(16).padStart(2, '0'))
-    .join('');
+// State-dependent colormap wrappers (inject current state into pure module functions)
+function getColormapColorAtT(t, cmap) {
+  return OmniColormap.getColormapColorAtT(t, cmap || labelColormap);
 }
-
-function hexToRgb(hex) {
-  if (!hex) return [0, 0, 0];
-  const value = hex.replace('#', '');
-  if (value.length !== 6) return [0, 0, 0];
-  const r = parseInt(value.slice(0, 2), 16);
-  const g = parseInt(value.slice(2, 4), 16);
-  const b = parseInt(value.slice(4, 6), 16);
-  return [r, g, b];
+function generateNColorSwatches(count, offset) {
+  const hueOffset = offset !== null && offset !== undefined ? offset : nColorHueOffset;
+  return OmniColormap.generateNColorSwatches(count, hueOffset, labelColormap);
 }
-
-function hslToRgb(h, s, l) {
-  const c = (1 - Math.abs(2 * l - 1)) * s;
-  const hp = h * 6;
-  const x = c * (1 - Math.abs((hp % 2) - 1));
-  let r = 0;
-  let g = 0;
-  let b = 0;
-  if (hp >= 0 && hp < 1) {
-    r = c; g = x; b = 0;
-  } else if (hp < 2) {
-    r = x; g = c; b = 0;
-  } else if (hp < 3) {
-    r = 0; g = c; b = x;
-  } else if (hp < 4) {
-    r = 0; g = x; b = c;
-  } else if (hp < 5) {
-    r = x; g = 0; b = c;
-  } else {
-    r = c; g = 0; b = x;
-  }
-  const m = l - c / 2;
-  return [Math.round((r + m) * 255), Math.round((g + m) * 255), Math.round((b + m) * 255)];
-}
-
 function ensureNColorPaletteLength(targetCount) {
-  const target = Math.max(2, targetCount | 0);
-  const base = (nColorPaletteColors && nColorPaletteColors.length)
-    ? nColorPaletteColors.slice()
-    : generateNColorSwatches(DEFAULT_NCOLOR_COUNT, 0.35);
-  if (base.length >= target) {
-    return base;
-  }
-  const next = base.slice();
-  for (let i = next.length; i < target; i += 1) {
-    const t = (0.35 + i / Math.max(target, 2)) % 1;
-    const rgb = sinebowColor(t);
-    next.push([rgb[0], rgb[1], rgb[2]]);
-  }
-  return next;
+  return OmniColormap.ensureNColorPaletteLength(targetCount, nColorPaletteColors, DEFAULT_NCOLOR_COUNT, labelColormap);
 }
-
-/**
- * Get a color from the current labelColormap at position t (0-1).
- * Used for generating N-color swatches with any colormap.
- */
-function getColormapColorAtT(t, cmap = null) {
-  const cmapName = cmap || labelColormap;
-  if (cmapName === 'gray') {
-    const v = Math.round(t * 255);
-    return [v, v, v];
-  }
-  if (cmapName === 'pastel') {
-    return hslToRgb(t, 0.55, 0.72);
-  }
-  if (cmapName === 'vivid') {
-    return hslToRgb(t, 0.9, 0.5);
-  }
-  if (cmapName === 'sinebow') {
-    return sinebowColor(t);
-  }
-  const stops = COLORMAP_STOPS[cmapName];
-  if (stops) {
-    return interpolateStops(stops, t);
-  }
-  // Fallback to sinebow
-  return sinebowColor(t);
-}
-
-function generateNColorSwatches(count, offset = null) {
-  const swatches = [];
-  const total = Math.max(2, count);
-  // Use global nColorHueOffset if no offset specified (only for cyclic colormaps)
-  const hueOffset = offset !== null ? offset : nColorHueOffset;
-  const hasCyclicOffset = colormapHasOffset(labelColormap);
-
-  for (let i = 0; i < total; i += 1) {
-    // For cyclic colormaps, apply hue offset; for linear, just use even spacing
-    const t = hasCyclicOffset
-      ? (hueOffset + i / total) % 1
-      : i / (total - 1 || 1);  // Linear colormaps: 0 to 1
-    const [r, g, b] = getColormapColorAtT(t);
-    swatches.push([r, g, b]);
-  }
-  return swatches;
-}
-
-function seededRandom(seed) {
-  let t = seed + 0x6D2B79F5;
-  t = Math.imul(t ^ (t >>> 15), t | 1);
-  t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
-  return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
-}
-
 function getLabelShuffleKey(label) {
-  if (!labelShuffle) {
-    return label;
-  }
-  const seed = (labelShuffleSeed | 0) + 1;
-  const mix = label ^ (seed * 0x9e3779b9);
-  return Math.floor(seededRandom(mix) * 1e9);
+  return OmniColormap.getLabelShuffleKey(label, labelShuffle, labelShuffleSeed);
 }
-
-// Colormap stops from matplotlib/cmap package (pypi cmap)
-// Using 16 evenly-spaced stops for accurate interpolation
-const COLORMAP_STOPS = {
-  viridis: [
-    '#440154', '#481a6c', '#472f7d', '#414487', '#39568c',
-    '#31688e', '#2a788e', '#23888e', '#1f988b', '#22a884',
-    '#35b779', '#54c568', '#7ad151', '#a5db36', '#d2e21b', '#fde725'
-  ],
-  magma: [
-    '#000004', '#0c0926', '#1b0c41', '#2f0f60', '#4a0c6b',
-    '#65156e', '#7e2482', '#982d80', '#b73779', '#d5446d',
-    '#ed6059', '#f88a5f', '#feb078', '#fed799', '#fcfdbf'
-  ],
-  plasma: [
-    '#0d0887', '#3a049a', '#5c01a6', '#7e03a8', '#9c179e',
-    '#b52f8c', '#cc4778', '#de5f65', '#ed7953', '#f89540',
-    '#fdb42f', '#fbd524', '#f0f921'
-  ],
-  inferno: [
-    '#000004', '#0d0829', '#1b0c41', '#320a5e', '#4a0c6b',
-    '#61136e', '#78206c', '#932667', '#ad305e', '#c73e53',
-    '#df5543', '#f17336', '#f9932e', '#fbb535', '#fad948', '#fcffa4'
-  ],
-  cividis: [
-    '#00204c', '#00336c', '#2a4858', '#43598e', '#5a6c8a',
-    '#6e7f8e', '#808f8a', '#93a08a', '#a8b08c', '#bdc18d',
-    '#d3d291', '#e8e395', '#fdea45'
-  ],
-  turbo: [
-    '#30123b', '#4145ab', '#4675ed', '#39a2fc', '#1bcfd4',
-    '#24eca6', '#61fc6c', '#a4fc3c', '#d1e834', '#f3c63a',
-    '#fe9b2d', '#f56516', '#d93806', '#b11901', '#7a0402'
-  ],
-  gist_ncar: [
-    '#000080', '#0000d4', '#0044ff', '#0099ff', '#00eeff',
-    '#00ff99', '#00ff00', '#66ff00', '#ccff00', '#ffcc00',
-    '#ff6600', '#ff0000', '#cc0000', '#800000'
-  ],
-  hot: [
-    '#000000', '#230000', '#460000', '#690000', '#8c0000',
-    '#af0000', '#d20000', '#f50000', '#ff1800', '#ff3b00',
-    '#ff5e00', '#ff8100', '#ffa400', '#ffc700', '#ffea00',
-    '#ffff0d', '#ffff4d', '#ffff8d', '#ffffcd', '#ffffff'
-  ],
-};
-
-// Image colormap LUT size (256 entries for full 8-bit range)
-const IMAGE_CMAP_LUT_SIZE = 256;
-
-/**
- * Get the numeric colormap type value for the shader.
- * 0 = grayscale (passthrough)
- * 1 = grayscale with red clipping
- * 2+ = use LUT texture
- */
 function getImageCmapTypeValue() {
-  if (imageColormap === 'gray') return 0;
-  if (imageColormap === 'gray-clip') return 1;
-  return 2; // LUT-based
+  return OmniColormap.getImageCmapTypeValue(imageColormap);
 }
-
-/**
- * Generate LUT data for an image colormap.
- * Returns Uint8Array of RGBA values (size * 4 bytes).
- */
-function generateImageCmapLut(cmapName) {
-  const data = new Uint8Array(IMAGE_CMAP_LUT_SIZE * 4);
-  const stops = COLORMAP_STOPS[cmapName];
-
-  for (let i = 0; i < IMAGE_CMAP_LUT_SIZE; i++) {
-    const t = i / (IMAGE_CMAP_LUT_SIZE - 1);
-    let rgb;
-
-    if (stops) {
-      rgb = interpolateStops(stops, t);
-    } else {
-      // Fallback to grayscale
-      const v = Math.round(t * 255);
-      rgb = [v, v, v];
-    }
-
-    const offset = i * 4;
-    data[offset] = rgb[0];
-    data[offset + 1] = rgb[1];
-    data[offset + 2] = rgb[2];
-    data[offset + 3] = 255;
-  }
-
-  return data;
+function colormapHasOffset(cmapValue) {
+  return OmniColormap.colormapHasOffset(cmapValue);
 }
 
 /**
@@ -8785,104 +7248,12 @@ function updateImageCmapTexture() {
   imageCmapLutDirty = false;
 }
 
-function interpolateStops(stops, t) {
-  if (!stops || !stops.length) {
-    return [0, 0, 0];
-  }
-  if (stops.length === 1) {
-    return hexToRgb(stops[0]);
-  }
-  const clamped = Math.min(Math.max(t, 0), 0.999999);
-  const scaled = clamped * (stops.length - 1);
-  const idx = Math.floor(scaled);
-  const frac = scaled - idx;
-  const a = hexToRgb(stops[idx]);
-  const b = hexToRgb(stops[Math.min(idx + 1, stops.length - 1)]);
-  return [
-    Math.round(a[0] + (b[0] - a[0]) * frac),
-    Math.round(a[1] + (b[1] - a[1]) * frac),
-    Math.round(a[2] + (b[2] - a[2]) * frac),
-  ];
-}
-
-/**
- * Get palette index for a label.
- * Shuffle OFF: Labels map sequentially to palette (label 1 -> palette[1], etc.)
- * Shuffle ON: Labels offset by seed for different color assignment
- */
-function getLabelOrderValue(label, paletteSize = 256) {
-  // palette[0] is background (black/transparent), valid indices are 1 to paletteSize-1
-  const effectiveSize = paletteSize - 1;
-
-  if (!labelShuffle) {
-    // Shuffle OFF: sequential mapping - label 1 -> palette[1], label 2 -> palette[2], etc.
-    // The palette is golden-ratio spaced, so consecutive labels get well-separated colors
-    return ((label - 1) % effectiveSize) + 1;
-  }
-
-  // Shuffle ON: offset labels by seed to get different color assignment
-  // The palette itself provides the golden-ratio spreading, so just shift by seed
-  const seed = labelShuffleSeed | 0;
-
-  // Simple offset: (label + seed * prime) mod size
-  // Using a prime multiplier on seed ensures different seeds give very different offsets
-  const seedOffset = seed * 97;
-  const idx = ((label - 1 + seedOffset) % effectiveSize);
-
-  // Map to valid palette range [1, paletteSize-1]
-  return idx + 1;
-}
-
+// State-dependent colormap wrappers (continued)
 function getLabelColorFraction(label) {
-  // Use currentMaxLabel to spread colors across full colormap range
-  const maxLabel = Math.max(currentMaxLabel, 2);
-  if (!labelShuffle) {
-    // Sequential: labels 1..maxLabel map to t=0..1
-    return ((label - 1) % maxLabel) / (maxLabel - 1);
-  }
-  // Shuffled: use seeded random but still within 0..1 range
-  return seededRandom(getLabelShuffleKey(label));
+  return OmniColormap.getLabelColorFraction(label, labelShuffle, labelShuffleSeed, currentMaxLabel);
 }
-
 function getColormapColor(label) {
-  if (label <= 0) return null;
-  const t = getLabelColorFraction(label);
-  if (labelColormap === 'gray') {
-    const v = Math.round(t * 255);
-    return [v, v, v];
-  }
-  if (labelColormap === 'pastel') {
-    return hslToRgb(t, 0.55, 0.72);
-  }
-  if (labelColormap === 'vivid') {
-    return hslToRgb(t, 0.9, 0.5);
-  }
-  if (labelColormap === 'sinebow') {
-    const [r, g, b] = sinebowColor(t);
-    return [r, g, b];
-  }
-  const stops = COLORMAP_STOPS[labelColormap];
-  if (stops) {
-    return interpolateStops(stops, t);
-  }
-  const [r, g, b] = sinebowColor(t);
-  return [r, g, b];
-}
-
-function generateSinebowPalette(size, offset = 0, sequential = false) {
-  const count = Math.max(size, 2);
-  const palette = new Array(count);
-  palette[0] = [0, 0, 0, 0];
-  const golden = 0.61803398875;
-  for (let i = 1; i < count; i += 1) {
-    // Sequential: evenly spaced around the color wheel (rainbow order)
-    // Golden ratio: maximally separated colors (scrambled but distinct)
-    const t = sequential
-      ? (offset + (i - 1) / (count - 1)) % 1
-      : (offset + i * golden) % 1;
-    palette[i] = sinebowColor(t);
-  }
-  return palette;
+  return OmniColormap.getColormapColor(label, labelColormap, labelShuffle, labelShuffleSeed, currentMaxLabel);
 }
 
 /**
@@ -8904,35 +7275,15 @@ function updateMaxLabelFromMask() {
   }
 }
 
-/**
- * Build shuffle permutation for current max label count.
- * Creates a bijection [1..N] -> [1..N] using golden ratio for optimal visual separation.
- */
 function buildShufflePermutation() {
-  const N = currentMaxLabel;
   const seed = labelShuffleSeed | 0;
-  if (shufflePermutation && shufflePermutationSize === N && shufflePermutationSeed === seed) {
+  if (shufflePermutation && shufflePermutationSize === currentMaxLabel && shufflePermutationSeed === seed) {
     return shufflePermutation;
   }
-  const golden = 0.61803398875;
-  // Create array of {label, sortKey} and sort by sortKey
-  const items = [];
-  for (let i = 1; i <= N; i++) {
-    const seedOffset = seed * 0.1;
-    const sortKey = ((i + seedOffset) * golden) % 1;
-    items.push({ label: i, sortKey });
-  }
-  items.sort((a, b) => a.sortKey - b.sortKey);
-  // Build permutation: perm[label] = rank (1-based)
-  const perm = new Array(N + 1);
-  perm[0] = 0; // background stays 0
-  for (let rank = 0; rank < items.length; rank++) {
-    perm[items[rank].label] = rank + 1; // 1-based rank
-  }
-  shufflePermutation = perm;
-  shufflePermutationSize = N;
+  shufflePermutation = OmniColormap.buildShufflePermutation(currentMaxLabel, seed);
+  shufflePermutationSize = currentMaxLabel;
   shufflePermutationSeed = seed;
-  return perm;
+  return shufflePermutation;
 }
 // N-color palette is large enough; groups come from backend ncolor.label
 nColorPalette = generateSinebowPalette(Math.max(colorTable.length || 0, 1024), nColorHueOffset);
@@ -8960,13 +7311,6 @@ const nColorAssignments = new Map();
 const nColorColorToLabel = new Map();
 let nColorMaxColorId = 0;
 let lastLabelBeforeNColor = null;
-
-function hashColorForLabel(label, offset = 0.0) {
-  const golden = 0.61803398875;
-  const t = ((label * golden + offset) % 1 + 1) % 1;
-  const base = sinebowColor(t);
-  return [base[0], base[1], base[2]];
-}
 
 function clearColorCaches() {
   rawColorMap.clear();
@@ -9014,17 +7358,6 @@ function getDisplayColor(index) {
   const label = maskValues[index] | 0;
   if (label <= 0) return null;
   return nColorActive ? getNColorLabelColor(label) : getRawLabelColor(label);
-}
-
-function collectLabelsFromMask(sourceMask) {
-  const seen = new Set();
-  for (let i = 0; i < sourceMask.length; i += 1) {
-    const value = sourceMask[i];
-    if (value > 0) {
-      seen.add(value);
-    }
-  }
-  return Array.from(seen).sort((a, b) => a - b);
 }
 
 function rebuildNColorLabelMap() {
@@ -9538,35 +7871,15 @@ function setNColorPaletteColors(colors, { render = true, schedule = true } = {})
 }
 
 function buildPaletteTextureData() {
-  const size = PALETTE_TEXTURE_SIZE;
-  const data = new Uint8Array(size * 4);
-  if (nColorActive) {
-    const palette = nColorPaletteColors.length ? nColorPaletteColors : generateNColorSwatches(DEFAULT_NCOLOR_COUNT, 0.35);
-    const count = palette.length || 1;
-    for (let i = 0; i < size; i += 1) {
-      // Use same indexing as getNColorLabelColor: (label - 1) % count
-      // For i=0 (background), use black. For i>=1, use (i-1) % count
-      const rgb = i === 0 ? [0, 0, 0] : (palette[(i - 1) % count] || [0, 0, 0]);
-      const base = i * 4;
-      data[base] = rgb[0] || 0;
-      data[base + 1] = rgb[1] || 0;
-      data[base + 2] = rgb[2] || 0;
-      data[base + 3] = 255;
-    }
-    return data;
-  }
-  // Instance mode: generate unique colors for each label
-  // CRITICAL: The shader accesses palette[label] directly, so palette[i] must contain the color for label i.
-  // palette[0] = background (label 0), palette[1] = color for label 1, etc.
-  for (let i = 0; i < size; i += 1) {
-    const rgb = i === 0 ? [0, 0, 0] : (getColormapColor(i) || [0, 0, 0]);
-    const base = i * 4;
-    data[base] = rgb[0] || 0;
-    data[base + 1] = rgb[1] || 0;
-    data[base + 2] = rgb[2] || 0;
-    data[base + 3] = 255;
-  }
-  return data;
+  return OmniColormap.buildPaletteTextureData({
+    nColorActive: nColorActive,
+    paletteColors: nColorPaletteColors,
+    defaultCount: DEFAULT_NCOLOR_COUNT,
+    colormap: labelColormap,
+    shuffle: labelShuffle,
+    seed: labelShuffleSeed,
+    maxLabel: currentMaxLabel,
+  });
 }
 
 function updatePaletteTextureIfNeeded() {
@@ -9763,7 +8076,6 @@ function toggleColorMode() {
 }
 
 
-
 // buildLinksFromCurrentGraph removed: we keep a single connectivity source based on raw labels only
 
 function getSegmentationSettingsPayload() {
@@ -9788,229 +8100,6 @@ function getSegmentationSettingsPayload() {
   return payload;
 }
 
-
-let tooltipState = null;
-function showConfirmDialog(message, { confirmText = 'OK', cancelText = 'Cancel' } = {}) {
-  return new Promise((resolve) => {
-    const backdrop = document.createElement('div');
-    backdrop.className = 'omni-confirm-backdrop';
-    const dialog = document.createElement('div');
-    dialog.className = 'omni-confirm';
-    const msg = document.createElement('div');
-    msg.className = 'omni-confirm-message';
-    msg.textContent = message;
-    const actions = document.createElement('div');
-    actions.className = 'omni-confirm-actions';
-    const cancelBtn = document.createElement('button');
-    cancelBtn.type = 'button';
-    cancelBtn.className = 'omni-confirm-button';
-    cancelBtn.textContent = cancelText;
-    const okBtn = document.createElement('button');
-    okBtn.type = 'button';
-    okBtn.className = 'omni-confirm-button omni-confirm-primary';
-    okBtn.textContent = confirmText;
-    actions.appendChild(cancelBtn);
-    actions.appendChild(okBtn);
-    dialog.appendChild(msg);
-    dialog.appendChild(actions);
-    backdrop.appendChild(dialog);
-    document.body.appendChild(backdrop);
-    const cleanup = (result) => {
-      backdrop.remove();
-      document.removeEventListener('keydown', onKey);
-      resolve(result);
-    };
-    const onKey = (evt) => {
-      if (evt.key === 'Enter') {
-        evt.preventDefault();
-        cleanup(true);
-      } else if (evt.key === 'Escape') {
-        evt.preventDefault();
-        cleanup(false);
-      }
-    };
-    document.addEventListener('keydown', onKey);
-    cancelBtn.addEventListener('click', () => cleanup(false));
-    okBtn.addEventListener('click', () => cleanup(true));
-    backdrop.addEventListener('click', (evt) => {
-      if (evt.target === backdrop) cleanup(false);
-    });
-    setTimeout(() => okBtn.focus(), 0);
-  });
-}
-
-function initTooltips() {
-  if (tooltipState) {
-    return;
-  }
-  const tooltip = document.createElement('div');
-  tooltip.className = 'omni-tooltip';
-  tooltip.setAttribute('role', 'tooltip');
-  document.body.appendChild(tooltip);
-  tooltipState = {
-    tooltip,
-    timer: null,
-    target: null,
-    lastPoint: null,
-  };
-
-  document.querySelectorAll('[title]').forEach((el) => {
-    const title = el.getAttribute('title');
-    if (title) {
-      el.dataset.tooltip = title;
-      el.removeAttribute('title');
-    }
-  });
-
-  const getTooltipText = (el) => {
-    if (!el) return '';
-    const existing = el.dataset.tooltip;
-    if (existing) return existing;
-    const title = el.getAttribute('title');
-    if (title) {
-      el.dataset.tooltip = title;
-      el.removeAttribute('title');
-      return title;
-    }
-    return '';
-  };
-
-  const positionTooltip = (x, y, target) => {
-    const tip = tooltipState.tooltip;
-    if (!tip) return;
-    const padding = 12;
-    const offset = 14;
-    let left = x + offset;
-    let top = y + offset;
-    const rect = tip.getBoundingClientRect();
-    const vw = window.innerWidth;
-    const vh = window.innerHeight;
-    if (left + rect.width + padding > vw) {
-      left = Math.max(padding, x - rect.width - offset);
-    }
-    if (top + rect.height + padding > vh) {
-      top = Math.max(padding, y - rect.height - offset);
-    }
-    if (Number.isFinite(left) && Number.isFinite(top)) {
-      tip.style.left = `${left}px`;
-      tip.style.top = `${top}px`;
-    } else if (target) {
-      const trect = target.getBoundingClientRect();
-      tip.style.left = `${Math.min(vw - rect.width - padding, Math.max(padding, trect.left))}px`;
-      tip.style.top = `${Math.min(vh - rect.height - padding, Math.max(padding, trect.bottom + offset))}px`;
-    }
-  };
-
-  const showTooltip = (el, point) => {
-    const text = getTooltipText(el);
-    if (!text) return;
-    const tip = tooltipState.tooltip;
-    tip.textContent = text;
-    tip.classList.add('visible');
-    const { x, y } = point || { x: 0, y: 0 };
-    positionTooltip(x, y, el);
-  };
-
-  const hideTooltip = () => {
-    if (!tooltipState) return;
-    const tip = tooltipState.tooltip;
-    if (tooltipState.timer) {
-      clearTimeout(tooltipState.timer);
-      tooltipState.timer = null;
-    }
-    tooltipState.target = null;
-    tip.classList.remove('visible');
-  };
-
-  const scheduleTooltip = (target, point) => {
-    if (!target) return;
-    if (tooltipState.timer) {
-      clearTimeout(tooltipState.timer);
-      tooltipState.timer = null;
-    }
-    tooltipState.target = target;
-    tooltipState.lastPoint = point;
-    tooltipState.timer = setTimeout(() => {
-      if (tooltipState && tooltipState.target === target) {
-        showTooltip(target, tooltipState.lastPoint);
-      }
-    }, 200);
-  };
-
-  const refreshDynamicTooltip = (target, point) => {
-    if (!target || target.dataset.tooltipDynamic !== 'true') {
-      return false;
-    }
-    if (target.closest('[data-tooltip-disabled="true"]')) {
-      return false;
-    }
-    const text = getTooltipText(target);
-    if (!text) {
-      if (tooltipState.target === target) {
-        hideTooltip();
-      }
-      return true;
-    }
-    if (tooltipState.tooltip.classList.contains('visible') && tooltipState.target === target) {
-      tooltipState.tooltip.textContent = text;
-      positionTooltip(point.x, point.y, target);
-      return true;
-    }
-    scheduleTooltip(target, point);
-    return true;
-  };
-
-  document.addEventListener('pointerover', (evt) => {
-    const target = evt.target.closest('[data-tooltip], [title], [data-tooltip-dynamic="true"]');
-    if (!target) return;
-    if (target.closest('[data-tooltip-disabled="true"]')) return;
-    scheduleTooltip(target, { x: evt.clientX, y: evt.clientY });
-  });
-
-  document.addEventListener('pointermove', (evt) => {
-    if (!tooltipState) return;
-    const point = { x: evt.clientX, y: evt.clientY };
-    tooltipState.lastPoint = point;
-    const dynamicTarget = evt.target.closest('[data-tooltip-dynamic="true"]');
-    if (dynamicTarget) {
-      refreshDynamicTooltip(dynamicTarget, point);
-    }
-    if (tooltipState.tooltip.classList.contains('visible')) {
-      positionTooltip(point.x, point.y, tooltipState.target);
-    }
-  });
-
-  document.addEventListener('pointerout', (evt) => {
-    if (!tooltipState) return;
-    const target = evt.target.closest('[data-tooltip], [title], [data-tooltip-dynamic="true"]');
-    if (!target) return;
-    if (target.closest('[data-tooltip-disabled="true"]')) return;
-
-    if (tooltipState.target === target) {
-      hideTooltip();
-    }
-  });
-
-  document.addEventListener('focusin', (evt) => {
-    const target = evt.target.closest('[data-tooltip], [title], [data-tooltip-dynamic="true"]');
-    if (!target) return;
-    if (target.closest('[data-tooltip-disabled="true"]')) return;
-
-    if (tooltipState.timer) clearTimeout(tooltipState.timer);
-    tooltipState.target = target;
-    const rect = target.getBoundingClientRect();
-    tooltipState.lastPoint = { x: rect.left + rect.width / 2, y: rect.top };
-    tooltipState.timer = setTimeout(() => {
-      if (tooltipState && tooltipState.target === target) {
-        showTooltip(target, tooltipState.lastPoint);
-      }
-    }, 200);
-  });
-
-  document.addEventListener('focusout', () => {
-    hideTooltip();
-  });
-}
 
 const overlayUpdateThrottleMs = 140;
 const DEBUG_AFFINITY = (typeof window !== 'undefined' && Boolean(window.__DEBUG_AFFINITY));
@@ -10257,7 +8346,6 @@ function setSegmentStatus(message, isError = false) {
   segmentStatus.textContent = message || '';
   segmentStatus.style.color = isError ? '#ff8a8a' : '#9aa';
 }
-
 
 
 function updatePointsOverlayBuffers() {
@@ -11414,13 +9502,8 @@ window.addEventListener('keydown', (evt) => {
   }
   const key = evt.key.toLowerCase();
   const modifier = evt.ctrlKey || evt.metaKey;
-  if (key === 'escape' && dropdownOpenId) {
-    const entry = dropdownRegistry.get(dropdownOpenId);
-    if (entry) {
-      closeDropdown(entry);
-    } else {
-      dropdownOpenId = null;
-    }
+  if (key === 'escape' && OmniUI.getOpenDropdownId()) {
+    OmniUI.closeOpenDropdown();
     evt.preventDefault();
     return;
   }
@@ -11572,7 +9655,7 @@ window.addEventListener('keyup', (evt) => {
 // Always save to localStorage on page unload (server save requires sessionId)
 window.addEventListener('beforeunload', () => {
   try {
-    saveViewerState({ immediate: true, seq: stateDirtySeq });
+    saveViewerState({ immediate: true });
   } catch (_) {
     /* ignore */
   }
@@ -11636,11 +9719,14 @@ function initialize() {
     updateToolButtons();
     updateImageInfo();
     updateHistoryButtons();
+    // Reveal the page now that everything is rendered
+    document.documentElement.style.opacity = '1';
   };
   img.onerror = (evt) => {
     const detail = evt?.message || 'unknown error';
     log('image load failed: ' + detail);
     setLoadingOverlay('Failed to load image', true);
+    document.documentElement.style.opacity = '1';
   };
   img.src = imageDataUrl;
   updateCursor();
@@ -11994,19 +10080,6 @@ if (maskVisibilityToggle) {
   });
 }
 
-function formatBytes(bytes) {
-  if (!Number.isFinite(bytes)) {
-    return '--';
-  }
-  const units = ['B', 'KB', 'MB', 'GB', 'TB'];
-  let value = Math.max(0, bytes);
-  let idx = 0;
-  while (value >= 1024 && idx < units.length - 1) {
-    value /= 1024;
-    idx += 1;
-  }
-  return value.toFixed(idx >= 2 ? 1 : 0) + ' ' + units[idx];
-}
 
 function updateSystemInfo(info) {
   if (!info) {
@@ -12059,38 +10132,6 @@ async function fetchSystemInfo() {
 /**
  * Check if a colormap supports hue offset (cyclic colormaps).
  */
-function colormapHasOffset(cmapValue) {
-  const entry = LABEL_COLORMAPS.find(c => c.value === cmapValue);
-  return entry ? entry.hasOffset : false;
-}
-
-/**
- * Generate CSS gradient string for a colormap.
- */
-function generateColormapGradient(cmapValue, numStops = 32) {
-  const stops = [];
-  for (let i = 0; i < numStops; i++) {
-    const t = i / (numStops - 1);
-    let rgb;
-    if (cmapValue === 'sinebow') {
-      rgb = sinebowColor(t);
-    } else if (cmapValue === 'vivid') {
-      rgb = hslToRgb(t, 0.9, 0.5);
-    } else if (cmapValue === 'pastel') {
-      rgb = hslToRgb(t, 0.55, 0.72);
-    } else if (cmapValue === 'gray') {
-      const v = Math.round(t * 255);
-      rgb = [v, v, v];
-    } else if (COLORMAP_STOPS[cmapValue]) {
-      rgb = interpolateStops(COLORMAP_STOPS[cmapValue], t);
-    } else {
-      rgb = sinebowColor(t);
-    }
-    const pct = (t * 100).toFixed(1);
-    stops.push(`rgb(${rgb[0]},${rgb[1]},${rgb[2]}) ${pct}%`);
-  }
-  return `linear-gradient(to right, ${stops.join(', ')})`;
-}
 
 /**
  * Update the cmap panel UI based on current colormap selection.
@@ -12129,7 +10170,7 @@ function initCmapSelect() {
   });
   cmapSelect.value = labelColormap;
   // Update dropdown entry's options array (it was empty at registration time)
-  const dropdownEntry = dropdownRegistry.get('cmapSelect');
+  const dropdownEntry = OmniUI.getDropdown('cmapSelect');
   if (dropdownEntry) {
     dropdownEntry.options = LABEL_COLORMAPS.map(e => ({ value: e.value, label: e.label }));
   }
@@ -12225,7 +10266,7 @@ function initImageCmapSelect() {
   });
   imageCmapSelect.value = imageColormap;
   // Update dropdown entry's options array
-  const dropdownEntry = dropdownRegistry.get('imageCmapSelect');
+  const dropdownEntry = OmniUI.getDropdown('imageCmapSelect');
   if (dropdownEntry) {
     dropdownEntry.options = IMAGE_COLORMAPS.map(e => ({ value: e.value, label: e.label }));
   }
@@ -12268,7 +10309,7 @@ function initSegmentationModelSelect() {
     addOption.textContent = 'Add model...';
     segmentationModelSelect.appendChild(addOption);
   }
-  const dropdownEntry = dropdownRegistry.get('segmentationModel');
+  const dropdownEntry = OmniUI.getDropdown('segmentationModel');
   if (dropdownEntry) {
     dropdownEntry.options = Array.from(segmentationModelSelect.options).map((opt) => ({
       value: opt.value,

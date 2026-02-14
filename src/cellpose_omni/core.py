@@ -325,7 +325,7 @@ class UnetModel():
         if isinstance(self.pretrained_model, list):
             model_path = self.pretrained_model[0]
             if not net_avg:
-                self.net.load_model(self.pretrained_model[0])
+                self.net.load_model(self.pretrained_model[0], cpu=(not self.gpu))
                 if not self.torch:
                     self.net.collect_params().grad_req = 'null'
         else:

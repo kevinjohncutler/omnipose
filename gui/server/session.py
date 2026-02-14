@@ -7,6 +7,7 @@ import io
 import json
 import secrets
 import threading
+import time
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Optional
@@ -102,10 +103,14 @@ class SessionManager:
                 existing.saved_states.clear()
 
     def _load_image_from_path(self, path: Path) -> tuple[np.ndarray, bool]:
+        t0 = time.perf_counter()
         arr = imageio.imread(path)
+        t1 = time.perf_counter()
         arr = _ensure_spatial_last(arr)
         arr = _normalize_uint8(arr)
+        t2 = time.perf_counter()
         is_rgb = arr.ndim == 3 and arr.shape[-1] >= 3
+        print(f"[perf] imread: {(t1-t0)*1000:.0f}ms, normalize: {(t2-t1)*1000:.0f}ms, shape={arr.shape}", flush=True)
         return arr, is_rgb
 
     def _list_directory_images(self, directory: Path) -> list[Path]:
@@ -192,6 +197,7 @@ class SessionManager:
         return config
 
     def _encode_image(self, array: np.ndarray, *, is_rgb: bool) -> str:
+        t0 = time.perf_counter()
         buffer = io.BytesIO()
         if is_rgb and array.ndim == 3 and array.shape[-1] == 2:
             # promote 2-channel images to 3 for PNG compatibility
@@ -201,7 +207,11 @@ class SessionManager:
             imageio.imwrite(buffer, rgb, format="png")
         else:
             imageio.imwrite(buffer, array, format="png")
-        data = base64.b64encode(buffer.getvalue()).decode("ascii")
+        t1 = time.perf_counter()
+        raw_bytes = buffer.getvalue()
+        data = base64.b64encode(raw_bytes).decode("ascii")
+        t2 = time.perf_counter()
+        print(f"[perf] png_encode: {(t1-t0)*1000:.0f}ms ({len(raw_bytes)//1024}KB), b64: {(t2-t1)*1000:.0f}ms ({len(data)//1024}KB)", flush=True)
         return f"data:image/png;base64,{data}"
 
     def navigate(self, state: SessionState, delta: int) -> Optional[Path]:

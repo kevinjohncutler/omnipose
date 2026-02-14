@@ -1079,9 +1079,9 @@ def _extend_centers_torch(masks, centers, affinity_graph, coords=None, n_iter=20
 
     d = torch.tensor(d)
     idx = torch.tensor(idx)
-    fact = torch.tensor(fact)
-    steps = torch.tensor(steps,device=device)        
-    inds = tuple([torch.tensor(i) for i in inds])
+    fact = torch.tensor(fact, device=device)
+    steps = torch.tensor(steps, device=device)
+    inds = tuple([torch.tensor(i, device=device) for i in inds])
     omni = torch.tensor(omni)
     smooth = torch.tensor(smooth)
     verbose = torch.tensor(verbose)

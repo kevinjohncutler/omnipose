@@ -176,10 +176,15 @@ def create_app() -> "Any":
 
     @app.get("/", response_class=HTMLResponse)
     async def index(request: Request) -> HTMLResponse:
+        t_start = time.perf_counter()
         session_cookie = request.cookies.get(SESSION_COOKIE_NAME)
         state = SESSION_MANAGER.get_or_create(session_cookie)
+        t_session = time.perf_counter()
         config = SESSION_MANAGER.build_config(state)
+        t_config = time.perf_counter()
         html = build_html(config, inline_assets=False)
+        t_html = time.perf_counter()
+        print(f"[perf] GET / session: {(t_session-t_start)*1000:.0f}ms, config: {(t_config-t_session)*1000:.0f}ms, html: {(t_html-t_config)*1000:.0f}ms, total: {(t_html-t_start)*1000:.0f}ms, size: {len(html)//1024}KB", flush=True)
         response = HTMLResponse(html)
         response.set_cookie(
             SESSION_COOKIE_NAME,
@@ -227,6 +232,7 @@ def create_app() -> "Any":
 
     @app.post("/api/open_image", response_class=JSONResponse)
     async def api_open_image(payload: dict) -> JSONResponse:
+        t_start = time.perf_counter()
         if not isinstance(payload, dict):
             return JSONResponse({"error": "invalid payload"}, status_code=400)
         session_id = payload.get("sessionId")
@@ -249,6 +255,7 @@ def create_app() -> "Any":
                 SESSION_MANAGER.set_image(state, target)
             else:
                 return JSONResponse({"error": "path or direction required"}, status_code=400)
+            print(f"[perf] open_image: {(time.perf_counter()-t_start)*1000:.0f}ms", flush=True)
             return JSONResponse({"ok": True})
         except FileNotFoundError:
             return JSONResponse({"error": "file_not_found"}, status_code=404)

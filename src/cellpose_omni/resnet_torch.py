@@ -365,9 +365,19 @@ class CPnet(nn.Module):
         
     def load_model(self, filename, cpu=False):
         if not cpu:
-            self.load_state_dict(torch.load(filename,
-                                            map_location=torch_GPU,
-                                            weights_only=True))
+            target_device = torch_GPU
+            if (not ARM and not torch.cuda.is_available()) or (ARM and not torch.backends.mps.is_available()):
+                target_device = torch_CPU
+            try:
+                self.load_state_dict(torch.load(filename,
+                                                map_location=target_device,
+                                                weights_only=True))
+            except RuntimeError as e:
+                if "Attempting to deserialize object on a CUDA device" not in str(e):
+                    raise
+                self.load_state_dict(torch.load(filename,
+                                                map_location=torch_CPU,
+                                                weights_only=True))
             
 
             # checkpoint = torch.load(filename, map_location=torch_GPU,  weights_only=False)

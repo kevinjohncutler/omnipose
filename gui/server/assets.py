@@ -24,6 +24,10 @@ HISTORY_JS = WEB_DIR / "js" / "history.js"
 BRUSH_JS = WEB_DIR / "js" / "brush.js"
 PAINTING_JS = WEB_DIR / "js" / "painting.js"
 INTERACTIONS_JS = WEB_DIR / "js" / "interactions.js"
+COLORMAP_JS = WEB_DIR / "js" / "colormap.js"
+UI_UTILS_JS = WEB_DIR / "js" / "ui-utils.js"
+STATE_PERSISTENCE_JS = WEB_DIR / "js" / "state-persistence.js"
+FILE_NAVIGATION_JS = WEB_DIR / "js" / "file-navigation.js"
 
 HTML_FRAGMENTS = [
     HTML_DIR / "left-panel.html",
@@ -45,12 +49,16 @@ CSS_LINKS = (
     '    <link rel="stylesheet" href="/static/css/viewer.css" />',
 )
 
-JS_FILES = [POINTER_JS, LOGGING_JS, HISTORY_JS, BRUSH_JS, PAINTING_JS, INTERACTIONS_JS, APP_JS]
+JS_FILES = [POINTER_JS, LOGGING_JS, HISTORY_JS, COLORMAP_JS, UI_UTILS_JS, STATE_PERSISTENCE_JS, FILE_NAVIGATION_JS, BRUSH_JS, PAINTING_JS, INTERACTIONS_JS, APP_JS]
 
 JS_STATIC_PATHS = (
     "/static/js/pointer-state.js",
     "/static/js/logging.js",
     "/static/js/history.js",
+    "/static/js/colormap.js",
+    "/static/js/ui-utils.js",
+    "/static/js/state-persistence.js",
+    "/static/js/file-navigation.js",
     "/static/js/brush.js",
     "/static/js/painting.js",
     "/static/js/interactions.js",
@@ -111,6 +119,28 @@ CAPTURE_LOG_SCRIPT = """<script>
       stack: evt.error && evt.error.stack ? String(evt.error.stack) : ''
     });
   });
+})();
+</script>"""
+
+# Tiny script that restores the accent color from localStorage before the main
+# JS bundle runs — eliminates the yellow flash on page reload/navigation.
+RESTORE_ACCENT_SCRIPT = """<script>
+(function(){
+  try {
+    var raw = localStorage.getItem('__omni_accent');
+    if (raw) {
+      var a = JSON.parse(raw);
+      if (a && a.c) {
+        var s = document.documentElement.style;
+        s.setProperty('--accent-color', a.c);
+        if (a.h) s.setProperty('--accent-hover', a.h);
+        if (a.k) s.setProperty('--accent-ink', a.k);
+      }
+    }
+  } catch(_){}
+  /* Hide body until app signals ready — prevents layout flash during init */
+  document.documentElement.style.opacity = '0';
+  document.documentElement.style.transition = 'opacity 80ms ease-in';
 })();
 </script>"""
 
@@ -217,6 +247,8 @@ def render_index(
     )
     capture_script = CAPTURE_LOG_SCRIPT.strip()
     capture_script = "    " + capture_script.replace("\n", "\n    ")
+    accent_script = RESTORE_ACCENT_SCRIPT.strip()
+    accent_script = "    " + accent_script.replace("\n", "\n    ")
     css_links = list(CSS_LINKS)
     script_tag = '    <script src="/static/app.js"></script>'
     keep_order_comment = (
@@ -237,6 +269,7 @@ def render_index(
             script_tag,
             "\n".join([
                 config_script,
+                accent_script,
                 capture_script,
                 bundled_script,
             ]),
@@ -248,7 +281,7 @@ def render_index(
                 link,
                 link.replace(".css\"", f".css{suffix}\""),
             )
-        script_parts = [config_script, capture_script, f'    {keep_order_comment}']
+        script_parts = [config_script, accent_script, capture_script, f'    {keep_order_comment}']
         script_parts.extend(
             f'    <script src="{path}{suffix}"></script>'
             for path in JS_STATIC_PATHS
