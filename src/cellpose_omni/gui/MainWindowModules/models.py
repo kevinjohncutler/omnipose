@@ -3,6 +3,7 @@ from omnipose import core, gpu, misc
 from .. import logger  # Imports logger from __init__.py in parent
 from .. import io
 
+import os
 import time
 
 def timeit(func):
