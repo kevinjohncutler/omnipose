@@ -1,6 +1,7 @@
 import os
 import time
 import multiprocessing as mp
+from multiprocessing.shared_memory import SharedMemory
 
 import numpy as np
 import torch
@@ -9,6 +10,84 @@ from torch.utils.data import BatchSampler
 
 from ..transforms.augment import random_rotate_and_resize
 from ..core.flows import masks_to_flows_batch, batch_labels
+
+
+class _ShmPool:
+    """Pack a list of numpy arrays (heterogeneous shapes/dtypes) into a single
+    POSIX shared memory segment.
+
+    Uses only **one** file descriptor for the entire list, regardless of how
+    many arrays it holds.  With 284 training images, this reduces open-fd
+    usage from 568 → 2 (one pool for data, one for labels).
+
+    Pickle-efficient: only the shm name + offset table (tiny) is serialized.
+    Spawn workers attach to the existing segment by name — zero copies, zero
+    extra RAM beyond what the main process already holds.
+
+    Lifecycle:
+      Main process:  pool = _ShmPool(list_of_arrays)  # creates shm, copies once
+      Worker:        pool.get(i)                       # zero-copy view
+      Cleanup:       pool.close(); pool.unlink()       # release then destroy
+    """
+
+    _ALIGN = 64  # align array starts to cache-line boundaries
+
+    def __init__(self, arrays):
+        meta, offset = [], 0
+        for a in arrays:
+            meta.append((offset, a.shape, a.dtype.str))
+            offset += a.nbytes
+            offset = (offset + self._ALIGN - 1) // self._ALIGN * self._ALIGN
+
+        total = max(offset, 1)
+        self._shm = SharedMemory(create=True, size=total)
+        self._name = self._shm.name
+        self._owner = True
+
+        for (byte_off, shape, dtype_str), a in zip(meta, arrays):
+            dst = np.ndarray(shape, dtype=np.dtype(dtype_str),
+                             buffer=self._shm.buf, offset=byte_off)
+            dst[:] = a
+
+        self._meta = meta  # list of (int, tuple, str) — all serializable
+
+    def __getstate__(self):
+        return {'name': self._name, 'meta': self._meta}
+
+    def __setstate__(self, state):
+        self._name = state['name']
+        self._meta = state['meta']
+        # Attach to the existing shm segment without registering it in the
+        # resource_tracker — we own the lifecycle (main process unlinks).
+        # Monkey-patch register to a no-op for the duration of __init__
+        # so no registration happens, and no unregister is ever needed.
+        import multiprocessing.resource_tracker as _rt_mod
+        _orig_register = _rt_mod.register
+        _rt_mod.register = lambda *a, **kw: None
+        try:
+            self._shm = SharedMemory(name=self._name, create=False)
+        finally:
+            _rt_mod.register = _orig_register
+        self._owner = False
+
+    def get(self, i) -> np.ndarray:
+        """Return a zero-copy numpy view of the i-th array."""
+        byte_off, shape, dtype_str = self._meta[i]
+        return np.ndarray(shape, dtype=np.dtype(dtype_str),
+                          buffer=self._shm.buf, offset=byte_off)
+
+    def close(self):
+        try:
+            self._shm.close()
+        except Exception:
+            pass
+
+    def unlink(self):
+        if getattr(self, '_owner', False):
+            try:
+                self._shm.unlink()
+            except Exception:
+                pass
 
 
 class train_set(torch.utils.data.Dataset):
@@ -48,6 +127,83 @@ class train_set(torch.utils.data.Dataset):
         self.v1 = [0] * (self.dim - 1) + [1]
         self.v2 = [0] * (self.dim - 2) + [1, 0]
 
+        if not hasattr(self, 'defer_flows'):
+            self.defer_flows = False
+
+        # Shared-memory pools: single fd per role, zero extra RAM.
+        if not hasattr(self, 'data_pool'):
+            self.data_pool = None
+        if not hasattr(self, 'label_pool'):
+            self.label_pool = None
+
+        # True lazy loading: workers imread + normalize from original files.
+        # norm_params is a list of [(lo, hi), ...] per channel per image.
+        if not hasattr(self, 'image_paths'):
+            self.image_paths = None
+        if not hasattr(self, 'label_paths'):
+            self.label_paths = None
+        if not hasattr(self, 'norm_params'):
+            self.norm_params = None
+
+    # ------------------------------------------------------------------
+    # Pickle protocol: spawn workers only get paths + tiny norm params,
+    # never the full arrays.
+    # ------------------------------------------------------------------
+    def __getstate__(self):
+        state = self.__dict__.copy()
+        if self.image_paths is not None or self.data_pool is not None:
+            state['data'] = None
+            state['labels'] = None
+        return state
+
+    def __setstate__(self, state):
+        self.__dict__.update(state)
+
+    def _get_batch_arrays(self, inds):
+        """Return (images, labels) for the given indices.
+
+        Priority:
+          1. image_paths + norm_params — imread from original files, zero main-
+             process RAM, preprocessing on demand in each worker.
+          2. _ShmPool — zero-copy shm, 2 fds total, preprocessed arrays shared.
+          3. In-memory arrays — num_workers=0 / legacy path.
+        """
+        if self.image_paths is not None:
+            from ..io.imio import imread
+            from ..transforms.shape import apply_norm_params
+            from ..transforms.axes import move_min_dim
+            images, labels = [], []
+            for i in inds:
+                img = imread(self.image_paths[i]).astype(np.float32)
+                # Restore the channel layout that compute_norm_params assumed.
+                # Must use the same heuristic as compute_norm_params.
+                _ch_ax = getattr(self, '_channel_axis', None)
+                if _ch_ax is not None:
+                    img = np.moveaxis(img, _ch_ax, 0)
+                elif img.ndim > self.dim:
+                    # channel_axis=None: move smallest dim to front (mirrors compute_norm_params)
+                    img = move_min_dim(img)       # moves min-dim to last
+                    img = np.moveaxis(img, -1, 0) # then bring to front
+                if img.ndim == self.dim:
+                    img = img[np.newaxis]
+                if self.norm_params is not None:
+                    img = apply_norm_params(img, self.norm_params[i])
+                images.append(img)
+                lbl = imread(self.label_paths[i])
+                # format_labels (sequential integers) if no link file
+                if self.links[i] is None:
+                    import ncolor
+                    lbl = ncolor.format_labels(lbl)
+                labels.append(lbl)
+            return images, labels
+        elif self.data_pool is not None:
+            images = [self.data_pool.get(i) for i in inds]
+            labels = [self.label_pool.get(i) for i in inds]
+        else:
+            images = [self.data[i] for i in inds]
+            labels = [self.labels[i] for i in inds]
+        return images, labels
+
     def __iter__(self):
         worker_info = mp.get_worker_info()
 
@@ -77,6 +233,28 @@ class train_set(torch.utils.data.Dataset):
         batch_inds = [item for sublist in worker_inds for item in sublist]
 
         return batch_imgs, batch_labels, batch_inds
+
+    def collate_fn_deferred(self, worker_data):
+        """Collate for deferred flows mode - just pass through the single batch."""
+        return worker_data[0]
+
+    def compute_flows_gpu(self, imgi_np, masks_np, links, device):
+        """Compute flows on GPU from raw augmented data (main process only)."""
+        with torch.no_grad():
+            out = masks_to_flows_batch(masks_np, links,
+                                       device=device,
+                                       omni=self.omni,
+                                       dim=self.dim,
+                                       affinity_field=self.affinity_field)
+            X = out[:-4]
+            slices = out[-4]
+            masks, bd, T, mu = [torch.stack([x[(Ellipsis,) + slc] for slc in slices]) for x in X]
+
+            lbl = batch_labels(masks, bd, T, mu, self.tyx,
+                               dim=self.dim, nclasses=self.nclasses, device=device)
+
+            imgi = torch.tensor(imgi_np, device=device, dtype=torch.float32)
+        return imgi, lbl
 
     def worker_init_fn(self, worker_id):
         worker_seed = torch.initial_seed() % 2**32
@@ -114,10 +292,12 @@ class train_set(torch.utils.data.Dataset):
         links = [self.links[idx] for idx in inds]
         rsc = np.array([self.rescale_factor[idx] for idx in inds]) if self.do_rescale else None
 
+        batch_images, batch_labels_raw = self._get_batch_arrays(inds)
+
         # Use random_rotate_and_resize on full batch (matches omnipose manual path)
         imgi, labels, scale = random_rotate_and_resize(
-            X=[self.data[idx] for idx in inds],
-            Y=[self.labels[idx] for idx in inds],
+            X=batch_images,
+            Y=batch_labels_raw,
             scale_range=self.scale_range,
             gamma_range=self.gamma_range,
             tyx=self.tyx,
@@ -132,75 +312,46 @@ class train_set(torch.utils.data.Dataset):
             print('image augmentation time: {:.2f}'.format(toc - tic))
             tic = toc
 
-        out = masks_to_flows_batch(labels, links,
-                                   device=self.device,
-                                   omni=self.omni,
-                                   dim=self.dim,
-                                   affinity_field=self.affinity_field
-                                   )
-        if self.timing:
-            toc = time.time()
-            print('flow time: {:.2f}'.format(toc - tic))
-            tic = toc
+        # Deferred mode: return raw augmented data for GPU flow computation in main process
+        if self.defer_flows:
+            return imgi, labels, links, inds
 
-        X = out[:-4]
-        slices = out[-4]
-        masks, bd, T, mu = [torch.stack([x[(Ellipsis,) + slc] for slc in slices]) for x in X]
+        with torch.no_grad():
+            out = masks_to_flows_batch(labels, links,
+                                       device=self.device,
+                                       omni=self.omni,
+                                       dim=self.dim,
+                                       affinity_field=self.affinity_field
+                                       )
+            if self.timing:
+                toc = time.time()
+                print('flow time: {:.2f}'.format(toc - tic))
+                tic = toc
 
-        lbl = batch_labels(masks,
-                           bd,
-                           T,
-                           mu,
-                           self.tyx,
-                           dim=self.dim,
-                           nclasses=self.nclasses,
-                           device=self.device
-                           )
-        if self.timing:
-            toc = time.time()
-            print('batching time: {:.2f}'.format(toc - tic))
-            tic = toc
+            X = out[:-4]
+            slices = out[-4]
+            masks, bd, T, mu = [torch.stack([x[(Ellipsis,) + slc] for slc in slices]) for x in X]
 
-        imgi = torch.tensor(imgi, device=self.device, dtype=torch.float32)
+            lbl = batch_labels(masks,
+                               bd,
+                               T,
+                               mu,
+                               self.tyx,
+                               dim=self.dim,
+                               nclasses=self.nclasses,
+                               device=self.device
+                               )
+            if self.timing:
+                toc = time.time()
+                print('batching time: {:.2f}'.format(toc - tic))
+                tic = toc
+
+            imgi = torch.tensor(imgi, device=self.device, dtype=torch.float32)
 
         if self.timing:
             print('inds', len(inds))
 
         return imgi, lbl, inds
-
-
-class DataPrefetcher:
-    def __init__(self, loader, device):
-        self.loader = iter(loader)
-        self.device = device
-        self.stream = torch.cuda.Stream()
-        self._preload()
-
-    def _preload(self):
-        try:
-            batch = next(self.loader)
-            self.next_data = batch[0]
-            self.next_labels = batch[1]
-            if len(batch) > 2:
-                self.next_inds = batch[2]
-            else:
-                self.next_inds = None
-        except StopIteration:
-            self.next_data = None
-            self.next_labels = None
-            self.next_inds = None
-            return
-        with torch.cuda.stream(self.stream):
-            self.next_data = self.next_data.cuda(self.device, non_blocking=True)
-            self.next_labels = self.next_labels.cuda(self.device, non_blocking=True)
-
-    def next(self):
-        torch.cuda.current_stream().wait_stream(self.stream)
-        data = self.next_data
-        labels = self.next_labels
-        inds = self.next_inds
-        self._preload()
-        return data, labels, inds
 
 
 class CyclingRandomBatchSampler(BatchSampler):

@@ -111,36 +111,6 @@ def test_train_set_getitem(monkeypatch):
     assert inds == [0]
 
 
-def test_data_prefetcher(monkeypatch):
-    loader = [(torch.zeros((1, 1, 4, 4)), torch.zeros((1, 1, 4, 4)), [0])]
-
-    class DummyStream:
-        def wait_stream(self, _stream):
-            return None
-
-    class DummyCtx:
-        def __enter__(self):
-            return None
-
-        def __exit__(self, *_args):
-            return False
-
-    monkeypatch.setattr(torch.cuda, "Stream", lambda: DummyStream())
-    monkeypatch.setattr(torch.cuda, "stream", lambda *_args, **_kwargs: DummyCtx())
-    monkeypatch.setattr(torch.cuda, "current_stream", lambda: DummyStream())
-    torch.Tensor.cuda = lambda self, *_args, **_kwargs: self
-
-    prefetch = train_mod.DataPrefetcher(iter(loader), device=0)
-    data, labels, inds = prefetch.next()
-    assert data.shape[-2:] == (4, 4)
-    assert inds == [0]
-
-    loader = [(torch.zeros((1, 1, 4, 4)), torch.zeros((1, 1, 4, 4)))]
-    prefetch = train_mod.DataPrefetcher(iter(loader), device=0)
-    data, labels, inds = prefetch.next()
-    assert inds is None
-
-
 def test_cycling_random_batch_sampler():
     data = list(range(5))
     sampler = train_mod.CyclingRandomBatchSampler(data, batch_size=2, generator=torch.Generator().manual_seed(0))
