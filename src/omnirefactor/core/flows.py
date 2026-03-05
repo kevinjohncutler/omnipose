@@ -1,11 +1,67 @@
+from typing import Sequence
+
 from .imports import *
 
-from .affinity import masks_to_affinity, affinity_to_boundary
-from .fields import _gradient, _iterate
+from .affinity import masks_to_affinity, affinity_to_boundary, compute_affinity_gpu, affinity_to_boundary_gpu
+from .fields import _gradient, _iterate, _iterate_grid, _gradient_grid, roll_and_clamp
 
 
 
-def labels_to_flows(labels, links=None, use_gpu=False, device=None, 
+def _extend_centers_torch_grid(clabels_gpu: torch.Tensor,
+                               affinity: torch.Tensor,
+                               n_iter: int = 50,
+                               omni: bool = True,
+                               return_flows: bool = True,
+                               verbose: bool = False,
+                               seam_ends: Sequence[int] = (),
+                               seam_starts: Sequence[int] = ()):
+    """Full-grid Eikonal solve entirely on GPU.
+
+    Replaces _extend_centers_torch for the CUDA fast path: no CPU neighbour
+    index construction, no random neigh_inds gathers.
+
+    Args:
+        clabels_gpu: (*spatial) int tensor on GPU (0 = background).
+        affinity:    (nsteps, *spatial) bool tensor from compute_affinity_gpu.
+        n_iter:      iteration budget.
+        omni:        True = Eikonal (Omnipose), False = not supported here.
+        return_flows: if True, also compute and return the flow field.
+        seam_ends:   rows (spatial dim 0) that are the last row of a tile.
+        seam_starts: rows that are the first row of the next tile.
+
+    Returns:
+        (T, mu) if return_flows else (T,)
+        T:  (*spatial) float tensor — solved distance field.
+        mu: (ndim, *spatial) float tensor — flow field.
+    """
+    device = clabels_gpu.device
+    shape = clabels_gpu.shape
+    ndim = len(shape)
+
+    steps_np, inds, idx_center, fact, sign = utils.kernel_setup(ndim)
+    steps_list = [tuple(int(s) for s in row) for row in steps_np]
+    steps_t  = torch.tensor(steps_np, device=device)
+    fact_t   = torch.tensor(fact, device=device, dtype=torch.float32)
+    inds_t   = tuple(torch.tensor(i, device=device) for i in inds)
+    d_scalar = torch.tensor(ndim)
+
+    # Initial field: 1 inside masks, 0 outside.
+    T = (clabels_gpu > 0).float()
+
+    T = _iterate_grid(T, affinity, steps_list, idx_center,
+                      d_scalar, inds_t, fact_t,
+                      n_iter, omni,
+                      seam_ends=seam_ends, seam_starts=seam_starts,
+                      verbose=verbose)
+
+    if return_flows:
+        mu = _gradient_grid(T, affinity, steps_t, fact_t, inds_t,
+                            seam_ends=seam_ends, seam_starts=seam_starts)
+        return T, mu
+    return (T,)
+
+
+def labels_to_flows(labels, links=None, use_gpu=False, device=None,
                     omni=True, dim=2):
     """ Convert labels (list of masks or flows) to flows for training model.
 
@@ -185,7 +241,7 @@ def masks_to_flows(masks, affinity_graph=None, dists=None, coords=None, links=No
 def masks_to_flows_batch(batch, links=[None], device=torch.device('cpu'),
                          omni=True, dim=2, normalize=False,
                          affinity_field=False, initialize=False, n_iter=None,
-                         verbose=False):
+                         verbose=False, use_grid=True):
     """
     Batch process flows. This includes padding with relection to not have weird cutoff flows.
     
@@ -202,84 +258,117 @@ def masks_to_flows_batch(batch, links=[None], device=torch.device('cpu'),
     # add an if statement to catch the case where all labels are empty 
     
     nsample = len(batch)
-    final_flat,clinks,indices,final_shape,dL = concatenate_labels(batch,
-                                                                  links=links,
-                                                                  nsample=nsample)
+    # Skip index computation for the GPU fast path — ccoords is not needed there.
+    will_use_gpu = device.type != 'cpu' and omni and not affinity_field and use_grid
+    final_flat, clinks, indices, final_shape, dL = concatenate_labels(
+        batch, links=links, nsample=nsample, compute_indices=not will_use_gpu)
     clabels = final_flat.reshape(final_shape)
-    ccoords = np.unravel_index(indices,final_shape)
-    # clabels,clinks,ccoords,dL = concatenate_labels(batch,links,nsample=nsample)
-    
-    # calculate affinity graph for the entire concatenated stack
+
+    slices = [tuple([slice(i*dL,(i+1)*dL)]+[slice(None,None)]*(dim-1)) for i in range(nsample)]
+
+    if will_use_gpu:
+        # ── GPU fast path: full-grid roll-based solve, no CPU affinity ──────
+        # Compute affinity and boundary entirely on GPU via clamped torch.roll.
+        # Bypasses masks_to_affinity (~50 ms) + get_neighbors (~32 ms).
+        steps_np, _, _, _, _ = utils.kernel_setup(dim)
+        clabels_gpu = torch.tensor(clabels.astype(np.int32), device=device)
+        # Seam rows between concatenated tiles: CPU get_neighbors applies
+        # Neumann BC here (is_edge=True); replicate by clamping at these rows.
+        seam_ends   = [i * dL - 1 for i in range(1, nsample)]
+        seam_starts = [i * dL     for i in range(1, nsample)]
+        affinity_gpu = compute_affinity_gpu(clabels_gpu, steps_np,
+                                            seam_ends=seam_ends,
+                                            seam_starts=seam_starts,
+                                            links=clinks)
+        boundaries_gpu = affinity_to_boundary_gpu(affinity_gpu, clabels_gpu > 0)
+
+        if n_iter is not None:
+            n_iter_eff = n_iter
+        else:
+            # Estimate n_iter from the CPU clabels array (already available).
+            # Avoids a GPU bincount + .item() which forces an expensive
+            # CPU-GPU sync (~1000ms on MPS) before the solve even starts.
+            counts_cpu = np.bincount(clabels.ravel())
+            # n_iter depends on per-cell half-width, not merged group size:
+            # the Eikonal is local — T at each pixel converges once the
+            # update has propagated across the cell's own cross-section.
+            # Linked groups may span many pixels end-to-end but each cell's
+            # width (and thus its convergence radius) is unchanged by linking.
+            max_count = int(counts_cpu[1:].max()) if len(counts_cpu) > 1 else 1
+            n_iter_eff = int(np.ceil(np.sqrt(max_count / np.pi) * 1.16)) + 1
+        T, mu = _extend_centers_torch_grid(clabels_gpu, affinity_gpu,
+                                           n_iter=int(n_iter_eff),
+                                           omni=True,
+                                           return_flows=True,
+                                           verbose=verbose,
+                                           seam_ends=seam_ends,
+                                           seam_starts=seam_starts)
+        return clabels_gpu, boundaries_gpu, T, mu, slices, clinks, None, None
+
+    # ── CPU / links path (original) ──────────────────────────────────────────
+    # indices were computed above (compute_indices=True for CPU path)
+    ccoords = np.unravel_index(indices, final_shape)
     steps, inds, idx, fact, sign = utils.kernel_setup(dim)
     shape = batch[0].shape
-    # edges = [np.concatenate([[i*dL,i*dL-1] for i in range(0,nsample+1)])]+[np.array([-1,0,s-1,s]) for s in shape[1:]]
     edges = [np.concatenate([[i*dL-1,i*dL] for i in range(0,nsample+1)])]+[np.array([-1,s]) for s in shape[1:]]
-    
-    # print('s',clabels.shape,[c.max() for c in ccoords])
 
-    affinity_graph = masks_to_affinity(clabels, ccoords, steps, inds, idx, fact, sign, dim, 
-                                       links=clinks, edges=edges)#, dists=cdists)
-    
-    # find boundary, flows 
+    affinity_graph = masks_to_affinity(clabels, ccoords, steps, inds, idx, fact, sign, dim,
+                                       links=clinks, edges=edges)
+
     boundaries = affinity_to_boundary(clabels,affinity_graph,ccoords)
-    
-    # if I am do carry through the warped distance fields, I should probably use them here too to seed the iterations for faster convergence... have not doen that yet
+
     T, mu = masks_to_flows_torch(clabels, affinity_graph, ccoords,
                                  device=device, omni=omni,
                                  normalize=normalize, initialize=initialize,
                                  affinity_field=affinity_field, n_iter=n_iter,
                                  edges=edges, verbose=verbose)
 
-    slices = [tuple([slice(i*dL,(i+1)*dL)]+[slice(None,None)]*(dim-1)) for i in range(nsample)]
     return torch.tensor(clabels.astype(int),device=device), torch.tensor(boundaries,device=device), T, mu, slices, clinks, ccoords, affinity_graph
 
 # from numba import jit
 # def concatenate_labels(masks,links,nsample):
 # @njit #due to unravel_index
 
-def concatenate_labels(masks: np.ndarray, links: list, nsample: int):
-    # concatenate and increment both the masks and links 
-    masks = masks.copy().astype(np.int64) # casting to int64 sped things up 10x???
+def concatenate_labels(masks: np.ndarray, links: list, nsample: int,
+                       compute_indices: bool = True):
+    # concatenate and increment both the masks and links
+    # astype(int64) always creates a new array (copy=True by default), so no .copy() needed
+    masks = masks.astype(np.int64)  # casting to int64 sped things up 10x
     dtype = masks[0].dtype
     shape = masks[0].shape
     dL = shape[0]
     dim = len(shape)
-    
+
     clinks = set()
-    # clinks = []
     final_shape = (shape[0]*nsample,)+shape[1:]
     stride = np.prod(shape)
     length = np.prod(final_shape)
-    # stride = 1
-    # for s in shape:
-    #     stride *=s
-    # length = 1
-    # for s in final_shape:
-    #     length *= s
-        
+
     # Preallocate flattened final array
     final_flat = np.empty(length, dtype=dtype)
-    npix = np.array([np.count_nonzero(m>0) for m in masks],dtype)
-    tpix = np.cumsum(np.hstack((0,npix)))
-    # tpix = np.array([0]*(len(masks)+1),dtype)
-    # for i,n in enumerate(npix):
-    #     tpix[i+1:] += n
-        
-    indices = np.empty((tpix[-1],), dtype=np.int64)
-    label_shift = 0 # shift labels of each tile outside the range of the last 
-    for i,(masks,lnks) in enumerate(zip(masks,links)):
-        mask_temp = np.ravel(masks)
+
+    if compute_indices:
+        npix = np.array([np.count_nonzero(m>0) for m in masks], dtype)
+        tpix = np.cumsum(np.hstack((0, npix)))
+        indices = np.empty((tpix[-1],), dtype=np.int64)
+    else:
+        indices = None
+
+    label_shift = 0  # shift labels of each tile outside the range of the last
+    for i, (mask, lnks) in enumerate(zip(masks, links)):
+        mask_temp = np.ravel(mask)
         sel = np.nonzero(mask_temp)
-        mask_temp[sel] = mask_temp[sel]+label_shift
+        mask_temp[sel] = mask_temp[sel] + label_shift
         final_flat[(i*stride): (i+1)*stride] = mask_temp
-        indices[tpix[i]:tpix[i]+npix[i]] = sel[0] + (i*stride)
+        if compute_indices:
+            indices[tpix[i]:tpix[i]+npix[i]] = sel[0] + (i*stride)
         if lnks is not None:
             if len(lnks):
                 for l in lnks:
-                    clinks.add((l[0]+label_shift,l[1]+label_shift))
-        label_shift += mask_temp.max()+1
+                    clinks.add((l[0]+label_shift, l[1]+label_shift))
+        label_shift += mask_temp.max() + 1
 
-    return final_flat,clinks,indices,final_shape,dL
+    return final_flat, clinks, indices, final_shape, dL
 
 
 # LABELS ARE NOW (masks,mask) for semantic seg with additional (bd,dist,weight,flows) for instance seg
@@ -506,12 +595,9 @@ def _extend_centers_torch(masks, centers, affinity_graph, coords=None, n_iter=20
 
     d = torch.tensor(d)
     idx = torch.tensor(idx)
-    fact = torch.tensor(fact)
-    steps = torch.tensor(steps,device=device)
-    inds = tuple([torch.tensor(i) for i in inds])
-    omni = torch.tensor(omni)
-    verbose = torch.tensor(verbose)
-
+    fact = torch.tensor(fact, device=device, dtype=torch.float32)
+    steps = torch.tensor(steps, device=device, dtype=torch.float32)
+    inds = tuple([torch.tensor(i, device=device) for i in inds])
     isneigh = torch.tensor(affinity_graph,device=device,dtype=torch.bool) # isneigh shape (3**d,npix)
     neigh_inds = torch.tensor(neigh_inds,device=device)
     central_inds = torch.tensor(central_inds,device=device,dtype=torch.long)
@@ -522,15 +608,15 @@ def _extend_centers_torch(masks, centers, affinity_graph, coords=None, n_iter=20
         T = torch.tensor(affinity_graph,device=device,dtype=dtype).sum(axis=0)
     else:
         if initialize and d<=3:
-            T = torch.tensor(edt.edt(masks)[coords],device=device) 
+            T = torch.tensor(edt.edt(masks)[coords],device=device)
 
         if n_iter is None:
-            n_iter = torch.tensor(50)
+            n_iter = 50
         else:
-            n_iter = torch.tensor(n_iter)
+            n_iter = int(n_iter)
 
     T = _iterate(T,neigh_inds,central_inds,centroid_inds,
-                     idx,d,inds,fact,isneigh,n_iter,omni,verbose)
+                     idx,d,inds,fact,isneigh,n_iter,bool(omni),bool(verbose))
 
     ret = []
     

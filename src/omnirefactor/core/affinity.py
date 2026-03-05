@@ -2,6 +2,7 @@ import logging
 import time
 import numpy as np
 import torch
+from typing import Sequence
 from numba import njit, prange
 
 import fastremap
@@ -60,6 +61,107 @@ def get_link_matrix(links, piece_masks, inds, idx, is_link):
         return is_link
     links_arr = np.array(list(links), dtype=np.int64)
     return _get_link_matrix(links_arr, piece_masks, inds, idx, is_link)
+
+def compute_affinity_gpu(clabels: torch.Tensor, steps: np.ndarray,
+                          seam_ends: Sequence[int] = (),
+                          seam_starts: Sequence[int] = (),
+                          links=None) -> torch.Tensor:
+    """GPU replacement for masks_to_affinity + get_neighbors.
+
+    Computes the (nsteps, *spatial) affinity mask entirely on-device using
+    clamped torch.roll.  No CPU round-trips, no neigh_inds array.
+
+    Boundary semantics (matching the CPU get_neighbors clamp):
+    - At true grid boundaries the neighbour coordinate is clamped to the
+      boundary pixel itself → ``clabels == rolled_clabels`` is True for
+      foreground → affinity True, identical to CPU ``is_edge`` (Neumann BC).
+    - At stitching seams (rows seam_ends / seam_starts) the same clamping is
+      applied so that seam pixels report affinity True (connecting to self),
+      matching the CPU behaviour where ``edges`` causes is_edge=True at seams.
+      Without this fix the roll crosses into the adjacent tile, finds a
+      different label, and returns affinity False → Tneigh=0 → field collapse.
+
+    Args:
+        clabels:     (*spatial) int tensor on the target device (0 = background).
+        steps:       (nsteps, dim) NumPy array of neighbour offsets.
+        seam_ends:   row indices (spatial dim 0) that are the *last* row of a
+                     tile — clamp when step[0] > 0.
+        seam_starts: row indices that are the *first* row of the next tile —
+                     clamp when step[0] < 0.
+        links:       iterable of (a, b) label pairs to treat as connected
+                     (e.g. self-contact labels). None or empty = no links.
+
+    Returns:
+        affinity: (nsteps, *spatial) bool tensor on same device as clabels.
+    """
+    from .fields import _pad_and_stack_neighbors, _make_seam_mask
+
+    nsteps = len(steps)
+    idx_center = nsteps // 2          # the (0, …, 0) step
+    foreground = clabels > 0
+    device = clabels.device
+
+    # Vectorized: extract all nsteps neighbour label maps at once.
+    steps_list = [list(s) for s in steps]
+    rolled_cl = _pad_and_stack_neighbors(
+        clabels.float(), steps_list,
+    ).long()                                          # (nsteps, *spatial)
+
+    # Seam correction: at tile-boundary rows, steps crossing the seam would
+    # read the adjacent tile's labels.  Replace with self-label so affinity
+    # reports True (= connected to self) at seam rows, matching CPU is_edge BC.
+    if seam_ends or seam_starts:
+        seam_mask = _make_seam_mask(nsteps, clabels.shape, steps_list,
+                                    seam_ends, seam_starts, device)
+        rolled_cl = torch.where(seam_mask, clabels.long().unsqueeze(0), rolled_cl)
+
+    affinity = (rolled_cl == clabels.unsqueeze(0)) & foreground.unsqueeze(0)
+
+    # Link-based affinities: pixels of linked label pairs are also connected.
+    # Build a (max_label+1, max_label+1) bool matrix on-device, then use
+    # vectorized 2D fancy-indexing across all steps in one call.
+    if links:
+        max_label = int(clabels.max().item())   # one GPU-CPU sync, only when links exist
+        link_matrix = torch.zeros(max_label + 1, max_label + 1,
+                                  dtype=torch.bool, device=device)
+        # Vectorized link_matrix fill: convert the set of (a,b) pairs to a
+        # (L,2) int tensor and use advanced indexing — avoids a slow Python loop.
+        links_arr = torch.tensor(list(links), dtype=torch.long, device=device)  # (L, 2)
+        valid = (links_arr[:, 0] <= max_label) & (links_arr[:, 1] <= max_label)
+        a_idx = links_arr[valid, 0]
+        b_idx = links_arr[valid, 1]
+        link_matrix[a_idx, b_idx] = True
+        link_matrix[b_idx, a_idx] = True
+        # rolled_cl: (nsteps, *spatial); clabels: (*spatial)
+        # Expand clabels to match rolled_cl shape for paired indexing.
+        cl_exp = clabels.unsqueeze(0).expand_as(rolled_cl)      # (nsteps, *spatial)
+        linked = link_matrix[cl_exp.reshape(nsteps, -1),
+                             rolled_cl.reshape(nsteps, -1)      # (nsteps, npix)
+                            ].view(nsteps, *clabels.shape)
+        affinity |= linked & foreground.unsqueeze(0)
+
+    affinity[idx_center] = False                      # center step: no self-connection
+    return affinity
+
+
+def affinity_to_boundary_gpu(affinity: torch.Tensor,
+                              foreground: torch.Tensor) -> torch.Tensor:
+    """GPU version of affinity_to_boundary.
+
+    A pixel is a boundary pixel if it has at least one active connection and
+    fewer than ``nsteps - 1`` active connections (not fully internal).
+
+    Args:
+        affinity:   (nsteps, *spatial) bool tensor.
+        foreground: (*spatial) bool tensor, True where clabels > 0.
+
+    Returns:
+        boundary: (*spatial) bool tensor on same device.
+    """
+    nsteps = affinity.shape[0]
+    csum = affinity.sum(0)
+    return (csum < (nsteps - 1)) & (csum > 0) & foreground
+
 
 def masks_to_affinity(masks, coords, steps, inds, idx, fact, sign, dim,
                       neighbors=None,

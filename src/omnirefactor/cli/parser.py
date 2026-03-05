@@ -165,6 +165,10 @@ def get_arg_parser():
     training_args.add_argument("--links", action="store_true",
                                help="Search and use link files for multi-label objects.")
     training_args.add_argument("--amp", action="store_true", help="Use Automatic Mixed Precision.")
+    training_args.add_argument("--sym_kernels", action="store_true",
+                               help="Enforce symmetric convolution kernels after each optimizer step.")
+    training_args.add_argument("--symmetry_weight", default=1.0, type=float,
+                               help="Weight for symmetry loss term. Set 0 to disable.")
     training_args.add_argument("--affinity_field", action="store_true",
                                help="Use summed affinity instead of distance field.")
     training_args.add_argument("--tensorboard", action="store_true",

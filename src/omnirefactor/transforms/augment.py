@@ -280,7 +280,7 @@ def random_crop_warp(img, Y, tyx, v1, v2, nchan, rescale_factor, scale_range, ga
 
     imgi = np.zeros((nchan,) + tyx, np.float32)
 
-    for k in range(nchan):
+    for k in range(img.shape[0]):
         has_foreground = np.any(lbl)
         if np.issubdtype(img[k].dtype, np.integer):
             nvals = len(fastremap.unique(img[k]))

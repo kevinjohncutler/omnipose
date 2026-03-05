@@ -100,15 +100,37 @@ def get_label_files(img_names, label_filter='_cp_masks', img_filter='', ext=None
 
 # edited to allow omni to not read in training flows if any exist; flows computed on-the-fly and code expects this 
 # futher edited to automatically find link files for boundary or timelapse flow generation 
-def load_train_test_data(train_dir, test_dir=None, image_filter='', mask_filter='_masks', 
-                         unet=False, look_one_level_down=True, omni=False, do_links=True):
+def load_train_test_data(train_dir, test_dir=None, image_filter='', mask_filter='_masks',
+                         unet=False, look_one_level_down=True, omni=False, do_links=True,
+                         lazy=False):
     """
     Loads the training and optional test data for training runs.
+
+    Parameters
+    ----------
+    lazy : bool (default False)
+        When True, return file paths instead of in-memory arrays.
+        ``images`` and ``labels`` in the return tuple will be lists of path
+        strings; no imread calls are made.  The caller is responsible for
+        loading and preprocessing on demand (e.g. inside DataLoader workers).
+        ``label_names`` is added as the 5th return element so workers can
+        load labels too; all subsequent positions shift by one.
+
+    Returns (lazy=False, classic order)
+    ------------------------------------
+    images, labels, links, image_names,
+    test_images, test_labels, test_links, image_names_test
+
+    Returns (lazy=True)
+    --------------------
+    image_names, label_names, links, image_names,
+    test_image_names, test_label_names, test_links, image_names_test
+    (images == image_names and labels == label_names so downstream code that
+    unpacks the first two slots naturally receives paths.)
     """
-    
+
     image_names = get_image_files(train_dir, mask_filter, image_filter, look_one_level_down)
     nimg_train = len(image_names)
-    images = [imread(image_names[n]) for n in range(nimg_train)]
 
     label_names, link_names = get_label_files(
         image_names,
@@ -116,9 +138,14 @@ def load_train_test_data(train_dir, test_dir=None, image_filter='', mask_filter=
         img_filter=image_filter,
         links=True,
     )
-    labels = [imread(l) for l in label_names]
     links = [load_links(l) for l in link_names]
-    
+
+    if lazy:
+        images = list(image_names)   # paths, not arrays
+        labels = list(label_names)
+    else:
+        images = [imread(image_names[n]) for n in range(nimg_train)]
+        labels = [imread(l) for l in label_names]
 
     if nimg_train == 1:
         io_logger.warning(
@@ -129,10 +156,10 @@ def load_train_test_data(train_dir, test_dir=None, image_filter='', mask_filter=
         links = links * 2
         image_names = image_names * 2
         nimg_train = len(images)
-            
+
     # testing data
     nimg_test = 0
-    test_images, test_labels, test_links, image_names_test = None,None,[None],None 
+    test_images, test_labels, test_links, image_names_test = None, None, [None], None
     if test_dir is not None:
         image_names_test = get_image_files(test_dir, mask_filter, image_filter, look_one_level_down)
         label_names_test, link_names_test = get_label_files(
@@ -141,17 +168,20 @@ def load_train_test_data(train_dir, test_dir=None, image_filter='', mask_filter=
             img_filter=image_filter,
             links=True,
         )
-        
         nimg_test = len(image_names_test)
-        test_images = [imread(image_names_test[n]) for n in range(nimg_test)]
-        test_labels = [imread(label_names_test[n]) for n in range(nimg_test)]
         test_links = [load_links(link_names_test[n]) for n in range(nimg_test)]
-    
-    # Allow disabling the links even if link files were found 
+        if lazy:
+            test_images = list(image_names_test)
+            test_labels = list(label_names_test)
+        else:
+            test_images = [imread(image_names_test[n]) for n in range(nimg_test)]
+            test_labels = [imread(label_names_test[n]) for n in range(nimg_test)]
+
+    # Allow disabling the links even if link files were found
     if not do_links:
         links = [None]*nimg_train
         test_links = [None]*nimg_test
-    
+
     return images, labels, links, image_names, test_images, test_labels, test_links, image_names_test
 
 

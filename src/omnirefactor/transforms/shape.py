@@ -185,6 +185,53 @@ def reshape_train_test(train_data, train_labels, test_data, test_labels, channel
     return train_data, train_labels, test_data, test_labels, run_test
 
 
+def compute_norm_params(image_paths, channel_axis=0, channels=None, normalize=True, dim=2, omni=False):
+    """Single-pass precomputation of per-image per-channel normalization parameters.
+
+    Reads each file, computes percentiles, then discards the array.
+    Returns a list of [(lo_c0, hi_c0), (lo_c1, hi_c1), ...] per image.
+    Total memory: ~2 floats per channel per image (negligible).
+
+    channel_axis=None uses the move_min_dim heuristic: smallest dimension is
+    treated as channels and moved to axis 0.
+    """
+    from ..io.imio import imread
+    from .axes import move_min_dim
+    norm_params = []
+    for path in image_paths:
+        img = imread(path).astype(np.float32)
+        if channels is not None:
+            _ca = channel_axis if channel_axis is not None else 0
+            img = reshape(img, channels=channels, chan_first=True, channel_axis=_ca)
+        elif channel_axis is not None:
+            img = np.moveaxis(img, channel_axis, 0)
+        else:
+            # channel_axis=None: use move_min_dim to identify channels (smallest dim),
+            # then move them to front for consistent (C, ...) layout.
+            if img.ndim > dim:
+                img = move_min_dim(img)          # moves min-dim to last
+                img = np.moveaxis(img, -1, 0)    # then bring to front
+        if img.ndim == dim:
+            img = img[np.newaxis]          # add channel dim for 2D images
+        per_channel = []
+        for c in range(img.shape[0]):
+            ch = img[c]
+            lo = float(np.percentile(ch, 0.01))
+            hi = float(np.percentile(ch, 99.99))
+            per_channel.append((lo, hi))
+        norm_params.append(per_channel)
+    return norm_params
+
+
+def apply_norm_params(img, params):
+    """Apply stored per-channel (lo, hi) normalization parameters to a (C, H, W) float32 array."""
+    img = img.astype(np.float32)
+    for c, (lo, hi) in enumerate(params):
+        if hi - lo > 1e-3:
+            img[c] = np.clip((img[c] - lo) / (hi - lo), 0, 1)
+    return img
+
+
 def reshape_and_normalize_data(train_data, test_data=None, channels=None, channel_axis=0, normalize=True, omni=False, dim=2):
     for test, data in enumerate([train_data, test_data]):
         if data is None:

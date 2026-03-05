@@ -3,7 +3,7 @@ install_deps = ['numba>=0.61.0', # let numba control numpy version
                 'numpy', # let numba control numpy version - v2 now supported by all dependencies! July 2025
                 'scipy', 
                 'edt',
-                'scikit-image',
+                'scikit-image>=0.26',
                 'ncolor>=1.4.3',
                 'scikit-learn',
                 'torch>=1.10',
