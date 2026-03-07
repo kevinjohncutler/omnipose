@@ -11,7 +11,8 @@ from torch.amp import autocast
 import torch.utils.checkpoint as cp
 
 # from . import transforms, io, dynamics, utils
-from ..gpu import ARM, torch_GPU, torch_CPU, empty_cache
+from ..gpu import torch_GPU, torch_CPU, empty_cache
+from ..gpu.device import _get_gpu_torch
 
 NORM_TYPE = "batch"
 
@@ -368,9 +369,7 @@ class UnetND(nn.Module):
         
     def load_model(self, filename, cpu=False):
         if not cpu:
-            target_device = torch_GPU
-            if (not ARM and not torch.cuda.is_available()) or (ARM and not torch.backends.mps.is_available()):
-                target_device = torch_CPU
+            target_device, _ = _get_gpu_torch()
             try:
                 self.load_state_dict(torch.load(filename,
                                                 map_location=target_device,

@@ -129,7 +129,7 @@ class OmniModel:
             self.device, gpu_available = assign_device(self.gpu)
         else:
             self.device = device
-            self.gpu = self.device.type == 'mps' if ARM else self.device.type == 'cuda'
+            self.gpu = self.device.type != 'cpu'
 
         if not self.torch:
             raise RuntimeError("Torch backend required for OmniModel.")

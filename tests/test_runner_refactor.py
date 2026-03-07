@@ -328,7 +328,6 @@ def test_run_training_batches(monkeypatch):
         save_every=100,
         save_each=False,
         diameter=0,
-        dataloader=False,
         num_workers=0,
         min_train_masks=1,
         logits=False,
@@ -344,6 +343,9 @@ def test_run_training_batches(monkeypatch):
         timing=False,
         amp=False,
         affinity_field=False,
+        tensorboard=False,
+        sym_kernels=False,
+        symmetry_weight=1.0,
     )
     runner._run_training(args)
     assert args.batch_size == 2

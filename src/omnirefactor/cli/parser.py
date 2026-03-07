@@ -134,8 +134,6 @@ def get_arg_parser():
                                default=8, type=int, help="batch size. Default: %(default)s")
     training_args.add_argument("--num_workers",
                                default=0, type=int, help="number of dataloader workers. Default: %(default)s")
-    training_args.add_argument("--dataloader", action="store_true",
-                               help="Use pytorch dataloader instead of older manual loading code.")
     training_args.add_argument("--min_train_masks",
                                default=1, type=int,
                                help="minimum number of masks a training image must have to be used. Default: %(default)s")

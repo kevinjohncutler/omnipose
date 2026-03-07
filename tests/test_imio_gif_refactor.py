@@ -43,6 +43,9 @@ def test_imread_cv2_failure_returns_none(tmp_path, monkeypatch):
 
 
 def test_imwrite_branches_with_monkeypatched_encoders(tmp_path, monkeypatch):
+    if not hasattr(imio.imagecodecs, "bmp_encode"):
+        import pytest
+        pytest.skip("imagecodecs.bmp_encode not available")
     arr = (np.random.rand(4, 4, 3) * 255).astype(np.uint8)
 
     def _fake_encode(_arr, **_kwargs):

@@ -1,8 +1,12 @@
 from .imports import *
-import inspect
 import warnings
+from pathlib import Path
 from ..kwargs import base_kwargs, split_kwargs_for
 from ..logger import TqdmToLogger
+from ..data.eval import eval_set as EvalSet
+from ..io.imio import imread
+
+_IMAGE_EXTS = {'.tif', '.tiff', '.png', '.jpg', '.jpeg', '.bmp', '.npy', '.npz', '.czi'}
 
 
 def eval(self, x, batch_size=8, indices=None, channels=None, channel_axis=None,
@@ -133,361 +137,298 @@ def eval(self, x, batch_size=8, indices=None, channels=None, channel_axis=None,
             style vector summarizing each image, also used to estimate size of objects in image
 
     """
-    
+    # --- Route kwargs to downstream functions ---
     base_args = base_kwargs(locals(), exclude={"self", "x", "kwargs"})
-    mask_kwargs, step_kwargs, affinity_kwargs = split_kwargs(
+    mask_kwargs, *_ = split_kwargs(
         [core.compute_masks, core.steps_batch, core._get_affinity_torch],
-        base_args,
-        strict=False,
+        base_args, strict=False,
     )
-    # lift commonly-used items back into locals for readability
-    interp = step_kwargs.get("interp", True) # not used below? 
-    niter = step_kwargs.get("niter")
-    flow_threshold = mask_kwargs.get("flow_threshold", 0.4)
-    mask_threshold = mask_kwargs.get("mask_threshold", 0.0)
-    compute_masks = mask_kwargs.get("compute_masks", True) # not used below? 
+    mask_threshold   = mask_kwargs.get("mask_threshold", 0.0)
+    compute_masks    = mask_kwargs.get("compute_masks", True)
     stitch_threshold = mask_kwargs.get("stitch_threshold", 0.0)
-    affinity_seg = mask_kwargs.get("affinity_seg", False)
-    suppress = mask_kwargs.get("suppress")
-    
-    # images are given has a list, especially when heterogeneous in shape
-    is_grey = np.sum(channels)==0
-    slice_ndim = self.dim+do_3D+(self.nchan>1 and not is_grey)+(channel_axis is not None)
-    # the logic here needs to be updated to account for the fact that images may not already match the expected dims
-    # and channels, namely mono channel might have a 2-channel model. I should just check for if the number of channels could
-    # possibly match, and warn that internal conversion will happen or may break...
-    is_list = isinstance(x, list)
-    is_stack = is_image = False
-    
-    if verbose:
-        models_logger.info(f'is_grey {is_grey}, slice_ndim {slice_ndim}, dim {self.dim}, nchan {self.nchan}, is_list {is_list}')
-    
-    if isinstance(x, np.ndarray):
-        # [0,0] is a special instance where we want to run the model on a single channel
-        dim_diff = x.ndim-slice_ndim
-        opt = np.array([0,1])#-is_grey
-        is_image, is_stack = [dim_diff==i for i in opt]
-        correct_shape = dim_diff in opt     
-                
-    
-    if verbose:
-        models_logger.info(f'is_image {is_image}, is_stack {is_stack}, is_list {is_list}')
-    # print('a1',interp,hysteresis,calc_trace)
-    
-    # allow for a dataset to be passed so that we can do batches 
-    # will be defined in omnipose.data.train_set 
-    is_dataset = isinstance(x,torch.utils.data.Dataset) # if using eval_set
-    if is_dataset:
-        correct_shape = True # assume the dataset has the right shape
 
-    if not (is_list or is_stack or is_dataset or is_image or loop_run):
+    # --- Normalise x: string → list of paths ---
+    if isinstance(x, str):
+        p = Path(x)
+        x = sorted(str(f) for f in p.iterdir() if f.suffix.lower() in _IMAGE_EXTS) if p.is_dir() else [x]
+
+    # --- Detect input form ---
+    is_dataset = isinstance(x, torch.utils.data.Dataset)
+    is_image = is_stack = False
+    correct_shape = True  # safe default; tightened below for numpy inputs
+
+    if isinstance(x, np.ndarray) or (isinstance(x, list) and x and not isinstance(x[0], str)):
+        is_grey   = channels is None or np.sum(channels) == 0
+        slice_ndim = self.dim + do_3D + (self.nchan > 1 and not is_grey) + (channel_axis is not None)
+        if isinstance(x, np.ndarray):
+            dim_diff = x.ndim - slice_ndim
+            is_image, is_stack = dim_diff == 0, dim_diff == 1
+            correct_shape = dim_diff in (0, 1)
+        else:
+            correct_shape = all(x[i].squeeze().ndim == slice_ndim for i in range(len(x)))
+
+    if not (is_image or is_stack or is_dataset or isinstance(x, list) or loop_run):
         models_logger.warning('input images must be a list of images, array of images, or dataloader')
-    else:
-        if is_list:
-            correct_shape = np.all([x[i].squeeze().ndim == slice_ndim for i in range(len(x))])
-   
-        if not correct_shape:
-            # print(slice_ndim,x.ndim,is_list,is_stack)
-            models_logger.warning('input images do not match the expected number of dimensions ({}) \nand channels ({}) of model.'.format(self.dim,self.nchan))
+    elif not correct_shape:
+        models_logger.warning('input images do not match the expected number of dimensions ({}) '
+                              'and channels ({}) of model.'.format(self.dim, self.nchan))
 
-
-
-    if verbose and (is_dataset or not (is_list or is_stack)):
-        models_logger.info('Evaluating with flow_threshold %0.2f, mask_threshold %0.2f'%(flow_threshold, mask_threshold))
+    if verbose:
+        models_logger.info('Evaluating with flow_threshold %0.2f, mask_threshold %0.2f'
+                           % (mask_kwargs.get("flow_threshold", 0.4), mask_threshold))
         if omni:
             models_logger.info(f'using omni model, cluster {mask_kwargs.get("cluster", False)}')
 
-    
-    # Note: dataset is finetuned for basic omnipose usage. No styles are returned, some options may not be supported.
-    if is_dataset:
-
+    # --- Model loading and rescale_factor ---
+    if not model_loaded and isinstance(self.pretrained_model, list) and not net_avg and not loop_run:
+        net = self.net.module if isinstance(self.net, nn.DataParallel) else self.net
         if verbose:
-            models_logger.warning('Using dataset evaluation branch. Some options not yet supported.')
+            models_logger.info('network initialized.')
+        net.load_model(self.pretrained_model[0], cpu=(not self.gpu))
 
-        # set the tile parameter in dataset
-        x.tile = tile
+    self.batch_size = batch_size
+    if rescale_factor is None:
+        rescale_factor = self.diam_mean / diameter if (diameter is not None and diameter > 0) else 1.0
 
-        # set the rescale parameter in dataset
-        x.rescale_factor = 1.0 if rescale_factor is None else rescale_factor
-        # avoid double normalization; handled in this eval branch
-        x.normalize = False
-        x.invert = False
+    # --- Precompute invariant compute_masks kwargs; bd and dim vary per call ---
+    _mask_kw = dict(mask_kwargs)
+    for _k in ("bd", "p", "coords", "iscell", "affinity_graph"):
+        _mask_kw.pop(_k, None)
+    if _mask_kw.get("rescale_factor") is None: _mask_kw["rescale_factor"] = 1.0
+    if _mask_kw.get("min_size")       is None: _mask_kw["min_size"]       = 15
+    if _mask_kw.get("flow_factor")    is None: _mask_kw["flow_factor"]    = 5.0
+    _mask_kw.setdefault("max_size", None)
+    _mask_kw.setdefault("interp", True)
+    _mask_kw.setdefault("cluster", False)
+    _mask_kw.setdefault("suppress", None)
+    _mask_kw.setdefault("affinity_seg", False)
+    _mask_kw.setdefault("despur", False)
+    _mask_kw.update(use_gpu=self.gpu, device=self.device, nclasses=self.nclasses)
 
-        # Configure batch mode for iter_batches()
-        x.batch_mode = x._resolve_batch_mode(batch_mode)
-        x.max_batch_size = loader_batch_size
-        x._build_batch_plan()
+    def _mask_base(dim, bd):
+        return {**_mask_kw, "dim": dim, "bd": bd}
 
-        # sample indices to evaluate
-        indices = list(range(len(x))) if indices is None else indices
+    # --- Flatten all non-dataset inputs to a plain list ---
+    if not is_dataset:
+        if is_image:
+            x_list = [x]
+        elif is_stack:
+            x_list = [x[i] for i in range(x.shape[0])]
+        else:
+            x_list = list(x)
 
-        dist, dP, bd, masks, bounds, p, tr, affinity, flow_RGB = [], [], [], [], [], [], [], [], []
+        if not x_list:
+            return np.array([]), [], []
 
-        # Use new iter_batches() approach for shape-aware batching
-        progress_bar = tqdm(total=len(indices), disable=not show_progress)
-        for batch, inds, subs in x.iter_batches():
-            batch = batch.float()
+    # ------------------------------------------------------------------ #
+    # do_3D: run 2D model on three orthogonal planes and combine results.
+    # ------------------------------------------------------------------ #
+    if do_3D:
+        dist3d, dP3d, bd3d, masks3d, p3d, tr3d, aff3d, rgb3d = [], [], [], [], [], [], [], []
+
+        for raw in x_list:
+            img = imread(raw) if isinstance(raw, str) else raw
+            img = transforms.convert_image(img, channels,
+                                           channel_axis=channel_axis, z_axis=z_axis,
+                                           do_3D=True, normalize=False, invert=False,
+                                           nchan=self.nchan, dim=self.dim, omni=omni)
             if normalize or invert:
-                batch_np = batch.numpy()
-                batch_np = batch_np.transpose(0, 2, 3, 1)
-                for i in range(batch_np.shape[0]):
-                    batch_np[i] = transforms.normalize_img(batch_np[i], axis=-1, invert=invert, omni=omni)
-                batch_np = batch_np.transpose(0, 3, 1, 2)
-                batch = torch.from_numpy(batch_np)
+                img = transforms.normalize_img(img, invert=invert, omni=omni)
 
-            batch = batch.to(self.device)  # move to GPU
+            yf, _ = self._run_3D(img, rsz=rescale_factor, anisotropy=anisotropy,
+                                  net_avg=net_avg, augment=augment, tile=tile,
+                                  tile_overlap=tile_overlap)
 
-            shape = batch.shape
-            nimg = batch.shape[0]
-            nchan = batch.shape[1]
+            cellprob_i = np.sum([yf[k][self.dim] for k in range(3)], axis=0) / 3
+            bd_i = (np.sum([yf[k][self.dim + 1] for k in range(3)], axis=0) / 3
+                    if self.nclasses == self.dim + 2 else np.zeros_like(cellprob_i))
+            dP_i = np.stack((yf[1][0] + yf[2][0],   # dZ
+                             yf[0][0] + yf[2][1],    # dY
+                             yf[0][1] + yf[1][1]),   # dX
+                            axis=0)
+            if omni:
+                dP_i = np.stack([gaussian_filter(dP_i[a], sigma=1.5) for a in range(3)]) / 2
+                bd_i      = gaussian_filter(bd_i,      sigma=1.5)
+                cellprob_i = gaussian_filter(cellprob_i, sigma=1.5)
 
-            # Pad channels if model expects more than we have (e.g., grayscale input, 2-channel model)
-            if self.nchan > nchan:
-                pad_shape = (nimg, self.nchan - nchan) + tuple(batch.shape[2:])
-                batch = torch.cat([batch, torch.zeros(pad_shape, device=self.device, dtype=batch.dtype)], dim=1)
-                nchan = self.nchan
+            rgb3d.append(plot.dx_to_circ(dP_i[:2], transparency=transparency))
+            dP3d.append(dP_i); dist3d.append(cellprob_i); bd3d.append(bd_i)
 
-            shape = batch.shape[-(self.dim+1):]  # nclasses, Y, X
-            resize = shape[-self.dim:] if not resample else None
-
-            # run the network on the batch
-            with torch.no_grad():
-                if tile:
-                    yf = x._run_tiled(batch, self,
-                                      batch_size=batch_size,
-                                      bsize=bsize,
-                                      augment=augment,
-                                      tile_overlap=tile_overlap)
-                else:
-                    yf = self.run_network(batch, to_numpy=False)[0]
-
-                del batch
-
-            # Extract each image using its per-image subs (handles different sizes in 'pad' mode)
-            # subs is a list of [slice_y, slice_x] or similar for each image in batch
-            yf_list = []
-            for i in range(nimg):
-                img_subs = subs[i]  # List of slice objects for this image
-                # Build the slice tuple: (all_classes, spatial_slices...)
-                slc = [slice(None, self.nclasses)]  # Keep all output classes
-                slc.extend(img_subs)  # Add spatial slices
-                yf_i = yf[i][tuple(slc)]
-                yf_list.append(yf_i)
-
-            # Stack back if all same shape, otherwise process individually
-            # For 'group' and 'single' modes, all should be same shape
-            # For 'pad' mode, they may differ
-            try:
-                yf = torch.stack(yf_list, dim=0)
-            except RuntimeError:
-                # Different shapes - will process individually below
-                pass
-
-            # rescale and resample (only if stacked)
-            if isinstance(yf, torch.Tensor) and resample and rescale_factor not in [None, 1.0, 0]:
-                yf = torch_zoom(yf, 1 / rescale_factor)
-                yf_list = [yf[i] for i in range(yf.shape[0])]
-            elif resample and rescale_factor not in [None, 1.0, 0]:
-                yf_list = [torch_zoom(yf_i.unsqueeze(0), 1 / rescale_factor).squeeze(0) for yf_i in yf_list]
-
-            # Process each image in the batch
-            for i in range(nimg):
-                yf_i = yf_list[i] if isinstance(yf_list, list) else yf[i]
-
-                # compared to the usual per-image pipeline, this one will not support cellpose or u-net
-                flow_pred_i = yf_i[:self.dim]
-                dist_pred_i = yf_i[self.dim]  # scalar field always after the vector field output
-
-                if self.nclasses >= self.dim + 2:
-                    bd_pred_i = yf_i[self.dim + 1]
-                    bd_i = self._from_device(bd_pred_i.unsqueeze(0))[0]
-                else:
-                    bd_i = None
-
-                # RGB flow visualization
-                rgb_i = plot.rgb_flow(flow_pred_i.unsqueeze(0), transparency=transparency)
-
-                # hysteresis thresholding
-                if hysteresis:
-                    foreground = hysteresis_threshold(dist_pred_i.unsqueeze(0).unsqueeze(0),
-                                                      mask_threshold - 1, mask_threshold).squeeze()
-                else:
-                    foreground = dist_pred_i >= mask_threshold
-
-                # add to output lists
-                dP.append(self._from_device(flow_pred_i.unsqueeze(0))[0])
-                dist.append(self._from_device(dist_pred_i.unsqueeze(0))[0])
-                bd.append(bd_i)
-                flow_RGB.append(self._from_device(rgb_i)[0])
-
-                # run compute_masks
-                mask_base = dict(mask_kwargs)
-                for key in ("bd", "p", "coords", "iscell", "affinity_graph"):
-                    mask_base.pop(key, None)
-                if rescale_factor is None:
-                    mask_base["rescale_factor"] = 1.0
-                # Add defaults that run_batch provides but aren't in eval signature.
-                # These must match the run_batch defaults for parity.
-                # NOTE: setdefault() only sets a value when the key is MISSING.
-                # It does NOT override existing keys with None values. For params
-                # that may be explicitly None in mask_kwargs, use explicit checks.
-                if mask_base.get("min_size") is None:
-                    mask_base["min_size"] = 15
-                if mask_base.get("flow_factor") is None:
-                    mask_base["flow_factor"] = 5.0
-                mask_base.setdefault("max_size", None)
-                mask_base.setdefault("interp", True)
-                mask_base.setdefault("cluster", False)
-                mask_base.setdefault("suppress", None)
-                mask_base.setdefault("affinity_seg", False)
-                mask_base.setdefault("despur", False)
-                mask_base.update({
-                    "use_gpu": self.gpu,
-                    "device": self.device,
-                    "nclasses": self.nclasses,
-                    "dim": self.dim,
-                    "bd": bd_i,
-                })
-                outputs = core.compute_masks(
-                    self._from_device(flow_pred_i.unsqueeze(0))[0],
-                    self._from_device(dist_pred_i.unsqueeze(0))[0],
-                    **mask_base
-                )
-                masks.append(outputs[0])
-                p.append(outputs[1])
-                tr.append(outputs[2])
-                bounds.append(outputs[3])
-                affinity.append(outputs[4])
-
-                progress_bar.update()
-                empty_cache()
-
-            del yf_list
-
-        masks = np.array(masks)
-        bounds = np.array(bounds)
-        p = np.array(p)
-        tr = np.array(tr)
-        ret = [masks, dP, dist, p, bd, tr, affinity, bounds, flow_RGB]
-        
-        progress_bar.close()
-
-
-        for r in ret:
-            r.squeeze() if isinstance(r,np.ndarray) else r 
-
-        
-        # the flow list stores: 
-        # (1) RGB representation of flows
-        # (2) flow components
-        # (3) cellprob (cp) or distance field (op)
-        # (4) pixel coordinates after Euler integration
-        # (5) boundary output (nclasses=4)
-        # (6) pixel trajectories during Euler integation (trace=True)
-        # (7) nstep_by_npix affinity graph
-        # (8) binary boundary map
-        # 5-8 were added in Omnipose, hence the unusual placement in the list. 
-        # flows = [[o for o in out] for out in zip(rgb, dP, cellprob, p, bd, tr, affinity, bounds)]
-        flows = [list(item) for item in zip(flow_RGB, dP, dist, p, bd, tr, affinity, bounds)] # not sure which is faster of these yet
-        return masks, flows, [] 
-    
-    # default non-dataset branch
-    elif (is_list or is_stack) and correct_shape:
-        masks, styles, flows = [], [], []
-
-        tqdm_out = TqdmToLogger(models_logger, level=logging.INFO)
-        nimg = len(x)
-        iterator = trange(nimg, file=tqdm_out,disable=not show_progress) if nimg>1 else range(nimg)
-        # note: ~ is bitwise flip, overloaded to act as elementwise not for numpy arrays
-        # but for boolean variables, must use "not" operator isstead 
-        if verbose:
-            models_logger.info('Evaluating one image at a time')
-        
-        for i in iterator:
-            dia = diameter[i] if isinstance(diameter, list) or isinstance(diameter, np.ndarray) else diameter
-            rsc = rescale_factor[i] if isinstance(rescale_factor, list) or isinstance(rescale_factor, np.ndarray) else rescale_factor
-            chn = channels if channels is None else channels[i] if (len(channels)==len(x) and 
-                                                                    (isinstance(channels[i], list) 
-                                                                     or isinstance(channels[i], np.ndarray)) and
-                                                                    len(channels[i])==2) else channels
-            
-            base_eval = split_kwargs_for(eval, locals(), exclude={"self", "x", "kwargs"})
-            eval_kwargs = dict(base_eval)
-            eval_kwargs.update({
-                "channels": chn,
-                "channel_axis": channel_axis,
-                "z_axis": z_axis,
-                "rescale_factor": rsc,
-                "diameter": dia,
-                "loop_run": (i > 0),
-                "model_loaded": model_loaded,
-            })
-            maski, stylei, flowi = self.eval(x[i], **eval_kwargs)
-            masks.append(maski)
-            flows.append(flowi)
-            styles.append(stylei)
-        return masks, styles, flows 
-    
-    else:
-        if not model_loaded and (isinstance(self.pretrained_model, list) and not net_avg and not loop_run):
-
-            # whether or not we are using dataparallel 
-            if self.torch and self.gpu:
-                models_logger.info(f'using dataparallel')
-                net = self.net.module
-                    
+            if compute_masks:
+                out = core.compute_masks(dP_i, cellprob_i, **_mask_base(dim=3, bd=bd_i))
+                masks3d.append(out[0]); p3d.append(out[1]); tr3d.append(out[2])
+                aff3d.append(out[3])
             else:
-                net = self.net
-                models_logger.info('not using dataparallel')
-                
-            if verbose: 
-                models_logger.info(f'network initialized.')
-            
-            net.load_model(self.pretrained_model[0], cpu=(not self.gpu))
+                masks3d.append(np.zeros(img.shape[:3], int))
+                p3d.append([]); tr3d.append([]); aff3d.append([])
 
-        if verbose: 
-            models_logger.info('shape before transforms.convert_image(): {}'.format(x.shape))
-            models_logger.info(f'model dim: {self.dim}')
-            
+        flows = [list(t) for t in zip(rgb3d, dP3d, dist3d, p3d, bd3d, tr3d, aff3d)]
+        return np.array(masks3d), flows, []
 
-        # This takes care of the special case of grayscale, padding with zeros if the model was trained like that
-        x = transforms.convert_image(x, channels, channel_axis=channel_axis, z_axis=z_axis,
-                                     do_3D=(do_3D or stitch_threshold>0), normalize=False, 
-                                     invert=False, nchan=self.nchan, dim=self.dim, omni=omni)
-        
-        
-        if verbose: 
-            models_logger.info('shape after transforms.convert_image(): {}'.format(x.shape))
-            
-        if x.ndim < self.dim+2: # we need (nimg, *dims, nchan), so 2D has 4, 3D has 5, etc. 
-            x = x[np.newaxis]
+    # --- Wrap raw inputs into EvalSet ---
+    if not is_dataset:
+        def _channels_for(i):
+            if channels is None:
+                return None
+            if (not isinstance(channels[0], (int, np.integer))
+                    and len(channels) == len(x_list)
+                    and isinstance(channels[i], (list, np.ndarray))
+                    and len(channels[i]) == 2):
+                return channels[i]
+            return channels
 
-            if verbose: 
-                models_logger.info('shape now {}'.format(x.shape))
+        converted = []
+        for i, raw in enumerate(x_list):
+            img = imread(raw) if isinstance(raw, str) else raw
+            img = transforms.convert_image(img, _channels_for(i),
+                                           channel_axis=channel_axis, z_axis=z_axis,
+                                           do_3D=False, normalize=False, invert=False,
+                                           nchan=self.nchan, dim=self.dim, omni=omni)
+            # Ensure (C, *spatial) for EvalSet
+            img = img[np.newaxis] if img.ndim == self.dim else np.moveaxis(img, -1, 0)
+            converted.append(img)
 
-        self.batch_size = batch_size
-        rescale_factor = self.diam_mean / diameter if (rescale_factor is None and (diameter is not None and diameter>0)) else rescale_factor
-        rescale_factor = 1.0 if rescale_factor is None else rescale_factor
+        x = EvalSet(converted, dim=self.dim, normalize=False, invert=False,
+                    rescale_factor=rescale_factor, channel_axis=1,
+                    batch_mode=batch_mode, max_batch_size=loader_batch_size)
 
-        run_kwargs = split_kwargs_for(self.run_batch, locals(), exclude={"self", "x", "kwargs"})
-        masks, styles, dP, cellprob, p, bd, tr, affinity, bounds = self.run_batch(x, **run_kwargs)
-        
-        # the flow list stores: 
-        # (1) RGB representation of flows
-        # (2) flow components
-        # (3) cellprob (cp) or distance field (op)
-        # (4) pixel coordinates after Euler integration
-        # (5) boundary output (nclasses=4)
-        # (6) pixel trajectories during Euler integation (trace=True)
-        # (7) augmented affinity graph (coords+affinity) of shape (dim,nstep,npix)
-        # (8) binary boundary map
-        
-        # 5-8 were added in Omnipose, hence the unusual placement in the list. 
-        flows = [plot.dx_to_circ(dP,transparency=transparency) 
-                 if self.nclasses>1 else np.zeros(cellprob.shape+(3+transparency,),np.uint8),
-                 dP, cellprob, p, bd, tr, affinity, bounds]
-    
-        return masks, flows, styles
+    # --- Configure EvalSet (applies to both wrapped and user-passed datasets) ---
+    x.tile           = tile
+    x.normalize      = False
+    x.invert         = False
+    x.rescale_factor = rescale_factor
+    x.batch_mode     = x._resolve_batch_mode(batch_mode)
+    x.max_batch_size = loader_batch_size
+    x._build_batch_plan()
+
+    # --- Unified inference loop ---
+    def _safe_array(lst):
+        try:
+            return np.array(lst)
+        except ValueError:            # inhomogeneous shapes — return object array
+            arr = np.empty(len(lst), dtype=object)
+            arr[:] = lst
+            return arr
+
+    dist, dP, bd, masks, bounds, p, tr, affinity, flow_RGB = [], [], [], [], [], [], [], [], []
+
+    _fd = lambda t: self._from_device(t.unsqueeze(0))[0]
+
+    progress_bar = tqdm(total=len(x), disable=not show_progress)
+    for batch, inds, subs in x.iter_batches():
+        batch = batch.float()
+        if normalize or invert:
+            b = batch.numpy().transpose(0, 2, 3, 1)
+            for i in range(b.shape[0]):
+                b[i] = transforms.normalize_img(b[i], axis=-1, invert=invert, omni=omni)
+            batch = torch.from_numpy(b.transpose(0, 3, 1, 2))
+
+        batch = batch.to(self.device)
+
+        # Pad channels if model expects more (e.g. grayscale into 2-channel model)
+        if self.nchan > batch.shape[1]:
+            pad = torch.zeros((batch.shape[0], self.nchan - batch.shape[1]) + tuple(batch.shape[2:]),
+                              device=self.device, dtype=batch.dtype)
+            batch = torch.cat([batch, pad], dim=1)
+
+        with torch.no_grad():
+            if tile:
+                yf_batch = x._run_tiled(batch, self, batch_size=batch_size,
+                                        bsize=bsize, augment=augment, tile_overlap=tile_overlap)
+            else:
+                yf_batch = self.run_network(batch, to_numpy=False)[0]
+        del batch
+
+        # Unpad each image to its original spatial extent, then optionally resample
+        nimg = yf_batch.shape[0]
+        yf_list = [yf_batch[i][(slice(None, self.nclasses), *subs[i])] for i in range(nimg)]
+        del yf_batch
+
+        if resample and rescale_factor not in (None, 1.0, 0):
+            yf_list = [torch_zoom(t.unsqueeze(0), 1 / rescale_factor).squeeze(0) for t in yf_list]
+
+        # --- Batched GPU pre-processing: hysteresis threshold + Euler integration ---
+        # Enabled when all images in the batch share the same spatial shape (pad/group mode)
+        # and compute_masks is requested. Passes pre-computed iscell + p into compute_masks,
+        # skipping the per-image CPU follow_flows call inside it.
+        _shapes = [yf_i.shape[1:] for yf_i in yf_list]
+        _gpu_batch = compute_masks and len(set(_shapes)) == 1
+        _pre = {}  # i → (iscell_np, p_np)
+
+        if _gpu_batch:
+            _yf    = torch.stack(yf_list)                            # (B, nclasses, *spatial)
+            _dP    = _yf[:, :self.dim]                               # (B, D, *spatial)
+            _dt    = _yf[:, self.dim]                                # (B, *spatial)
+
+            # Hysteresis threshold on full batch — GPU, no scikit-image
+            _iscell = hysteresis_threshold(
+                _dt[:, None], mask_threshold - 1, mask_threshold
+            ).squeeze(1)  # (B, *spatial) bool, on device
+
+            # niter estimate: 2*(dim+1)*mean(dist[foreground]) across whole batch
+            _dt_fg  = _dt[_iscell]
+            _niter  = (int(2 * (self.dim + 1) * _dt_fg.mean().item())
+                       if _dt_fg.numel() > 0 else 200)
+
+            # Dense batched Euler integration — GPU in, GPU out
+            _p_batch = follow_flows_batch(
+                _dP / 5., _niter, omni=omni, suppress=False
+            )  # (B, D, *spatial)
+
+            for _i in range(nimg):
+                _pre[_i] = (_iscell[_i].cpu().numpy(),
+                            _p_batch[_i].cpu().numpy())
+            del _yf, _iscell, _p_batch
+
+        for i, yf_i in enumerate(yf_list):
+            # GPU tensors — do GPU work first, convert to numpy only when needed
+            dP_gpu   = yf_i[:self.dim]
+            dist_gpu = yf_i[self.dim]
+            bd_gpu   = yf_i[self.dim + 1] if self.nclasses >= self.dim + 2 else None
+
+            flow_RGB.append(self._from_device(plot.rgb_flow(dP_gpu.unsqueeze(0), transparency=transparency))[0])
+
+            dP_i   = _fd(dP_gpu)
+            dist_i = _fd(dist_gpu)
+            bd_i   = _fd(bd_gpu) if bd_gpu is not None else None
+
+            dP.append(dP_i)
+            dist.append(dist_i)
+            bd.append(bd_i)
+
+            if compute_masks:
+                extra = {}
+                if i in _pre:
+                    extra = dict(iscell=_pre[i][0], p=_pre[i][1])
+                out = core.compute_masks(
+                    dP_i,
+                    dist_i,
+                    **_mask_base(dim=self.dim, bd=bd_i),
+                    **extra,
+                )
+                masks.append(out[0]); p.append(out[1]); tr.append(out[2])
+                bounds.append(out[3]); affinity.append(out[4])
+            else:
+                masks.append(np.zeros_like(dist[-1], dtype=int))
+                p.append([]); tr.append([]); bounds.append([]); affinity.append([])
+
+            progress_bar.update()
+            empty_cache()
+
+    progress_bar.close()
+
+    # Stitch 2D masks into 3D volume when requested
+    if stitch_threshold > 0 and len(masks) > 1:
+        models_logger.info(f'stitching {len(masks)} planes using stitch_threshold={stitch_threshold:0.3f}')
+        masks = utils.stitch3D(np.array(masks), stitch_threshold=stitch_threshold)
+    else:
+        masks = _safe_array(masks)
+
+    # flows: RGB | flow components | dist | Euler coords | boundary | traces | affinity | boundary map
+    flows = [list(t) for t in zip(flow_RGB, dP, dist,
+                                  _safe_array(p), bd, _safe_array(tr),
+                                  affinity, _safe_array(bounds))]
+    return masks, flows, []
 
 
 def run_batch(self, x, compute_masks=True, normalize=True, invert=False,
@@ -630,51 +571,27 @@ def run_batch(self, x, compute_masks=True, normalize=True, invert=False,
         if niter is None and not omni:
             niter = 200 if (do_3D and not resample) else (1 / rescale_factor * 200)
 
+        mask_base = split_kwargs_for(core.compute_masks, locals(), exclude={"self", "kwargs"})
+        for key in ("dP", "dist", "p", "coords", "iscell", "affinity_graph", "bd"):
+            mask_base.pop(key, None)
+        mask_base.update({
+            "use_gpu": self.gpu,
+            "device": self.device,
+            "nclasses": self.nclasses,
+            "dim": self.dim,
+        })
+
         if do_3D:
             resize = None
-            mask_base = split_kwargs_for(core.compute_masks, locals(), exclude={"self", "kwargs"})
-            sig = inspect.signature(core.compute_masks)
-            for key in list(sig.parameters)[:2]:
-                mask_base.pop(key, None)
-            for key in ("p", "coords", "iscell", "affinity_graph"):
-                mask_base.pop(key, None)
-            for key in ("p", "coords", "iscell", "affinity_graph"):
-                mask_base.pop(key, None)
-            sig = inspect.signature(core.compute_masks)
-            for key in list(sig.parameters)[:2]:
-                mask_base.pop(key, None)
-            mask_base.update({
-                "use_gpu": self.gpu,
-                "device": self.device,
-                "nclasses": self.nclasses,
-                "dim": self.dim,
-                "bd": bd,
-            })
             masks, bounds, p, tr, affinity = core.compute_masks(
                 dP,
                 cellprob,
+                bd=bd,
                 **mask_base,
             )
         else:
             masks, bounds, p, tr, affinity = [], [], [], [], []
             resize = shape[-(self.dim+1):-1] if not resample else None
-            mask_base = split_kwargs_for(core.compute_masks, locals(), exclude={"self", "kwargs"})
-            sig = inspect.signature(core.compute_masks)
-            for key in list(sig.parameters)[:2]:
-                mask_base.pop(key, None)
-            for key in ("p", "coords", "iscell", "affinity_graph"):
-                mask_base.pop(key, None)
-            for key in ("p", "coords", "iscell", "affinity_graph"):
-                mask_base.pop(key, None)
-            sig = inspect.signature(core.compute_masks)
-            for key in list(sig.parameters)[:2]:
-                mask_base.pop(key, None)
-            mask_base.update({
-                "use_gpu": self.gpu,
-                "device": self.device,
-                "nclasses": self.nclasses,
-                "dim": self.dim,
-            })
             for i in iterator:
                 bdi = bd[i] if bd is not None else None
                 mask_kwargs = dict(mask_base)
@@ -714,5 +631,3 @@ def run_batch(self, x, compute_masks=True, normalize=True, invert=False,
 
     empty_cache()
     return (*ret,)
-
-    

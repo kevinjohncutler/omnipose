@@ -26,7 +26,8 @@ MXNET_ENABLED = False
 import torch
 from torch.amp import autocast, GradScaler
 from torch import nn
-from .network import torch_GPU, torch_CPU, UnetND, ARM, empty_cache
+from .network import torch_GPU, torch_CPU, UnetND, empty_cache
+from ..gpu.device import ARM
 # torch.serialization.add_safe_globals(UnetND)
 
 

@@ -355,7 +355,8 @@ def gamma_normalize(
     per_channel=True,
     channel_axis=-1,
 ):
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    from ..gpu.device import torch_GPU
+    device = torch_GPU
     im = rescale(im) * scale
     if im.ndim > 2:
         im = np.moveaxis(im, channel_axis, -1)

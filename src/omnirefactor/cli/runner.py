@@ -242,7 +242,6 @@ def _run_training(args) -> None:
         do_rescale=(args.diameter != 0),
         n_epochs=args.n_epochs,
         batch_size=args.batch_size,
-        dataloader=args.dataloader,
         num_workers=args.num_workers,
         min_train_masks=args.min_train_masks if args.logits else 0,
         SGD=(not args.RAdam),
@@ -266,15 +265,16 @@ def main(argv: list[str] | None = None) -> None:
     if args.seed is not None:
         random.seed(args.seed)
         np.random.seed(args.seed)
-        torch.manual_seed(args.seed)
-        if torch.cuda.is_available():
-            torch.cuda.manual_seed_all(args.seed)
+        from ..gpu.device import seed_all
+        seed_all(args.seed)
         if hasattr(torch.backends, "cudnn"):
             torch.backends.cudnn.deterministic = True
             torch.backends.cudnn.benchmark = False
     if args.deterministic:
         os.environ.setdefault("CUBLAS_WORKSPACE_CONFIG", ":4096:8")
-        warn_only = bool(args.use_gpu and torch.cuda.is_available())
+        from ..gpu.device import _get_gpu_torch
+        _, gpu_available = _get_gpu_torch()
+        warn_only = bool(args.use_gpu and gpu_available)
         torch.use_deterministic_algorithms(True, warn_only=warn_only)
         torch.autograd.set_detect_anomaly(True)
         if hasattr(torch.backends, "cudnn"):

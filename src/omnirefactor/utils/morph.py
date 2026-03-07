@@ -43,40 +43,46 @@ def get_edge_masks(labels,dists):
     return clean_labels
 
 
-#TODO: vectorize this function
 def fill_holes_and_remove_small_masks(masks, min_size=None, max_size=None, hole_size=3, dim=2):
-    """Fill holes in masks (2D/3D) and discard masks smaller than min_size (2D)."""
+    """Fill holes in masks (2D/3D) and discard masks smaller than min_size (2D).
+
+    Vectorized version — no per-label loop.
+    """
     if min_size is None:
         min_size = 3 ** dim
 
-    masks = ncolor.format_labels(masks, min_area=min_size)
+    masks = masks.copy()
+
+    # Vectorized size filtering
+    if min_size > 0 or max_size is not None:
+        label_ids, counts = np.unique(masks[masks > 0], return_counts=True)
+        remove = np.zeros(len(label_ids), dtype=bool)
+        if min_size > 0:
+            remove |= counts < min_size
+        if max_size is not None:
+            remove |= counts > max_size
+        if remove.any():
+            masks[np.isin(masks, label_ids[remove])] = 0
+
+    # Vectorized hole filling
     fill_holes = hole_size > 0
+    if fill_holes and masks.max() > 0:
+        fg = masks > 0
+        filled_fg = binary_fill_holes(fg)
+        holes = filled_fg & ~fg
+        if holes.any():
+            from scipy.ndimage import distance_transform_edt
+            _, nearest_idx = distance_transform_edt(~fg, return_distances=True, return_indices=True)
+            masks[holes] = masks[tuple(nearest_idx[:, holes])]
 
-    slices = find_objects(masks)
-    j = 0
-    for i, slc in enumerate(slices):
-        if slc is not None:
-            msk = masks[slc] == (i + 1)
-            npix = msk.sum()
+    # Renumber consecutively
+    if masks.max() > 0:
+        unique_ids = np.unique(masks)
+        remap = np.zeros(masks.max() + 1, dtype=masks.dtype)
+        for new_id, old_id in enumerate(unique_ids):
+            remap[old_id] = new_id
+        masks = remap[masks]
 
-            too_small = npix < min_size
-            too_big = False if max_size is None else npix > max_size
-
-            if (min_size > 0) and (too_small or too_big):
-                masks[slc][msk] = 0
-            elif fill_holes:
-                hsz = np.count_nonzero(msk) * hole_size / 100
-                if SKIMAGE_ENABLED:
-                    pad = 1
-                    unpad = tuple([slice(pad, -pad)] * dim)
-                    # Keep legacy behavior (< hsz) while using the new max_size API (<= max_size).
-                    hsz_legacy = np.nextafter(float(hsz), -np.inf)
-                    padmsk = remove_small_holes(np.pad(msk, pad, mode='constant'), max_size=hsz_legacy)
-                    msk = padmsk[unpad]
-                else:
-                    msk = binary_fill_holes(msk)
-                masks[slc][msk] = (j + 1)
-                j += 1
     return masks
 
 # Omnipose version of remove_edge_masks, need to merge (this one is more flexible)

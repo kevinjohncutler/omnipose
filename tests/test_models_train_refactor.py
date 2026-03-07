@@ -47,7 +47,7 @@ def make_model(*, dim=2, nchan=1, nclasses=3, logits=True):
 
 def _patch_manual_train_helpers(monkeypatch):
     def fake_random_rotate_and_resize(**kwargs):
-        batch = len(kwargs["rescale"])
+        batch = len(kwargs["X"])
         tyx = kwargs["tyx"]
         imgi = [np.zeros((1, *tyx), np.float32) for _ in range(batch)]
         lbl = [np.zeros(tyx, np.int32) for _ in range(batch)]
@@ -66,10 +66,11 @@ def _patch_manual_train_helpers(monkeypatch):
         device = kwargs["device"]
         return torch.zeros((1, 2, *tyx), device=device)
 
-    monkeypatch.setattr(train_mod.transforms, "random_rotate_and_resize", fake_random_rotate_and_resize)
-    monkeypatch.setattr(train_mod.core, "masks_to_flows_batch", fake_masks_to_flows_batch)
-    monkeypatch.setattr(train_mod.core, "batch_labels", fake_batch_labels)
-    monkeypatch.setattr(train_mod.core, "diameters", lambda *_args, **_kwargs: (10.0, None))
+    # Patch within the data.train module where these are actually called
+    monkeypatch.setattr(train_mod.data.train, "random_rotate_and_resize", fake_random_rotate_and_resize)
+    monkeypatch.setattr(train_mod.data.train, "masks_to_flows_batch", fake_masks_to_flows_batch)
+    monkeypatch.setattr(train_mod.data.train, "batch_labels", fake_batch_labels)
+    monkeypatch.setattr(train_mod.core.diam, "diameters", lambda *_args, **_kwargs: 10.0)
 
 
 def test_train_calls_train_net_and_filters(monkeypatch, caplog):
@@ -164,7 +165,7 @@ def test_train_step_symmetry_and_grad_check(monkeypatch):
         loss = y.mean()
         if ext_loss is not None:
             loss = loss + ext_loss
-        return loss, loss.detach()
+        return loss, loss.detach(), {}
 
     monkeypatch.setattr(train_mod, "core_loss", fake_core_loss)
 
@@ -208,7 +209,7 @@ def test_train_step_autocast_branch(monkeypatch):
 
     def fake_core_loss(self, lbl, y, ext_loss=None):
         loss = y.mean()
-        return loss, loss.detach()
+        return loss, loss.detach(), {}
 
     monkeypatch.setattr(train_mod, "core_loss", fake_core_loss)
     class DummyCtx:
@@ -238,7 +239,7 @@ def test_train_step_nonfinite_loss(monkeypatch):
 
     def fake_core_loss(self, lbl, y, ext_loss=None):
         loss = torch.tensor(float("nan"), requires_grad=True)
-        return loss, loss.detach()
+        return loss, loss.detach(), {}
 
     monkeypatch.setattr(train_mod, "core_loss", fake_core_loss)
 
@@ -281,7 +282,8 @@ def test_test_eval_runs(monkeypatch):
     model.net = TinyNet(model.nclasses)
 
     def fake_core_loss(self, lbl, y):
-        return y.mean()
+        loss = y.mean()
+        return loss, loss.detach(), {}
 
     monkeypatch.setattr(train_mod, "core_loss", fake_core_loss)
 
@@ -325,7 +327,6 @@ def test_train_net_manual_batching(monkeypatch, tmp_path):
         weight_decay=0.0,
         SGD=True,
         batch_size=1,
-        dataloader=False,
         num_workers=0,
         nimg_per_epoch=None,
         do_rescale=True,
@@ -349,21 +350,30 @@ def test_train_net_dataloader_branch(monkeypatch, tmp_path):
             self.links = links
             self.nimg = len(data)
             self.tyx = kwargs["tyx"]
+            self.nclasses = kwargs.get("nclasses", 2)
 
         def __len__(self):
             return self.nimg
 
-        def __getitem__(self, idx):
-            img = torch.zeros((1, *self.tyx))
-            lbl = torch.zeros((1, *self.tyx))
-            return img, lbl, [idx]
+        def __getitem__(self, inds):
+            if not isinstance(inds, list):
+                inds = [inds]
+            img = np.zeros((1, *self.tyx), dtype=np.float32)
+            masks = [np.zeros(self.tyx, dtype=np.int32) for _ in inds]
+            links = [None] * len(inds)
+            return img, masks, links, inds
 
         def collate_fn(self, worker_data):
-            imgs, labels, inds = zip(*worker_data)
-            return torch.cat(imgs, dim=0), torch.cat(labels, dim=0), [i for sub in inds for i in sub]
+            return worker_data[0]
 
         def worker_init_fn(self, *_args):
             return None
+
+        def compute_flows_gpu(self, imgi, masks_np, links, device):
+            lbl = torch.zeros((1, self.nclasses, *self.tyx), device=device)
+            if not isinstance(imgi, torch.Tensor):
+                imgi = torch.tensor(np.array(imgi), device=device, dtype=torch.float32)
+            return imgi, lbl
 
     class DummyLoader:
         def __init__(self, dataset, batch_sampler, collate_fn, **_kwargs):
@@ -373,13 +383,12 @@ def test_train_net_dataloader_branch(monkeypatch, tmp_path):
 
         def __iter__(self):
             for batch in self.batch_sampler:
-                items = [self.dataset[i] for i in batch]
-                yield self.collate_fn(items)
+                yield self.collate_fn([self.dataset[batch]])
 
-    monkeypatch.setattr(train_mod.data, "train_set", DummyDataset)
+    monkeypatch.setattr(train_mod.data.train, "train_set", DummyDataset)
     monkeypatch.setattr(torch.utils.data, "DataLoader", DummyLoader)
     monkeypatch.setattr(torch.multiprocessing, "set_start_method", lambda *_args, **_kwargs: None)
-    monkeypatch.setattr(train_mod.core, "diameters", lambda *_args, **_kwargs: (10.0, None))
+    monkeypatch.setattr(train_mod.core.diam, "diameters", lambda *_args, **_kwargs: 10.0)
 
     model._train_step = lambda *_args, **_kwargs: torch.tensor(1.0)
 
@@ -400,7 +409,6 @@ def test_train_net_dataloader_branch(monkeypatch, tmp_path):
         weight_decay=0.0,
         SGD=True,
         batch_size=1,
-        dataloader=True,
         num_workers=1,
         nimg_per_epoch=1,
         do_rescale=False,
@@ -436,7 +444,6 @@ def test_train_net_lr_schedule_large_epochs(monkeypatch):
             weight_decay=0.0,
             SGD=True,
             batch_size=1,
-            dataloader=False,
             num_workers=0,
             nimg_per_epoch=1,
             do_rescale=False,
@@ -467,7 +474,6 @@ def test_train_net_lr_list(monkeypatch):
         weight_decay=0.0,
         SGD=False,
         batch_size=1,
-        dataloader=False,
         num_workers=0,
         nimg_per_epoch=1,
         do_rescale=False,
@@ -499,7 +505,6 @@ def test_train_net_lr_scalar_non_sgd(monkeypatch):
         weight_decay=0.0,
         SGD=False,
         batch_size=1,
-        dataloader=False,
         num_workers=0,
         nimg_per_epoch=1,
         do_rescale=False,
@@ -531,7 +536,6 @@ def test_train_net_tyx_default_3d(monkeypatch):
         weight_decay=0.0,
         SGD=True,
         batch_size=1,
-        dataloader=False,
         num_workers=0,
         nimg_per_epoch=1,
         do_rescale=False,
@@ -566,7 +570,6 @@ def test_train_net_invalid_inputs():
             weight_decay=0.0,
             SGD=True,
             batch_size=1,
-            dataloader=False,
             num_workers=0,
             nimg_per_epoch=1,
             do_rescale=False,
@@ -594,7 +597,6 @@ def test_train_net_invalid_inputs():
             weight_decay=0.0,
             SGD=True,
             batch_size=1,
-            dataloader=False,
             num_workers=0,
             nimg_per_epoch=1,
             do_rescale=False,
@@ -622,7 +624,6 @@ def test_train_net_invalid_inputs():
             weight_decay=0.0,
             SGD=True,
             batch_size=1,
-            dataloader=False,
             num_workers=0,
             nimg_per_epoch=1,
             do_rescale=False,

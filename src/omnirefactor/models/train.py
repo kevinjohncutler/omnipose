@@ -94,15 +94,6 @@ def train(self, train_data, train_labels, train_links=None, train_files=None,
 
     """
     
-    # torch.backends.cudnn.benchmark = True
-    
-    # rank = args.nr * args.gpus + gpu        
-    # distributed.init_process_group(backend='nccl',                                         
-    #                                 init_method='env://',                                   
-    #                                 world_size=args.world_size,                              
-    #                                 rank=rank                                               
-    #                         )    
-    
     if "rescale_factor" in kwargs:
         do_rescale = bool(kwargs.pop("rescale_factor"))
     if "rescale" in kwargs:
@@ -110,6 +101,11 @@ def train(self, train_data, train_labels, train_links=None, train_files=None,
 
     if do_rescale:
         models_logger.info(f'Training with rescale = {do_rescale:.2f}')
+
+    # Shallow-copy caller's lists so normalization and format_labels never mutate them.
+    # Elements (numpy arrays) are replaced, not modified in-place, so a list copy suffices.
+    train_data = list(train_data)
+    train_labels = list(train_labels)
 
     # --- Detect lazy mode: train_data is file paths rather than arrays ---
     lazy = len(train_data) > 0 and isinstance(train_data[0], (str, os.PathLike))
@@ -149,25 +145,6 @@ def train(self, train_data, train_labels, train_links=None, train_files=None,
                 train_labels[i] = ncolor.format_labels(labels)
 
         nmasks = np.array([label.max() for label in train_labels])
-
-
-
-    # if self.omni and OMNI_INSTALLED:
-    #     models_logger.info('No precomuting flows with Omnipose. Computed during training.')
-        
-    #     # We assume that if links are given, labels are properly formatted as 0,1,2,...,N
-    #     # might be worth implementing a remapping for the links just in case...
-    #     # for now, just skip this for any labels that come with a link file 
-    #     for i,(labels,links) in enumerate(zip(train_labels,train_links)):
-    #         if links is None:
-    #             train_labels[i] = utils.format_labels(labels)
-        
-    #     # nmasks is inflated when using multi-label objects, so keep that in mind if you care about min_train_masks 
-    #     nmasks = np.array([label.max() for label in train_labels])
-    # else:
-    #     train_labels = labels_to_flows(labels=train_labels, links=train_links, files=train_files, 
-    #                                    use_gpu=self.gpu, device=self.device, dim=self.dim)
-    #     nmasks = np.array([label[0].max() for label in train_labels])
 
     if not lazy and run_test:
         test_labels = labels_to_flows(test_labels, test_links,
@@ -274,6 +251,11 @@ def _train_step(self, x, lbl, symmetry_weight=1):
 
         torch.nn.utils.clip_grad_norm_(self.net.parameters(), max_norm=1.0)
 
+        # Check for non-finite gradients after clipping
+        for p in self.net.parameters():
+            if p.grad is not None and not torch.isfinite(p.grad).all():
+                raise RuntimeError("Non-finite gradient detected during training step")
+
         if scaler:
             scaler.step(self.optimizer)
             scaler.update()
@@ -289,8 +271,6 @@ def _train_step(self, x, lbl, symmetry_weight=1):
         y, sym_loss = forward_with_symmetry(X)
         del X
         loss, raw_loss, raw_losses = core_loss(self, lbl, y, ext_loss=sym_loss)
-        # print(loss,sym_loss)
-        # loss = loss + symmetry_weight * sym_loss
 
     if not torch.isfinite(loss):
         core_logger.error("Non-finite loss detected during training step")
@@ -488,7 +468,7 @@ def _train_net(self, train_data, train_labels, train_links, test_data=None, test
 
     # Resolve num_workers: -1 means "auto" (use workers when GPU is available)
     if num_workers < 0:
-        if self.device.type in ('cuda', 'mps'):
+        if self.device.type != 'cpu':
             num_workers = min(4, max(1, (os.cpu_count() or 4) // 2))
         else:
             num_workers = 0
@@ -626,10 +606,7 @@ def _train_net(self, train_data, train_labels, train_links, test_data=None, test
     if self.autocast:
         self.scaler = GradScaler()
     
-    # DataLoader-based training (single path - manual batching removed)
-    # Parameters like gamma_range are not opened up here, just left to defaults
-    # Some are passed through the model parameters (self.omni etc)
-    defer_flows = num_workers > 0
+    # DataLoader returns raw augmented arrays; flows are always computed on GPU in the training loop.
     kwargs = {'do_rescale': do_rescale,
               'diam_train': diam_train if do_rescale else None,
               'diam_mean': self.diam_mean,
@@ -643,7 +620,6 @@ def _train_net(self, train_data, train_labels, train_links, test_data=None, test
               'affinity_field': affinity_field,
               'allow_blank_masks': self.allow_blank_masks,
               'timing': timing,
-              'defer_flows': defer_flows,
              }
 
     if num_workers > 0:
@@ -668,7 +644,7 @@ def _train_net(self, train_data, train_labels, train_links, test_data=None, test
         _labels_placeholder = [None] * len(train_labels)
         training_set = data.train.train_set(_data_placeholder, _labels_placeholder, train_links, **kwargs)
         core_logger.info(f'>>>> Lazy loading: {len(train_data)} image files, zero main-process RAM.')
-    elif defer_flows and num_workers > 0:
+    elif num_workers > 0:
         # Eager arrays, multi-worker: pack into shared memory pools.
         # Uses only 2 file descriptors total; spawn workers attach by name.
         from ..data.train import _ShmPool
@@ -683,20 +659,7 @@ def _train_net(self, train_data, train_labels, train_links, test_data=None, test
     else:
         training_set = data.train.train_set(train_data, train_labels, train_links, **kwargs)
 
-    if num_workers > 0 and not defer_flows:
-        core_logger.info('>>>> Warming up dataloader transforms (compiling JIT kernels once on parent).')
-        np_state = np.random.get_state()
-        torch_state = torch.get_rng_state()
-        try:
-            _ = training_set[0]
-        finally:
-            np.random.set_state(np_state)
-            torch.set_rng_state(torch_state)
-
-    core_logger.info((">>>> Using torch dataloader. "
-                      "Using {} workers.{}").format(
-                          num_workers,
-                          " Flows deferred to GPU (shared-memory workers)." if defer_flows else ""))
+    core_logger.info(">>>> Using torch dataloader with {} worker(s). Flows computed on GPU in main process.".format(num_workers))
 
     # CyclingRandomBatchSampler pre-generates all indices using np.random.seed(0)
     # to match the omnipose manual batching path when num_workers=0
@@ -706,10 +669,9 @@ def _train_net(self, train_data, train_labels, train_links, test_data=None, test
         n_epochs=n_epochs,
         nimg_per_epoch=nimg_per_epoch,
     )
-    collate_fn = training_set.collate_fn_deferred if defer_flows else training_set.collate_fn
     params = dict(
         batch_sampler=batch_sampler,
-        collate_fn=collate_fn,
+        collate_fn=training_set.collate_fn,
         num_workers=num_workers,
         pin_memory=num_workers > 0,
         persistent_workers=num_workers > 0,
@@ -725,7 +687,6 @@ def _train_net(self, train_data, train_labels, train_links, test_data=None, test
     loader_iter = iter(train_loader)
 
     if test_data is not None:
-        print('will need to fix sampler')
         validation_set = data.train.train_set(test_data, test_labels, test_links, **kwargs)
         validation_loader = torch.utils.data.DataLoader(validation_set, **params)
 
@@ -738,14 +699,6 @@ def _train_net(self, train_data, train_labels, train_links, test_data=None, test
     epoch0 = 0
     epochtime = np.zeros(self.n_epochs)
 
-    # for weighting function
-    # blurrer = torchvision.transforms.GaussianBlur(kernel_size=11, sigma=2)
-
-    # edge handling requires distance field for cutoffs
-    # do this with batch?, turn off gradient return 
-    # dist = train_labels
- 
-    
     try:
         for epoch in range(self.n_epochs):
             self.epoch = epoch
@@ -757,33 +710,23 @@ def _train_net(self, train_data, train_labels, train_links, test_data=None, test
 
             # reproducible batches - match omnipose manual path (core.py line 1312)
             np.random.seed(epoch)
+            torch.manual_seed(epoch)   # seeds torch augmentation path
 
             inds = []
             for batch_idx in range(steps_per_epoch):
-                if defer_flows:
-                    imgi_np, masks_np, links_batch, batch_inds = next(loader_iter)
-                    inds += batch_inds
-                    nbatch = len(imgi_np)
-                    tic = time.time()
-                    dt = tic - toc
-                    toc = tic
-                    datatime += [dt]
-                    if timing:
-                        print('\t Dataloading time: {:.2f}'.format(dt))
-                    batch_data, batch_labels = training_set.compute_flows_gpu(
-                        imgi_np, masks_np, links_batch, self.device)
-                else:
-                    batch_data, batch_labels, batch_inds = next(loader_iter)
-                    inds += batch_inds
-                    nbatch = len(batch_data)
-                    tic = time.time()
-                    dt = tic - toc
-                    toc = tic
-                    datatime += [dt]
-                    if timing:
-                        print('\t Dataloading time: {:.2f}'.format(dt))
-                    batch_data = batch_data.to(self.device, non_blocking=True)
-                    batch_labels = batch_labels.to(self.device, non_blocking=True)
+                # imgi: GPU tensor (num_workers=0) or numpy (num_workers>0 CPU aug path)
+                # masks: always numpy (needed by concatenate_labels in masks_to_flows_batch)
+                imgi, masks, links_batch, batch_inds = next(loader_iter)
+                inds += batch_inds
+                nbatch = len(imgi)
+                tic = time.time()
+                dt = tic - toc
+                toc = tic
+                datatime += [dt]
+                if timing:
+                    print('\t Dataloading time: {:.2f}'.format(dt))
+                batch_data, batch_labels = training_set.compute_flows_gpu(
+                    imgi, masks, links_batch, self.device)
 
                 # update
                 train_loss = self._train_step(batch_data, batch_labels, symmetry_weight=self.symmetry_weight)
@@ -863,10 +806,7 @@ def _train_net(self, train_data, train_labels, train_links, test_data=None, test
                         ksave += 1
                         core_logger.info(f'saving network parameters to file://{file_name}')
 
-                        # self.net.save_model(file_name)
-                        # whether or not we are using dataparallel
-                        # this logic appears elsewhere in models.py
-                        if self.torch and self.gpu:
+                        if isinstance(self.net, nn.DataParallel):
                             self.net.module.save_model(file_name)
                         else:
                             self.net.save_model(file_name)

@@ -19,13 +19,15 @@ from .affinity import (
     _despur,
     _get_affinity_torch,
     affinity_to_boundary,
+    affinity_to_boundary_gpu,
     affinity_to_masks,
     boundary_to_masks,
 )
 from .diam import diameters, dist_to_diam
 from .fields import div_rescale, step_factor
-from .flows import masks_to_flows
-from .steps import steps_batch
+from .flows import masks_to_flows_batch
+from .steps import steps_batch, _follow_flows_sparse
+from ..transforms.filters import hysteresis_threshold as _hysteresis_threshold_torch
 
 try:
     from hdbscan import HDBSCAN
@@ -75,121 +77,194 @@ def compute_masks(dP, dist, affinity_graph=None, bd=None, p=None, coords=None, i
             if (omni and SKIMAGE_ENABLED) or override:
                 if verbose:
                     omnipose_logger.info('Using hysteresis threshold.')
-                iscell = filters.apply_hysteresis_threshold(dist, mask_threshold - 1, mask_threshold)
-
+                if use_gpu and device is not None:
+                    # Torch-native hysteresis — stays on GPU, expects (N,C,*spatial)
+                    dist_t = torch.as_tensor(dist, dtype=torch.float32).to(device)
+                    iscell = _hysteresis_threshold_torch(
+                        dist_t[None, None], mask_threshold - 1, mask_threshold
+                    ).squeeze()
+                else:
+                    iscell = filters.apply_hysteresis_threshold(dist, mask_threshold - 1, mask_threshold)
             else:
                 iscell = dist > mask_threshold
 
-    if np.any(iscell) and nclasses > 1:
-
-        iscell_pad = np.pad(iscell, pad)
-        coords = np.array(np.nonzero(iscell_pad)).astype(np.int32)
-        shape = iscell_pad.shape
+    iscell_is_tensor = isinstance(iscell, torch.Tensor)
+    if (iscell.any() if iscell_is_tensor else np.any(iscell)) and nclasses > 1:
 
         if suppress is None:
             suppress = omni and not affinity_seg
 
-        if omni:
-            if suppress:
-                dP_ = div_rescale(dP, iscell) / rescale_factor
-            else:
-                dP_ = dP.copy() / 5.
+        if affinity_seg:
+            # ═══ Torch-native affinity segmentation ═══
+            hole_size = 0
+            pad = 1
+            pad_seq = [(0,)*2] + [(pad,)*2]*dim
+            unpad = tuple([slice(pad, -pad)]*dim)
 
-            if dim > 2 and suppress:
-                dP_ *= flow_factor
-                print('dP_ times {} for >2d, still experimenting'.format(flow_factor))
+            if niter is None:
+                niter = int(diameters(iscell, dist) / 2)
 
-        else:
-            dP_ = dP * iscell / 5.
+            from ..gpu.device import torch_GPU, torch_CPU
+            _device = device if device is not None else (torch_GPU if use_gpu else torch_CPU)
 
-        dP_pad = np.pad(dP_, pad_seq)
-        dt_pad = np.pad(dist, pad)
-        bd_pad = np.pad(bd, pad)
-        bounds = None
+            # Convert to torch ONCE (iscell may already be a GPU tensor from hysteresis_threshold)
+            dP_t   = torch.as_tensor(dP,    dtype=torch.float32).to(_device)
+            dist_t = torch.as_tensor(dist,  dtype=torch.float32).to(_device)
+            mask_t = (iscell.float().to(_device) if iscell_is_tensor
+                      else torch.as_tensor(iscell, dtype=torch.float32).to(_device))
 
-        if (cluster or affinity_seg or not suppress) and niter is None:
-            niter = int(diameters(iscell, dist) / (1 + affinity_seg))
+            # Pad on GPU
+            _pad_args = (pad, pad) * dim
+            mask_pad = torch.nn.functional.pad(mask_t[None, None], _pad_args).squeeze()
+            dist_pad_t = torch.nn.functional.pad(dist_t[None, None], _pad_args).squeeze()
+            flows_pad = torch.nn.functional.pad(dP_t[None], _pad_args).squeeze(0)
+            dP_scaled = flows_pad / 5.0
 
-        if p is None:
-            p, coords, tr = follow_flows(dP_pad, dt_pad, coords, niter=niter, interp=interp,
-                                         use_gpu=use_gpu, device=device, omni=omni,
-                                         suppress=suppress,
-                                         calc_trace=calc_trace, verbose=verbose)
-        else:
-            tr = []
-            if verbose:
-                omnipose_logger.info('p given')
+            # Euler integration (torch in, torch out)
+            p_torch, _ = _follow_flows_sparse(dP_scaled, mask=mask_pad, niter=niter, device=_device)
 
-            p[:, ~iscell_pad] = np.stack(np.nonzero(~iscell_pad))
+            # Torch meshgrid for initial positions
+            _mesh_coords = [torch.arange(s, device=_device) for s in mask_pad.shape]
+            initial = torch.stack(torch.meshgrid(_mesh_coords, indexing='ij')).float()
 
-        if omni or override:
+            # Affinity graph (torch in, _ensure_torch is near-no-op for torch inputs)
             steps, inds, idx, fact, sign = utils.kernel_setup(dim)
-            if affinity_seg:
-                hole_size = 0
-                if affinity_graph is None:
-                    if verbose:
-                        omnipose_logger.info('computing affinity graph')
+            supporting_inds = utils.get_supporting_inds(steps)
 
-                    initial_points = np.stack(_meshgrid(iscell_pad.shape))
-                    final_points = p
-                    supporting_inds = utils.get_supporting_inds(steps)
+            if affinity_graph is None:
+                if verbose:
+                    omnipose_logger.info('computing affinity graph (torch-native)')
+                affinity_graph = _get_affinity_torch(initial, p_torch, dP_scaled, dist_pad_t,
+                                                     mask_pad.float(), steps, fact, inds,
+                                                     supporting_inds, niter, device=_device)
 
-                    affinity_graph = _get_affinity_torch(initial_points,
-                                                         final_points,
-                                                         dP_pad,
-                                                         dt_pad,
-                                                         iscell_pad,
-                                                         steps,
-                                                         fact,
-                                                         inds,
-                                                         supporting_inds,
-                                                         niter,
-                                                         device=device,
-                                                         )
-                    affinity_graph = affinity_graph.squeeze().cpu().numpy()
-                    affinity_graph = affinity_graph[(Ellipsis,) + tuple(coords)]
+            # Keep affinity on GPU as long as possible.
+            # affinity_graph may be a GPU tensor (freshly computed above) or a numpy array
+            # (pre-computed and passed in). Normalise to GPU tensor.
+            if not isinstance(affinity_graph, torch.Tensor):
+                affinity_graph_gpu = torch.as_tensor(affinity_graph, device=_device)
+            else:
+                affinity_graph_gpu = affinity_graph.squeeze()
 
-                neighbors = utils.get_neighbors(tuple(coords), steps, dim, shape, pad=pad)
-                indexes, neigh_inds, ind_matrix = utils.get_neigh_inds(tuple(neighbors), tuple(coords), shape)
+            # iscell_pad, coords, shape — small arrays, always needed
+            iscell_pad = mask_pad.cpu().numpy().astype(bool)
+            coords = np.array(np.nonzero(iscell_pad)).astype(np.int32)
+            shape = iscell_pad.shape
 
-                despur = dim == 2 and despur
-                if verbose and not despur:
-                    omnipose_logger.info('despur disabled')
+            # neighbors always needed for augmented_affinity output; ind_matrix built directly
+            # (get_neigh_inds is only needed for despur/cluster — deferred below)
+            neighbors = utils.get_neighbors(tuple(coords), steps, dim, shape, pad=pad)
+            npix = coords.shape[1]
+            ind_matrix = -np.ones(shape, int)
+            ind_matrix[tuple(coords)] = np.arange(npix)
 
+            despur = dim == 2 and despur
+            if verbose and not despur:
+                omnipose_logger.info('despur disabled')
+
+            if cluster or despur:
+                # Sparse CPU format required: networkit (cluster) or numba (despur)
+                affinity_graph = affinity_graph_gpu.cpu().numpy()[(Ellipsis,) + tuple(coords)]
+                neigh_inds = ind_matrix[tuple(neighbors)]   # (nsteps, npix)
                 if despur:
                     non_self = np.array(list(set(np.arange(len(steps))) - {inds[0][0]}))
                     cardinal = np.concatenate(inds[1:2])
                     ordinal = np.concatenate(inds[2:])
-
-                    affinity_graph = _despur(affinity_graph,
-                                             neigh_inds,
-                                             indexes,
-                                             steps,
-                                             non_self,
-                                             cardinal,
-                                             ordinal,
-                                             dim)
-
+                    indexes = np.arange(npix)
+                    affinity_graph = _despur(affinity_graph, neigh_inds, indexes, steps,
+                                            non_self, cardinal, ordinal, dim)
                 bounds = affinity_to_boundary(iscell_pad, affinity_graph, tuple(coords))
-
                 if cluster:
                     labels = affinity_to_masks(affinity_graph, neigh_inds, iscell_pad, coords, verbose=verbose)
                 else:
-                    if verbose:
-                        omnipose_logger.info('doing affinity seg without cluster.')
                     labels, bounds, _ = boundary_to_masks(bounds, iscell_pad)
-
             else:
+                # Fast path: boundary on GPU when affinity is full-grid (nsteps, *spatial).
+                # Falls back to CPU when affinity is sparse (nsteps, npix) from a pre-computed input.
+                _affinity_is_grid = affinity_graph_gpu.shape[1:] == iscell_pad.shape
+                if _affinity_is_grid:
+                    bounds_gpu = affinity_to_boundary_gpu(affinity_graph_gpu,
+                                                          torch.from_numpy(iscell_pad).to(_device))
+                    bounds = bounds_gpu.cpu().numpy()
+                else:
+                    _ag_sparse = affinity_graph_gpu.cpu().numpy()[(Ellipsis,) + tuple(coords)]
+                    bounds = affinity_to_boundary(iscell_pad, _ag_sparse, tuple(coords))
+                if verbose:
+                    omnipose_logger.info('doing affinity seg without cluster.')
+                labels, bounds, _ = boundary_to_masks(bounds, iscell_pad)
+                # Download sparse affinity for augmented_affinity output (deferred until after boundary)
+                if _affinity_is_grid:
+                    affinity_graph = affinity_graph_gpu.cpu().numpy()[(Ellipsis,) + tuple(coords)]
+                else:
+                    affinity_graph = affinity_graph_gpu.cpu().numpy()
+
+            # Set remaining variables for post-processing
+            p = p_torch.cpu().numpy()
+            tr = []
+            dP_pad = np.pad(dP, pad_seq)
+            dt_pad = dist_pad_t.cpu().numpy()
+            bd_pad = np.pad(bd, pad)
+
+        else:
+            # ═══ Existing numpy path (non-affinity) ═══
+            iscell_np = iscell.cpu().numpy() if iscell_is_tensor else np.asarray(iscell)
+            iscell_pad = np.pad(iscell_np, pad)
+            coords = np.array(np.nonzero(iscell_pad)).astype(np.int32)
+            shape = iscell_pad.shape
+
+            if omni:
+                if suppress:
+                    dP_ = div_rescale(dP, iscell_np) / rescale_factor
+                else:
+                    dP_ = dP.copy() / 5.
+
+                if dim > 2 and suppress:
+                    dP_ *= flow_factor
+                    print('dP_ times {} for >2d, still experimenting'.format(flow_factor))
+            else:
+                dP_ = dP * iscell / 5.
+
+            dP_pad = np.pad(dP_, pad_seq)
+            dt_pad = np.pad(dist, pad)
+            bd_pad = np.pad(bd, pad)
+            bounds = None
+
+            if niter is None:
+                niter = int(diameters(iscell, dist))
+
+            if p is None:
+                if use_gpu and omni and suppress and not calc_trace:
+                    # GPU-native sparse path: avoids full-image meshgrid + steps_batch overhead
+                    from ..gpu.device import torch_GPU, torch_CPU
+                    _device = device if device is not None else (torch_GPU if use_gpu else torch_CPU)
+                    dP_t = torch.as_tensor(dP_pad, dtype=torch.float32).to(_device)
+                    mask_t = torch.as_tensor(iscell_pad, dtype=torch.float32).to(_device)
+                    p_torch, _ = _follow_flows_sparse(dP_t, mask_t, niter=niter, device=_device,
+                                                      suppress=True, interp=interp)
+                    p = p_torch.cpu().numpy()
+                    tr = []
+                else:
+                    p, coords, tr = follow_flows(dP_pad, dt_pad, coords, niter=niter, interp=interp,
+                                                 use_gpu=use_gpu, device=device, omni=omni,
+                                                 suppress=suppress,
+                                                 calc_trace=calc_trace, verbose=verbose)
+            else:
+                tr = []
+                if verbose:
+                    omnipose_logger.info('p given')
+                p[:, ~iscell_pad] = np.stack(np.nonzero(~iscell_pad))
+
+            if omni or override:
+                steps, inds, idx, fact, sign = utils.kernel_setup(dim)
                 labels, _ = get_masks(p, bd_pad, dt_pad, iscell_pad, coords, nclasses, cluster=cluster,
                                       diam_threshold=diam_threshold, verbose=verbose,
                                       eps=eps, hdbscan=hdbscan)
                 affinity_graph = None
                 coords = np.nonzero(labels)
-        else:
-            # should deprecate this code path, remove omni toggle, maybe have a cp toggle instead or combine suppress=False with CC
-            labels = get_masks_cp(p, iscell=iscell_pad,
-                                  flows=dP_pad if flow_threshold > 0 else None,
-                                  use_gpu=use_gpu)
+            else:
+                labels = get_masks_cp(p, iscell=iscell_pad,
+                                      flows=dP_pad if flow_threshold > 0 else None,
+                                      use_gpu=use_gpu)
 
         if not do_3D:
             flows = np.pad(dP, pad_seq)
@@ -434,7 +509,7 @@ def follow_flows(dP, dist, inds, niter=None, interp=True, use_gpu=True,
     return p, inds, tr
 
 
-def remove_bad_flow_masks(masks, flows, coords=None, affinity_graph=None, threshold=0.4, use_gpu=False, device=None, omni=True):
+def remove_bad_flow_masks(masks, flows, coords=None, affinity_graph=None, threshold=0.4, use_gpu=True, device=None, omni=True):
     """Remove masks which have inconsistent flows."""
     merrors, _ = flow_error(masks, flows, coords, affinity_graph, use_gpu, device, omni)
     badi = 1 + (merrors > threshold).nonzero()[0]
@@ -447,7 +522,7 @@ def _meshgrid(shape):
     return np.meshgrid(*ranges, indexing='ij')
 
 
-def flow_error(maski, dP_net, coords=None, affinity_graph=None, use_gpu=False, device=None, omni=True):
+def flow_error(maski, dP_net, coords=None, affinity_graph=None, use_gpu=True, device=None, omni=True):
     """Error in flows from predicted masks vs flows predicted by network run on image."""
     if dP_net.shape[1:] != maski.shape:
         omnipose_logger.info('ERROR: net flow is not same size as predicted masks')
@@ -455,12 +530,13 @@ def flow_error(maski, dP_net, coords=None, affinity_graph=None, use_gpu=False, d
 
     fastremap.renumber(maski, in_place=True)
 
-    idx = -1
-    dim = maski.ndim
-    dP_masks = masks_to_flows(maski, dim=dim, coords=coords, affinity_graph=affinity_graph,
-                              use_gpu=use_gpu, device=device, omni=omni)[idx].cpu().numpy()
-    flow_errors = np.zeros(maski.max())
+    from ..gpu.device import torch_GPU, torch_CPU
+    _device = device if device is not None else (torch_GPU if use_gpu else torch_CPU)
 
+    _, _, _, mu, _, _, _, _ = masks_to_flows_batch(np.array([maski]), device=_device, omni=omni)
+    dP_masks = mu.cpu().numpy()
+
+    flow_errors = np.zeros(maski.max())
     for i in range(dP_masks.shape[0]):
         flow_errors += mean((dP_masks[i] - dP_net[i] / 5.) ** 2, maski,
                             index=np.arange(1, maski.max() + 1))

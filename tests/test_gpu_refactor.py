@@ -9,6 +9,10 @@ import torch
 def _reload_device(monkeypatch, processor_value, mps_available=True, mps_raises=False):
     import omnirefactor.gpu.device as device
 
+    # Save current torch_GPU so monkeypatch restores module state after the test.
+    # importlib.reload() changes module globals in ways monkeypatch won't undo on its own.
+    monkeypatch.setattr(device, "torch_GPU", device.torch_GPU, raising=False)
+
     # patch platform.processor before reload
     monkeypatch.setattr(device.platform, "processor", lambda: processor_value)
     if mps_raises:

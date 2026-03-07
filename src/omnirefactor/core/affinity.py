@@ -7,6 +7,50 @@ from numba import njit, prange
 
 import fastremap
 import ncolor
+
+@njit(cache=True)
+def _uf_find(parent, x):
+    while parent[x] != x:
+        parent[x] = parent[parent[x]]  # path halving
+        x = parent[x]
+    return x
+
+
+@njit(cache=True)
+def _uf_union(rows, cols, parent):
+    for i in range(len(rows)):
+        rx = _uf_find(parent, rows[i])
+        ry = _uf_find(parent, cols[i])
+        if rx != ry:
+            if rx > ry:
+                rx, ry = ry, rx
+            parent[ry] = rx
+
+
+@njit(cache=True)
+def _uf_label(parent):
+    n = len(parent)
+    root_lbl = np.full(n, -1, dtype=np.int32)
+    labels = np.zeros(n, dtype=np.int32)
+    nxt = np.int32(1)
+    for i in range(n):
+        r = _uf_find(parent, i)
+        if root_lbl[r] < 0:
+            root_lbl[r] = nxt
+            nxt += 1
+        labels[i] = root_lbl[r]
+    return labels
+
+
+def _cc_union_find(rows, cols, n_nodes):
+    """Connected components via numba union-find (path-halving, no rank)."""
+    parent = np.arange(n_nodes, dtype=np.int32)
+    _uf_union(rows.astype(np.int32), cols.astype(np.int32), parent)
+    return _uf_label(parent)
+
+
+# Trigger JIT compilation at import time to avoid first-call latency
+_cc_union_find(np.array([0], dtype=np.int32), np.array([0], dtype=np.int32), 2)
 from skimage import measure
 from skimage.morphology import remove_small_objects
 from skimage.segmentation import expand_labels, find_boundaries
@@ -276,277 +320,116 @@ def spatial_affinity(affinity_graph, coords, shape):
     return affinity
 
 
-def _get_affinity_torch(initial, final, flow, dist, iscell, steps, fact, inds, supporting_inds, 
-                        niter,  euler_offset=None,
+def _get_affinity_torch(initial, final, flow, dist, iscell, steps, fact, inds, supporting_inds,
+                        niter, euler_offset=None,
                         device=torch_GPU,
-                        # angle_cutoff=np.pi/2):
-                        # angle_cutoff=np.pi/2):
-                        # angle_cutoff=np.pi/1.5):
-
                         angle_cutoff=np.pi/3):
+    initial, final, flow, dist, iscell = _ensure_torch(initial, final, flow, dist, iscell, device=device)
 
-                        # angle_cutoff=np.pi/10):
-
-                        # angle_cutoff=np.pi/4):
-    # print('using torch affinity - not equivalent YET, displacement vs flow field')
-    # print('shapes',[arr.shape for arr in [initial, final, flow, dist, iscell]])
-    # print([isinstance(arr, np.ndarray) for arr in [initial, final, flow, dist, iscell]])
-    
-    # adds batch dimension 
-    initial, final, flow, dist, iscell = _ensure_torch(initial, final, flow, dist, iscell, device=device) 
-    
-    # compute the displacement vector field; replacing flow with this does not seem to make a difference now
-    # which means we could possibly forgo euler integration altogether 
-    # using the displacement avoids some internal boundaries 
-    mu = final - initial 
-    # mu = flow 
-    
-    # Get the shape of the tensor
+    mu = final - initial
     B, D, *DIMS = mu.shape
     S = len(steps)
-    
-    # I think the new strategy is to fill in the arrays for each step
-    # then take acos on the full cosine array for thresholding 
-    div = divergence_torch(flow) 
-    # div = divergence_torch(mu) # NOTE: my original code still uses the flow field prediciton as mu here, 
-    # but easier to experiment here and indeed using displacemnet is much more robust without despurring 
-    # thus mI might want to change the main loop as well somehow...
-    # actually the thing here is that the scale might be all wrong... 
-    
-    # so divergence as computed now may be too crude, and I need a better metric for if there is inward flow
-    # so that i can connect inner parts of the cell. 
-    
+    spatial_dims = tuple(range(-D, 0))
+
+    div = divergence_torch(flow)
     mag = torch_norm(mu, dim=1, keepdim=True)
-    # mag = torch.linalg.norm(mu,dim=1,keepdim=True)
+    mu_norm = torch.where(mag > 0, mu / mag, mu)
 
-    mu_norm = torch.where(mag>0,mu/mag,mu) # avoids dividing during loop
-    cos = torch.stack([(mu_norm * mu_norm).sum(dim=1)]*S)
-    # div = divergence_torch(mu_norm)
-    # print('debug', torch.sum(iscell), torch.max(mag), torch.mean(mag.squeeze()[iscell]), torch.mean(utils.torch_norm(mu_norm,dim=1,keepdim=False)[iscell]))
-    div_cutoff = 1/3 # this alone follows internal boundaries quite well 
-    div_cutoff = 0    
-    
-    if euler_offset is None:
-        euler_offset = 2*np.sqrt(D)
-        # euler_offset = D
-        
-        
-    # print('debug',niter, np.sqrt(niter), np.sqrt(niter/2),torch.mean(dist[dist>0]))
-    use_flow = 0 # seems to work just fine without this option? saves time too 
-    if use_flow:
-        # print('using predicted flow for mag cutoff')
-        mag_cutoff = .5
-        mag = torch_norm(flow, dim=1, keepdim=True) # alternate on real flow, better for catching boundary faults due to low mag flows 
-    else:
-        # mag_cutoff = np.sqrt(D) # could be higher or based on niter
-        mag_cutoff = 3
+    sink = div < 0  # (B, *DIMS)
+    valid_mask = utils.precompute_valid_mask(DIMS, steps, device=device)  # (S, 1, *DIMS)
+    cutoff = 3 ** (D - 1)
 
-    # not used anymore?
-    # slow = mag<mag_cutoff
-    
-    sink = div<div_cutoff
-    # sink = dist>D # this is actually much more rubust? 
-    # sink = dist>np.sqrt(niter/2) # niter based on the mean distance field, no need to recompute that 
-    # sink = dist>torch.mean(dist[dist>0])/2
-    
-    shape = cos.shape
-    device = cos.device      
-    is_sink = torch.zeros(shape,dtype=torch.bool,device=device)
-    
-    # define step slices 
-    
-    # this preallocation is another great example why using [[]*D]*S is a very bad idea 
-    source_slices, target_slices = [[[[] for _ in range(D)] for _ in range(S)] for _ in range(2)]
+    # Phase 1: pairwise cosines + sink via torch.roll -- works for any D
+    cos = torch.stack([
+        (mu_norm * torch.roll(mu_norm,
+                              shifts=tuple(-int(s[j]) for j in range(D)),
+                              dims=spatial_dims)).sum(dim=1)
+        for s in steps])  # (S, B, *DIMS)
+    is_sink = torch.stack([
+        sink | torch.roll(sink,
+                          shifts=tuple(-int(s[j]) for j in range(D)),
+                          dims=spatial_dims)
+        for s in steps])  # (S, B, *DIMS)
 
-    # instead of computing divergence with built-in gradient, I can do it manually
-    # this is more precise, but still dodn't really show any improvement 
-    # div = torch.zeros_like(div)
-    
-    # source and target slices are arranges so that the target is always in bounds
-    # source is offset opposite the direciton of the step for this to be true 
-        
-    s1,s2,s3 = slice(1,None), slice(0,-1), slice(None,None) # this needs to be generalized to D dimensions
-    for i in range(S):
-        for j in range(D):
-            s = steps[i][j]
-            target_slices[i][j], source_slices[i][j] = (s1,s2) if s>0 else (s2,s1) if s<0 else (s3,s3)
-            
-    
-    # print('target slices')
-    # for ts,ss,step in zip(target_slices, source_slices, steps):
-    #     print(f'source {ss},  target{ts}, {step} {vector_to_arrow(step)}')
-        
+    # Fix OOB: cos -> self-dot, is_sink -> False
+    self_cos = (mu_norm * mu_norm).sum(dim=1)  # (B, *DIMS)
+    cos = torch.where(valid_mask, cos, self_cos.unsqueeze(0))
+    is_sink = is_sink & valid_mask
 
-    for i in range(S//2): # appears to work 
+    connectivity = (cos >= np.cos(angle_cutoff)) | is_sink
+    connectivity[S // 2] = False
+    csum = connectivity.sum(0)  # (B, *DIMS)
+    keep = csum >= cutoff
 
-        # Create slices for the in-bounds region
+    # Phases 4-6: support filtering + interior connectivity restoration
+    # iscell_bool, keep_bool, conn_sq keep the full batch dim (B, *DIMS) / (S, B, *DIMS)
+    iscell_bool = iscell.bool()   # (B, *DIMS)
+    keep_bool   = keep            # (B, *DIMS)
 
-        target_slc = (Ellipsis,)+tuple(target_slices[i])
-        source_slc = (Ellipsis,)+tuple(source_slices[i])
+    pairs_per_dir = []
+    for i in range(S // 2):
+        tuples = supporting_inds[i]
+        all_f, all_b = [], []
+        for j in range(len(tuples)):
+            f_inds = tuples[j]
+            b_inds = (S - 1 - np.array(tuples[-(j + 1)])).tolist()
+            for f, b in zip(f_inds, b_inds):
+                all_f.append(f)
+                all_b.append(b)
+        pairs_per_dir.append((all_f, all_b))
 
-        # Pairs that have one in a sink region  
-        is_sink[i][source_slc] = is_sink[-(i+1)][target_slc] = torch.logical_or(sink[source_slc],sink[target_slc])
-     
-        # Compute the cosine of the angle between all pairs in this direction 
-        cos[i][source_slc] = cos[-(i+1)][target_slc] = (mu_norm[target_slc] * mu_norm[source_slc]).sum(dim=1)
+    for i in range(S // 2):
+        shifts_neg = tuple(-int(steps[i][j]) for j in range(D))
+        shifts_fwd = tuple( int(steps[i][j]) for j in range(D))
+        vm_i   = valid_mask[i,      0]   # (*DIMS) — broadcasts over B
+        vm_opp = valid_mask[-(i+1), 0]
+        all_f, all_b = pairs_per_dir[i]
+        conn_sq = connectivity  # (S, B, *DIMS) view — no [0] batch drop
 
-    # this criterion sets connectivity based on the angle between the two vectors 
-    # I wonder if this angle should depend on cardinal vs ordinal...
-    # is_parallel = torch.acos(cos.clamp(-1,1))<=angle_cutoff    
-    # with torch.no_grad():
-    # is_parallel = cos.clamp(-1, 1) >= np.cos(angle_cutoff) # still need a clamp here? Don't think so
-    is_parallel = cos >= np.cos(angle_cutoff)
-    
-    # this is actually superior to my old method, the near condition can have poor behavior on Drad
-    # The slow criterion is not used anymore? 
-    connectivity = torch.logical_or(is_parallel, is_sink) 
-    # print('c', connectivity.shape, is_parallel.shape)
-    
-    
-    connectivity[S//2] = 0 # do not allow self connection via this criterion 
-    
-    # discard pixels with low connectivity  
-    # also take care of background connections here
-    csum = torch.sum(connectivity,axis=0)
-    
-    cutoff = D+2 # not sure if this will generalize to 3d.. those spurs will be connected to possibly 3x3 pixels
-    cutoff = 3**(D-1) # + 1
-    keep = csum>=cutoff   
+        # Phase 4: vectorized support count — (len, B, *DIMS) after indexing
+        cf = conn_sq[all_f]
+        cb = torch.roll(connectivity[all_b], shifts=shifts_neg, dims=spatial_dims)
+        vf = valid_mask[all_f]  # (len, 1, *DIMS) — broadcasts over B
+        support = (cf & cb & vf).sum(0, dtype=torch.int32)  # (B, *DIMS)
 
+        # Phase 5: interior connectivity restoration
+        restore = (csum >= 7) & vm_i   # (B, *DIMS)
+        conn_sq[i] = conn_sq[i] | restore
+        conn_sq[-(i+1)] = conn_sq[-(i+1)] | (torch.roll(restore, shifts=shifts_fwd, dims=spatial_dims) & vm_opp)
 
-    valid_mask = utils.precompute_valid_mask(DIMS,steps,device=keep.device)
-    # print('valid',valid_mask.shape)
-    # print(connectivity[~valid_mask])
-    
-    
-    # self_idx = inds[0][0]
-    # non_self = np.array(list(set(np.arange(len(steps)))-{self_idx})) # I need these to be in order
-    # print('non self',non_self)  
-    # print('supporting_inds',supporting_inds)
-    # for i in non_self:
-    for i in range(S//2):
-    # for i in [0,1,2]:
-    # for i in [3]:
-     
-        if 1:
-            tuples = supporting_inds[i]
-            # print('tuples',tuples)
-            # source_support = []
-            # target_support = []
-            target_slc = (Ellipsis,)+tuple(target_slices[i])
-            source_slc = (Ellipsis,)+tuple(source_slices[i])
-            
-            support = torch.zeros_like(keep[source_slc],dtype=torch.int32)
-            # support = torch.zeros_like(keep,dtype=torch.int32)
-            
-            
-            # as it tuns out, the corresponding connectivities are already in the right order 
-            n_tuples = len(tuples)
-            # now we loop over all possible paths from source to target 
-            # some paths lead to oob zone, though 
-            for j in range(n_tuples): 
-                f_inds = tuples[j]
-                b_inds = tuple(S-1-np.array(tuples[-(j+1)]))
-                # could also do 
-                # b_inds = tuple(S-1-np.array(f_inds[::-1]))
-                
-                # print(i, j, f_inds, b_inds, steps[i], [steps[k] for k in f_inds], [steps[k] for k in b_inds])
-                # print(i, j, f_inds, b_inds, steps[i], vector_to_arrow(steps[i]), 
-                #       vector_to_arrow([steps[k] for k in f_inds]), 
-                #       vector_to_arrow([steps[k] for k in b_inds]))
+        # Phase 6: final mask
+        opp_at_tgt    = torch.roll(conn_sq[-(i+1)], shifts=shifts_neg, dims=spatial_dims)
+        iscell_at_tgt = torch.roll(iscell_bool,      shifts=shifts_neg, dims=spatial_dims)
+        keep_at_tgt   = torch.roll(keep_bool,        shifts=shifts_neg, dims=spatial_dims)
+        _c = (conn_sq[i] & opp_at_tgt & iscell_bool & iscell_at_tgt
+              & keep_bool & keep_at_tgt & (support > 2))
+        conn_sq[i]      = torch.where(vm_i,   _c,
+                                      conn_sq[i])
+        conn_sq[-(i+1)] = torch.where(vm_opp, torch.roll(_c, shifts=shifts_fwd, dims=spatial_dims),
+                                      conn_sq[-(i+1)])
 
-                    
-                for f,b in zip(f_inds,b_inds):
-                    # connectivity in the forward direction at the source pixel
-                    # supportive_connectivity.append(torch.logical_and(connectivity[f][source_slc], connectivity[b][target_slc])) 
-                    # support.add_(torch.logical_and(connectivity[f][source_slc], connectivity[b][target_slc]))
-                    # support+= torch.logical_and(connectivity[f][source_slc], connectivity[b][target_slc]))
-                    # support = support.add(torch.logical_and(connectivity[f][source_slc], connectivity[b][target_slc]))
-                    
-                    support = support.add(torch_and([connectivity[f][source_slc], 
-                                                     connectivity[b][target_slc],
-                                                     valid_mask[f][source_slc],
-                                                    #  valid_mask[b][target_slc], # no need to check backwards too, reference same point
-                                                    
-                                                     ]))
-                    
-                    
-                    # source and target cannot be defined by the f ab b becasue those are different directions
-                    # could do an intersection of the steps so that we only add to the support within directions
-                    # step_intersect = np.sign(steps[f]+steps[b])
-                    # idx_intersect = np.nonzero((steps==step_intersect).all(axis=1))[0][0]
-                    # print(step_intersect, vector_to_arrow(step_intersect), idx_intersect) 
-                    # target_slc_intersect = (Ellipsis,)+tuple(target_slices[idx_intersect])
-                    # source_slc_intersect = (Ellipsis,)+tuple(source_slices[idx_intersect])
-                    # print('ff',source_slc_intersect, target_slc_intersect)
-                    
-                    # print('\tddddddd',shifts_to_slice([steps[f],steps[b]],support.shape))
-                    
-                    # common_slc = (Ellipsis,)+ shifts_to_slice([steps[f],steps[b]],support.shape)
-                    # print('common_slc',common_slc)
-                    # support = support.add(torch.logical_and(connectivity[f][source_slc], connectivity[b][target_slc]))
-                    # support[common_slc] = torch.logical_and(connectivity[f][source_slc][common_slc], connectivity[b][target_slc][common_slc])
-                    
-                    # one option: add an index check, leigh neigh inds array to see if >0 for oob 
-                    
-                    
-                    
-            # remove internal spurs 
-            connectivity[i][source_slc] = connectivity[-(i+1)][target_slc] = torch.where(csum[source_slc]>=7, 1, connectivity[i][source_slc])
-            # 1) Create a boolean mask, the same shape as connectivity[i][source_slc].
-            # mask = (csum[source_slc] >= 7)
-
-            # # 2) Use boolean indexing to set only those pixels to 1.
-            # connectivity[i][source_slc][mask] = 1
-            # connectivity[-(i+1)][target_slc][mask] = 1
-     
-            connectivity[i][source_slc] = connectivity[-(i+1)][target_slc] = torch_and([connectivity[i][source_slc],
-                                                                                        connectivity[-(i+1)][target_slc],
-                                                                                        
-                                                                                        # connections should only exist if both hypervoxels are foreground
-                                                                                        iscell[source_slc],
-                                                                                        iscell[target_slc],
-                                                                                        
-                                                                                        # keep are those with "enoguh" connections to begin with 
-                                                                                        keep[source_slc], 
-                                                                                        keep[target_slc],
-                                                                                        
-                                                                                        # support connectiosn ensures that the hypervoxels
-                                                                                        # are connected not just directly, but in a neighborhood
-                                                                                        support>2 # Only keep connections that are supported in more than two routes 
-                                                                                        # support[source_slc]>2,
-                                                                                        # support[target_slc]>2 
-                                                                                        ])
-            
-
-            
-
-            
-
-  
-    # # I could also just delete all non-cardinal connections...
     return connectivity
-    
-    
+
 
 
 # numba will require getting rid of stacking, summation, etc., super annoying... the number of pixels to fix is quite
 # small in practice, so may not be worth it 
 # @njit('(bool_[:,:], int64[:,:], int64[:], int64[:], int64[:],  int64[:], int64, bool_)')
 
-def affinity_to_edges(affinity_graph,neigh_inds,step_inds,px_inds):
-    """Convert symmetric affinity graph to list of edge tuples for connected components labeling."""
-    n_edges = len(step_inds) * len(px_inds)
-    edge_list = np.empty((n_edges, 2), dtype=np.int64)
-    # edge_list = [(-1,-1)] * n_edges  # Preallocate list with placeholder tuples
-
-    idx = 0
+def affinity_to_edges(affinity_graph, neigh_inds, step_inds, px_inds):
+    """Convert symmetric affinity graph to edge list (vectorized)."""
+    rows_list = []
+    cols_list = []
     for s in step_inds:
-        for p in px_inds:
-            if p <= neigh_inds[s][p] and affinity_graph[s,p]:  # upper triangular 
-                edge_list[idx] = (p,neigh_inds[s][p])
-                idx += 1
-    return edge_list[:idx] # return only the portion edge_list that contins edges 
+        ni = neigh_inds[s][px_inds]
+        valid = (px_inds <= ni) & affinity_graph[s, px_inds].astype(bool)
+        rows_list.append(px_inds[valid])
+        cols_list.append(ni[valid])
+    if not rows_list:
+        return np.empty((0, 2), dtype=np.int64)
+    rows = np.concatenate(rows_list)
+    cols = np.concatenate(cols_list)
+    return np.stack([rows, cols], axis=1)
 
 
 def affinity_to_masks(affinity_graph,neigh_inds,iscell, coords,
@@ -580,57 +463,17 @@ def affinity_to_masks(affinity_graph,neigh_inds,iscell, coords,
         
     edge_list = affinity_to_edges(affinity_graph,neigh_inds,step_inds,px_inds)
     # print(edge_list[0].shape,edge_list[1].shape)
-    # Lazily import networkit here to avoid import-time side effects
-    try:
-        import networkit as nk  # for connected components
-        np.ulong = np.uint64    # restore the old alias
-    except Exception as e:
-        raise ImportError("networkit is required for affinity_to_masks; please install networkit") from e
+    # Connected components via numba union-find
+    rows = edge_list[:, 0]
+    cols = edge_list[:, 1]
+    raw_labels = _cc_union_find(rows, cols, npix)
+    # Zero out singletons (isolated foreground pixels with no edges)
+    has_edge = np.zeros(npix, dtype=bool)
+    has_edge[rows] = True
+    has_edge[cols] = True
+    comp_id = np.where(has_edge, raw_labels, 0).astype(np.int32)
 
-    # Create a Networkit graph from the edge list
-    g = nk.graph.Graph(n=npix, weighted=False)
-    
-    # I benchmarked two methods of adding edges:
-    # addEdges with a tuple of
-    
-    # edge_list = (np.array(edge_list[:,0]), np.array(edge_list[:,1]))
-    # g.addEdges(edge_list)
-    u = np.ascontiguousarray(edge_list[:, 0], dtype=np.uint64)
-    v = np.ascontiguousarray(edge_list[:, 1], dtype=np.uint64)
-    g.addEdges((u, v))
-
-
-
-    # # Assume edge_list is a 2D NumPy array with shape (num_edges, 2)
-    # num_edges, _ = edge_list.shape
-    # # For an unweighted graph, assign a constant weight (e.g., 1.0) for each edge.
-    # data = np.ones(num_edges, dtype=np.float64)
-    # # Create a COO matrix from the edge list. Ensure the shape matches your total number of nodes.
-    # coo = coo_matrix((data, (edge_list[:, 0], edge_list[:, 1])), shape=(npix, npix))
-    # nk.setNumberOfThreads(4)  # e.g. on a 16-core system
-
-    # # Create a graph and add edges in one go.
-    # # g = nk.Graph(n=npix, weighted=False, directed=False)
-    # # g.addEdges(coo)
-    # g = GraphFromCoo(coo, weighted=False, directed=False)
-
-
-    # Find the connected components
-    cc = nk.components.ConnectedComponents(g).run()
-    components = cc.getComponents()
-
-    labels = np.zeros(iscell.shape,dtype=int)
-    # for i,nodes in enumerate(components):
-    #      labels[tuple([c[nodes] for c in coords])] = i+1 if len(nodes)>1 else 0
-    comp_id = np.zeros(npix, dtype=np.int32)
-    for i, nodes in enumerate(components):
-        # Skip singletons or give them label 0
-        if len(nodes) > 1:
-            comp_id[nodes] = i + 1
-
-    # 'coords' is shape (dim, npix); 
-    # 'labels' is your ND array; 
-    # we do one vectorized assignment:
+    labels = np.zeros(iscell.shape, dtype=int)
     labels[tuple(coords)] = comp_id
 
     if exclude_interior:

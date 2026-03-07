@@ -138,15 +138,9 @@ def test_eval_set_iter_worker_split(monkeypatch):
     assert len(items) == 3
 
 
-def test_eval_set_files_and_aics_branches():
-    class DummyAICSImage:
-        def __init__(self, *_args, **_kwargs):
-            pass
-
-        def get_image_data(self, *_args, **_kwargs):
-            return np.zeros((16, 16), dtype=np.float32)
-
-    eval_mod.AICSImage = DummyAICSImage
+def test_eval_set_files_and_aics_branches(monkeypatch):
+    # File branch: patch imread so no real file is needed
+    monkeypatch.setattr(eval_mod, "imread", lambda _path: np.zeros((16, 16), dtype=np.float32))
 
     file_dataset = eval_mod.eval_set(
         ["fake.tif"],
@@ -159,6 +153,16 @@ def test_eval_set_files_and_aics_branches():
     img, inds, subs = file_dataset[0]
     assert img.shape[1] == 1
     assert len(inds) == 1
+
+    # AICS branch: patch AICSImage so isinstance check passes
+    class DummyAICSImage:
+        def __init__(self, *_args, **_kwargs):
+            pass
+
+        def get_image_data(self, *_args, **_kwargs):
+            return np.zeros((16, 16), dtype=np.float32)
+
+    monkeypatch.setattr(eval_mod, "AICSImage", DummyAICSImage)
 
     aics_dataset = eval_mod.eval_set(
         DummyAICSImage(),

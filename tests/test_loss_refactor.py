@@ -36,8 +36,10 @@ def test_loss_nclasses_one_branch():
     lbl = torch.zeros((1, 2, 4, 4))
     lbl[:, 1] = 1.0
     y = torch.sigmoid(torch.randn((1, 1, 4, 4)))
-    out = loss_mod.loss(model, lbl, y)
-    assert torch.is_tensor(out)
+    total, raw, raw_losses = loss_mod.loss(model, lbl, y)
+    assert torch.is_tensor(total)
+    assert torch.is_tensor(raw)
+    assert isinstance(raw_losses, dict)
 
 
 def test_loss_full_branch():
@@ -47,6 +49,7 @@ def test_loss_full_branch():
     lbl[:, 1] = 1.0
     y = torch.randn((1, dim + 2, 4, 4))
     y[:, dim + 1] = torch.sigmoid(y[:, dim + 1])
-    total, raw = loss_mod.loss(model, lbl, y, ext_loss=torch.tensor(0.0))
+    total, raw, raw_losses = loss_mod.loss(model, lbl, y, ext_loss=torch.tensor(0.0))
     assert torch.is_tensor(total)
     assert torch.is_tensor(raw)
+    assert isinstance(raw_losses, dict)
