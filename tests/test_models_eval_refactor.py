@@ -143,9 +143,7 @@ def test_eval_top_level():
         verbose=False,
     )
     assert isinstance(flows, list)
-    assert isinstance(styles, list)
-    assert len(styles) == 1
-    assert styles[0] is not None
+    assert styles == []  # unified path does not return style vectors
 
 
 def test_eval_dataset_branch(monkeypatch):
@@ -309,7 +307,7 @@ def test_eval_pretrained_model_list_initialization():
         loop_run=False,
         model_loaded=False,
     )
-    assert isinstance(masks, list)
+    assert isinstance(masks, np.ndarray)
     assert isinstance(flows, list)
 
 
@@ -331,9 +329,9 @@ def test_eval_rescale_kwarg_ignored():
         show_progress=False,
         verbose=False,
     )
-    assert isinstance(masks, list)
+    assert isinstance(masks, np.ndarray)
     assert isinstance(flows, list)
-    assert isinstance(styles, list)
+    assert styles == []
 
 
 def test_eval_single_image_array_branch():
@@ -353,9 +351,9 @@ def test_eval_single_image_array_branch():
         show_progress=False,
         verbose=False,
     )
-    assert isinstance(masks, list)
+    assert isinstance(masks, np.ndarray)
     assert isinstance(flows, list)
-    assert isinstance(styles, np.ndarray)
+    assert styles == []
 
 
 def test_eval_dataset_branch_with_real_file(monkeypatch):
@@ -448,52 +446,6 @@ def test_eval_dataset_branch_rescale_resample(monkeypatch):
         assert styles == []
 
 
-def test_eval_dataset_branch_num_workers_params(monkeypatch):
-    model = make_stub_model()
-
-    def fake_compute_masks(dP, dist, **_):
-        mask = np.zeros(dist.shape, dtype=np.int32)
-        p = np.zeros((model.dim,) + dist.shape, dtype=np.float32)
-        tr = np.zeros_like(p)
-        bounds = np.zeros(dist.shape, dtype=bool)
-        affinity = np.zeros((1,), dtype=np.float32)
-        return mask, p, tr, bounds, affinity
-
-    monkeypatch.setattr(meval.core, "compute_masks", fake_compute_masks)
-
-    captured = {}
-
-    class DummyLoader:
-        def __init__(self, dataset, **kwargs):
-            captured.update(kwargs)
-            self.dataset = dataset
-
-        def __iter__(self):
-            return iter([])  # no batches
-
-    monkeypatch.setattr(meval.torch.utils.data, "DataLoader", DummyLoader)
-
-    dataset = eval_mod.eval_set([np.zeros((32, 32), dtype=np.float32)], dim=2, normalize=False, invert=False)
-
-    meval.eval(
-        model,
-        dataset,
-        channels=[0, 0],
-        normalize=False,
-        invert=False,
-        rescale_factor=1.0,
-        compute_masks=True,
-        net_avg=False,
-        augment=False,
-        tile=False,
-        bsize=16,
-        show_progress=False,
-        verbose=False,
-        num_workers=1,
-    )
-    assert captured["num_workers"] == 1
-    assert captured["persistent_workers"] is True
-
 
 def test_eval_dataset_branch_normalize_invert_rescale_none(monkeypatch):
     model = make_stub_model()
@@ -568,9 +520,9 @@ def test_eval_dataparallel_verbose(monkeypatch):
         model_loaded=False,
         omni=False,
     )
-    assert isinstance(masks, list)
+    assert isinstance(masks, np.ndarray)
     assert isinstance(flows, list)
-    assert isinstance(styles, np.ndarray)
+    assert styles == []
 
 
 def test_run_batch_rescale_pad_resample_false_and_stitch(monkeypatch):

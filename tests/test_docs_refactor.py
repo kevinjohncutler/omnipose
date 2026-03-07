@@ -4,6 +4,7 @@ import runpy
 from pathlib import Path
 import os
 from contextlib import contextmanager
+import pytest
 
 
 @contextmanager
@@ -21,6 +22,7 @@ def _temp_env(**updates):
 
 
 def test_conf_py_executes():
+    pytest.importorskip("docutils")
     repo_root = Path(__file__).resolve().parents[1]
     docs_dir = repo_root / "docs"
     conf_path = docs_dir / "conf.py"

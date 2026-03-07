@@ -24,6 +24,7 @@ from ..gpu import empty_cache, ARM
 from ..networks import assign_device, MXNET_ENABLED, parse_model_string, UnetND
 from ..transforms import torch_zoom
 from ..transforms.filters import hysteresis_threshold
+from ..core.steps import follow_flows_batch
 from ..io.paths import check_dir
 from ..kwargs import split_kwargs
 from torchvf.numerics import interp_vf, ivp_solver

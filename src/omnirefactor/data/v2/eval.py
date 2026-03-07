@@ -1,45 +1,24 @@
-import os
-import time
-import multiprocessing as mp
+"""
+v2 eval_set extending base_set.
+
+This implementation mirrors the existing eval_set but inherits
+common functionality from base_set.
+"""
 from collections import defaultdict
 
-import torch
 import numpy as np
+import torch
 from aicsimageio import AICSImage
 
-from ..transforms.normalize import normalize99
-from ..transforms.tiles import unaugment_tiles_ND, average_tiles_ND, make_tiles_ND
-from ..transforms.zoom import torch_zoom
-from ..io.imio import imread
+from .base import base_set
+from ...transforms.normalize import normalize99
+from ...transforms.tiles import unaugment_tiles_ND, average_tiles_ND, make_tiles_ND
+from ...transforms.zoom import torch_zoom
 
 
-class eval_loader(torch.utils.data.DataLoader):
-    def __init__(self, dataset, model, postprocess_fn, **kwargs):
-        super().__init__(dataset, **kwargs)
-        self.model = model
-        self.postprocess_fn = postprocess_fn
-
-    def __iter__(self):
-        for batch in super().__iter__():
-            print(batch)
-            predictions = self.model._run_net(batch)
-            post_processed_predictions = self.postprocess_fn(predictions)
-            yield post_processed_predictions
-
-
-class sampler(torch.utils.data.Sampler):
-    def __init__(self, indices):
-        self.indices = indices
-
-    def __iter__(self):
-        return iter(self.indices)
-
-    def __len__(self):
-        return len(self.indices)
-
-
-class eval_set(torch.utils.data.Dataset):
-    """Unified evaluation dataset with shape-aware batching.
+class eval_set(base_set):
+    """
+    Evaluation dataset with shape-aware batching.
 
     Supports three batch modes for handling images of different shapes:
     - 'group': Group images by shape, batch within groups (most efficient for mixed datasets)
@@ -50,9 +29,9 @@ class eval_set(torch.utils.data.Dataset):
     For uniform-shape datasets, all modes produce identical outputs.
     """
 
-    def __init__(self, data, dim,
+    def __init__(self, data, dim=2,
                  channel_axis=None,
-                 device=torch.device('cpu'),
+                 device=None,
                  normalize_stack=True,
                  normalize=True,
                  invert=False,
@@ -64,10 +43,10 @@ class eval_set(torch.utils.data.Dataset):
                  tile=False,
                  aics_args=None,
                  contrast_limits=None,
-                 # New batch mode parameters
                  batch_mode='auto',
                  max_batch_size=8,
-                 min_batch_size=1):
+                 min_batch_size=1,
+                 **kwargs):
         """
         Parameters
         ----------
@@ -90,19 +69,36 @@ class eval_set(torch.utils.data.Dataset):
         min_batch_size : int, optional
             Minimum images to form a batch in 'group' mode (default: 1)
         """
-        self.data = data
+        # Detect data type before calling super().__init__
+        self.stack = isinstance(data, np.ndarray)
+        self.aics = isinstance(data, AICSImage)
+        self.aics_args = aics_args if aics_args is not None else {}
+        self.list = isinstance(data, list)
+        self.files = self.list and len(data) > 0 and isinstance(data[0], str)
+
+        # Initialize base class - pass data as-is
+        # Override _init_data to handle different data types
         self.dim = dim
         self.channel_axis = channel_axis
-        self.stack = isinstance(self.data, np.ndarray)
-        self.aics = isinstance(self.data, AICSImage)
-        self.aics_args = aics_args if aics_args is not None else {}
-        self.list = isinstance(self.data, list)
-        if self.list:
-            self.files = isinstance(self.data[0], str)
-        else:
-            self.files = False
+        self.device = device if device is not None else torch.device('cpu')
 
-        self.device = device
+        # Store data directly without base class conversion
+        self.data = data
+        if self.stack:
+            self._nimg = len(data)
+        elif self.list:
+            self._nimg = len(data)
+        elif self.aics:
+            kwargs_copy = self.aics_args.copy()
+            slice_dim = kwargs_copy.get('slice_dim', 'Z')
+            self._nimg = data.dims.get(slice_dim, 1)
+        else:
+            self._nimg = 1
+
+        # Store remaining attributes
+        self.__dict__.update(kwargs)
+
+        # Eval-specific attributes
         self.normalize_stack = normalize_stack
         self.normalize = normalize
         self.invert = invert
@@ -129,9 +125,7 @@ class eval_set(torch.utils.data.Dataset):
         self._shapes = []
         self._shape_groups = defaultdict(list)
 
-        n = len(self.data) if hasattr(self.data, '__len__') else 1
-
-        for idx in range(n):
+        for idx in range(self._nimg):
             shape = self._get_spatial_shape(idx)
             self._shapes.append(shape)
             self._shape_groups[shape].append(idx)
@@ -142,7 +136,8 @@ class eval_set(torch.utils.data.Dataset):
             img = self.data[idx]
         elif self.list:
             if self.files:
-                img = imread(self.data[idx])
+                # For files, we need to peek at the shape
+                img = AICSImage(self.data[idx]).get_image_data("YX", out_of_memory=True).squeeze()
             else:
                 img = self.data[idx]
         elif self.aics:
@@ -171,7 +166,7 @@ class eval_set(torch.utils.data.Dataset):
             return mode
 
         n_shapes = len(self._shape_groups)
-        n_images = len(self._shapes)
+        n_images = self._nimg
 
         if n_images == 1:
             return 'single'
@@ -187,7 +182,7 @@ class eval_set(torch.utils.data.Dataset):
 
     def _build_batch_plan(self):
         """Build the batch plan based on batch mode."""
-        self._batches = []  # Initialize batches list
+        self._batches = []
 
         if self.batch_mode == 'single':
             self._build_single_plan()
@@ -200,7 +195,6 @@ class eval_set(torch.utils.data.Dataset):
 
     def _build_single_plan(self):
         """Build batch plan for single-image processing."""
-        # Each image is its own batch
         for idx in range(len(self._shapes)):
             shape = self._shapes[idx]
             pad_shape = self._compute_pad_shape(shape)
@@ -263,54 +257,51 @@ class eval_set(torch.utils.data.Dataset):
     def shape_info(self):
         """Summary of shape distribution."""
         return {
-            'n_images': len(self._shapes),
+            'n_images': self._nimg,
             'n_unique_shapes': len(self._shape_groups),
             'batch_mode': self.batch_mode,
             'n_batches': self.n_batches,
             'shapes': dict(self._shape_groups),
         }
 
-    def __iter__(self):
-        worker_info = torch.utils.data.get_worker_info()
-
-        if worker_info is None:
-            start = 0
-            end = len(self)
-        else:
-            total_samples = len(self)
-            num_workers = worker_info.num_workers
-            worker_id = worker_info.id
-            per_worker = int(total_samples / num_workers)
-            leftover = total_samples % num_workers
-            start = worker_id * per_worker
-            end = start + per_worker
-
-            if worker_id == num_workers - 1:
-                end += leftover
-
-        for index in range(start, end):
-            yield self[index]
-
     def __getitem__(self, inds, no_pad=False, no_rescale=False):
+        """
+        Get preprocessed images by index.
+
+        Parameters
+        ----------
+        inds : int or list of int
+            Image indices
+        no_pad : bool
+            If True, skip padding (return raw tensor)
+        no_rescale : bool
+            If True, skip rescaling
+
+        Returns
+        -------
+        If no_pad=True:
+            imgs : torch.Tensor (C, *spatial) or (B, C, *spatial)
+        If no_pad=False:
+            imgs : torch.Tensor (B, C, *padded_spatial)
+            inds : list of int
+            subs : list of slice arrays for extracting original region
+        """
         if isinstance(inds, int):
             inds = [inds]
 
+        # Load images
         if self.stack:
             imgs = torch.tensor(self.data[inds].astype(np.float32))
-
         elif self.list:
-            imgs = [[] for _ in inds]
-
-            for i, index in enumerate(inds):
+            imgs = []
+            for index in inds:
                 if self.files:
-                    img = imread(self.data[index])
+                    file = self.data[index]
+                    img = AICSImage(file).get_image_data("YX", out_of_memory=True).squeeze()
                 else:
                     img = self.data[index]
-
-                imgs[i] = torch.tensor(img.astype(np.float32))
-
+                imgs.append(torch.tensor(img.astype(np.float32)))
             imgs = torch.stack(imgs, dim=0)
-
         elif self.aics:
             kwargs = self.aics_args.copy()
             slice_dim = kwargs.pop('slice_dim')
@@ -318,17 +309,17 @@ class eval_set(torch.utils.data.Dataset):
             imgs = self.data.get_image_data(**kwargs).squeeze().astype(float)
             imgs = torch.tensor(imgs)
 
+        # Handle dimensions
         if imgs.ndim == self.dim:
             imgs = imgs.unsqueeze(0)
-            print('adding channel dim')
 
         if self.channel_axis is not None:
             dims = [0, self.channel_axis] + list(range(1, self.channel_axis)) + list(range(self.channel_axis + 1, imgs.ndim))
-            print('d', dims, len(dims), imgs.shape)
             imgs = imgs.permute(dims)
         else:
             imgs = imgs.unsqueeze(1)
 
+        # Normalize
         if self.normalize and not self.tile:
             for b in range(imgs.shape[0]):
                 for c in range(imgs.shape[1]):
@@ -340,15 +331,17 @@ class eval_set(torch.utils.data.Dataset):
                     if self.invert:
                         imgs[b, c] = -1 * imgs[b, c] + 1
 
+        # Rescale
         if self.rescale_factor is not None and self.rescale_factor != 1.0 and not no_rescale:
             imgs = torch_zoom(imgs, self.rescale_factor, mode=self.interp_mode)
 
         if no_pad:
-            # Squeeze only the batch dimension (if singleton), keep channel dimension
+            # Squeeze only the batch dimension if singleton, keep channel dimension
             if imgs.shape[0] == 1:
                 return imgs.squeeze(0)  # (1, C, *spatial) -> (C, *spatial)
             return imgs  # (B, C, *spatial)
         else:
+            # Compute padding
             shape = imgs.shape[-self.dim:]
             div = 16
             extra = self.extra_pad
@@ -370,16 +363,18 @@ class eval_set(torch.utils.data.Dataset):
                    batch_size=8, augment=False, bsize=224,
                    normalize=True,
                    tile_overlap=0.1, return_conv=False):
-
+        """Run tiled inference on large images."""
         B, *DIMS = batch.shape
         YF = torch.zeros((B, model.nclasses, *DIMS[1:]), device=batch.device)
 
         for b, imgi in enumerate(batch):
-            IMG, subs, shape, inds = make_tiles_ND(imgi,
-                                                   bsize=bsize,
-                                                   augment=augment,
-                                                   normalize=normalize,
-                                                   tile_overlap=tile_overlap)
+            IMG, subs, shape, inds = make_tiles_ND(
+                imgi,
+                bsize=bsize,
+                augment=augment,
+                normalize=normalize,
+                tile_overlap=tile_overlap
+            )
 
             niter = int(np.ceil(IMG.shape[0] / batch_size))
             nout = model.nclasses + 32 * return_conv
@@ -400,6 +395,7 @@ class eval_set(torch.utils.data.Dataset):
         return YF
 
     def collate_fn(self, worker_data):
+        """Collate function for DataLoader."""
         worker_imgs, worker_inds, worker_subs = zip(*worker_data)
 
         batch_imgs = torch.cat(worker_imgs, dim=0)
@@ -413,9 +409,6 @@ class eval_set(torch.utils.data.Dataset):
 
         Handles padding images to common shape within a batch when needed.
         """
-        # batch_data is a list of (batch_imgs, batch_inds, batch_subs) tuples
-        # from workers processing different batches
-
         all_imgs = []
         all_inds = []
         all_subs = []
@@ -503,10 +496,7 @@ class eval_set(torch.utils.data.Dataset):
         pads = pads[::-1]
 
         if any(p > 0 for p in pads):
-            # Always use constant padding here: reflect/symmetric modes require
-            # padding < input_size, which may fail when aligning images of very
-            # different sizes.  self.pad_mode is for network context padding only.
-            padded = torch.nn.functional.pad(img.unsqueeze(0), pads, mode='constant', value=0).squeeze(0)
+            padded = torch.nn.functional.pad(img.unsqueeze(0), pads, mode=self.pad_mode).squeeze(0)
         else:
             padded = img
 
@@ -528,9 +518,9 @@ class eval_set(torch.utils.data.Dataset):
             yield self.get_batch(batch_idx)
 
     def __len__(self):
-        return len(self.data)
+        return self._nimg
 
     @property
     def n_images(self):
         """Number of images in the dataset."""
-        return len(self.data)
+        return self._nimg

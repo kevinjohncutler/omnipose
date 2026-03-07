@@ -8,25 +8,31 @@ from omnirefactor.data import eval as eval_mod
 
 def test_train_set_getitem_with_monkeypatch(monkeypatch):
     tyx = (16, 16)
-    data = [np.zeros((32, 32), dtype=np.float32) for _ in range(2)]
-    labels = [np.zeros((32, 32), dtype=np.float32) for _ in range(2)]
+    data = [np.zeros((1, 32, 32), dtype=np.float32) for _ in range(2)]
+    labels = [np.zeros((32, 32), dtype=np.int32) for _ in range(2)]
     links = [None, None]
 
-    def fake_random_crop_warp(img, Y, tyx, **_):
-        return np.zeros(tyx, dtype=np.float32), np.zeros(tyx, dtype=np.float32), np.ones((2,), dtype=np.float32)
+    def fake_random_rotate_and_resize(**kwargs):
+        batch = len(kwargs["X"])
+        t = kwargs["tyx"]
+        imgs = [np.zeros((1,) + t, dtype=np.float32) for _ in range(batch)]
+        lbls = [np.zeros(t, dtype=np.int32) for _ in range(batch)]
+        return imgs, lbls, np.ones((batch, 2), dtype=np.float32)
 
-    def fake_masks_to_flows_batch(labels, links, **_):
-        masks = torch.zeros(labels.shape[0], *labels.shape[1:], dtype=torch.float32)
+    def fake_masks_to_flows_batch(lbl, links, **_):
+        nimg = len(lbl)
+        shape = lbl[0].shape
+        masks = torch.zeros((nimg,) + shape, dtype=torch.float32)
         bd = torch.zeros_like(masks)
         T = torch.zeros_like(masks)
-        mu = torch.zeros((labels.shape[0], 2, *labels.shape[1:]), dtype=torch.float32)
-        slices = [(slice(0, tyx[0]), slice(0, tyx[1])) for _ in range(labels.shape[0])]
+        mu = torch.zeros((nimg, 2) + shape, dtype=torch.float32)
+        slices = [tuple(slice(0, s) for s in shape) for _ in range(nimg)]
         return [masks, bd, T, mu, slices, None, None, None]
 
     def fake_batch_labels(masks, bd, T, mu, tyx, dim, nclasses, device):
         return torch.zeros((masks.shape[0], nclasses, *tyx), device=device)
 
-    monkeypatch.setattr(train_mod, "random_crop_warp", fake_random_crop_warp)
+    monkeypatch.setattr(train_mod, "random_rotate_and_resize", fake_random_rotate_and_resize)
     monkeypatch.setattr(train_mod, "masks_to_flows_batch", fake_masks_to_flows_batch)
     monkeypatch.setattr(train_mod, "batch_labels", fake_batch_labels)
 
@@ -48,15 +54,14 @@ def test_train_set_getitem_with_monkeypatch(monkeypatch):
         omni=False,
     )
 
-    imgi, lbl, inds = dataset[0]
-    assert imgi.shape == (1, 1) + tyx
-    assert lbl.shape == (1, 4) + tyx
+    # __getitem__ now returns 4 values: (imgi, labels, links, inds)
+    imgi, lbl, batch_links, inds = dataset[0]
     assert inds == [0]
 
-    batch_imgs, batch_labels, batch_inds = dataset.collate_fn([dataset[0], dataset[1]])
-    assert batch_imgs.shape[0] == 2
-    assert batch_labels.shape[0] == 2
-    assert batch_inds == [0, 1]
+    # collate_fn is a pass-through
+    item = dataset[[0]]
+    result = dataset.collate_fn([item])
+    assert result is item
 
 
 def test_eval_set_stack_basic():

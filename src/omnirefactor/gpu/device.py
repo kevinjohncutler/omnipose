@@ -49,3 +49,15 @@ def _get_gpu_torch(gpu_number=0):
         gpu_logger.info('TORCH GPU version not installed/working.')
         device = torch_CPU
         return device, False
+
+
+def seed_all(seed: int) -> None:
+    """Seed all available GPU devices plus CPU RNG, and enforce deterministic CUDA ops."""
+    torch.manual_seed(seed)
+    if torch.cuda.is_available():
+        torch.cuda.manual_seed_all(seed)  # covers every CUDA device, not just device 0
+        torch.backends.cudnn.deterministic = True
+        torch.backends.cudnn.benchmark = False
+        # Required for torch.use_deterministic_algorithms on CUDA
+        os.environ.setdefault('CUBLAS_WORKSPACE_CONFIG', ':4096:8')
+        torch.use_deterministic_algorithms(True, warn_only=True)

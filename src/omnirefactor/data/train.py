@@ -127,9 +127,6 @@ class train_set(torch.utils.data.Dataset):
         self.v1 = [0] * (self.dim - 1) + [1]
         self.v2 = [0] * (self.dim - 2) + [1, 0]
 
-        if not hasattr(self, 'defer_flows'):
-            self.defer_flows = False
-
         # Shared-memory pools: single fd per role, zero extra RAM.
         if not hasattr(self, 'data_pool'):
             self.data_pool = None
@@ -226,20 +223,15 @@ class train_set(torch.utils.data.Dataset):
             yield self[index]
 
     def collate_fn(self, worker_data):
-        worker_imgs, worker_labels, worker_inds = zip(*worker_data)
-
-        batch_imgs = torch.cat(worker_imgs, dim=0)
-        batch_labels = torch.cat(worker_labels, dim=0)
-        batch_inds = [item for sublist in worker_inds for item in sublist]
-
-        return batch_imgs, batch_labels, batch_inds
-
-    def collate_fn_deferred(self, worker_data):
-        """Collate for deferred flows mode - just pass through the single batch."""
+        """Pass through the single batch produced by __getitems__."""
         return worker_data[0]
 
-    def compute_flows_gpu(self, imgi_np, masks_np, links, device):
-        """Compute flows on GPU from raw augmented data (main process only)."""
+    def compute_flows_gpu(self, imgi, masks_np, links, device):
+        """Compute flows on GPU from raw augmented data (main process only).
+
+        imgi may be a GPU tensor (num_workers=0 fast path) or a numpy array
+        (num_workers>0, deserialized from worker IPC). Both are handled here.
+        """
         with torch.no_grad():
             out = masks_to_flows_batch(masks_np, links,
                                        device=device,
@@ -253,7 +245,10 @@ class train_set(torch.utils.data.Dataset):
             lbl = batch_labels(masks, bd, T, mu, self.tyx,
                                dim=self.dim, nclasses=self.nclasses, device=device)
 
-            imgi = torch.tensor(imgi_np, device=device, dtype=torch.float32)
+            if isinstance(imgi, torch.Tensor):
+                imgi = imgi.to(device, non_blocking=True)
+            else:
+                imgi = torch.tensor(imgi, device=device, dtype=torch.float32)
         return imgi, lbl
 
     def worker_init_fn(self, worker_id):
@@ -294,7 +289,12 @@ class train_set(torch.utils.data.Dataset):
 
         batch_images, batch_labels_raw = self._get_batch_arrays(inds)
 
-        # Use random_rotate_and_resize on full batch (matches omnipose manual path)
+        # Worker processes must not initialize CUDA (one context per spawn worker = wasted
+        # VRAM + init overhead). Use CPU scipy augmentation in workers; GPU grid_sample only
+        # in the main process (num_workers=0).
+        in_worker = torch.utils.data.get_worker_info() is not None
+        aug_device = None if in_worker else self.device
+
         imgi, labels, scale = random_rotate_and_resize(
             X=batch_images,
             Y=batch_labels_raw,
@@ -305,53 +305,22 @@ class train_set(torch.utils.data.Dataset):
             rescale_factor=rsc,
             inds=inds,
             nchan=self.nchan,
-            allow_blank_masks=self.allow_blank_masks
+            allow_blank_masks=self.allow_blank_masks,
+            device=aug_device,
         )
         if self.timing:
             toc = time.time()
             print('image augmentation time: {:.2f}'.format(toc - tic))
-            tic = toc
 
-        # Deferred mode: return raw augmented data for GPU flow computation in main process
-        if self.defer_flows:
-            return imgi, labels, links, inds
+        # labels must be numpy for masks_to_flows_batch (concatenate_labels).
+        # In workers aug_device=None so both are already numpy; the isinstance checks
+        # are only hit in the main process (num_workers=0) GPU path.
+        if isinstance(labels, torch.Tensor):
+            labels = labels.cpu().numpy()
+        # imgi: keep as GPU tensor in main process — compute_flows_gpu handles both.
+        # In workers it's already numpy (CPU aug path).
 
-        with torch.no_grad():
-            out = masks_to_flows_batch(labels, links,
-                                       device=self.device,
-                                       omni=self.omni,
-                                       dim=self.dim,
-                                       affinity_field=self.affinity_field
-                                       )
-            if self.timing:
-                toc = time.time()
-                print('flow time: {:.2f}'.format(toc - tic))
-                tic = toc
-
-            X = out[:-4]
-            slices = out[-4]
-            masks, bd, T, mu = [torch.stack([x[(Ellipsis,) + slc] for slc in slices]) for x in X]
-
-            lbl = batch_labels(masks,
-                               bd,
-                               T,
-                               mu,
-                               self.tyx,
-                               dim=self.dim,
-                               nclasses=self.nclasses,
-                               device=self.device
-                               )
-            if self.timing:
-                toc = time.time()
-                print('batching time: {:.2f}'.format(toc - tic))
-                tic = toc
-
-            imgi = torch.tensor(imgi, device=self.device, dtype=torch.float32)
-
-        if self.timing:
-            print('inds', len(inds))
-
-        return imgi, lbl, inds
+        return imgi, labels, links, inds
 
 
 class CyclingRandomBatchSampler(BatchSampler):

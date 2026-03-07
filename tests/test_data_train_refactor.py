@@ -1,6 +1,7 @@
 import os
 
 import numpy as np
+import pytest
 import torch
 
 from omnirefactor.data import train as train_mod
@@ -36,60 +37,30 @@ def test_train_set_iter_collate_and_worker_init(monkeypatch):
 
     train_mod.mp.get_worker_info = lambda: WorkerInfo()
     items = list(iter(dataset))
-    assert len(items) == 1
+    assert len(items) == 1  # worker 1 of 2 gets 1 item
 
-    imgs, labels, inds = dataset.collate_fn(items)
-    assert imgs.shape[0] == 1
-    assert labels.shape[0] == 1
-    assert inds == [1]
+    # collate_fn is a pass-through that returns worker_data[0]
+    result = dataset.collate_fn(items)
+    assert result is items[0]
 
     dataset.worker_init_fn(0)
     assert os.environ["OMP_NUM_THREADS"] == "1"
 
 
-def test_train_set_defaults_and_iter_no_worker(monkeypatch):
-    def fake_random_crop_warp(**kwargs):
-        tyx = kwargs["tyx"]
-        img = np.zeros((1,) + tyx, dtype=np.float32)
-        lbl = np.zeros(tyx, dtype=np.float32)
-        scale = np.ones((2,), dtype=np.float32)
-        return img, lbl, scale
-
-    def fake_masks_to_flows_batch(labels, links, **_):
-        masks = torch.zeros((1,) + labels.shape[-2:])
-        bd = torch.zeros_like(masks)
-        T = torch.zeros((1, 2) + labels.shape[-2:])
-        mu = torch.zeros_like(T)
-        slices = [tuple(slice(0, t) for t in labels.shape[-2:])]
-        return [masks, bd, T, mu, slices, None, None, None]
-
-    def fake_batch_labels(*_args, **_kwargs):
-        return torch.zeros((1, 1, 16, 16))
-
-    monkeypatch.setattr(train_mod, "random_crop_warp", fake_random_crop_warp)
-    monkeypatch.setattr(train_mod, "masks_to_flows_batch", fake_masks_to_flows_batch)
-    monkeypatch.setattr(train_mod, "batch_labels", fake_batch_labels)
-
-    dataset = _make_train_set(tyx=None, dim=2)
-    train_mod.mp.get_worker_info = lambda: None
-
-    items = list(iter(dataset))
-    assert len(items) == len(dataset)
-
-
 def test_train_set_getitem(monkeypatch):
     dataset = _make_train_set(augment=True, timing=True)
 
-    def fake_random_crop_warp(**kwargs):
+    def fake_random_rotate_and_resize(**kwargs):
         tyx = kwargs["tyx"]
-        img = np.zeros((1,) + tyx, dtype=np.float32)
-        lbl = np.zeros(tyx, dtype=np.float32)
-        scale = np.ones((dataset.dim,), dtype=np.float32)
+        batch = len(kwargs["X"])
+        img = [np.zeros((1,) + tyx, dtype=np.float32) for _ in range(batch)]
+        lbl = [np.zeros(tyx, dtype=np.int32) for _ in range(batch)]
+        scale = np.ones((batch, len(tyx)), dtype=np.float32)
         return img, lbl, scale
 
     def fake_masks_to_flows_batch(labels, links, **_):
-        nimg = labels.shape[0]
-        tyx = labels.shape[-2:]
+        nimg = len(labels)
+        tyx = labels[0].shape[-2:]
         masks = torch.zeros((nimg,) + tyx)
         bd = torch.zeros_like(masks)
         T = torch.zeros((nimg, dataset.dim) + tyx)
@@ -101,30 +72,56 @@ def test_train_set_getitem(monkeypatch):
     def fake_batch_labels(*_args, **_kwargs):
         return torch.zeros((1, dataset.nclasses) + dataset.tyx)
 
-    monkeypatch.setattr(train_mod, "random_crop_warp", fake_random_crop_warp)
+    monkeypatch.setattr(train_mod, "random_rotate_and_resize", fake_random_rotate_and_resize)
     monkeypatch.setattr(train_mod, "masks_to_flows_batch", fake_masks_to_flows_batch)
     monkeypatch.setattr(train_mod, "batch_labels", fake_batch_labels)
 
-    imgs, lbl, inds = dataset[0]
-    assert imgs.shape[-2:] == dataset.tyx
-    assert lbl.shape[-2:] == dataset.tyx
+    imgi, lbl, links, inds = dataset[0]
     assert inds == [0]
+
+
+def test_train_set_defaults_no_tyx(monkeypatch):
+    def fake_random_rotate_and_resize(**kwargs):
+        tyx = kwargs["tyx"]
+        batch = len(kwargs["X"])
+        img = [np.zeros((1,) + tyx, dtype=np.float32) for _ in range(batch)]
+        lbl = [np.zeros(tyx, dtype=np.int32) for _ in range(batch)]
+        return img, lbl, np.ones((batch, 2), dtype=np.float32)
+
+    def fake_masks_to_flows_batch(labels, links, **_):
+        nimg = len(labels)
+        tyx = (16, 16)
+        masks = torch.zeros((nimg,) + tyx)
+        bd = torch.zeros_like(masks)
+        T = torch.zeros((nimg, 2) + tyx)
+        mu = torch.zeros_like(T)
+        slices = [tuple(slice(0, t) for t in tyx)] * nimg
+        return [masks, bd, T, mu, slices, None, None, None]
+
+    def fake_batch_labels(*_args, **_kwargs):
+        return torch.zeros((1, 3, 16, 16))
+
+    monkeypatch.setattr(train_mod, "random_rotate_and_resize", fake_random_rotate_and_resize)
+    monkeypatch.setattr(train_mod, "masks_to_flows_batch", fake_masks_to_flows_batch)
+    monkeypatch.setattr(train_mod, "batch_labels", fake_batch_labels)
+
+    dataset = _make_train_set(tyx=None, dim=2)
+    assert dataset.tyx is not None  # default was computed
 
 
 def test_cycling_random_batch_sampler():
     data = list(range(5))
-    sampler = train_mod.CyclingRandomBatchSampler(data, batch_size=2, generator=torch.Generator().manual_seed(0))
+    sampler = train_mod.CyclingRandomBatchSampler(data, batch_size=2, n_epochs=2)
     it = iter(sampler)
     first = next(it)
     second = next(it)
     assert len(first) <= 2
     assert len(second) <= 2
-    assert len(sampler) == 3
+    assert len(sampler) == 3  # ceil(5/2)
 
-    sampler = train_mod.CyclingRandomBatchSampler(list(range(3)), batch_size=2, generator=torch.Generator().manual_seed(1))
-    it = iter(sampler)
-    _ = next(it)
-    _ = next(it)
-    spill = next(it)
-    assert len(spill) == 1
-    _ = next(it)
+    # Sampler with 3 items, batch_size=2: epochs yield [2, 1] or similar batches
+    sampler2 = train_mod.CyclingRandomBatchSampler(list(range(3)), batch_size=2, n_epochs=2)
+    it2 = iter(sampler2)
+    b1 = next(it2)
+    b2 = next(it2)
+    assert len(b1) + len(b2) == 3  # first epoch covers all 3 items

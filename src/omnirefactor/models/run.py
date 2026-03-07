@@ -3,23 +3,15 @@ from .imports import *
 
 # formerly named network
 def run_network(self, x, return_conv=False, to_numpy=True):
-    """convert imgs to torch/mxnet and run network model and return numpy"""
+    """convert imgs to torch and run network model and return numpy"""
     X = self._to_device(x)
-    if self.torch:
-        self.net.eval()
-        with torch.no_grad():
-            y, style = self.net(X)
-    else:
+    self.net.eval()
+    with torch.no_grad():
         y, style = self.net(X)
     del X
     if to_numpy:
         y = self._from_device(y)
         style = self._from_device(style)
-
-    if return_conv:  # pragma: no cover
-        print("cc")
-        conv = self._from_device(conv)
-        y = np.concatenate((y, conv), axis=1)
 
     return y, style
 
@@ -203,15 +195,8 @@ def _run_nets(self, img, net_avg=True, augment=False, tile=False, normalize=True
         for j in range(len(self.pretrained_model)):
             if j > 0:
                 print("multi model averaging not working correctly, contact Kevin")
-                if self.torch and self.gpu:
-                    net = self.net.module
-                else:
-                    net = self.net
-
+                net = self.net.module if isinstance(self.net, nn.DataParallel) else self.net
                 net.load_model(self.pretrained_model[j], cpu=(not self.gpu))
-
-                if not self.torch:
-                    net.collect_params().grad_req = "null"
 
             y0, style = self._run_net(
                 img,

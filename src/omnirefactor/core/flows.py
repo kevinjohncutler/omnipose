@@ -5,6 +5,9 @@ from .imports import *
 from .affinity import masks_to_affinity, affinity_to_boundary, compute_affinity_gpu, affinity_to_boundary_gpu
 from .fields import _gradient, _iterate, _iterate_grid, _gradient_grid, roll_and_clamp
 
+# Cache kernel setup tensors keyed by (ndim, device_str) to avoid recreating
+# them on every call to _extend_centers_torch_grid.
+_kernel_cache: dict = {}
 
 
 def _extend_centers_torch_grid(clabels_gpu: torch.Tensor,
@@ -17,7 +20,7 @@ def _extend_centers_torch_grid(clabels_gpu: torch.Tensor,
                                seam_starts: Sequence[int] = ()):
     """Full-grid Eikonal solve entirely on GPU.
 
-    Replaces _extend_centers_torch for the CUDA fast path: no CPU neighbour
+    Replaces _extend_centers_torch for the GPU fast path: no CPU neighbour
     index construction, no random neigh_inds gathers.
 
     Args:
@@ -38,12 +41,19 @@ def _extend_centers_torch_grid(clabels_gpu: torch.Tensor,
     shape = clabels_gpu.shape
     ndim = len(shape)
 
-    steps_np, inds, idx_center, fact, sign = utils.kernel_setup(ndim)
-    steps_list = [tuple(int(s) for s in row) for row in steps_np]
-    steps_t  = torch.tensor(steps_np, device=device)
-    fact_t   = torch.tensor(fact, device=device, dtype=torch.float32)
-    inds_t   = tuple(torch.tensor(i, device=device) for i in inds)
-    d_scalar = torch.tensor(ndim)
+    cache_key = (ndim, str(device))
+    if cache_key not in _kernel_cache:
+        steps_np, inds, idx_center, fact, sign = utils.kernel_setup(ndim)
+        steps_list = [tuple(int(s) for s in row) for row in steps_np]
+        _kernel_cache[cache_key] = (
+            steps_list,
+            idx_center,
+            torch.tensor(steps_np, device=device),
+            torch.tensor(fact, device=device, dtype=torch.float32),
+            tuple(torch.tensor(i, device=device) for i in inds),
+            torch.tensor(ndim),
+        )
+    steps_list, idx_center, steps_t, fact_t, inds_t, d_scalar = _kernel_cache[cache_key]
 
     # Initial field: 1 inside masks, 0 outside.
     T = (clabels_gpu > 0).float()
@@ -56,7 +66,8 @@ def _extend_centers_torch_grid(clabels_gpu: torch.Tensor,
 
     if return_flows:
         mu = _gradient_grid(T, affinity, steps_t, fact_t, inds_t,
-                            seam_ends=seam_ends, seam_starts=seam_starts)
+                            seam_ends=seam_ends, seam_starts=seam_starts,
+                            steps_list=steps_list)
         return T, mu
     return (T,)
 
@@ -120,7 +131,7 @@ def labels_to_flows(labels, links=None, use_gpu=False, device=None,
 
     return flows
 
-# @torch.no_grad() # try to solve memory leak in mps
+# @torch.no_grad() 
 
 def masks_to_flows(masks, affinity_graph=None, dists=None, coords=None, links=None, use_gpu=True, device=None, 
                    omni=True, dim=2, normalize=False, n_iter=None, verbose=False):
@@ -236,7 +247,7 @@ def masks_to_flows(masks, affinity_graph=None, dists=None, coords=None, links=No
         return masks, dists, boundaries, T, mu
 
 
-# @torch.no_grad() # try to solve memory leak in mps
+# @torch.no_grad() 
 
 def masks_to_flows_batch(batch, links=[None], device=torch.device('cpu'),
                          omni=True, dim=2, normalize=False,
@@ -287,7 +298,7 @@ def masks_to_flows_batch(batch, links=[None], device=torch.device('cpu'),
         else:
             # Estimate n_iter from the CPU clabels array (already available).
             # Avoids a GPU bincount + .item() which forces an expensive
-            # CPU-GPU sync (~1000ms on MPS) before the solve even starts.
+            # CPU-GPU sync before the solve even starts.
             counts_cpu = np.bincount(clabels.ravel())
             # n_iter depends on per-cell half-width, not merged group size:
             # the Eikonal is local — T at each pixel converges once the
@@ -402,7 +413,7 @@ def batch_labels(masks,bd,T,mu,tyx,dim,nclasses,device,dist_bg=5):
     return lbl
 
 #Now fully converted to work for ND.
-# @torch.no_grad() # try to solve memory leak in mps
+# @torch.no_grad() 
 
 def masks_to_flows_torch(masks, affinity_graph, coords=None, dists=None, device=torch.device('cpu'), omni=True,
                          affinity_field=False, normalize=False, n_iter=None, weight=1,

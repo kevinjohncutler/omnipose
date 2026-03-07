@@ -53,6 +53,9 @@ def test_run_network_torch():
 
 def test_run_network_non_torch():
     class NonTorchNet:
+        def eval(self):
+            return self
+
         def __call__(self, x):
             batch = x.shape[0]
             y = np.zeros((batch, 3, x.shape[-2], x.shape[-1]), dtype=np.float32)
@@ -154,7 +157,7 @@ def test_run_nets_multi_model_gpu_progress():
         def load_model(self, *_args, **_kwargs):
             return None
 
-    model.net = type("Wrapper", (), {"module": ModuleNet()})()
+    model.net = type("Wrapper", (), {"module": ModuleNet(), "load_model": lambda *a, **kw: None})()
     def fake_run_net(_self, img, **_):
         return np.zeros((8, 8, 3), dtype=np.float32), np.ones((8,), dtype=np.float32)
 
@@ -164,29 +167,6 @@ def test_run_nets_multi_model_gpu_progress():
     assert progress.values
     assert y.shape == (8, 8, 3)
 
-
-def test_run_nets_multi_model_non_torch_collect():
-    class Net:
-        def __init__(self):
-            self.grad_req = None
-
-        def collect_params(self):
-            return self
-
-        def load_model(self, *_args, **_kwargs):
-            return None
-
-    model = DummyModel()
-    model.pretrained_model = ["a", "b"]
-    model.torch = False
-    model.net = Net()
-    def fake_run_net(_self, img, **_):
-        return np.zeros((8, 8, 3), dtype=np.float32), np.ones((8,), dtype=np.float32)
-
-    model._run_net = fake_run_net.__get__(model, DummyModel)
-    y, style = mrun._run_nets(model, np.zeros((8, 8, 1), dtype=np.float32), net_avg=True)
-    assert model.net.grad_req == "null"
-    assert y.shape == (8, 8, 3)
 
 
 def test_run_3d_basic():

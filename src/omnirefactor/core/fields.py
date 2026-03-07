@@ -52,7 +52,7 @@ def roll_and_clamp(x: torch.Tensor,
             # Only needed for spatial dim 0 (the concatenation axis).
             if d == 0:
                 seam_rows = seam_ends if s > 0 else seam_starts
-                # Scalar loop avoids list/fancy indexing (triggers MPS Metal error).
+                # Scalar loop avoids list/fancy indexing (can fail on some backends).
                 # out and prev are different tensors (prev=before roll, out=after),
                 # so there is no aliasing here.
                 for sr in seam_rows:
@@ -67,13 +67,12 @@ def _pad_and_stack_neighbors(x: torch.Tensor,
     """Vectorized neighbor extraction via F.pad + slice stack (no Python loop per step).
 
     Replaces the ``roll_and_clamp`` Python loop in ``_iterate_grid`` /
-    ``_gradient_grid`` / ``compute_affinity_gpu``.  Runs one CUDA pad kernel
+    ``_gradient_grid`` / ``compute_affinity_gpu``.  Runs one GPU pad kernel
     + one stack instead of ``nsteps`` roll+clamp calls.
 
     Seam handling is NOT done here — callers use ``_make_seam_mask`` +
     ``torch.where`` to apply the correction after stacking.  This avoids
-    in-place writes to ``x_pad`` (which cause Metal Internal Errors on MPS
-    due to read/write aliasing on the same MTLBuffer).
+    in-place writes to ``x_pad`` (which can cause aliasing issues).
 
     Args:
         x:     (*spatial) or (C, *spatial) tensor.
@@ -114,7 +113,7 @@ def _make_seam_mask(nsteps: int,
     seam at that row, so the caller can replace the pad+stack value with the
     self-value via ``torch.where``.
 
-    Uses only scalar indexing — fully MPS-safe (no list / fancy indexing that
+    Uses only scalar indexing (no list / fancy indexing that
     would trigger Metal Internal Errors).
 
     Args:
@@ -135,14 +134,14 @@ def _make_seam_mask(nsteps: int,
         s0 = step[0]
         if s0 > 0:          # downward step: last row of each tile crosses seam
             for se in seam_ends:
-                mask[k, se] = True   # scalar indexing — MPS-safe
+                mask[k, se] = True
         elif s0 < 0:        # upward step: first row of next tile crosses seam
             for ss in seam_starts:
                 mask[k, ss] = True
     return mask
 
 
-# @torch.no_grad() # try to solve memory leak in mps
+# @torch.no_grad()
 def update_torch(a, f, fsq):
     # Turns out we can just avoid a ton of individual if/else by evaluating the update function
     # for every upper limit on the sorted pairs. I do this by pieces using cumsum. The radicand
@@ -151,7 +150,7 @@ def update_torch(a, f, fsq):
     """Update function for solving the Eikonal equation."""
     d = a.shape[0]  # d acutally needed to be the number of elements being compared, not dimension
     if d == 2:
-        # Special-case: for exactly 2 inputs, torch.sort is ~70x slower than min/max on MPS.
+        # Special-case: for exactly 2 inputs, torch.sort is ~70x slower than min/max.
         # For sorted [a0, a1]: mask (a - a[-1]) < f is always True (a[0]<=a[1], f>0),
         # so am=a, sum_a=a0+a1, sum_a2=a0^2+a1^2 — identical to the general path.
         a0 = torch.minimum(a[0], a[1])
@@ -185,7 +184,7 @@ def _iterate(T: torch.Tensor,
     """
 
     eps = 1e-3
-    CHECK_EVERY = 10  # .item() forces a GPU sync; on MPS this costs ~0.8 ms/call
+    CHECK_EVERY = 10  # .item() forces a GPU sync
     r = central_inds
 
     if verbose:
@@ -332,22 +331,25 @@ def _gradient_grid(T: torch.Tensor,
                    fact: torch.Tensor,
                    inds: List[torch.Tensor],
                    seam_ends: Sequence[int] = (),
-                   seam_starts: Sequence[int] = ()) -> torch.Tensor:
+                   seam_starts: Sequence[int] = (),
+                   steps_list=None) -> torch.Tensor:
     """Full-grid gradient of T using torch.roll, matching _gradient semantics.
 
     Args:
-        T:        (*spatial) float tensor (solved distance field).
-        affinity: (nsteps, *spatial) bool tensor.
-        steps:    (nsteps, ndim) int tensor.
-        fact:     (nfact,) float tensor from kernel_setup.
-        inds:     connectivity index lists from kernel_setup.
+        T:          (*spatial) float tensor (solved distance field).
+        affinity:   (nsteps, *spatial) bool tensor.
+        steps:      (nsteps, ndim) int tensor.
+        fact:       (nfact,) float tensor from kernel_setup.
+        inds:       connectivity index lists from kernel_setup.
+        steps_list: pre-converted list-of-tuples for steps (avoids GPU sync).
 
     Returns:
         mu: (ndim, *spatial) flow field tensor.
     """
     spatial = T.shape
     ndim = len(spatial)
-    steps_list = steps.tolist()
+    if steps_list is None:
+        steps_list = steps.tolist()  # GPU→CPU sync; pass steps_list to avoid
     n_axes = len(fact) - 1
 
     seam_mask = None
@@ -506,7 +508,7 @@ def sigmoid(x): #  pragma: no cover
 def divergence(f, sp=None):
     """Computes divergence of vector field."""
     num_dims = len(f)
-    if any(f.shape[1 + i] < 2 for i in range(num_dims - 1)):
+    if any(f.shape[1 + i] < 2 for i in range(num_dims)):
         return np.zeros_like(f[0])
     return np.ufunc.reduce(np.add, [np.gradient(f[i], axis=i) for i in range(num_dims)])
 
@@ -521,7 +523,7 @@ def divergence_torch(y):
     """
     Divergence for a batched D-vector field stored as ``(B, D, *spatial)``.
 
-    * **GPU / MPS** -> use a single call to ``torch.gradient`` (fast, parallel).
+    * **GPU** -> use a single call to ``torch.gradient`` (fast, parallel).
     * **CPU**       -> compute only the gradients actually needed, one component
       at a time, to avoid the unnecessary D^2 work that the vectorised call
       performs on the CPU.
@@ -542,11 +544,22 @@ def divergence_torch(y):
 
 
 def _ensure_torch(*arrays, device=None, dtype=torch.float32):
-    """Convert numpy arrays to torch tensors if needed."""
-    return tuple(
-        torch.tensor(arr, dtype=dtype, device=device).unsqueeze(0) if isinstance(arr, np.ndarray) else arr
-        for arr in arrays
-    )
+    """Convert numpy arrays or unbatched torch tensors to batched torch tensors."""
+    result = []
+    for arr in arrays:
+        if isinstance(arr, np.ndarray):
+            result.append(torch.tensor(arr, dtype=dtype, device=device).unsqueeze(0))
+        elif isinstance(arr, torch.Tensor):
+            arr = arr.to(device=device, dtype=dtype)
+            # Detect unbatched: (D, H, W) ndim=3 with D in [2,3], or (H, W) ndim=2
+            is_spatial_unbatched = (arr.ndim == 3 and arr.shape[0] in [2, 3])
+            is_scalar_unbatched = (arr.ndim == 2)
+            if is_spatial_unbatched or is_scalar_unbatched:
+                arr = arr.unsqueeze(0)
+            result.append(arr)
+        else:
+            result.append(arr)
+    return tuple(result)
 
 
 def torch_and_cpu(tensors):
