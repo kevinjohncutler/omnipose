@@ -188,7 +188,7 @@ def main() -> None:
         links_batch = [links[idx] for idx in inds]
         rsc = np.array([dataset.rescale_factor[idx] for idx in inds]) if dataset.do_rescale else None
 
-        imgi, labels_aug, _scale, metas = random_rotate_and_resize(
+        aug_result = random_rotate_and_resize(
             X=[images[idx] for idx in inds],
             Y=[labels[idx] for idx in inds],
             scale_range=dataset.scale_range,
@@ -201,6 +201,8 @@ def main() -> None:
             allow_blank_masks=dataset.allow_blank_masks,
             return_meta=True,
         )
+        imgi, labels_aug = aug_result.images, aug_result.labels
+        metas = aug_result.meta
 
         out = masks_to_flows_batch(
             labels_aug,

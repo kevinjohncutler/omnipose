@@ -26,15 +26,10 @@ def test_inference():
         'affinity_seg': False,
     }
 
-    masks, flows, styles = model.eval(test_image, **params)
+    masks, flows = model.eval(test_image, **params)
 
-    # eval() returns (masks_array, flows_list, styles_list)
-    # masks: ndarray of shape (*batch, H, W) — may be squeezed for single image
-    # flows: list of per-image flow tuples
-    # styles: [] (not populated in this path)
     assert masks is not None
     assert flows is not None
-    assert styles is not None
     assert isinstance(masks, np.ndarray)
     assert isinstance(flows, list)
     assert masks.ndim >= 2  # at least (H, W) or (1, H, W)

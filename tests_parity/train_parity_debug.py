@@ -67,7 +67,7 @@ def compare(names=("Sample000033",)):
     rescale = np.ones(len(X), np.float32)
 
     np.random.seed(0)
-    r_imgi, r_lbl, r_scale = ref_transforms.random_rotate_and_resize(
+    r_imgi, r_lbl, r_scale, _ = ref_transforms.random_rotate_and_resize(
         X,
         Y=Y,
         rescale=rescale,
@@ -84,7 +84,7 @@ def compare(names=("Sample000033",)):
     )
 
     np.random.seed(0)
-    b_imgi, b_lbl, b_scale = base_transforms.random_rotate_and_resize(
+    b_imgi, b_lbl, b_scale, _ = base_transforms.random_rotate_and_resize(
         X,
         Y=Y,
         rescale=rescale,

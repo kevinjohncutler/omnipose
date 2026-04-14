@@ -17,9 +17,7 @@ def test_package_init_enable_submodules():
         "omnirefactor.io",
         "omnirefactor.data",
         "omnirefactor.cli",
-        "omnirefactor.misc",
         "omnirefactor.metrics",
-        "omnirefactor.measure",
         "omnirefactor.plot",
     ]:
         mod = importlib.import_module(name)

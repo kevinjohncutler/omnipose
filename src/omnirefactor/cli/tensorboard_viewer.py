@@ -129,19 +129,18 @@ def create_tensorboard_events(loss_history, output_dir, run_name='training'):
 
 
 def load_loss_history(path):
-    """
-    Load loss history from a JSON file.
+    """Load loss history from a JSON file.
 
     Parameters
     ----------
     path : str
-        Path to JSON file or directory containing *_loss_history.json files
+        Path to JSON file or directory containing ``*_loss_history.json`` files.
 
     Returns
     -------
     dict or list of tuples
-        If path is a file: returns the loss history dict
-        If path is a directory: returns list of (name, loss_history) tuples
+        If path is a file: returns the loss history dict.
+        If path is a directory: returns list of (name, loss_history) tuples.
     """
     path = Path(path)
 

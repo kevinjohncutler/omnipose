@@ -1,33 +1,18 @@
-from asyncio.log import logger
 from ..logger import TqdmToLogger
 import os, sys, time, shutil, tempfile, datetime, pathlib
 import logging
 import numpy as np
-from tqdm import trange, tqdm
-from urllib.parse import urlparse
-import tempfile
-import cv2
-from scipy.stats import mode
+from tqdm import tqdm
 from .. import core, data, loss, transforms, utils, metrics, io
-from ..plot import rgb_flow
-# from acb_mse import ACBLoss
-# print('need to add acb_mse to deps')
 
-from ..gpu import use_gpu, get_device
+from ..gpu import use_gpu, get_device, ARM
 from contextlib import nullcontext
-
-# from multiprocessing import Pool, cpu_count
-# from functools import partial
-# from focal_loss.focal_loss import FocalLoss
-
-MXNET_ENABLED = False
-
 
 import torch
 from torch.amp import autocast, GradScaler
 from torch import nn
-from .network import torch_GPU, torch_CPU, UnetND, empty_cache
-from ..gpu.device import ARM
+from ..gpu import torch_GPU, torch_CPU, empty_cache
+from .network import UnetND
 # torch.serialization.add_safe_globals(UnetND)
 
 

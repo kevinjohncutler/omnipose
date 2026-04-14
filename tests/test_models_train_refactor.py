@@ -52,7 +52,7 @@ def _patch_manual_train_helpers(monkeypatch):
         imgi = [np.zeros((1, *tyx), np.float32) for _ in range(batch)]
         lbl = [np.zeros(tyx, np.int32) for _ in range(batch)]
         scale = np.ones((batch, len(tyx)), np.float32)
-        return imgi, lbl, scale
+        return imgi, lbl, scale, None
 
     def fake_masks_to_flows_batch(lbl, links, **_):
         shape = lbl[0].shape
@@ -276,21 +276,6 @@ def test_set_optimizer_and_learning_rate(monkeypatch):
     train_mod._set_learning_rate(model, 0.123)
     assert model.optimizer.param_groups[0]["lr"] == 0.123
 
-
-def test_test_eval_runs(monkeypatch):
-    model = make_model()
-    model.net = TinyNet(model.nclasses)
-
-    def fake_core_loss(self, lbl, y):
-        loss = y.mean()
-        return loss, loss.detach(), {}
-
-    monkeypatch.setattr(train_mod, "core_loss", fake_core_loss)
-
-    x = np.zeros((1, 1, 8, 8), np.float32)
-    lbl = torch.zeros((1, 1, 8, 8))
-    out = train_mod._test_eval(model, x, lbl)
-    assert out.numel() == 1
 
 
 def test_train_net_manual_batching(monkeypatch, tmp_path):

@@ -1,8 +1,7 @@
 import logging
 
-import cv2
 import numpy as np
-import torch
+from skimage.transform import resize as skimage_resize
 import torch.nn.functional as F
 
 transforms_logger = logging.getLogger(__name__)
@@ -31,7 +30,8 @@ def resize_image(img0, Ly=None, Lx=None, rsz=None, interpolation=1, no_channels=
     rsz: float, optional
         resize coefficient(s) for image; if Ly is None then rsz is used
 
-    interpolation: cv2 interp method (optional, default 1)
+    interpolation: int (optional, default 1)
+        0 for nearest-neighbor, 1 for bilinear
 
     Returns
     --------------
@@ -56,17 +56,17 @@ def resize_image(img0, Ly=None, Lx=None, rsz=None, interpolation=1, no_channels=
             Ly = int(img0.shape[-3] * rsz[-2])
             Lx = int(img0.shape[-2] * rsz[-1])
     
+    order = interpolation  # 0 = nearest, 1 = bilinear
     # no_channels useful for z-stacks, so the third dimension is not treated as a channel
-    # but if this is called for grayscale images, they first become [Ly,Lx,2] so ndim=3 but 
+    # but if this is called for grayscale images, they first become [Ly,Lx,2] so ndim=3 but
     if (img0.ndim>2 and no_channels) or (img0.ndim==4 and not no_channels):
         if no_channels:
             imgs = np.zeros((img0.shape[0], Ly, Lx), np.float32)
         else:
             imgs = np.zeros((img0.shape[0], Ly, Lx, img0.shape[-1]), np.float32)
         for i,img in enumerate(img0):
-            imgs[i] = cv2.resize(img, (Lx, Ly), interpolation=interpolation)
-            # imgs[i] = scipy.ndimage.zoom(img, resize/np.array(img.shape), order=order)
-            
+            imgs[i] = skimage_resize(img, imgs[i].shape, order=order, preserve_range=True).astype(np.float32)
     else:
-        imgs = cv2.resize(img0, (Lx, Ly), interpolation=interpolation)
+        out_shape = (Ly, Lx) if img0.ndim == 2 else (Ly, Lx, img0.shape[-1])
+        imgs = skimage_resize(img0, out_shape, order=order, preserve_range=True).astype(np.float32)
     return imgs

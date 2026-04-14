@@ -1,40 +1,30 @@
 import os
-import datetime
-import gc
 import warnings
 import glob
-import logging
-import pathlib
-import sys
 import re
 from pathlib import Path
 from csv import reader, writer
 import shutil
 import tempfile
-import subprocess
 from urllib.request import urlopen
 from tqdm import tqdm
 
 import numpy as np
-import cv2
-import tifffile
 from natsort import natsorted
-from aicsimageio import AICSImage
 import ncolor
 
-from ..logger import LOGGER_FORMAT, get_logger
+from ..logger import get_logger
 from .. import utils
+
+from ocdkit.io import *
+from ocdkit.array import normalize99
+from ocdkit.result import Result
+from ocdkit.morphology import masks_to_outlines
 
 try:
     import matplotlib.pyplot as plt
     MATPLOTLIB = True
 except Exception:
     MATPLOTLIB = False
-
-# try:
-#     from google.cloud import storage
-#     SERVER_UPLOAD = True
-# except:
-SERVER_UPLOAD = False
 
 io_logger = get_logger('io', color='#ff7f0e')

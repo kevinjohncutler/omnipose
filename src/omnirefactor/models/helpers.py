@@ -19,11 +19,6 @@ def model_path(model_type, model_index, use_torch):
     return cache_model_path(basename)
 
 
-def size_model_path(model_type, use_torch):
-    torch_str = 'torch' if use_torch else ''
-    basename = 'size_%s%s_0.npy' % (model_type, torch_str)
-    return cache_model_path(basename)
-
 
 def cache_model_path(basename):
     MODEL_DIR.mkdir(parents=True, exist_ok=True)

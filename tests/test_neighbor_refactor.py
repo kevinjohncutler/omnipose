@@ -42,15 +42,12 @@ def test_get_neigh_inds_background_reflect():
 
 
 def test_steps_and_supporting_inds():
-    steps = neighbor.get_steps(2)
-    inds, fact, sign = neighbor.steps_to_indices(steps)
-    assert len(steps) == 9
-    assert inds[0].size == 1
+    k = neighbor.kernel_setup(2)
+    assert len(k.steps) == 9
+    assert k.inds[0].size == 1
+    assert k.idx == k.inds[0][0]
 
-    steps2, inds2, idx, fact2, sign2 = neighbor.kernel_setup(2)
-    assert idx == inds2[0][0]
-
-    pairs = neighbor.get_supporting_inds(steps2)
-    step_idx = np.where((steps2 == np.array([1, 0])).all(axis=1))[0][0]
+    pairs = neighbor.get_supporting_inds(k.steps)
+    step_idx = np.where((k.steps == np.array([1, 0])).all(axis=1))[0][0]
     assert step_idx in pairs
     assert len(pairs[step_idx]) > 0

@@ -1,7 +1,7 @@
 import numpy as np
 
+from ocdkit import array as tnorm
 from omnirefactor import transforms as tbase
-from omnirefactor.transforms import normalize as tnorm
 from omnirefactor.transforms import tiles as ttiles
 
 

@@ -2,11 +2,6 @@
 
 |
 
-.. image:: _static/logo.png
-    :class: no-lightbox
-    :align: right
-    :height: 300
-
 .. include:: ../README.rst
    :start-after: |PyPI version|
    :end-before: Try out Omnipose online

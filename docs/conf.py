@@ -115,9 +115,7 @@ def _strip_all_for_autodoc() -> None:
         "omnirefactor.kwargs",
         "omnirefactor.load",
         "omnirefactor.logger",
-        "omnirefactor.measure",
         "omnirefactor.metrics",
-        "omnirefactor.misc",
         "omnirefactor.models",
         "omnirefactor.networks",
         "omnirefactor.plot",
@@ -168,7 +166,7 @@ def _expose_submodule_members(pkg_name: str) -> None:
 
 
 def _set_docs_all(pkg_name: str) -> None:
-    """Restrict __all__ to omnirefactor-defined public functions/classes."""
+    """Restrict __all__ to functions/classes defined within this package."""
     import importlib
     import inspect
 
@@ -183,7 +181,9 @@ def _set_docs_all(pkg_name: str) -> None:
             continue
         if inspect.isfunction(obj) or inspect.isclass(obj):
             mod = getattr(obj, "__module__", "")
-            if mod.startswith("omnirefactor"):
+            # Only include objects whose __module__ is within this package,
+            # not re-exports from sibling packages.
+            if mod.startswith(pkg_name):
                 allowed.append(name)
     if allowed:
         pkg.__all__ = sorted(set(allowed))
@@ -425,6 +425,23 @@ exclude_patterns = [
     'sinebow.rst',
     '._*',
     '**/._*',
+    '*-Copy*.ipynb',        # scratch notebook copies (root)
+    '**/*-Copy*.ipynb',     # scratch notebook copies (subdirs)
+    'Untitled*.ipynb',      # untitled scratch notebooks (root)
+    '**/Untitled*.ipynb',   # untitled scratch notebooks (subdirs)
+    'readme_full.rst',
+    'notes/**',
+    'affinity_ordering.md',
+    'api/omnirefactor.rst', # auto-generated; linked from api/index.rst
+    'examples/*-Copy*.ipynb',       # scratch example copies
+    'examples/Untitled*.ipynb',     # untitled scratch examples
+    'examples/benchmark_*.ipynb',   # benchmark notebooks
+    'examples/gemini-*.ipynb',      # LLM experiment notebooks
+    'examples/gpt-*.ipynb',         # LLM experiment notebooks
+    'examples/mono_channel_bact-*.ipynb',  # bact variant copies
+    'examples/mono_channel_bact_*.ipynb',  # bact variant copies
+    'examples/mono_channel_3D_*.ipynb',    # 3D variant copies
+    'examples/spacetime*.ipynb',    # spacetime notebooks
 ]
 if MINIMAL_DOCS:
     exclude_patterns.extend(['api/**', 'readme_full.rst'])

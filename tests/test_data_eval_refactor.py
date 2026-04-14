@@ -106,16 +106,6 @@ def test_eval_set_run_tiled_and_collate():
     assert collated[0].shape[0] == 2
 
 
-def test_eval_loader_iter_and_sampler_len():
-    sampler = eval_mod.sampler([0, 1, 2])
-    assert len(sampler) == 3
-    assert list(iter(sampler)) == [0, 1, 2]
-
-    dataset = torch.utils.data.TensorDataset(torch.zeros((2, 1, 4, 4)))
-    loader = eval_mod.eval_loader(dataset, DummyRunNetModel(), lambda x: x, batch_size=1)
-    batches = list(iter(loader))
-    assert len(batches) == 2
-
 
 def test_eval_set_iter_worker_split(monkeypatch):
     data = [np.zeros((32, 32), dtype=np.float32) for _ in range(5)]
@@ -154,18 +144,18 @@ def test_eval_set_files_and_aics_branches(monkeypatch):
     assert img.shape[1] == 1
     assert len(inds) == 1
 
-    # AICS branch: patch AICSImage so isinstance check passes
-    class DummyAICSImage:
+    # BioImage branch: patch BioImage so isinstance check passes
+    class DummyBioImage:
         def __init__(self, *_args, **_kwargs):
             pass
 
         def get_image_data(self, *_args, **_kwargs):
             return np.zeros((16, 16), dtype=np.float32)
 
-    monkeypatch.setattr(eval_mod, "AICSImage", DummyAICSImage)
+    monkeypatch.setattr(eval_mod, "BioImage", DummyBioImage)
 
     aics_dataset = eval_mod.eval_set(
-        DummyAICSImage(),
+        DummyBioImage(),
         dim=2,
         normalize=False,
         invert=False,

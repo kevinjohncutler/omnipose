@@ -3,7 +3,7 @@ from typing import Sequence
 from .imports import *
 
 from .affinity import masks_to_affinity, affinity_to_boundary, compute_affinity_gpu, affinity_to_boundary_gpu
-from .fields import _gradient, _iterate, _iterate_grid, _gradient_grid, roll_and_clamp
+from .fields import _gradient, _iterate, _iterate_grid, _gradient_grid
 
 # Cache kernel setup tensors keyed by (ndim, device_str) to avoid recreating
 # them on every call to _extend_centers_torch_grid.
@@ -20,8 +20,14 @@ def _extend_centers_torch_grid(clabels_gpu: torch.Tensor,
                                seam_starts: Sequence[int] = ()):
     """Full-grid Eikonal solve entirely on GPU.
 
-    Replaces _extend_centers_torch for the GPU fast path: no CPU neighbour
-    index construction, no random neigh_inds gathers.
+    Replaces the old sparse eikonal (_extend_centers_torch) which gathered
+    neighbor values via T[neigh_inds] — a variable-sized scatter-gather of
+    shape (3^D, npix) created every iteration. On MPS, these transient
+    allocations with unpredictable lifetimes caused memory leaks.
+
+    This implementation uses fixed-shape full-grid operations instead:
+    one F.pad + stack producing (nsteps, *spatial) per iteration. Constant
+    tensor shapes let MPS reuse memory predictably, eliminating the leak.
 
     Args:
         clabels_gpu: (*spatial) int tensor on GPU (0 = background).
@@ -218,9 +224,6 @@ def masks_to_flows(masks, affinity_graph=None, dists=None, coords=None, links=No
         else:
             device = torch_CPU
     
-    # masks_to_flows_device/cpu deprecated. Running using torch on CPU is still 2x faster
-    # than the dedicated, jitted CPU code thanks to it being parallelized I think.
-    
     if masks.ndim==3 and dim==2:
         # this branch preserves original 3D approach 
         print('Sorry, this branch has not yet been updated - do not use omnipiose for this')
@@ -238,13 +241,13 @@ def masks_to_flows(masks, affinity_graph=None, dists=None, coords=None, links=No
             mu0 = masks_to_flows_torch(masks[:,:,x], dists[:,:,x], boundaries[:,:,x], #<<< will want to fix this 
                                         device=device, omni=omni)[0]
             mu[[0,1], :, :, x] += mu0
-        return masks, dists, None, mu #consistency with below
-    
+        return Result(masks=masks, dists=dists, boundaries=None, T=None, mu=mu)
+
     else:
         T, mu = masks_to_flows_torch(masks, affinity_graph, coords, dists, device=device,
-                                     omni=omni, normalize=normalize, n_iter=n_iter, 
+                                     omni=omni, normalize=normalize, n_iter=n_iter,
                                      verbose=verbose)
-        return masks, dists, boundaries, T, mu
+        return Result(masks=masks, dists=dists, boundaries=boundaries, T=T, mu=mu)
 
 
 # @torch.no_grad() 
@@ -296,17 +299,14 @@ def masks_to_flows_batch(batch, links=[None], device=torch.device('cpu'),
         if n_iter is not None:
             n_iter_eff = n_iter
         else:
-            # Estimate n_iter from the CPU clabels array (already available).
-            # Avoids a GPU bincount + .item() which forces an expensive
-            # CPU-GPU sync before the solve even starts.
-            counts_cpu = np.bincount(clabels.ravel())
-            # n_iter depends on per-cell half-width, not merged group size:
-            # the Eikonal is local — T at each pixel converges once the
-            # update has propagated across the cell's own cross-section.
-            # Linked groups may span many pixels end-to-end but each cell's
-            # width (and thus its convergence radius) is unchanged by linking.
-            max_count = int(counts_cpu[1:].max()) if len(counts_cpu) > 1 else 1
-            n_iter_eff = int(np.ceil(np.sqrt(max_count / np.pi) * 1.16)) + 1
+            # Match omnipose default: _extend_centers_torch uses n_iter=200 as
+            # default parameter but _iterate stops early when MSE < 1e-3 (line 1276).
+            # When masks_to_flows_torch is called from masks_to_flows_batch with
+            # n_iter=None and dists=None, omnipose passes None to _extend_centers_torch
+            # which then falls through to n_iter=50 (line 1141-1142).
+            # The early convergence check means omnipose typically runs ~20-50
+            # iterations. Use 50 to match the cap.
+            n_iter_eff = 50
         T, mu = _extend_centers_torch_grid(clabels_gpu, affinity_gpu,
                                            n_iter=int(n_iter_eff),
                                            omni=True,
@@ -314,7 +314,9 @@ def masks_to_flows_batch(batch, links=[None], device=torch.device('cpu'),
                                            verbose=verbose,
                                            seam_ends=seam_ends,
                                            seam_starts=seam_starts)
-        return clabels_gpu, boundaries_gpu, T, mu, slices, clinks, None, None
+        return Result(labels=clabels_gpu, boundaries=boundaries_gpu,
+                      T=T, mu=mu, slices=slices, links=clinks,
+                      coords=None, affinity_graph=None)
 
     # ── CPU / links path (original) ──────────────────────────────────────────
     # indices were computed above (compute_indices=True for CPU path)
@@ -334,7 +336,10 @@ def masks_to_flows_batch(batch, links=[None], device=torch.device('cpu'),
                                  affinity_field=affinity_field, n_iter=n_iter,
                                  edges=edges, verbose=verbose)
 
-    return torch.tensor(clabels.astype(int),device=device), torch.tensor(boundaries,device=device), T, mu, slices, clinks, ccoords, affinity_graph
+    return Result(labels=torch.tensor(clabels.astype(int), device=device),
+                  boundaries=torch.tensor(boundaries, device=device),
+                  T=T, mu=mu, slices=slices, links=clinks,
+                  coords=ccoords, affinity_graph=affinity_graph)
 
 # from numba import jit
 # def concatenate_labels(masks,links,nsample):
@@ -379,7 +384,8 @@ def concatenate_labels(masks: np.ndarray, links: list, nsample: int,
                     clinks.add((l[0]+label_shift, l[1]+label_shift))
         label_shift += mask_temp.max() + 1
 
-    return final_flat, clinks, indices, final_shape, dL
+    return Result(flat=final_flat, links=clinks, indices=indices,
+                  shape=final_shape, dL=dL)
 
 
 # LABELS ARE NOW (masks,mask) for semantic seg with additional (bd,dist,weight,flows) for instance seg

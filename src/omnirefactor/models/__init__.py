@@ -25,7 +25,7 @@ class OmniModel:
         whether or not to save model to GPU, will check if GPU available
         
     pretrained_model: str or list of strings (optional, default False)
-        path to pretrained cellpose model(s), if None or False, no model loaded
+        path to pretrained model(s), if None or False, no model loaded
         
     model_type: str (optional, default None)
         'cyto'=cytoplasm model; 'nuclei'=nucleus model; if None, pretrained_model used
@@ -33,18 +33,14 @@ class OmniModel:
     net_avg: bool (optional, default True)
         loads the 4 built-in networks and averages them if True, loads one network if False
         
-    torch: bool (optional, default True)
-        use torch nn rather than mxnet
-        
     diam_mean: float (optional, default 27.)
         mean 'diameter', 27. is built in value for 'cyto' model
-        
-    device: mxnet device (optional, default None)
-        where model is saved (mx.gpu() or mx.cpu()), overrides gpu input,
-        recommended if you want to use a specific GPU (e.g. mx.gpu(4))
+
+    device: torch device (optional, default None)
+        where model is saved, overrides gpu input
         
     model_dir: str (optional, default None)
-        overwrite the built in model directory where cellpose looks for models
+        overwrite the built in model directory
     
 
     """
@@ -52,13 +48,7 @@ class OmniModel:
     def __init__(self, gpu=False, pretrained_model=False,
                  model_type=None, net_avg=True, use_torch=True,
                  device=None, **kwargs):
-    
-        if not torch:
-            if not MXNET_ENABLED:
-                use_torch = True
-        self.torch = use_torch
 
-        # print('torch is', torch) # duplicated in unetmodel class
         if isinstance(pretrained_model, np.ndarray):
             pretrained_model = list(pretrained_model)
         elif isinstance(pretrained_model, str):
@@ -79,7 +69,7 @@ class OmniModel:
                 pretrained_model=pretrained_model,
                 model_type=model_type,
                 net_avg=net_avg,
-                use_torch=torch,
+                use_torch=use_torch,
                 model_names=MODEL_NAMES,
                 bd_model_names=BD_MODEL_NAMES,
                 c2_model_names=C2_MODEL_NAMES,
@@ -131,9 +121,6 @@ class OmniModel:
             self.device = device
             self.gpu = self.device.type != 'cpu'
 
-        if not self.torch:
-            raise RuntimeError("Torch backend required for OmniModel.")
-
         self.nbase = [self.nchan] + [32 * (2**i) for i in range(self.nsample)]
         net_kwargs["residual_on"] = residual_on
         net_kwargs["style_on"] = style_on
@@ -144,46 +131,28 @@ class OmniModel:
 
         self.unet = False
         self.pretrained_model = pretrained_model
-        
-        if self.pretrained_model and len(self.pretrained_model)==1:
-            
-            # dataparallel A1
-            # if self.torch and self.gpu:
-            #     net = self.net.module
-            # else:
-            #     net = self.net
-            # if self.torch and gpu:
-            #     self.net = nn.DataParallel(self.net)
 
+        if self.pretrained_model and len(self.pretrained_model)==1:
             self.net.load_model(self.pretrained_model[0], cpu=(not self.gpu))
 
-                
+
         ostr = ['off', 'on']
-        omnistr = ['','_omni'] #toggle by containing omni phrase 
+        omnistr = ['','_omni'] #toggle by containing omni phrase
         self.net_type = 'cellpose_residual_{}_style_{}_concatenation_{}{}_abstract_nclasses_{}_nchan_{}_dim_{}'.format(ostr[residual_on],
                                                                                    ostr[style_on],
                                                                                    ostr[concatenation],
                                                                                    omnistr[self.omni],
                                                                                    self.nclasses-(self.dim-1), # "abstract"
-                                                                                   self.nchan, 
-                                                                                   self.dim) 
-        
-        if self.torch and gpu:
-            self.net = nn.DataParallel(self.net)
-            
-            #A1
-            # distributed.init_process_group()
-            # distributed.launch
-            # distributed.init_process_group(backend='nccl',rank=0,world_size=2)
-            # self.net = nn.parallel.DistributedDataParallel(self.net)
-#             rank = 0 # one computer
-#             world_size = 1
-#             setup(rank, world_size)
-#             # distributed.init_process_group('nccl', 
-#             #                        init_method='env://')
-#             self.net = DDP(self.net,
-#                            device_ids=[rank],
-#                            output_device=rank)
+                                                                                   self.nchan,
+                                                                                   self.dim)
+
+        # Store GPU count for use in _train_net (DataParallel is applied there,
+        # only when calibration shows it's faster than single-GPU at the given batch/image size).
+        self.n_gpu = torch.cuda.device_count() if (self.gpu and torch.cuda.is_available()) else 1
+        if self.n_gpu > 1:
+            models_logger.info(
+                f'Detected {self.n_gpu} GPU(s). DataParallel will be auto-calibrated at training time.'
+            )
             
             
     # eval contains most of the tricky code handling all the cases for nclasses 

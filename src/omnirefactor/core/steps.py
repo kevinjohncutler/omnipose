@@ -113,11 +113,11 @@ def follow_flows_batch(dP, niter, omni=True, suppress=False, interp=True):
     dP should already be scaled (e.g. divided by 5).
 
     Args:
-        dP:    (B, D, *spatial) float tensor on device
-        niter: int — integration steps
+        dP:    ``(B, D, *spatial)`` float tensor on device.
+        niter: int, integration steps.
 
     Returns:
-        p: (B, D, *spatial) float tensor on device — final pixel positions
+        p: ``(B, D, *spatial)`` float tensor on device, final pixel positions.
     """
     B, D, *spatial = dP.shape
     N = 1
@@ -199,5 +199,4 @@ def steps_batch(p, dP, niter, omni=True, suppress=True, interp=True,
         tr = None
     p = pt[..., inds].transpose(-1, 1).contiguous()
 
-    empty_cache()
     return p, tr

@@ -1,140 +1,83 @@
+"""Training dataset with random crop/warp augmentation."""
+
 import os
 import time
 import multiprocessing as mp
-from multiprocessing.shared_memory import SharedMemory
 
 import numpy as np
 import torch
 
-from torch.utils.data import BatchSampler
-
 from ..transforms.augment import random_rotate_and_resize
 from ..core.flows import masks_to_flows_batch, batch_labels
+from .sampler import CyclingRandomBatchSampler
+from .shm import ShmPool
 
-
-class _ShmPool:
-    """Pack a list of numpy arrays (heterogeneous shapes/dtypes) into a single
-    POSIX shared memory segment.
-
-    Uses only **one** file descriptor for the entire list, regardless of how
-    many arrays it holds.  With 284 training images, this reduces open-fd
-    usage from 568 → 2 (one pool for data, one for labels).
-
-    Pickle-efficient: only the shm name + offset table (tiny) is serialized.
-    Spawn workers attach to the existing segment by name — zero copies, zero
-    extra RAM beyond what the main process already holds.
-
-    Lifecycle:
-      Main process:  pool = _ShmPool(list_of_arrays)  # creates shm, copies once
-      Worker:        pool.get(i)                       # zero-copy view
-      Cleanup:       pool.close(); pool.unlink()       # release then destroy
-    """
-
-    _ALIGN = 64  # align array starts to cache-line boundaries
-
-    def __init__(self, arrays):
-        meta, offset = [], 0
-        for a in arrays:
-            meta.append((offset, a.shape, a.dtype.str))
-            offset += a.nbytes
-            offset = (offset + self._ALIGN - 1) // self._ALIGN * self._ALIGN
-
-        total = max(offset, 1)
-        self._shm = SharedMemory(create=True, size=total)
-        self._name = self._shm.name
-        self._owner = True
-
-        for (byte_off, shape, dtype_str), a in zip(meta, arrays):
-            dst = np.ndarray(shape, dtype=np.dtype(dtype_str),
-                             buffer=self._shm.buf, offset=byte_off)
-            dst[:] = a
-
-        self._meta = meta  # list of (int, tuple, str) — all serializable
-
-    def __getstate__(self):
-        return {'name': self._name, 'meta': self._meta}
-
-    def __setstate__(self, state):
-        self._name = state['name']
-        self._meta = state['meta']
-        # Attach to the existing shm segment without registering it in the
-        # resource_tracker — we own the lifecycle (main process unlinks).
-        # Monkey-patch register to a no-op for the duration of __init__
-        # so no registration happens, and no unregister is ever needed.
-        import multiprocessing.resource_tracker as _rt_mod
-        _orig_register = _rt_mod.register
-        _rt_mod.register = lambda *a, **kw: None
-        try:
-            self._shm = SharedMemory(name=self._name, create=False)
-        finally:
-            _rt_mod.register = _orig_register
-        self._owner = False
-
-    def get(self, i) -> np.ndarray:
-        """Return a zero-copy numpy view of the i-th array."""
-        byte_off, shape, dtype_str = self._meta[i]
-        return np.ndarray(shape, dtype=np.dtype(dtype_str),
-                          buffer=self._shm.buf, offset=byte_off)
-
-    def close(self):
-        try:
-            self._shm.close()
-        except Exception:
-            pass
-
-    def unlink(self):
-        if getattr(self, '_owner', False):
-            try:
-                self._shm.unlink()
-            except Exception:
-                pass
+# Backward compat: scripts import _ShmPool from here
+_ShmPool = ShmPool
 
 
 class train_set(torch.utils.data.Dataset):
-    def __init__(self, data, labels, links,
-                 timing=False, **kwargs):
+    """Training dataset that returns augmented images + raw masks.
+
+    Flow labels are NOT computed here — that happens in the training loop
+    on GPU via :meth:`compute_flows_gpu`, which is ~10x faster on CUDA
+    than CPU.
+
+    Parameters
+    ----------
+    data : list of ndarray
+        Training images, each ``(C, *spatial)``.
+    labels : list of ndarray
+        Mask labels for each image.
+    links : list
+        Per-image label pair links for multi-label objects.
+    timing : bool
+        Print per-step timing info.
+    **kwargs
+        All remaining keyword arguments are set as attributes directly.
+        Expected keys include ``dim``, ``nchan``, ``nclasses``, ``tyx``,
+        ``scale_range``, ``omni``, ``affinity_field``, ``device``,
+        ``allow_blank_masks``, ``do_rescale``, ``diam_train``, ``diam_mean``.
+    """
+
+    def __init__(self, data, labels, links, timing=False, **kwargs):
         self.__dict__.update(kwargs)
 
         self.data = data
         self.labels = labels
         self.links = links
-
         self.timing = timing
+        self.nimg = len(data)
 
+        # Defaults for optional attributes
         if not hasattr(self, 'augment'):
             self.augment = True
 
+        # Compute tyx from dim if not provided
         if self.tyx is None:
-            n = 16
-            kernel_size = 2
-            base = kernel_size
-            L = max(round(224 / (base**4)), 1) * (base**4)
-            self.tyx = (L,) * self.dim if self.dim == 2 else (8 * n,) + (8 * n,) * (self.dim - 1)
+            base = 2  # kernel_size
+            L = max(round(224 / (base ** 4)), 1) * (base ** 4)
+            self.tyx = (L,) * self.dim if self.dim == 2 else (8 * 16,) + (8 * 16,) * (self.dim - 1)
 
         self.scale_range = max(0, min(2, float(self.scale_range)))
-
         self.do_flip = True
-        self.dist_bg = 5
-        self.normalize = False
-        # gamma_range must match omnipose MANUAL path default [.5, 4] for parity
-        # (the manual path doesn't pass gamma_range so uses the default from random_rotate_and_resize)
-        self.gamma_range = [.5, 4]
-        self.nimg = len(data)
-        do_rescale = getattr(self, "do_rescale", getattr(self, "rescale", True))
+        self.gamma_range = [0.75, 2.5]
+
+        # Rescale factors
+        do_rescale = getattr(self, 'do_rescale', getattr(self, 'rescale', True))
         self.do_rescale = bool(do_rescale)
-        self.rescale_factor = self.diam_train / self.diam_mean if self.do_rescale else np.ones(self.nimg, np.float32)
+        self.rescale_factor = (
+            self.diam_train / self.diam_mean if self.do_rescale
+            else np.ones(self.nimg, np.float32)
+        )
 
-        self.v1 = [0] * (self.dim - 1) + [1]
-        self.v2 = [0] * (self.dim - 2) + [1, 0]
-
-        # Shared-memory pools: single fd per role, zero extra RAM.
+        # Shared-memory pools (set externally when using num_workers > 0)
         if not hasattr(self, 'data_pool'):
             self.data_pool = None
         if not hasattr(self, 'label_pool'):
             self.label_pool = None
 
-        # True lazy loading: workers imread + normalize from original files.
-        # norm_params is a list of [(lo, hi), ...] per channel per image.
+        # Lazy file-loading paths (set externally for disk-backed datasets)
         if not hasattr(self, 'image_paths'):
             self.image_paths = None
         if not hasattr(self, 'label_paths'):
@@ -143,9 +86,9 @@ class train_set(torch.utils.data.Dataset):
             self.norm_params = None
 
     # ------------------------------------------------------------------
-    # Pickle protocol: spawn workers only get paths + tiny norm params,
-    # never the full arrays.
+    # Pickle: spawn workers only get paths/shm, never full arrays
     # ------------------------------------------------------------------
+
     def __getstate__(self):
         state = self.__dict__.copy()
         if self.image_paths is not None or self.data_pool is not None:
@@ -156,69 +99,62 @@ class train_set(torch.utils.data.Dataset):
     def __setstate__(self, state):
         self.__dict__.update(state)
 
-    def _get_batch_arrays(self, inds):
-        """Return (images, labels) for the given indices.
+    # ------------------------------------------------------------------
+    # Data access
+    # ------------------------------------------------------------------
 
-        Priority:
-          1. image_paths + norm_params — imread from original files, zero main-
-             process RAM, preprocessing on demand in each worker.
-          2. _ShmPool — zero-copy shm, 2 fds total, preprocessed arrays shared.
-          3. In-memory arrays — num_workers=0 / legacy path.
+    def _get_batch_arrays(self, inds):
+        """Return ``(images, labels)`` for the given indices.
+
+        Priority: image_paths (lazy) > ShmPool (zero-copy) > in-memory.
         """
         if self.image_paths is not None:
-            from ..io.imio import imread
+            from ..io import imread
             from ..transforms.shape import apply_norm_params
             from ..transforms.axes import move_min_dim
             images, labels = [], []
             for i in inds:
                 img = imread(self.image_paths[i]).astype(np.float32)
-                # Restore the channel layout that compute_norm_params assumed.
-                # Must use the same heuristic as compute_norm_params.
                 _ch_ax = getattr(self, '_channel_axis', None)
                 if _ch_ax is not None:
                     img = np.moveaxis(img, _ch_ax, 0)
                 elif img.ndim > self.dim:
-                    # channel_axis=None: move smallest dim to front (mirrors compute_norm_params)
-                    img = move_min_dim(img)       # moves min-dim to last
-                    img = np.moveaxis(img, -1, 0) # then bring to front
+                    img = move_min_dim(img)
+                    img = np.moveaxis(img, -1, 0)
                 if img.ndim == self.dim:
                     img = img[np.newaxis]
                 if self.norm_params is not None:
                     img = apply_norm_params(img, self.norm_params[i])
                 images.append(img)
                 lbl = imread(self.label_paths[i])
-                # format_labels (sequential integers) if no link file
                 if self.links[i] is None:
                     import ncolor
                     lbl = ncolor.format_labels(lbl)
                 labels.append(lbl)
             return images, labels
         elif self.data_pool is not None:
-            images = [self.data_pool.get(i) for i in inds]
-            labels = [self.label_pool.get(i) for i in inds]
+            return ([self.data_pool.get(i) for i in inds],
+                    [self.label_pool.get(i) for i in inds])
         else:
-            images = [self.data[i] for i in inds]
-            labels = [self.labels[i] for i in inds]
-        return images, labels
+            return ([self.data[i] for i in inds],
+                    [self.labels[i] for i in inds])
+
+    # ------------------------------------------------------------------
+    # DataLoader interface
+    # ------------------------------------------------------------------
 
     def __iter__(self):
         worker_info = mp.get_worker_info()
-
         if worker_info is None:
-            start = 0
-            end = len(self)
+            start, end = 0, len(self)
         else:
-            total_samples = len(self)
-            num_workers = worker_info.num_workers
-            worker_id = worker_info.id
-            per_worker = int(total_samples / num_workers)
-            leftover = total_samples % num_workers
-            start = worker_id * per_worker
+            total = len(self)
+            per_worker = total // worker_info.num_workers
+            leftover = total % worker_info.num_workers
+            start = worker_info.id * per_worker
             end = start + per_worker
-
-            if worker_id == num_workers - 1:
+            if worker_info.id == worker_info.num_workers - 1:
                 end += leftover
-
         for index in range(start, end):
             yield self[index]
 
@@ -226,58 +162,41 @@ class train_set(torch.utils.data.Dataset):
         """Pass through the single batch produced by __getitems__."""
         return worker_data[0]
 
-    def compute_flows_gpu(self, imgi, masks_np, links, device):
-        """Compute flows on GPU from raw augmented data (main process only).
-
-        imgi may be a GPU tensor (num_workers=0 fast path) or a numpy array
-        (num_workers>0, deserialized from worker IPC). Both are handled here.
-        """
-        with torch.no_grad():
-            out = masks_to_flows_batch(masks_np, links,
-                                       device=device,
-                                       omni=self.omni,
-                                       dim=self.dim,
-                                       affinity_field=self.affinity_field)
-            X = out[:-4]
-            slices = out[-4]
-            masks, bd, T, mu = [torch.stack([x[(Ellipsis,) + slc] for slc in slices]) for x in X]
-
-            lbl = batch_labels(masks, bd, T, mu, self.tyx,
-                               dim=self.dim, nclasses=self.nclasses, device=device)
-
-            if isinstance(imgi, torch.Tensor):
-                imgi = imgi.to(device, non_blocking=True)
-            else:
-                imgi = torch.tensor(imgi, device=device, dtype=torch.float32)
-        return imgi, lbl
-
     def worker_init_fn(self, worker_id):
-        worker_seed = torch.initial_seed() % 2**32
-        np.random.seed(worker_seed)
+        """Set thread counts and RNG seed for worker reproducibility."""
+        np.random.seed(torch.initial_seed() % 2 ** 32)
         torch.set_num_threads(1)
         torch.set_num_interop_threads(1)
-        os.environ["OMP_NUM_THREADS"] = "1"
-        os.environ["MKL_NUM_THREADS"] = "1"
-        os.environ["OPENBLAS_NUM_THREADS"] = "1"
-        os.environ["NUMEXPR_NUM_THREADS"] = "1"
+        for var in ('OMP_NUM_THREADS', 'MKL_NUM_THREADS',
+                    'OPENBLAS_NUM_THREADS', 'NUMEXPR_NUM_THREADS'):
+            os.environ[var] = '1'
 
     def __len__(self):
         return self.nimg
 
     def __getitems__(self, inds):
-        """
-        Batched getter that PyTorch DataLoader uses when available.
-
-        This ensures all indices in a batch are processed together through
-        masks_to_flows_batch, matching omnipose's manual batching behavior
-        where flows are computed on the concatenated mask batch at once.
-
-        Without this method, DataLoader calls __getitem__ per-index separately,
-        then collates - which computes flows per-image instead of per-batch.
-        """
+        """Batched getter — ensures all indices are processed together
+        through a single augmentation call."""
         return [self.__getitem__(inds)]
 
     def __getitem__(self, inds):
+        """Return augmented images + raw masks (no flow computation).
+
+        Flow labels are computed later in the training loop on GPU via
+        ``masks_to_flows_batch``, which is ~10x faster on CUDA than CPU.
+
+        Returns
+        -------
+        imgi : Tensor or ndarray
+            Augmented images ``(B, C, *tyx)``. Tensor on GPU if main
+            process, numpy if in a DataLoader worker.
+        labels : ndarray
+            Augmented raw masks ``(B, *tyx)``. Always numpy.
+        links : list
+            Per-image label links.
+        inds : list
+            Original sample indices.
+        """
         if isinstance(inds, int):
             inds = [inds]
 
@@ -289,13 +208,12 @@ class train_set(torch.utils.data.Dataset):
 
         batch_images, batch_labels_raw = self._get_batch_arrays(inds)
 
-        # Worker processes must not initialize CUDA (one context per spawn worker = wasted
-        # VRAM + init overhead). Use CPU scipy augmentation in workers; GPU grid_sample only
-        # in the main process (num_workers=0).
+        # Workers must not init CUDA/MPS — use CPU augmentation in workers,
+        # GPU grid_sample in the main process only.
         in_worker = torch.utils.data.get_worker_info() is not None
         aug_device = None if in_worker else self.device
 
-        imgi, labels, scale = random_rotate_and_resize(
+        imgi, labels, scale, _ = random_rotate_and_resize(
             X=batch_images,
             Y=batch_labels_raw,
             scale_range=self.scale_range,
@@ -309,66 +227,45 @@ class train_set(torch.utils.data.Dataset):
             device=aug_device,
         )
         if self.timing:
-            toc = time.time()
-            print('image augmentation time: {:.2f}'.format(toc - tic))
+            print(f'augmentation: {time.time() - tic:.2f}s')
 
-        # labels must be numpy for masks_to_flows_batch (concatenate_labels).
-        # In workers aug_device=None so both are already numpy; the isinstance checks
-        # are only hit in the main process (num_workers=0) GPU path.
         if isinstance(labels, torch.Tensor):
             labels = labels.cpu().numpy()
-        # imgi: keep as GPU tensor in main process — compute_flows_gpu handles both.
-        # In workers it's already numpy (CPU aug path).
 
         return imgi, labels, links, inds
 
+    # ------------------------------------------------------------------
+    # Flow computation (called from training loop, not from workers)
+    # ------------------------------------------------------------------
 
-class CyclingRandomBatchSampler(BatchSampler):
-    """
-    Infinite stream of shuffled, non-overlapping batch indices.
+    def compute_flows_gpu(self, imgi, masks_np, links, device):
+        """Compute flow labels on GPU from raw augmented masks.
 
-    Pre-generates all indices upfront using np.random.seed(0) to match
-    the omnipose manual batching path when num_workers=0. This ensures
-    identical index sequences for reproducibility.
+        Called from the training loop (main process only), NOT from
+        DataLoader workers.
 
-    The batching follows omnipose's structure exactly:
-    - Generate indices for n_epochs * nimg_per_epoch
-    - For each epoch, slice nimg_per_epoch indices
-    - Within each epoch, yield batches of size batch_size
-    """
+        Returns ``(imgi_gpu, lbl)`` — both on *device*.
+        """
+        with torch.no_grad():
+            out = masks_to_flows_batch(
+                masks_np, links,
+                device=device,
+                omni=self.omni,
+                dim=self.dim,
+                affinity_field=self.affinity_field,
+            )
+            X = out[:-4]
+            slices = out[-4]
+            masks, bd, T, mu = [
+                torch.stack([x[(Ellipsis,) + slc] for slc in slices])
+                for x in X
+            ]
+            lbl = batch_labels(masks, bd, T, mu, self.tyx,
+                               dim=self.dim, nclasses=self.nclasses,
+                               device=device)
 
-    def __init__(self, data_source, batch_size, n_epochs=None, nimg_per_epoch=None, generator=None):
-        self.data_source = data_source
-        self.batch_size = batch_size
-        self.N = len(data_source)
-        self.n_epochs = n_epochs or 500  # default from training
-        self.nimg_per_epoch = nimg_per_epoch if nimg_per_epoch is not None else self.N
-
-        # Pre-generate ALL indices upfront (matches omnipose manual batching)
-        # This uses np.random.seed(0) like the manual path for reproducibility
-        np.random.seed(0)
-        inds_all = np.zeros((0,), 'int32')
-        while len(inds_all) < self.n_epochs * self.nimg_per_epoch:
-            rperm = np.random.permutation(self.N)
-            inds_all = np.hstack((inds_all, rperm))
-        self._inds_all = inds_all
-        self.epoch = 0
-
-    def __iter__(self):
-        # Match omnipose manual path batch generation:
-        # for epoch in range(n_epochs):
-        #     rperm = inds_all[epoch*nimg_per_epoch:(epoch+1)*nimg_per_epoch]
-        #     for ibatch in range(0, nimg_per_epoch, batch_size):
-        #         inds = rperm[ibatch:ibatch+batch_size]
-        for epoch in range(self.n_epochs):
-            self.epoch = epoch
-            start = epoch * self.nimg_per_epoch
-            end = (epoch + 1) * self.nimg_per_epoch
-            rperm = self._inds_all[start:end]
-            for ibatch in range(0, self.nimg_per_epoch, self.batch_size):
-                batch_end = min(ibatch + self.batch_size, self.nimg_per_epoch)
-                yield rperm[ibatch:batch_end].tolist()
-
-    def __len__(self):
-        """Number of batches per epoch."""
-        return (self.nimg_per_epoch + self.batch_size - 1) // self.batch_size
+            if isinstance(imgi, torch.Tensor):
+                imgi = imgi.to(device, non_blocking=True)
+            else:
+                imgi = torch.tensor(imgi, device=device, dtype=torch.float32)
+        return imgi, lbl

@@ -6,7 +6,18 @@ import torch
 import torch.nn.functional as F
 from scipy.special import expit
 
-from ..transforms.normalize import normalize_field, normalize99
+from .imports import normalize_field, normalize99, divergence
+
+
+def _maybe_compile(fn):
+    """Apply torch.compile only when the Inductor backend is available (CUDA).
+    MPS and some CPU builds don't support it, so we fall back to eager."""
+    try:
+        if torch.cuda.is_available():
+            return torch.compile(fn)
+    except Exception:
+        pass
+    return fn
 
 
 
@@ -223,7 +234,7 @@ def _iterate(T: torch.Tensor,
     return T
 
 
-@torch.compile
+@_maybe_compile
 def _eikonal_step(T: torch.Tensor,
                   affinity: torch.Tensor,
                   seam_mask,          # Tensor or None — compile specialises per case
@@ -309,19 +320,25 @@ def _iterate_grid(T: torch.Tensor,
     Tneigh2.mul_(affinity)
     T = Tneigh2.mean(dim=0).mul_(fg_float)
 
-    # ── t = 1 … n_iter-1: compiled fixed-point loop, zero .item() ───────────
-    # `err` is a GPU scalar that gets *replaced* each iteration (user's idea).
-    # It is never passed through .item() inside the loop — checked once after
-    # the loop only when verbose is on.
-    err = torch.zeros([], device=T.device)
-    for _ in range(1, n_iter):
+    # ── t = 1 … n_iter-1: fixed-point loop with early convergence check ─────
+    # Match omnipose's sparse _iterate: stop when MSE < eps (1e-3).
+    # Check every CHECK_EVERY iterations to amortise the GPU sync cost.
+    eps = 1e-3
+    CHECK_EVERY = 10
+    T0 = T.clone()
+    for t in range(1, n_iter):
         T_new = _eikonal_step(T, affinity, seam_mask, fg_float, d, inds, fact, steps_list)
-        if verbose:
-            err = (T_new - T).abs().max()   # keep on GPU — no .item()
         T = T_new
 
+        if (t % CHECK_EVERY) == (CHECK_EVERY - 1):
+            err = (T - T0).square().mean()
+            if err.item() < eps:
+                break
+            T0.copy_(T)
+
     if verbose:
-        print(f'_iterate_grid: {n_iter} iters, final max-|ΔT|={err.item():.2e}')
+        final_err = (T - T0).square().mean().item() if t >= CHECK_EVERY else 0.0
+        print(f'_iterate_grid: {t + 1} iters, final MSE={final_err:.2e}')
     return T
 
 
@@ -432,7 +449,7 @@ def _gradient(T, d, steps, fact,
                        (mu[:, neigh_inds] * weight).sum(dim=1) / wsum,
                        torch.zeros_like(wsum))
 
-@torch.compile
+@_maybe_compile
 def eikonal_update_torch(Tneigh: torch.Tensor,
                              r: torch.Tensor,
                              d: torch.Tensor,
@@ -505,42 +522,9 @@ def sigmoid(x): #  pragma: no cover
     return expit(x)
 
 
-def divergence(f, sp=None):
-    """Computes divergence of vector field."""
-    num_dims = len(f)
-    if any(f.shape[1 + i] < 2 for i in range(num_dims)):
-        return np.zeros_like(f[0])
-    return np.ufunc.reduce(np.add, [np.gradient(f[i], axis=i) for i in range(num_dims)])
-
-
-def divergence_torch_old(y):
-    dim = y.shape[1]
-    dims = [k for k in range(-dim, 0)]
-    return torch.stack([torch.gradient(y[:, k], dim=k)[0] for k in dims]).sum(dim=0)
-
-
-def divergence_torch(y):
-    """
-    Divergence for a batched D-vector field stored as ``(B, D, *spatial)``.
-
-    * **GPU** -> use a single call to ``torch.gradient`` (fast, parallel).
-    * **CPU**       -> compute only the gradients actually needed, one component
-      at a time, to avoid the unnecessary D^2 work that the vectorised call
-      performs on the CPU.
-
-    Returns
-    -------
-    div : torch.Tensor
-        Shape ``(B, *spatial)`` - divergence of ``y``.
-    """
-    B, D, *spatial = y.shape
-
-    if any(s < 2 for s in spatial):
-        return torch.zeros((B, *spatial), dtype=y.dtype, device=y.device)
-    div = torch.zeros((B, *spatial), dtype=y.dtype, device=y.device)
-    for d in range(D):
-        div += torch.gradient(y[:, d], dim=d + 1)[0]
-    return div
+# divergence is now provided by ocdkit.array (imported above) — handles both
+# numpy (D, *spatial) and torch (B, D, *spatial) via get_module dispatch.
+divergence_torch = divergence
 
 
 def _ensure_torch(*arrays, device=None, dtype=torch.float32):

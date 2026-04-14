@@ -1,12 +1,5 @@
 import numpy as np
-import torch
 from scipy.fft import dstn, idstn
-
-
-def torch_norm(a, dim=0, keepdim=False):
-    """Wrapper for torch.linalg.norm with minimal intermediate allocations."""
-    norm_sq = (a * a).sum(dim=dim, keepdim=keepdim)
-    return norm_sq.sqrt_() if not norm_sq.requires_grad else norm_sq.sqrt()
 
 
 def compute_vector_field_from_divergence(divergence, grid_spacing=1):
@@ -37,4 +30,4 @@ def compute_vector_field_from_divergence(divergence, grid_spacing=1):
     return np.stack(vector_field)
 
 
-__all__ = ["torch_norm", "compute_vector_field_from_divergence"]
+__all__ = ["compute_vector_field_from_divergence"]

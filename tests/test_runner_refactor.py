@@ -39,7 +39,6 @@ def test_resolve_model_builtin(monkeypatch):
         pretrained_model="cyto",
         omni=False,
         use_gpu=False,
-        mxnet=False,
         fast_mode=False,
         no_net_avg=False,
         nclasses=2,
@@ -67,7 +66,6 @@ def test_resolve_model_missing_path(monkeypatch):
         pretrained_model="missing",
         omni=False,
         use_gpu=False,
-        mxnet=False,
         fast_mode=True,
         no_net_avg=False,
         nclasses=2,
@@ -91,7 +89,6 @@ def test_run_evaluation_no_images(monkeypatch):
         save_ncolor=False,
         use_gpu=False,
         gpu_number=None,
-        mxnet=False,
         pretrained_model="cyto",
         omni=False,
         fast_mode=False,
@@ -148,7 +145,7 @@ def test_run_evaluation_saves(monkeypatch):
         def eval(self, *a, **k):
             masks = np.zeros((8, 8), dtype=np.int32)
             flows = [np.zeros((2, 8, 8), dtype=np.float32)]
-            return masks, flows, None
+            return masks, flows
 
     monkeypatch.setattr(runner.models, "assign_device", lambda *a, **k: ("cpu", False))
     monkeypatch.setattr(runner, "_resolve_model", lambda *a, **k: DummyModel())
@@ -168,7 +165,6 @@ def test_run_evaluation_saves(monkeypatch):
         save_ncolor=False,
         use_gpu=False,
         gpu_number=None,
-        mxnet=False,
         pretrained_model="cyto",
         omni=False,
         fast_mode=False,
@@ -227,7 +223,7 @@ def test_run_evaluation_with_diameter(monkeypatch, diameter):
             called["diameter"] = k.get("diameter")
             masks = np.zeros((8, 8), dtype=np.int32)
             flows = [np.zeros((2, 8, 8), dtype=np.float32)]
-            return masks, flows, None
+            return masks, flows
 
     monkeypatch.setattr(runner.models, "assign_device", lambda *a, **k: ("cpu", False))
     monkeypatch.setattr(runner, "_resolve_model", lambda *a, **k: DummyModel())
@@ -245,7 +241,6 @@ def test_run_evaluation_with_diameter(monkeypatch, diameter):
         save_ncolor=False,
         use_gpu=False,
         gpu_number=None,
-        mxnet=False,
         pretrained_model="cyto",
         omni=False,
         fast_mode=False,
@@ -339,7 +334,6 @@ def test_run_training_batches(monkeypatch):
         fast_mode=False,
         no_net_avg=False,
         pretrained_model="cyto",
-        mxnet=False,
         timing=False,
         amp=False,
         affinity_field=False,

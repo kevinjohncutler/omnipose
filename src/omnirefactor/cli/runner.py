@@ -39,7 +39,6 @@ def _resolve_model(args, device, norm_type: str):
             gpu=args.use_gpu,
             device=device,
             model_type=args.pretrained_model,
-            use_torch=(not args.mxnet),
             omni=args.omni,
             net_avg=(not args.fast_mode and not args.no_net_avg),
             nclasses=args.nclasses,
@@ -88,8 +87,6 @@ def _run_evaluation(args) -> None:
     if args.tyx is not None:
         args.tyx = tuple(int(s) for s in args.tyx.split(","))
 
-    os.environ["MXNET_SUBGRAPH_BACKEND"] = ""
-
     if not args.testing:
         saving_something = (
             args.save_png
@@ -125,7 +122,7 @@ def _run_evaluation(args) -> None:
     tqdm_out = TqdmToLogger(logger, level=logging.INFO)
     for image_name in tqdm(image_names, file=tqdm_out):
         image = io.imread(image_name)
-        masks, flows, _ = model.eval(
+        masks, flows = model.eval(
             image,
             channels=channels,
             diameter=diameter,
@@ -228,11 +225,9 @@ def _run_training(args) -> None:
         images,
         labels,
         links,
-        train_files=image_names,
         test_data=test_images,
         test_labels=test_labels,
         test_links=test_links,
-        test_files=image_names_test,
         learning_rate=args.learning_rate,
         channels=None,
         channel_axis=args.channel_axis,
@@ -265,15 +260,15 @@ def main(argv: list[str] | None = None) -> None:
     if args.seed is not None:
         random.seed(args.seed)
         np.random.seed(args.seed)
-        from ..gpu.device import seed_all
+        from ..gpu import seed_all
         seed_all(args.seed)
         if hasattr(torch.backends, "cudnn"):
             torch.backends.cudnn.deterministic = True
             torch.backends.cudnn.benchmark = False
     if args.deterministic:
         os.environ.setdefault("CUBLAS_WORKSPACE_CONFIG", ":4096:8")
-        from ..gpu.device import _get_gpu_torch
-        _, gpu_available = _get_gpu_torch()
+        from ..gpu import get_device
+        _, gpu_available = get_device()
         warn_only = bool(args.use_gpu and gpu_available)
         torch.use_deterministic_algorithms(True, warn_only=warn_only)
         torch.autograd.set_detect_anomaly(True)

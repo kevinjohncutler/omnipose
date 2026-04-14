@@ -6,50 +6,6 @@ def most_frequent(neighbor_masks):
     return np.array([np.bincount(row).argmax() for row in neighbor_masks.T])
 
 
-@njit
-def parametrize_contours(steps, labs, unique_L, neigh_inds, step_ok, csum):
-    """Helper function to sort 2D contours into cyclic paths. See get_contour()."""
-    sign = np.sum(np.abs(steps), axis=1)
-    contours = []
-    s0 = 4
-    for l in unique_L:
-        sel = labs == l
-        indices = np.argwhere(sel).flatten()
-        index = indices[np.argmin(csum[sel])]
-
-        closed = 0
-        contour = []
-        n_iter = 0
-
-        while not closed and n_iter < len(indices) + 1:
-            contour.append(neigh_inds[s0, index])
-
-            neighbor_inds = neigh_inds[:, index]
-            step_ok_here = step_ok[:, index]
-            seen = np.array([i in contour for i in neighbor_inds])
-            possible_steps = np.logical_and(step_ok_here, ~seen)
-
-            if np.sum(possible_steps) > 0:
-                possible_step_indices = np.nonzero(possible_steps)[0]
-
-                if len(possible_step_indices) == 1:
-                    select = possible_step_indices[0]
-                else:
-                    consider_steps = steps[possible_step_indices]
-                    best = np.argmin(
-                        np.array([np.sum(s * steps[3]) for s in consider_steps])
-                    )
-                    select = possible_step_indices[best]
-
-                neighbor_idx = neighbor_inds[select]
-                index = neighbor_idx
-                n_iter += 1
-            else:
-                closed = True
-                contours.append(contour)
-
-    return contours
-
 
 # might want to deprecate this and do all despur using the torch code 
 @njit

@@ -1,41 +1,14 @@
-import os
-import time
-import multiprocessing as mp
 from collections import defaultdict
 
 import torch
 import numpy as np
-from aicsimageio import AICSImage
+from bioio import BioImage
 
-from ..transforms.normalize import normalize99
+from .imports import normalize99
 from ..transforms.tiles import unaugment_tiles_ND, average_tiles_ND, make_tiles_ND
 from ..transforms.zoom import torch_zoom
-from ..io.imio import imread
+from ..io import imread
 
-
-class eval_loader(torch.utils.data.DataLoader):
-    def __init__(self, dataset, model, postprocess_fn, **kwargs):
-        super().__init__(dataset, **kwargs)
-        self.model = model
-        self.postprocess_fn = postprocess_fn
-
-    def __iter__(self):
-        for batch in super().__iter__():
-            print(batch)
-            predictions = self.model._run_net(batch)
-            post_processed_predictions = self.postprocess_fn(predictions)
-            yield post_processed_predictions
-
-
-class sampler(torch.utils.data.Sampler):
-    def __init__(self, indices):
-        self.indices = indices
-
-    def __iter__(self):
-        return iter(self.indices)
-
-    def __len__(self):
-        return len(self.indices)
 
 
 class eval_set(torch.utils.data.Dataset):
@@ -71,12 +44,12 @@ class eval_set(torch.utils.data.Dataset):
         """
         Parameters
         ----------
-        data : array, list, or AICSImage
+        data : array, list, or BioImage
             Input images. Can be:
             - numpy array (stack of images)
             - list of numpy arrays (can have different shapes)
             - list of file paths
-            - AICSImage object
+            - BioImage object
         dim : int
             Spatial dimensionality (2 or 3)
         batch_mode : str, optional
@@ -94,7 +67,7 @@ class eval_set(torch.utils.data.Dataset):
         self.dim = dim
         self.channel_axis = channel_axis
         self.stack = isinstance(self.data, np.ndarray)
-        self.aics = isinstance(self.data, AICSImage)
+        self.aics = isinstance(self.data, BioImage)
         self.aics_args = aics_args if aics_args is not None else {}
         self.list = isinstance(self.data, list)
         if self.list:
@@ -131,10 +104,28 @@ class eval_set(torch.utils.data.Dataset):
 
         n = len(self.data) if hasattr(self.data, '__len__') else 1
 
-        for idx in range(n):
-            shape = self._get_spatial_shape(idx)
-            self._shapes.append(shape)
-            self._shape_groups[shape].append(idx)
+        # Fast path: arrays already in memory — read .shape directly
+        rsf = self.rescale_factor if (self.rescale_factor is not None
+                                      and self.rescale_factor != 1.0) else None
+        if self.list and not self.files:
+            for idx in range(n):
+                shape = self.data[idx].shape[-self.dim:]
+                if rsf:
+                    shape = tuple(int(s * rsf) for s in shape)
+                self._shapes.append(shape)
+                self._shape_groups[shape].append(idx)
+        elif self.stack:
+            base = self.data.shape[-self.dim:]
+            if rsf:
+                base = tuple(int(s * rsf) for s in base)
+            for idx in range(n):
+                self._shapes.append(base)
+                self._shape_groups[base].append(idx)
+        else:
+            for idx in range(n):
+                shape = self._get_spatial_shape(idx)
+                self._shapes.append(shape)
+                self._shape_groups[shape].append(idx)
 
     def _get_spatial_shape(self, idx):
         """Get the spatial shape of image at index (after rescaling)."""
@@ -320,11 +311,9 @@ class eval_set(torch.utils.data.Dataset):
 
         if imgs.ndim == self.dim:
             imgs = imgs.unsqueeze(0)
-            print('adding channel dim')
 
         if self.channel_axis is not None:
             dims = [0, self.channel_axis] + list(range(1, self.channel_axis)) + list(range(self.channel_axis + 1, imgs.ndim))
-            print('d', dims, len(dims), imgs.shape)
             imgs = imgs.permute(dims)
         else:
             imgs = imgs.unsqueeze(1)
@@ -450,24 +439,34 @@ class eval_set(torch.utils.data.Dataset):
         """
         indices, orig_shape, target_shape = self._batches[batch_idx]
 
+        # Fast path: when all images in the batch share the same original
+        # shape (group or single mode), __getitem__ can process them in one
+        # call — avoiding the per-image loop entirely.
+        if orig_shape is not None:
+            try:
+                I, _inds, subs_arrays = self.__getitem__(list(indices))
+            except RuntimeError:
+                pass  # reflect padding can fail on tiny dims — fall through
+            else:
+                # subs_arrays is [np.arange(lo, lo+size) per spatial dim] — shared
+                # across all images since they have the same shape.  Convert to
+                # slices (the eval loop needs rectangular slicing, not fancy indexing).
+                subs_slices = [slice(int(s[0]), int(s[-1]) + 1) for s in subs_arrays]
+                nimg = I.shape[0]
+                return I, list(indices), [subs_slices] * nimg
+
+        # Slow path: mixed-shape batch (pad mode) or reflect padding failure.
         batch_imgs = []
         batch_subs = []
-
         for idx in indices:
-            # Get preprocessed image (no_pad=True returns just the tensor)
-            img = self.__getitem__([idx], no_pad=True, no_rescale=False)
-
-            # Handle shape: should be (B, C, *spatial) -> (C, *spatial)
+            img = self.__getitem__([idx], no_pad=True)
             if img.dim() > self.dim + 1:
                 img = img.squeeze(0)
-
-            # Pad to target shape for this batch
             img_padded, subs = self._pad_to_target(img, target_shape)
             batch_imgs.append(img_padded)
             batch_subs.append(subs)
 
-        batch = torch.stack(batch_imgs, dim=0)
-        return batch, list(indices), batch_subs
+        return torch.stack(batch_imgs, dim=0), list(indices), batch_subs
 
     def _pad_to_target(self, img, target_shape):
         """Pad image to target shape with reflection padding.

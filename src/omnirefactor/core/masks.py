@@ -3,17 +3,14 @@ import time
 import numpy as np
 import torch
 import fastremap
-import ncolor
-from scipy.ndimage import binary_dilation, binary_fill_holes, find_objects, label, maximum_filter1d, mean, zoom
+from scipy.ndimage import binary_dilation, maximum_filter1d, mean, zoom
 from skimage import filters, measure
-from skimage.morphology import remove_small_holes
 from skimage.segmentation import find_boundaries
-from sklearn.neighbors import NearestNeighbors
+from scipy.spatial import cKDTree
 
 from dbscan import DBSCAN as new_DBSCAN
 
 from .. import utils
-from ..gpu import empty_cache
 from ..logger import get_logger
 from .affinity import (
     _despur,
@@ -24,19 +21,11 @@ from .affinity import (
     boundary_to_masks,
 )
 from .diam import diameters, dist_to_diam
-from .fields import div_rescale, step_factor
+from .fields import div_rescale
 from .flows import masks_to_flows_batch
 from .steps import steps_batch, _follow_flows_sparse
 from ..transforms.filters import hysteresis_threshold as _hysteresis_threshold_torch
 
-try:
-    from hdbscan import HDBSCAN
-    HDBSCAN_ENABLED = True
-except ModuleNotFoundError:
-    HDBSCAN_ENABLED = False
-
-SKLEARN_ENABLED = True
-SKIMAGE_ENABLED = True
 
 omnipose_logger = get_logger('core')
 
@@ -46,11 +35,8 @@ def compute_masks(dP, dist, affinity_graph=None, bd=None, p=None, coords=None, i
                   interp=True, cluster=False, affinity_seg=False, do_3D=False,
                   min_size=None, max_size=None, hole_size=None, omni=True,
                   calc_trace=False, verbose=False, use_gpu=False, device=None, nclasses=2,
-                  dim=2, eps=None, hdbscan=False, flow_factor=6, debug=False, override=False, suppress=None, despur=False):
-    """
-    Compute masks using dynamics from dP, dist, and boundary outputs.
-    Called in cellpose.models().
-    """
+                  dim=2, eps=None, flow_factor=6, debug=False, override=False, suppress=None, despur=False):
+    """Compute masks using dynamics from dP, dist, and boundary outputs."""
 
     pad = 0
     if do_3D:
@@ -66,15 +52,13 @@ def compute_masks(dP, dist, affinity_graph=None, bd=None, p=None, coords=None, i
     if verbose:
         startTime0 = time.time()
         omnipose_logger.info(f'mask_threshold is {mask_threshold}')
-        if omni and (not SKIMAGE_ENABLED):
-            omnipose_logger.warning('Omni enabled but skimage not enabled')
 
     if iscell is None:
         if coords is not None:
             iscell = np.zeros_like(dist, dtype=np.int32)
             iscell[tuple(coords)] = 1
         else:
-            if (omni and SKIMAGE_ENABLED) or override:
+            if omni or override:
                 if verbose:
                     omnipose_logger.info('Using hysteresis threshold.')
                 if use_gpu and device is not None:
@@ -104,7 +88,7 @@ def compute_masks(dP, dist, affinity_graph=None, bd=None, p=None, coords=None, i
             if niter is None:
                 niter = int(diameters(iscell, dist) / 2)
 
-            from ..gpu.device import torch_GPU, torch_CPU
+            from ..gpu import torch_GPU, torch_CPU
             _device = device if device is not None else (torch_GPU if use_gpu else torch_CPU)
 
             # Convert to torch ONCE (iscell may already be a GPU tensor from hysteresis_threshold)
@@ -235,7 +219,7 @@ def compute_masks(dP, dist, affinity_graph=None, bd=None, p=None, coords=None, i
             if p is None:
                 if use_gpu and omni and suppress and not calc_trace:
                     # GPU-native sparse path: avoids full-image meshgrid + steps_batch overhead
-                    from ..gpu.device import torch_GPU, torch_CPU
+                    from ..gpu import torch_GPU, torch_CPU
                     _device = device if device is not None else (torch_GPU if use_gpu else torch_CPU)
                     dP_t = torch.as_tensor(dP_pad, dtype=torch.float32).to(_device)
                     mask_t = torch.as_tensor(iscell_pad, dtype=torch.float32).to(_device)
@@ -258,7 +242,7 @@ def compute_masks(dP, dist, affinity_graph=None, bd=None, p=None, coords=None, i
                 steps, inds, idx, fact, sign = utils.kernel_setup(dim)
                 labels, _ = get_masks(p, bd_pad, dt_pad, iscell_pad, coords, nclasses, cluster=cluster,
                                       diam_threshold=diam_threshold, verbose=verbose,
-                                      eps=eps, hdbscan=hdbscan)
+                                      eps=eps)
                 affinity_graph = None
                 coords = np.nonzero(labels)
             else:
@@ -354,7 +338,7 @@ def compute_masks(dP, dist, affinity_graph=None, bd=None, p=None, coords=None, i
 
 
 def get_masks(p, bd, dist, mask, inds, nclasses=2, cluster=False,
-              diam_threshold=12., eps=None, min_samples=5, hdbscan=False, verbose=False):
+              diam_threshold=12., eps=None, min_samples=5, verbose=False):
     """Omnipose mask recontruction algorithm."""
     if nclasses > 1:
         dt = np.abs(dist[mask])
@@ -379,25 +363,14 @@ def get_masks(p, bd, dist, mask, inds, nclasses=2, cluster=False,
     mask = np.zeros(p.shape[1:], np.uint32)
 
     if verbose:
-        omnipose_logger.info('cluster: {}, SKLEARN_ENABLED: {}'.format(cluster, SKLEARN_ENABLED))
+        omnipose_logger.info('cluster: {}'.format(cluster))
 
-    if cluster and SKLEARN_ENABLED:
+    if cluster:
         if verbose:
             startTime = time.time()
-            alg = ['', 'H']
-            omnipose_logger.info('Doing {}DBSCAN clustering with eps={}, min_samples={}'.format(alg[hdbscan], eps, min_samples))
+            omnipose_logger.info('Doing DBSCAN clustering with eps={}, min_samples={}'.format(eps, min_samples))
 
-        if hdbscan and not HDBSCAN_ENABLED:
-            omnipose_logger.warning('HDBSCAN clustering requested but not installed. Defaulting to DBSCAN')
-
-        if hdbscan and HDBSCAN_ENABLED:
-            clusterer = HDBSCAN(cluster_selection_epsilon=eps,
-                                min_samples=min_samples)
-
-            clusterer.fit(newinds)
-            labels = clusterer.labels_
-        else:
-            labels, _ = new_DBSCAN(newinds, eps=eps, min_samples=min_samples)
+        labels, _ = new_DBSCAN(newinds, eps=eps, min_samples=min_samples)
 
         if verbose:
             executionTime = (time.time() - startTime)
@@ -406,12 +379,11 @@ def get_masks(p, bd, dist, mask, inds, nclasses=2, cluster=False,
 
         snap = 1
         if snap:
-            nearest_neighbors = NearestNeighbors(n_neighbors=5)
-            neighbors = nearest_neighbors.fit(newinds)
+            tree = cKDTree(newinds)
             o_inds = np.where(labels == -1)[0]
             if len(o_inds):
-                outliers = [newinds[i] for i in o_inds]
-                nearest_dists, nearest_indices = neighbors.kneighbors(outliers)
+                outliers = newinds[o_inds]
+                nearest_dists, nearest_indices = tree.query(outliers, k=5)
 
                 nearest_labels = labels[nearest_indices]
 
@@ -445,11 +417,8 @@ def get_masks(p, bd, dist, mask, inds, nclasses=2, cluster=False,
 
         skelmask[border_mask] = border_px[border_mask]
 
-        if SKIMAGE_ENABLED:
-            cnct = skelmask.ndim
-            labels = measure.label(skelmask, connectivity=cnct)
-        else:
-            labels = label(skelmask)[0]
+        cnct = skelmask.ndim
+        labels = measure.label(skelmask, connectivity=cnct)
         mask[cell_px] = labels[new_px]
 
     if verbose:
@@ -530,7 +499,7 @@ def flow_error(maski, dP_net, coords=None, affinity_graph=None, use_gpu=True, de
 
     fastremap.renumber(maski, in_place=True)
 
-    from ..gpu.device import torch_GPU, torch_CPU
+    from ..gpu import torch_GPU, torch_CPU
     _device = device if device is not None else (torch_GPU if use_gpu else torch_CPU)
 
     _, _, _, mu, _, _, _, _ = masks_to_flows_batch(np.array([maski]), device=_device, omni=omni)
@@ -650,11 +619,5 @@ def get_masks_cp(p, iscell=None, rpad=20, flows=None, use_gpu=False, device=None
         M0[M0==i] = 0
     _,M0 = np.unique(M0, return_inverse=True)
     M0 = np.reshape(M0, shape0)
-
-    # moved to compute masks
-    # if M0.max()>0 and threshold is not None and threshold > 0 and flows is not None:
-    #     M0 = remove_bad_flow_masks(M0, flows, threshold=threshold, use_gpu=use_gpu, device=device)
-    #     _,M0 = np.unique(M0, return_inverse=True)
-    #     M0 = np.reshape(M0, shape0).astype(np.int32)
 
     return M0

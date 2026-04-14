@@ -18,7 +18,6 @@ def get_arg_parser():
                                 type=str, help="folder containing data on which to run or train")
     input_img_args.add_argument("--look_one_level_down", action="store_true",
                                 help="run processing on all subdirectories of current folder")
-    input_img_args.add_argument("--mxnet", action="store_true", help="use mxnet")
     input_img_args.add_argument("--img_filter", default="", type=str, help="filter images by this suffix")
     input_img_args.add_argument("--channel_axis", default=None, type=int,
                                 help="axis of image which corresponds to image channels")

@@ -85,16 +85,13 @@ import functools
 
 
 def listify_args(*names):
-    """
-    If used as
-        @listify_args
-        def f(...):
-    it will automatically convert **every parameter whose name ends in
-    "channels" or "rounds"** to a list.
+    """Decorator to auto-convert parameters to lists.
 
-    If you still want to name specific parameters you can:
-        @listify_args('foo', 'bar')
-        def g(...):
+    When used bare (``@listify_args``), converts every parameter whose
+    name ends in ``"channels"`` or ``"rounds"`` to a list.
+
+    When used with arguments (``@listify_args('foo', 'bar')``), converts
+    only the named parameters.
     """
     if names and callable(names[0]) and len(names) == 1:
         fn = names[0]
