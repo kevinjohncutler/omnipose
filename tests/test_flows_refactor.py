@@ -3,7 +3,6 @@ import pytest
 
 from omnirefactor.core import flows as flow_mod
 from omnirefactor.core.affinity import masks_to_affinity
-from omnirefactor.transforms.normalize import normalize_field
 
 
 def test_labels_to_flows_branches(monkeypatch):
@@ -66,7 +65,7 @@ def test_masks_to_flows_legacy_3d_dim2(monkeypatch):
         return np.zeros((2,) + mask.shape, dtype=np.float32), None
 
     monkeypatch.setattr(flow_mod, "masks_to_flows_torch", fake_mtf)
-    m, dists, bd, mu = flow_mod.masks_to_flows(
+    result = flow_mod.masks_to_flows(
         masks,
         affinity_graph=affinity_graph,
         coords=coords,
@@ -74,16 +73,15 @@ def test_masks_to_flows_legacy_3d_dim2(monkeypatch):
         omni=True,
         use_gpu=False,
     )
-    assert mu.shape[0] == 3
+    assert result.mu.shape[0] == 3
 
 
-def test_masks_to_flows_torch_center_normalize_and_return(monkeypatch):
+def test_masks_to_flows_torch_center_normalize_and_return():
     masks = np.zeros((4, 4), dtype=np.int32)
     masks[0, 0] = 1
     masks[0, 2] = 1
     coords = np.nonzero(masks)
     affinity_graph = np.ones((9, len(coords[0])), dtype=bool)
-    monkeypatch.setattr(flow_mod, "normalize_field", normalize_field, raising=False)
 
     T, mu = flow_mod.masks_to_flows_torch(
         masks,

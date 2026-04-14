@@ -17,7 +17,7 @@ def test_train_set_getitem_with_monkeypatch(monkeypatch):
         t = kwargs["tyx"]
         imgs = [np.zeros((1,) + t, dtype=np.float32) for _ in range(batch)]
         lbls = [np.zeros(t, dtype=np.int32) for _ in range(batch)]
-        return imgs, lbls, np.ones((batch, 2), dtype=np.float32)
+        return imgs, lbls, np.ones((batch, 2), dtype=np.float32), None
 
     def fake_masks_to_flows_batch(lbl, links, **_):
         nimg = len(lbl)

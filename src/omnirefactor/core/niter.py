@@ -1,5 +1,4 @@
 from .imports import *
-from ..transforms.modules import get_module
 
 def get_niter(dists):
     """

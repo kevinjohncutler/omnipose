@@ -2,7 +2,7 @@ import numpy as np
 import fastremap
 from scipy.ndimage import binary_erosion
 
-from .normalize import rescale, safe_divide
+from .imports import rescale, safe_divide
 
 
 def make_unique(masks):

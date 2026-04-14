@@ -3,10 +3,12 @@ import time
 import numpy as np
 import torch
 from typing import Sequence
-from numba import njit, prange
+from numba import njit
 
 import fastremap
 import ncolor
+
+from .imports import masks_to_affinity, boundary_to_masks
 
 @njit(cache=True)
 def _uf_find(parent, x):
@@ -51,60 +53,15 @@ def _cc_union_find(rows, cols, n_nodes):
 
 # Trigger JIT compilation at import time to avoid first-call latency
 _cc_union_find(np.array([0], dtype=np.int32), np.array([0], dtype=np.int32), 2)
-from skimage import measure
-from skimage.morphology import remove_small_objects
-from skimage.segmentation import expand_labels, find_boundaries
-
 from .. import utils
-from ..transforms.normalize import safe_divide
-from ..transforms.vector import torch_norm
+from .imports import torch_norm
 from ..gpu import torch_GPU
-from .fields import _ensure_torch, torch_and, divergence_torch, divergence
+from .fields import _ensure_torch, divergence_torch
 from .njit import candidate_cleanup_idx
 
 omnipose_logger = logging.getLogger(__name__)
 
 
-@njit(cache=True, fastmath=True)
-def _get_link_matrix(links_arr, piece_masks, inds, idx, is_link):
-    """
-    Mark (i,j) as linked if (a,b) or (b,a) is found in links_arr.
-
-    links_arr : (L,2) int64
-    piece_masks : (S,N) int64   (S = 3**dim neighbours, N = #foreground px)
-    inds : 1-D int64 indices of the neighbour planes you care about
-    idx : int   index of the centre plane (inds[0] in your code)
-    is_link : bool array to be filled in-place  (same shape as piece_masks)
-    """
-    max_label = links_arr.max() + 1
-    link_set = set()
-    for r in range(links_arr.shape[0]):
-        a = links_arr[r, 0]
-        b = links_arr[r, 1]
-        if a > b:
-            a, b = b, a
-        link_set.add(a * max_label + b)
-
-    for k in prange(len(inds)):
-        i = inds[k]
-        for j in range(piece_masks.shape[1]):
-            a = piece_masks[i, j]
-            b = piece_masks[idx, j]
-            if a == b:
-                continue
-            if a > b:
-                a, b = b, a
-            if a * max_label + b in link_set:
-                is_link[i, j] = True
-    return is_link
-
-
-def get_link_matrix(links, piece_masks, inds, idx, is_link):
-    """Convert an iterable of (a,b) link tuples into a 2D array and mark links."""
-    if not links:
-        return is_link
-    links_arr = np.array(list(links), dtype=np.int64)
-    return _get_link_matrix(links_arr, piece_masks, inds, idx, is_link)
 
 def compute_affinity_gpu(clabels: torch.Tensor, steps: np.ndarray,
                           seam_ends: Sequence[int] = (),
@@ -112,31 +69,32 @@ def compute_affinity_gpu(clabels: torch.Tensor, steps: np.ndarray,
                           links=None) -> torch.Tensor:
     """GPU replacement for masks_to_affinity + get_neighbors.
 
-    Computes the (nsteps, *spatial) affinity mask entirely on-device using
+    Computes the ``(nsteps, *spatial)`` affinity mask entirely on-device using
     clamped torch.roll.  No CPU round-trips, no neigh_inds array.
 
     Boundary semantics (matching the CPU get_neighbors clamp):
+
     - At true grid boundaries the neighbour coordinate is clamped to the
-      boundary pixel itself → ``clabels == rolled_clabels`` is True for
-      foreground → affinity True, identical to CPU ``is_edge`` (Neumann BC).
+      boundary pixel itself, so ``clabels == rolled_clabels`` is True for
+      foreground, giving affinity True (identical to CPU ``is_edge`` / Neumann BC).
     - At stitching seams (rows seam_ends / seam_starts) the same clamping is
       applied so that seam pixels report affinity True (connecting to self),
       matching the CPU behaviour where ``edges`` causes is_edge=True at seams.
       Without this fix the roll crosses into the adjacent tile, finds a
-      different label, and returns affinity False → Tneigh=0 → field collapse.
+      different label, and returns affinity False.
 
     Args:
-        clabels:     (*spatial) int tensor on the target device (0 = background).
-        steps:       (nsteps, dim) NumPy array of neighbour offsets.
-        seam_ends:   row indices (spatial dim 0) that are the *last* row of a
-                     tile — clamp when step[0] > 0.
-        seam_starts: row indices that are the *first* row of the next tile —
-                     clamp when step[0] < 0.
+        clabels:     ``(*spatial)`` int tensor on the target device (0 = background).
+        steps:       ``(nsteps, dim)`` NumPy array of neighbour offsets.
+        seam_ends:   row indices (spatial dim 0) that are the last row of a
+                     tile — clamp when ``step[0] > 0``.
+        seam_starts: row indices that are the first row of the next tile —
+                     clamp when ``step[0] < 0``.
         links:       iterable of (a, b) label pairs to treat as connected
                      (e.g. self-contact labels). None or empty = no links.
 
     Returns:
-        affinity: (nsteps, *spatial) bool tensor on same device as clabels.
+        affinity: ``(nsteps, *spatial)`` bool tensor on same device as clabels.
     """
     from .fields import _pad_and_stack_neighbors, _make_seam_mask
 
@@ -196,78 +154,17 @@ def affinity_to_boundary_gpu(affinity: torch.Tensor,
     fewer than ``nsteps - 1`` active connections (not fully internal).
 
     Args:
-        affinity:   (nsteps, *spatial) bool tensor.
-        foreground: (*spatial) bool tensor, True where clabels > 0.
+        affinity:   ``(nsteps, *spatial)`` bool tensor.
+        foreground: ``(*spatial)`` bool tensor, True where clabels > 0.
 
     Returns:
-        boundary: (*spatial) bool tensor on same device.
+        boundary: ``(*spatial)`` bool tensor on same device.
     """
     nsteps = affinity.shape[0]
     csum = affinity.sum(0)
     return (csum < (nsteps - 1)) & (csum > 0) & foreground
 
 
-def masks_to_affinity(masks, coords, steps, inds, idx, fact, sign, dim,
-                      neighbors=None,
-                      links=None, edges=None, dists=None, cutoff=np.sqrt(2), 
-                      spatial=False):
-    """
-    Convert label matrix to affinity graph. Here the affinity graph is an NxM matrix,
-    where N is the number of possible hypercube connections (3**dimension) and M is the
-    number of foreground hypervoxels. Self-connections are set to 0. 
-    
-    idx is the central index of the kernel, inds[0]. 
-    edges is a list of tuples (y1,y2,y3,...),(x1,x2,x3,...) etc. to which all adjacent pixels should be connected
-    concatenated masks should be paddedby 1 to make sure that doesn't cause unextpected label merging 
-    dist can be used instead for edge connectivity 
-    """
-
-    # only reason to pad with edgemode  is to leverage duplicating labels to connect to boundary
-    # must pad with 1 to allow for simple neighbor indexing 
-    # There is much larger prior padding to handle edge artifacts, but we could avoid this with more sophisticated edge handling
-    # need two things to ask the question: 1. is_background 2. is_edge 
-    # if we are looking at an edge, we ask if we are connected to any background in any direction
-    # if so, we do not connect to an edge 
-    # that would leave single pixels connected to an edge, so need to check its neighbors for its edge connections
-    
-    shape = masks.shape
-    # dim x steps x npix array of pixel coordinates 
-    if neighbors is None: 
-        
-        neighbors = utils.get_neighbors(coords,steps,dim,shape,edges)
-        
-    # print('masks_to_affinity',masks.shape,coords[0].shape,neighbors.shape)
-    
-    # define where edges are, may be in the middle of concatenated images 
-    is_edge = np.logical_and.reduce([neighbors[d]==neighbors[d][idx] for d in range(dim)]) 
-    
-    # extract list of neighbor label values
-    piece_masks = masks[tuple(neighbors)]
-    
-    # see where the neighbor matches central pixel
-    is_self = piece_masks == piece_masks[idx]
-
-    # Pixels are linked if they share the same label or are next to an edge...
-    conditions = [is_self,
-                  is_edge
-                 ] 
-    # print([c.shape for c in conditions],len(links))
-    # ...or they are connected via an explicit list of labels to be linked. 
-    if links is not None and len(links)>0:
-        is_link = np.zeros(piece_masks.shape, dtype=np.bool_)
-        is_link = get_link_matrix(links, piece_masks, np.concatenate(inds), idx, is_link)
-        conditions.append(is_link)
-        
-    affinity_graph = np.logical_or.reduce(conditions) 
-    affinity_graph[idx] = 0 # no self connections
-    
-    # We may not want all masks to be reflected across the edge. Thresholding by distance field
-    # is a good way to make sure that cells are not doubled up along their boundary. 
-    if dists is not None: # pragma: no cover
-        print('debug: check this')
-        affinity_graph[is_edge] = dists[tuple(neighbors)][idx][np.nonzero(is_edge)[-1]]>cutoff
-    
-    return affinity_graph
 
 # @njit() error 
 
@@ -393,7 +290,8 @@ def _get_affinity_torch(initial, final, flow, dist, iscell, steps, fact, inds, s
         support = (cf & cb & vf).sum(0, dtype=torch.int32)  # (B, *DIMS)
 
         # Phase 5: interior connectivity restoration
-        restore = (csum >= 7) & vm_i   # (B, *DIMS)
+        # Nearly fully connected: all neighbors minus one (generalizes 2D's >= 7)
+        restore = (csum >= S - 2) & vm_i   # (B, *DIMS)
         conn_sq[i] = conn_sq[i] | restore
         conn_sq[-(i+1)] = conn_sq[-(i+1)] | (torch.roll(restore, shifts=shifts_fwd, dims=spatial_dims) & vm_opp)
 
@@ -551,29 +449,6 @@ def boundary_to_affinity(masks,boundaries):  # pragma: no cover
                                              ))
     
     return isneighbor
-
-# hmm so in fact binary internal masks would work too
-# the assumption is simply that the inner masks are separated by 2px boundaries 
-
-def boundary_to_masks(boundaries, binary_mask=None, min_size=9, dist=np.sqrt(2),connectivity=1):  # pragma: no cover
-    
-    nlab = len(fastremap.unique(np.uint32(boundaries)))
-    # 0-1-2 format can also work here 
-    if binary_mask is None:
-        if nlab==3:
-            inner_mask = boundaries==1
-        else:
-            omnipose_logger.warning('boundary labels improperly formatted')
-    else:
-        inner_mask = remove_small_objects(measure.label((1-boundaries)*binary_mask,connectivity=connectivity),min_size=min_size)
-    # bounds = find_boundaries(masks0,mode='outer')
-    
-    masks = expand_labels(inner_mask,dist) # need to generalize dist to fact in ND <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<
-    # bounds = masks - inner_mask
-    inner_bounds = (masks - inner_mask) > 0
-    outer_bounds = find_boundaries(masks,mode='inner',connectivity=masks.ndim) #ensure that the mask interfaces are d-1-connected 
-    bounds = np.logical_or(inner_bounds,outer_bounds) #restore the inner boundaries 
-    return masks, bounds, inner_mask
 
 
 def _despur(connect, neigh_inds, indexes, steps, non_self,

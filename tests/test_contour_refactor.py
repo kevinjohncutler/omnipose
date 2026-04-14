@@ -1,7 +1,7 @@
 import numpy as np
 from skimage.segmentation import expand_labels
 
-from omnirefactor.core.contour import get_contour
+from ocdkit.spatial import get_contour
 from omnirefactor.core import affinity as affinity_mod
 from omnirefactor.core.affinity import (
     affinity_to_boundary,
@@ -61,10 +61,7 @@ def test_get_contour_from_augmented_affinity():
     assert len(contour_list) > 0
 
 
-def test_masks_to_affinity_with_links(monkeypatch):
-    monkeypatch.setattr(
-        affinity_mod, "_get_link_matrix", affinity_mod._get_link_matrix.py_func
-    )
+def test_masks_to_affinity_with_links():
     labels = np.zeros((9, 9), dtype=np.int32)
     labels[2:5, 2:4] = 1
     labels[2:5, 4:6] = 2

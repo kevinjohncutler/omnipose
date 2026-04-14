@@ -1,11 +1,11 @@
 # install_deps = ['numpy>=1.22.4,<=1.26.4', # will need to wait a bit for cythonized packages to catch up to numpy 2.0
-install_deps = ['numba>=0.61.0', # let numba control numpy version 
+install_deps = ['ocdkit[spatial]', # shared utilities (array, gpu, io, measure, morphology, spatial)
+                'numba>=0.61.0', # let numba control numpy version
                 'numpy', # let numba control numpy version - v2 now supported by all dependencies! July 2025
                 'scipy', 
                 'edt',
                 'scikit-image>=0.26',
                 'ncolor>=1.4.3',
-                'scikit-learn',
                 'torch>=1.10',
                 'torchvision', # redundant from torchvf 
                 'mgen',
@@ -15,19 +15,18 @@ install_deps = ['numba>=0.61.0', # let numba control numpy version
                 'torchvf', # do we need this anymore? 
                 'tqdm', 
                 'natsort', 
-                'aicsimageio', # should make this optional, include czi dep
+                'bioio',
+                'bioio-czi', # CZI file support plugin
                 'numexpr',
                 'torch_optimizer', # for RADAM, now supported directly in pytorch though... 
-                'tifffile', # might be dependency of aicsimageio, so not needed explicitly 
+                'tifffile',
                 'fastremap',
                 'cmap', 
                 'dbscan', # almost 2x faster than sklearn dbscan!
                 'pyinstrument', # profiling 
-                'imagecodecs', # should be able to get rid of a lot of cv2 
-                'opencv-python-headless', # headless version of opencv, no GUI stuff
-                # 'opencv-contrib-python-headless', # headless version of opencv, no GUI stuff
+                'imagecodecs',
                 'opt_einsum', # for faster einsum, not sure if needed long term
-                
+                'opensimplex', # ND simplex noise for illumination augmentation
                 'dask',
                 ]
 

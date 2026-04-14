@@ -39,7 +39,7 @@ def _make_batch():
     Y = masks
     tyx = (224, 224)
     rsc = np.ones(len(X), np.float32)
-    imgi, lbl, _ = ref_transforms.random_rotate_and_resize(
+    imgi, lbl, _, _ = ref_transforms.random_rotate_and_resize(
         X,
         Y=Y,
         rescale=rsc,

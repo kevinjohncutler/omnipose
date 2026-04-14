@@ -6,7 +6,7 @@ import warnings
 import numpy as np
 
 from .axes import move_axis, move_min_dim, update_axis
-from .normalize import normalize99
+from .imports import normalize99
 
 transforms_logger = logging.getLogger(__name__)
 
@@ -195,7 +195,7 @@ def compute_norm_params(image_paths, channel_axis=0, channels=None, normalize=Tr
     channel_axis=None uses the move_min_dim heuristic: smallest dimension is
     treated as channels and moved to axis 0.
     """
-    from ..io.imio import imread
+    from ..io import imread
     from .axes import move_min_dim
     norm_params = []
     for path in image_paths:

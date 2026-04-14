@@ -147,10 +147,10 @@ def main():
                 str(tile),
                 str(affinity_seg),
             )
-            base_masks, _, _ = base_model.eval(img, **params)
+            base_masks, _ = base_model.eval(img, **params)
             base_mask = base_masks[0] if isinstance(base_masks, list) else base_masks
 
-            ref_masks, _, _ = ref_model.eval(img, **params)
+            ref_masks, _ = ref_model.eval(img, **params)
             ref_mask_eval = ref_masks[0] if isinstance(ref_masks, list) else ref_masks
 
             base_mask = _normalize_mask(base_mask, ref_mask.shape)

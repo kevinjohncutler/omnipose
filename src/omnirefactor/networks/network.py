@@ -2,17 +2,10 @@
 import numpy as np
 import torch
 import torch.nn as nn
-from torch import optim
 import torch.nn.functional as F
-import datetime
-import math
-
-from torch.amp import autocast 
 import torch.utils.checkpoint as cp
 
-# from . import transforms, io, dynamics, utils
-from ..gpu import torch_GPU, torch_CPU, empty_cache
-from ..gpu.device import _get_gpu_torch
+from ..gpu import torch_CPU, get_device
 
 NORM_TYPE = "batch"
 
@@ -280,14 +273,17 @@ class make_style(nn.Module):
         super().__init__()
         self.dim = parent.dim
         self.flatten = nn.Flatten()
-        self.avg_pool = F.avg_pool2d if self.dim==2 else F.avg_pool3d
-
+        # Use adaptive_avg_pool instead of avg_pool with dynamic kernel_size.
+        # adaptive_avg_pool(output_size=1) is mathematically identical to global
+        # average pooling, but gives torch.compile / Inductor a fixed output shape
+        # (B, C, 1, ..., 1) regardless of spatial dims, avoiding symbolic
+        # pow_by_natural failures during shape propagation.
+        self.avg_pool = F.adaptive_avg_pool2d if self.dim == 2 else F.adaptive_avg_pool3d
 
     def forward(self, x0):
-        style = self.avg_pool(x0, kernel_size=tuple(x0.shape[-self.dim:]))
+        style = self.avg_pool(x0, output_size=1)
         style = self.flatten(style)
         style = style / torch.sum(style**2, axis=1, keepdim=True)**.5
-
         return style
 
     
@@ -369,7 +365,7 @@ class UnetND(nn.Module):
         
     def load_model(self, filename, cpu=False):
         if not cpu:
-            target_device, _ = _get_gpu_torch()
+            target_device, _ = get_device()
             try:
                 self.load_state_dict(torch.load(filename,
                                                 map_location=target_device,
@@ -380,22 +376,7 @@ class UnetND(nn.Module):
                 self.load_state_dict(torch.load(filename,
                                                 map_location=torch_CPU,
                                                 weights_only=True))
-            
 
-            # checkpoint = torch.load(filename, map_location=torch_GPU,  weights_only=False)
-
-            # # Extract the state dictionary
-            # if 'state_dict' in checkpoint:
-            #     state_dict = checkpoint['state_dict']
-            # else:
-            #     state_dict = checkpoint
-                
-            # # Load the state dictionary into the model
-            # try:
-            #     self.load_state_dict(state_dict, strict=False)
-            # except Exception as e:
-            #     print('Failed to load model:', e)
-            
         else:
             self.__init__(self.nbase,
                           self.nout,

@@ -50,7 +50,7 @@ def _normalize_mask(mask, target_shape):
 
 def _labels_to_rgba(labels, alpha=0.4):
     import ncolor
-    from omnirefactor.utils.color import sinebow
+    from ocdkit.plot import sinebow
 
     arr = np.asarray(labels)
     if arr.size == 0:
@@ -103,7 +103,7 @@ def _plot_comparison(image_path, img, base_mask, ref_mask, out_path):
 def _run_dataset(model, img, params):
     from omnirefactor.data.eval import eval_set
     dataset = eval_set([img], dim=2, channel_axis=None, rescale=1.0, tile=False)
-    masks, _, _ = model.eval(dataset, **params)
+    masks, _ = model.eval(dataset, **params)
     return masks
 
 
@@ -149,7 +149,7 @@ def main():
     )
 
     t0 = time.time()
-    masks, _, _ = model.eval(img, **params)
+    masks, _ = model.eval(img, **params)
     t1 = time.time()
 
     mask = masks[0] if isinstance(masks, list) else masks

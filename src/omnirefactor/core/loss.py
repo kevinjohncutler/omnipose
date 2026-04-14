@@ -10,7 +10,7 @@ def scale_to_tenths(x, max_gain=10):
     return x * sf
 
 
-def loss(self, lbl, y, ext_loss=0):
+def loss(self, lbl, y, ext_loss=None):
     """Loss function for Omnipose."""
 
     cellmask = lbl[:, 1] > 0
@@ -33,10 +33,10 @@ def loss(self, lbl, y, ext_loss=0):
         dt = y[:, self.dim]
 
         if self.nclasses == (self.dim + 2):
-            bd = y[:, self.dim + 1]
+            bd = torch.sigmoid(y[:, self.dim + 1])
             bd_loss = self.BCELoss(bd, boundary)
         else:
-            bd_loss = torch.tensor(0, device=self.device)
+            bd_loss = torch.tensor(0.0, device=self.device)
 
         dist_loss = self.WeightedMSE(dt, dist, w)
 
@@ -73,7 +73,8 @@ def loss(self, lbl, y, ext_loss=0):
                   ]
         raw_loss = sum(losses).detach() / len(losses)
 
-        losses += ext_loss if isinstance(ext_loss, list) else [ext_loss]
+        if ext_loss is not None:
+            losses += ext_loss if isinstance(ext_loss, list) else [ext_loss]
 
         losses = [scale_to_tenths(l, max_gain=1e12) for l in losses]
         return sum(losses), raw_loss, raw_losses

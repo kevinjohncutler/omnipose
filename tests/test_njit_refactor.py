@@ -2,11 +2,12 @@ import numpy as np
 import pytest
 
 from omnirefactor.core import affinity
-from omnirefactor.core import contour as contour_mod
+from ocdkit import spatial as contour_mod
 from omnirefactor.transforms import augment
 from omnirefactor.core import njit as njit_mod
 from omnirefactor import utils
 from omnirefactor.utils.neighbor import kernel_setup
+from ocdkit.morphology import masks_to_outlines
 
 
 def test_despur_calls_candidate_cleanup_idx(monkeypatch):
@@ -66,10 +67,7 @@ def test_mode_filter_hits_most_frequent_py_func(monkeypatch):
     assert result.shape == masks.shape
 
 
-def test_get_contour_hits_parametrize_py_func_step_selection(monkeypatch):
-    monkeypatch.setattr(
-        contour_mod, "parametrize_contours", njit_mod.parametrize_contours.py_func
-    )
+def test_get_contour_step_selection():
     labels = np.zeros((3, 3), dtype=np.int32)
     labels[1, 1] = 1
     labels[1, 2] = 1
@@ -101,10 +99,7 @@ def test_get_contour_hits_parametrize_py_func_step_selection(monkeypatch):
     assert unique_L.size == 1
 
 
-def test_get_contour_hits_parametrize_py_func_multistep(monkeypatch):
-    monkeypatch.setattr(
-        contour_mod, "parametrize_contours", njit_mod.parametrize_contours.py_func
-    )
+def test_get_contour_multistep():
     labels = np.zeros((9, 9), dtype=np.int32)
     # S-shaped region to create multiple boundary choices.
     labels[2, 2:7] = 1
@@ -164,17 +159,17 @@ def test_get_contour_hits_parametrize_py_func_multistep(monkeypatch):
     possible_steps = np.logical_and(step_ok_here, ~seen)
     assert np.sum(possible_steps) > 1
 
-    outlines = utils.masks_to_outlines(labels)
+    outlines = masks_to_outlines(labels)
     assert outlines.shape == labels.shape
     assert outlines.dtype == bool
     assert outlines.sum() > 0
 
-    outlines_3d = utils.masks_to_outlines(np.stack([labels, labels]), omni=True)
+    outlines_3d = masks_to_outlines(np.stack([labels, labels]), omni=True)
     assert outlines_3d.shape == (2,) + labels.shape
     assert outlines_3d.dtype == bool
 
     with pytest.raises(ValueError):
-        utils.masks_to_outlines(labels[0])
+        masks_to_outlines(labels[0])
 
 
 def test_despur_hits_candidate_cleanup_py_func_invalid_target(monkeypatch):

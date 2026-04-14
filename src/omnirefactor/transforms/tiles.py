@@ -5,8 +5,7 @@ import math
 import numpy as np
 import torch
 
-from .modules import get_module
-from .normalize import normalize99, rescale
+from .imports import get_module, normalize99, rescale
 
 omnipose_logger = logging.getLogger(__name__)
 
@@ -52,23 +51,18 @@ def _taper_mask_ND(shape=(224,224), sig=7.5):
     return mask
 
 def unaugment_tiles_ND(y, inds, unet=False):
-    """ reverse test-time augmentations for averaging
+    """Reverse test-time augmentations for averaging.
 
     Parameters
     ----------
+    y : float32
+        Array of shape ``(ntiles, nchan, *DIMS)``.
+    unet : bool (optional, False)
+        Whether output is from a plain U-Net (no flow unflipping needed).
 
-    y: float32
-        array of shape (ntiles, nchan, *DIMS)
-        where nchan = (*DP,distance) (and boundary if nlasses=3)
-
-    unet: bool (optional, False)
-        whether or not unet output or cellpose output
-    
     Returns
     -------
-
-    y: float32
-
+    y : float32
     """
     module = get_module(y)
     dim = len(inds[0])
@@ -87,7 +81,7 @@ def average_tiles_ND(y,subs,shape):
     -------------
 
     y: float, [ntiles x nclasses x bsize x bsize]
-        output of cellpose network for each tile
+        network output for each tile
 
     subs : list
         list of slices for each subtile 

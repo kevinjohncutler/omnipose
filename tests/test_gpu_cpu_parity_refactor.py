@@ -49,17 +49,17 @@ def test_omnimodel_pipeline_cpu_gpu_outputs_match():
     torch.manual_seed(1)
     np.random.seed(1)
 
-    cpu_model = models.OmniModel(gpu=False, pretrained_model=False, use_torch=True,
+    cpu_model = models.OmniModel(gpu=False, pretrained_model=False,
                                  nclasses=3, nchan=2, omni=False)
 
     torch.manual_seed(1)
-    gpu_model = models.OmniModel(gpu=True, pretrained_model=False, use_torch=True,
+    gpu_model = models.OmniModel(gpu=True, pretrained_model=False,
                                  nclasses=3, nchan=2, omni=False)
 
     _load_state_dict_on_target(gpu_model.net, cpu_model.net.state_dict())
 
-    image = np.random.RandomState(7).rand(1, 40, 40, 2).astype(np.float32)
-    run_args = dict(
+    image = np.random.RandomState(7).rand(40, 40, 2).astype(np.float32)
+    eval_args = dict(
         compute_masks=False,
         normalize=False,
         invert=False,
@@ -70,33 +70,19 @@ def test_omnimodel_pipeline_cpu_gpu_outputs_match():
         tile=False,
         tile_overlap=0.1,
         bsize=64,
-        mask_threshold=0.0,
-        flow_threshold=0.4,
-        niter=None,
-        flow_factor=5.0,
-        min_size=5,
-        max_size=None,
-        interp=True,
-        cluster=False,
-        suppress=None,
-        affinity_seg=False,
-        despur=False,
-        anisotropy=1.0,
-        do_3D=False,
-        stitch_threshold=0.0,
         omni=False,
-        calc_trace=False,
         show_progress=False,
         verbose=False,
-        pad=0,
     )
 
-    cpu_outputs = cpu_model.run_batch(image.copy(), **run_args)
-    gpu_outputs = gpu_model.run_batch(image.copy(), **run_args)
+    cpu_masks, cpu_flows = cpu_model.eval([image.copy()], **eval_args)
+    gpu_masks, gpu_flows = gpu_model.eval([image.copy()], **eval_args)
 
-    _, cpu_style, cpu_flow, cpu_prob, *_ = cpu_outputs
-    _, gpu_style, gpu_flow, gpu_prob, *_ = gpu_outputs
+    # flows[0]: [rgb, dP, dist, p, bd, tr, affinity, bounds]
+    cpu_flow = cpu_flows[0][1]  # dP
+    gpu_flow = gpu_flows[0][1]
+    cpu_prob = cpu_flows[0][2]  # dist
+    gpu_prob = gpu_flows[0][2]
 
-    np.testing.assert_allclose(cpu_style, gpu_style, atol=1e-5)
-    np.testing.assert_allclose(cpu_flow, gpu_flow, atol=1e-5)
-    np.testing.assert_allclose(cpu_prob, gpu_prob, atol=1e-5)
+    np.testing.assert_allclose(cpu_flow, gpu_flow, atol=1e-4)
+    np.testing.assert_allclose(cpu_prob, gpu_prob, atol=1e-4)

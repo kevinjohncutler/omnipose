@@ -32,7 +32,6 @@ sys.modules.setdefault("pywebview_image_viewer", current_module)
 if __package__ in (None, ""):
     sys.path.append(str(Path(__file__).resolve().parent))
     from sample_image import (  # type: ignore
-        DEFAULT_BRUSH_RADIUS,
         get_instance_color_table,
         load_image_uint8,
         _ensure_spatial_last,
@@ -41,7 +40,6 @@ if __package__ in (None, ""):
     )
 else:
     from .sample_image import (
-        DEFAULT_BRUSH_RADIUS,
         get_instance_color_table,
         load_image_uint8,
         _ensure_spatial_last,
@@ -444,7 +442,7 @@ class Segmenter:
         settings: Mapping[str, Any] | None = None,
         **overrides: Any,
     ) -> np.ndarray:
-        from omnirefactor.transforms.normalize import normalize99
+        from ..transforms.imports import normalize99
 
         self._cache = None
         self._ensure_model()
@@ -454,7 +452,7 @@ class Segmenter:
         arr = normalize99(arr)
         parsed, merged_options = self._parse_options(settings, overrides)
         with self._eval_lock:
-            masks, flows, *rest = self._model.eval(
+            masks, flows = self._model.eval(
                 [arr],
                 channels=None,
                 rescale_factor=None,

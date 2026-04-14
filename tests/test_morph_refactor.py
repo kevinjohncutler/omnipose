@@ -18,8 +18,7 @@ def test_get_edge_masks_selective():
     assert not np.any(out == 1)
 
 
-def test_fill_holes_and_remove_small_masks_no_skimage(monkeypatch):
-    monkeypatch.setattr(morph, "SKIMAGE_ENABLED", False, raising=False)
+def test_fill_holes_and_remove_small_masks():
     masks = np.zeros((6, 6), dtype=np.int32)
     masks[1:5, 1:5] = 1
     masks[2:4, 2:4] = 0  # hole

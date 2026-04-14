@@ -2,7 +2,6 @@ from .imports import *
 
 from scipy.signal import find_peaks
 from .. import transforms
-from ..transforms.normalize import rescale
 
 
 def ncolor_contour(contour_map,contour_list,pad=1):
@@ -59,7 +58,7 @@ def ncolor_contour(contour_map,contour_list,pad=1):
     return contour_ncolor[unpad]
 
 
-import math, cv2
+import math
 def get_midline(cell,img_stack,reference_point,debug=False):
     # plt.figure(figsize=(1,1))
     # plt.imshow(cell.image[0])
@@ -84,12 +83,11 @@ def get_midline(cell,img_stack,reference_point,debug=False):
         # bd = find_boundaries(masks[0],mode='thick')
         mask = masks[0]
         y,x = np.nonzero(mask)
-        contours = cv2.findContours((mask>0).astype(np.uint8), cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_NONE)
-        # print('contours',contours)
-        x_,y_ = np.concatenate(contours[-2], axis=0).squeeze().T 
+        boundary = find_boundaries(mask > 0, mode='inner')
+        y_, x_ = np.nonzero(boundary)
         ymed, xmed = props[0].centroid
         imin = np.argmax((x_-xmed)**2 + (y_-ymed)**2)
-        reference_point = [y_[imin],x_[imin]]  # ok somehow using cv2 actually works for the furthest from center thing
+        reference_point = [y_[imin],x_[imin]]
         
 
         if debug:
@@ -126,9 +124,9 @@ def get_midline(cell,img_stack,reference_point,debug=False):
     angle_diffs = []
     for i, t in enumerate(T):
         center = np.array(props[i].centroid)
-        mask = masks[t]        
-        contours = cv2.findContours((mask>0).astype(np.uint8), cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_NONE)
-        x_,y_ = np.concatenate(contours[-2], axis=0).squeeze().T 
+        mask = masks[t]
+        boundary = find_boundaries(mask > 0, mode='inner')
+        y_, x_ = np.nonzero(boundary)
         ymed, xmed = old_pole[-1]
         # yc, xc = props[i].centroid
         # dist_to_bound = np.sqrt((x_-xmed)**2 + (y_-ymed)**2) 
@@ -264,13 +262,12 @@ def build_pants(node,cells,labels,img_stack,depth=0,reference_point=None, debug=
     
 from skimage import filters
 from skimage.feature import peak_local_max, corner_peaks
-from ..transforms.normalize import rescale
 from scipy.ndimage import center_of_mass, binary_erosion, binary_dilation
 from skimage import measure
 
 def overseg_seeds(msk, bd, mu, T, ks=1.5, 
                   rskel=True,extra_peaks=None):
-    from skimage.morphology import skeletonize, medial_axis
+    from skimage.morphology import skeletonize
 
     skel = skeletonize(np.logical_xor(msk,bd))
     

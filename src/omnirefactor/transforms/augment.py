@@ -9,7 +9,7 @@ import torch
 import torch.nn.functional as _F
 
 from .. import utils
-from ..transforms.normalize import normalize99, rescale
+from .imports import Result, normalize99, rescale, border_indices, to_16_bit
 from ..core.diam import diameters
 from ..core.njit import most_frequent
 
@@ -141,95 +141,86 @@ def _build_grid_nd(M_inv, offset, s_in, tyx, device):
     return norm_coords_rev.unsqueeze(0)                                 # (1, *tyx, dim)
 
 
+# PyTorch conv dispatch — only 2D and 3D are supported by the framework.
+_CONV_ND = {2: _F.conv2d, 3: _F.conv3d}
+
+
+def _nd_kernel(k1d, ndim):
+    """Outer-product of a 1D kernel into an ND kernel with (1, 1, *spatial) shape."""
+    k = k1d
+    for _ in range(ndim - 1):
+        k = k.unsqueeze(-1) * k1d
+    return k.view(1, 1, *k.shape)
+
+
 def _mode_filter_gpu(lbl_t):
-    """GPU mode filter for 2D or 3D label tensors.
+    """GPU mode filter for ND label tensors (2D or 3D).
 
-    lbl_t: (*spatial) float32 tensor with integer label values — (H,W) or (D,H,W).
-    Returns same shape float32 tensor with the modal label in each 3^ndim neighborhood.
-
-    Uses conv2d/conv3d to count each label's presence — O(N_labels × pixels).
-    Kernel is cached per (ndim, device).
+    Replaces each foreground pixel with the modal label in its 3^ndim
+    neighborhood via per-label convolution voting. Cached per (ndim, device).
     """
     device = lbl_t.device
     ndim = lbl_t.ndim
+    conv = _CONV_ND[ndim]
+
     key = (ndim, str(device))
     if key not in _mode_kernel_cache:
-        if ndim == 2:
-            _mode_kernel_cache[key] = torch.ones(1, 1, 3, 3, dtype=torch.float32, device=device)
-        elif ndim == 3:
-            _mode_kernel_cache[key] = torch.ones(1, 1, 3, 3, 3, dtype=torch.float32, device=device)
-        else:
-            raise ValueError(f"_mode_filter_gpu: unsupported ndim={ndim}, expected 2 or 3")
+        _mode_kernel_cache[key] = torch.ones(1, 1, *([3] * ndim), dtype=torch.float32, device=device)
     kernel = _mode_kernel_cache[key]
-    conv = _F.conv2d if ndim == 2 else _F.conv3d
 
     lbl_long = lbl_t.long()
-    # Use max()+arange instead of unique() to avoid the sort-based GPU sync
-    # (unique sort costs ~1ms; max+arange costs ~0.05ms).
-    # For sparse crops some arange entries may not exist — that is fine;
-    # their binary masks are all-zero and contribute nothing to counts.
     max_label = lbl_long.max().item()
     if max_label == 0:
         return lbl_t
-    uniq = torch.arange(1, max_label + 1, device=lbl_t.device, dtype=torch.long)
 
-    # (N_labels, *spatial) binary masks, one per label
+    uniq = torch.arange(0, max_label + 1, device=device, dtype=torch.long)
     masks = (lbl_long.unsqueeze(0) == uniq.view(-1, *([1] * ndim))).float()
-    # Count neighbors: (N_labels, 1, *spatial) → squeeze → (N_labels, *spatial)
     counts = conv(masks.unsqueeze(1), kernel, padding=1).squeeze(1)
-    best = counts.argmax(dim=0)          # (*spatial) — index into uniq
-    mode_map = uniq[best].float()
+    mode_map = uniq[counts.argmax(dim=0)].float()
 
+    # Match CPU mode_filter: if mode vote is background but pixel was
+    # foreground, keep the original label (prevents corner erosion).
     fg = lbl_t > 0
-    return torch.where(fg & (mode_map == 0), lbl_t, mode_map)
+    mode_or_orig = torch.where(mode_map > 0, mode_map, lbl_t)
+    return torch.where(fg, mode_or_orig, lbl_t)
 
 
 def _gaussian_blur_gpu(img_t, sigma):
-    """Apply Gaussian blur to a (*spatial) tensor (2D or 3D).
+    """ND Gaussian blur matching ``scipy.ndimage.gaussian_filter(truncate=4)``.
 
-    Matches scipy.ndimage.gaussian_filter with truncate=4.0.
     Kernel is cached by (quantized sigma, ndim, device).
     """
     if sigma <= 0:
         return img_t
     device = img_t.device
     ndim = img_t.ndim
+    conv = _CONV_ND[ndim]
+
     sigma_q = round(float(sigma), 2)
     if sigma_q <= 0:
         return img_t
     key = (sigma_q, ndim, str(device))
     if key not in _blur_kernel_cache:
         radius = int(4.0 * sigma_q + 0.5)
-        ks = 2 * radius + 1
         x = torch.arange(-radius, radius + 1, dtype=torch.float32, device=device)
         k1d = torch.exp(-0.5 * (x / sigma_q) ** 2)
         k1d /= k1d.sum()
-        if ndim == 2:
-            kernel = (k1d.unsqueeze(0) * k1d.unsqueeze(1)).view(1, 1, ks, ks)
-        elif ndim == 3:
-            kernel = (k1d.view(ks, 1, 1) * k1d.view(1, ks, 1) * k1d.view(1, 1, ks)).view(1, 1, ks, ks, ks)
-        else:
-            raise ValueError(f"_gaussian_blur_gpu: unsupported ndim={ndim}, expected 2 or 3")
-        _blur_kernel_cache[key] = kernel
+        _blur_kernel_cache[key] = _nd_kernel(k1d, ndim)
     kernel = _blur_kernel_cache[key]
-    conv = _F.conv2d if ndim == 2 else _F.conv3d
 
-    inp = img_t.unsqueeze(0).unsqueeze(0)                            # (1, 1, *spatial)
-    return conv(inp, kernel, padding=kernel.shape[-1] // 2).squeeze(0).squeeze(0)
+    pad = kernel.shape[-1] // 2
+    inp = img_t.unsqueeze(0).unsqueeze(0)
+    # Mirror-pad boundaries (torch 'reflect' = scipy 'mirror' = whole-sample symmetric).
+    # scipy's default gaussian_filter uses 'reflect' (half-sample symmetric) which has no
+    # torch equivalent, but the difference is negligible for augmentation purposes.
+    pad_sizes = [pad, pad] * ndim
+    inp = _F.pad(inp, pad_sizes, mode='reflect')
+    return conv(inp, kernel, padding=0).squeeze(0).squeeze(0)
 
-try:
-    from skimage.util import random_noise
-    SKIMAGE_ENABLED = True
-except ModuleNotFoundError:
-    random_noise = None
-    SKIMAGE_ENABLED = False
+from opensimplex import OpenSimplex
 
-try:
-    from opensimplex import OpenSimplex
-    OPEN_SIMPLEX_ENABLED = True
-except ModuleNotFoundError:
-    OpenSimplex = None
-    OPEN_SIMPLEX_ENABLED = False
+# opensimplex supports 2D-4D; map dim → method name
+_SIMPLEX_NOISE = {2: 'noise2array', 3: 'noise3array', 4: 'noise4array'}
 
 
 def rotate(V, theta, order=1, output_shape=None, center=None):
@@ -282,7 +273,7 @@ def mode_filter(masks):
 # Omnipose has special training settings. Loss function and augmentation.
 # Spacetime segmentation: augmentations need to treat time differently
 # Need to assume a particular axis is the temporal axis; most convenient is tyx.
-def random_rotate_and_resize(X, Y=None, scale_range=1., gamma_range=[.5, 4], tyx=(224, 224),
+def random_rotate_and_resize(X, Y=None, scale_range=1., gamma_range=[.75, 2.5], tyx=(224, 224),
                              do_flip=True, rescale_factor=None, inds=None, nchan=1, allow_blank_masks=False,
                              return_meta=False, device=None):
 
@@ -418,9 +409,8 @@ def random_rotate_and_resize(X, Y=None, scale_range=1., gamma_range=[.5, 4], tyx
         imgi = imgi_t
         lbl  = lbl_t
 
-    if return_meta:
-        return imgi, lbl, np.mean(scale), meta_list
-    return imgi, lbl, np.mean(scale)
+    return Result(images=imgi, labels=lbl, scale=np.mean(scale),
+                  meta=meta_list)
 
 
 def random_crop_warp(img, Y, tyx, v1, v2, nchan, rescale_factor, scale_range, gamma_range, do_flip, ind,
@@ -598,9 +588,10 @@ def random_crop_warp(img, Y, tyx, v1, v2, nchan, rescale_factor, scale_range, ga
                     dpct = _ttriangular(0, 0, dp, size=2)
                     imgi_t[k] = normalize99(imgi_t[k], upper=100 - dpct[0], lower=dpct[1])
 
-                # [0] Illumination field (OpenSimplex is CPU-only)
+                # [0] Illumination field (OpenSimplex supports 2D-4D)
                 if aug_choices[0] and has_foreground:
-                    if aug_choices[7] or not OPEN_SIMPLEX_ENABLED:
+                    use_simplex = not aug_choices[7] and dim in _SIMPLEX_NOISE
+                    if not use_simplex:
                         axis = _trandint(0, dim)
                         axis_size = tyx[axis]
                         illum_1d = np.linspace(0, 1, axis_size, dtype=np.float32)
@@ -610,13 +601,16 @@ def random_crop_warp(img, Y, tyx, v1, v2, nchan, rescale_factor, scale_range, ga
                     else:
                         simplex_seed = _trandint(0, 2 ** 31)
                         simplex = OpenSimplex(seed=simplex_seed)
-                        spatial_shape = tyx[-2:]
                         lbl_np = _get_lbl_np()
                         mean_obj_diam = 2 * diameters(lbl_np) if np.any(lbl_np) else 1.0
                         freq_jitter = _ttriangular(1, 1.0, 10.0)
                         fs = mean_obj_diam * freq_jitter
-                        coords = [np.arange(0, _s, dtype=np.float32) / fs for _s in spatial_shape[::-1]]
-                        illum_field = rescale(simplex.noise2array(*coords))
+                        coords = [np.arange(0, _s, dtype=np.float32) / fs for _s in tyx[::-1]]
+                        noise_fn = getattr(simplex, _SIMPLEX_NOISE[dim])
+                        illum_field = rescale(noise_fn(*coords))
+                        if dim > 2:
+                            # Simplex noise variance scales as 1/D; correct to match 2D contrast.
+                            illum_field = np.clip(0.5 + (illum_field - 0.5) * np.sqrt(dim / 2), 0, 1)
 
                     min_factor = _ttriangular(0, 0, 1) ** .5
                     mult_t = torch.tensor(
@@ -656,7 +650,7 @@ def random_crop_warp(img, Y, tyx, v1, v2, nchan, rescale_factor, scale_range, ga
                     bkey = (tyx, str(device))
                     if bkey not in _border_mask_cache:
                         if _border_inds_np is None:
-                            _border_inds_np = utils.border_indices(tyx)
+                            _border_inds_np = border_indices(tyx)
                         mask_flat = torch.zeros(int(np.prod(tyx)), dtype=torch.bool, device=device)
                         mask_flat[torch.tensor(_border_inds_np, dtype=torch.long, device=device)] = True
                         _border_mask_cache[bkey] = mask_flat.view(tyx)
@@ -711,7 +705,8 @@ def random_crop_warp(img, Y, tyx, v1, v2, nchan, rescale_factor, scale_range, ga
                     dpct = np.random.triangular(left=0, mode=0, right=dp, size=2)
                     imgi[k] = normalize99(imgi[k], upper=100 - dpct[0], lower=dpct[1])
                 if aug_choices[0] and has_foreground:
-                    if aug_choices[7] or not OPEN_SIMPLEX_ENABLED:
+                    use_simplex = not aug_choices[7] and dim in _SIMPLEX_NOISE
+                    if not use_simplex:
                         axis = np.random.randint(0, dim)
                         axis_size = tyx[axis]
                         illum_1d = np.linspace(0, 1, axis_size, dtype=np.float32)
@@ -721,16 +716,19 @@ def random_crop_warp(img, Y, tyx, v1, v2, nchan, rescale_factor, scale_range, ga
                     else:
                         simplex_seed = np.random.randint(0, 2 ** 31)
                         simplex = OpenSimplex(seed=simplex_seed)
-                        spatial_shape = tyx[-2:]
                         mean_obj_diam = 2 * diameters(lbl) if np.any(lbl) else 1.0
                         freq_jitter = np.random.triangular(left=1, mode=1.0, right=10.0)
                         fs = mean_obj_diam * freq_jitter
-                        coords = [np.arange(0, _s, dtype=np.float32) / fs for _s in spatial_shape[::-1]]
-                        illum_field = rescale(simplex.noise2array(*coords))
+                        coords = [np.arange(0, _s, dtype=np.float32) / fs for _s in tyx[::-1]]
+                        noise_fn = getattr(simplex, _SIMPLEX_NOISE[dim])
+                        illum_field = rescale(noise_fn(*coords))
+                        if dim > 2:
+                            # Simplex noise variance scales as 1/D; correct to match 2D contrast.
+                            illum_field = np.clip(0.5 + (illum_field - 0.5) * np.sqrt(dim / 2), 0, 1)
                     min_factor = np.random.triangular(left=0, mode=0, right=1) ** .5
                     multiplier = (min_factor + (1.0 - min_factor) * illum_field).astype(np.float32)
                     imgi[k] = (imgi[k] + min_factor) / (imgi[k].max() + min_factor) * multiplier
-                if aug_choices[3] and SKIMAGE_ENABLED:
+                if aug_choices[3]:
                     var = np.random.triangular(left=1e-8, mode=1e-8, right=1e-2, size=1)
                     sigma_n = float(np.sqrt(var).item())
                     noise_np = np.random.normal(0.0, sigma_n, size=tyx).astype(np.float32)
@@ -740,12 +738,12 @@ def random_crop_warp(img, Y, tyx, v1, v2, nchan, rescale_factor, scale_range, ga
                     max_shift = max(0, min(14, raw_bits - min_bits))
                     bit_shift = int(np.random.triangular(0, max_shift // 2, max_shift)) if max_shift else 0
                     if bit_shift:
-                        im = utils.to_16_bit(imgi[k])
+                        im = to_16_bit(imgi[k])
                         imgi[k] = rescale(im >> bit_shift)
                 if aug_choices[5]:
                     factor = np.random.uniform(0, 1)
                     if _border_inds_np is None:
-                        _border_inds_np = utils.border_indices(tyx)
+                        _border_inds_np = border_indices(tyx)
                     imgi[k].flat[_border_inds_np] *= factor
                 if aug_choices[6]:
                     sp_mask_np = np.random.rand(*tyx) < 0.001

@@ -9,7 +9,7 @@ import re
 # get rid of that annoying xmlschema warning
 logging.getLogger('xmlschema').setLevel(logging.WARNING)
 
-logging.getLogger('bfio').setLevel(logging.ERROR) # probably from cv2
+logging.getLogger('bfio').setLevel(logging.ERROR)
 logging.getLogger('OpenGL').setLevel(logging.ERROR) # not sure what uses this
 logging.getLogger('qdarktheme').setLevel(logging.ERROR)
 logging.getLogger('mip').setLevel(logging.WARNING)  # Silence Python-MIP info messages

@@ -32,9 +32,9 @@ def boundary_scores(masks_true, masks_pred, scales):
             r = int(np.ceil(diam))
             rs, ys, xs = _circle_mask(r)
             filt = (rs <= diam).astype(np.float32)
-            otrue = utils.masks_to_outlines(masks_true[n])
+            otrue = masks_to_outlines(masks_true[n])
             otrue = convolve(otrue, filt)
-            opred = utils.masks_to_outlines(masks_pred[n])
+            opred = masks_to_outlines(masks_pred[n])
             opred = convolve(opred, filt)
             tp = np.logical_and(otrue==1, opred==1).sum()
             fp = np.logical_and(otrue==0, opred==1).sum()
@@ -42,7 +42,7 @@ def boundary_scores(masks_true, masks_pred, scales):
             precision[j,n] = tp / (tp + fp)
             recall[j,n] = tp / (tp + fn)
         fscore[j] = 2 * precision[j] * recall[j] / (precision[j] + recall[j])
-    return precision, recall, fscore
+    return Result(precision=precision, recall=recall, fscore=fscore)
 
 
 def aggregated_jaccard_index(masks_true, masks_pred):
@@ -129,7 +129,7 @@ def average_precision(masks_true, masks_pred, threshold=[0.5, 0.75, 0.9]):
         
     if not_list:
         ap, tp, fp, fn = ap[0], tp[0], fp[0], fn[0]
-    return ap, tp, fp, fn
+    return Result(ap=ap, tp=tp, fp=fp, fn=fn)
 
 @jit(nopython=True)
 def _label_overlap(x, y):
@@ -257,8 +257,7 @@ def flow_error(maski, dP_net, use_gpu=False, device=None):
     2. The mask-flows are compared to the flows that the network predicted
 
     If there is a discrepancy between the flows, it suggests that the mask is incorrect.
-    Masks with flow_errors greater than 0.4 are discarded by default. Setting can be
-    changed in Cellpose.eval or CellposeModel.eval.
+    Masks with flow_errors greater than 0.4 are discarded by default via flow_threshold.
 
     Parameters
     ------------

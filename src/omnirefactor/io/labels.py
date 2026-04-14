@@ -1,7 +1,4 @@
 from .imports import *
-from .paths import check_dir, getname
-from .imio import imread, imwrite, get_image_files
-from ..transforms.normalize import normalize99
 from .links import load_links
 
 
@@ -103,8 +100,7 @@ def get_label_files(img_names, label_filter='_cp_masks', img_filter='', ext=None
 def load_train_test_data(train_dir, test_dir=None, image_filter='', mask_filter='_masks',
                          unet=False, look_one_level_down=True, omni=False, do_links=True,
                          lazy=False):
-    """
-    Loads the training and optional test data for training runs.
+    """Loads the training and optional test data for training runs.
 
     Parameters
     ----------
@@ -113,20 +109,13 @@ def load_train_test_data(train_dir, test_dir=None, image_filter='', mask_filter=
         ``images`` and ``labels`` in the return tuple will be lists of path
         strings; no imread calls are made.  The caller is responsible for
         loading and preprocessing on demand (e.g. inside DataLoader workers).
-        ``label_names`` is added as the 5th return element so workers can
-        load labels too; all subsequent positions shift by one.
 
-    Returns (lazy=False, classic order)
-    ------------------------------------
-    images, labels, links, image_names,
-    test_images, test_labels, test_links, image_names_test
+    Returns
+    -------
+    Result with attributes: images, labels, links, image_names,
+    test_images, test_labels, test_links, image_names_test.
 
-    Returns (lazy=True)
-    --------------------
-    image_names, label_names, links, image_names,
-    test_image_names, test_label_names, test_links, image_names_test
-    (images == image_names and labels == label_names so downstream code that
-    unpacks the first two slots naturally receives paths.)
+    When ``lazy=True``, images and labels contain file paths instead of arrays.
     """
 
     image_names = get_image_files(train_dir, mask_filter, image_filter, look_one_level_down)
@@ -182,7 +171,10 @@ def load_train_test_data(train_dir, test_dir=None, image_filter='', mask_filter=
         links = [None]*nimg_train
         test_links = [None]*nimg_test
 
-    return images, labels, links, image_names, test_images, test_labels, test_links, image_names_test
+    return Result(images=images, labels=labels, links=links,
+                  image_names=image_names, test_images=test_images,
+                  test_labels=test_labels, test_links=test_links,
+                  image_names_test=image_names_test)
 
 
 
@@ -197,22 +189,22 @@ def masks_flows_to_seg(images, masks, flows, diams, file_names, channels=None):
     -------------
 
     images: (list of) 2D or 3D arrays
-        images input into cellpose
+        input images
 
     masks: (list of) 2D arrays, int
-        masks output from omnirefactor.eval, where 0=NO masks; 1,2,...=mask labels
+        masks output from eval, where 0=NO masks; 1,2,...=mask labels
 
-    flows: (list of) list of ND arrays 
-        flows output from omnirefactor.eval
+    flows: (list of) list of ND arrays
+        flows output from eval
 
     diams: float array
-        diameters used to run Cellpose
+        diameters used for segmentation
 
     file_names: (list of) str
         names of files of images
 
     channels: list of int (optional, default None)
-        channels used to run Cellpose    
+        channels used for segmentation
     
     """
     
@@ -234,14 +226,15 @@ def masks_flows_to_seg(images, masks, flows, diams, file_names, channels=None):
     
     flowi = []
     if flows[0].ndim==3:
+        from skimage.transform import resize as skimage_resize
         Ly, Lx = masks.shape[-2:]
-        flowi.append(cv2.resize(flows[0], (Lx, Ly), interpolation=0)[np.newaxis,...])
+        flowi.append(skimage_resize(flows[0], (Ly, Lx), order=0, preserve_range=True).astype(flows[0].dtype)[np.newaxis,...])
     else:
         flowi.append(flows[0])
-    
+
     if flows[0].ndim==3:
         cellprob = (np.clip(normalize99(flows[2]), 0, 1) * 255).astype(np.uint8)
-        cellprob = cv2.resize(cellprob, (Lx, Ly), interpolation=0)
+        cellprob = skimage_resize(cellprob, (Ly, Lx), order=0, preserve_range=True).astype(np.uint8)
         flowi.append(cellprob[np.newaxis,...])
         flowi.append(np.zeros(flows[0].shape, dtype=np.uint8))
         flowi[-1] = flowi[-1][np.newaxis,...]
@@ -251,7 +244,7 @@ def masks_flows_to_seg(images, masks, flows, diams, file_names, channels=None):
     if len(flows)>2:
         flowi.append(flows[3])
         flowi.append(np.concatenate((flows[1], flows[2][np.newaxis,...]), axis=0))
-    outlines = masks * utils.masks_to_outlines(masks)
+    outlines = masks * masks_to_outlines(masks)
     base = os.path.splitext(file_names)[0]
     if masks.ndim==3:
         np.save(base+ '_seg.npy',

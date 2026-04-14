@@ -1,9 +1,7 @@
 import numpy as np
-import sys
-import types
 
 import omnirefactor.io.labels as labels_mod
-from omnirefactor.io.imio import imwrite
+from omnirefactor.io import imwrite
 from omnirefactor.io.labels import (
     get_label_files,
     load_train_test_data,
@@ -286,46 +284,6 @@ def test_save_masks_dir_above_and_in_folders(tmp_path):
     saved = parent / "masks" / "imgY_cp_masks_test.tif"
     assert saved.exists()
 
-
-def test_save_masks_png_overflow_and_save_plot(tmp_path, monkeypatch):
-    img = np.zeros((8, 8), dtype=np.uint8)
-    masks = np.zeros((8, 8), dtype=np.uint16)
-    masks[2:6, 2:6] = 100
-    flows = [
-        np.zeros((8, 8), dtype=np.uint8),
-        np.zeros((2, 8, 8), dtype=np.float32),
-    ]
-    out = tmp_path / "imgP.tif"
-
-    dummy_plot = types.SimpleNamespace()
-    fig_calls = {}
-
-    class DummyFig:
-        def savefig(self, *_args, **_kwargs):
-            fig_calls["saved"] = True
-
-    def show_segmentation(*_args, **_kwargs):
-        return (DummyFig(),)
-
-    dummy_plot.show_segmentation = show_segmentation
-    import omnirefactor
-    monkeypatch.setitem(sys.modules, "omnirefactor.plot", dummy_plot)
-    monkeypatch.setattr(omnirefactor, "plot", dummy_plot, raising=False)
-    monkeypatch.setattr(labels_mod, "plt", types.SimpleNamespace(close=lambda *_a, **_k: None))
-    monkeypatch.setattr(labels_mod, "MATPLOTLIB", True)
-
-    save_masks(
-        img,
-        masks,
-        flows,
-        str(out),
-        png=True,
-        tif=False,
-        save_plot=True,
-        save_ncolor=True,
-        save_flows=True,
-    )
-    assert fig_calls.get("saved") is True
 
 
 def test_save_masks_png_overflow_warning(tmp_path):

@@ -1,18 +1,60 @@
 from .imports import *
-from ..kwargs import base_kwargs, split_kwargs_for
+from ..kwargs import split_kwargs_for
 from ..core.loss import loss as core_loss
 
 
+def _calibrate_data_parallel(net, batch_size, tyx, n_gpu, device, n_calib=5):
+    """
+    Measure 1-GPU vs DataParallel inference speed at the actual batch/image size.
 
-def train(self, train_data, train_labels, train_links=None, train_files=None,
-          test_data=None, test_labels=None, test_links=None, test_files=None,
+    Returns (use_dp, t_1gpu_ms, t_dp_ms).  Calibration uses forward-only passes;
+    the fwd/bwd speedup ratio is virtually identical so the decision transfers to training.
+    """
+    nchan = net.nbase[0] if hasattr(net, 'nbase') else 1
+    dummy = torch.randn((batch_size, nchan) + tuple(tyx), device=device)
+
+    net.eval()
+    with torch.no_grad():
+        for _ in range(3):
+            net(dummy)
+    torch.cuda.synchronize(device)
+
+    t0 = time.perf_counter()
+    with torch.no_grad():
+        for _ in range(n_calib):
+            net(dummy)
+    torch.cuda.synchronize(device)
+    t_1gpu = (time.perf_counter() - t0) / n_calib * 1000
+
+    net_dp = nn.DataParallel(net, device_ids=list(range(n_gpu)))
+    with torch.no_grad():
+        for _ in range(3):
+            net_dp(dummy)
+    torch.cuda.synchronize()
+
+    t0 = time.perf_counter()
+    with torch.no_grad():
+        for _ in range(n_calib):
+            net_dp(dummy)
+    torch.cuda.synchronize()
+    t_dp = (time.perf_counter() - t0) / n_calib * 1000
+
+    del net_dp, dummy
+    empty_cache()
+
+    return t_dp < t_1gpu, t_1gpu, t_dp
+
+
+
+def train(self, train_data, train_labels, train_links=None,
+          test_data=None, test_labels=None, test_links=None,
           channels=None, channel_axis=0, normalize=True,
           save_path=None, save_every=100, save_each=False,
           learning_rate=0.2, n_epochs=500, momentum=0.9, SGD=True,
           weight_decay=0.00001, batch_size=8, num_workers=-1, nimg_per_epoch=None,
           do_rescale=True, min_train_masks=5, netstr=None, tyx=None, timing=False, do_autocast=False,
           affinity_field=False, tensorboard=False, sym_kernels=False,
-          symmetry_weight=1.0, **kwargs):
+          symmetry_weight=1.0, compile=False, **kwargs):
 
     """ train network with images train_data 
     
@@ -31,20 +73,14 @@ def train(self, train_data, train_labels, train_links=None, train_files=None,
             i.e. should be treated as part of the same object. This is how
             Omnipose handles internal/self-contact boundaries during training. 
 
-        train_files: list of strings
-            file names for images in train_data (to save flows for future runs)
-
         test_data: list of arrays (2D or 3D)
             images for testing
 
         test_labels: list of arrays (2D or 3D)
-            See train_labels. 
-    
+            See train_labels.
+
         test_links: list of label links
-            See train_links. 
-        
-        test_files: list of strings
-            file names for images in test_data (to save flows for future runs)
+            See train_links.
 
         channels: list of ints (default, None)
             channels to use for training
@@ -124,7 +160,7 @@ def train(self, train_data, train_labels, train_links=None, train_files=None,
             omni=self.omni,
         )
         # Count masks from label files without storing the arrays
-        from ..io.imio import imread as _imread
+        from ..io import imread as _imread
         nmasks = np.array([_imread(p).max() for p in train_labels])
         run_test = False
     else:
@@ -284,17 +320,6 @@ def _train_step(self, x, lbl, symmetry_weight=1):
     return train_loss
 
 
-def _test_eval(self, x, lbl):
-    X = self._to_device(x)
-    self.net.eval()
-    with torch.no_grad():
-        y, style = self.net(X)
-        del X
-        loss, raw_loss, raw_losses = core_loss(self, lbl, y)
-        test_loss = raw_loss.detach()
-        test_loss *= len(x)
-    return test_loss
-
 
 def _set_optimizer(self, learning_rate, momentum, weight_decay, SGD=False):
     if SGD:
@@ -330,18 +355,12 @@ def _symmetrize_kernels(self):
 
 
 def _set_criterion(self):
-    # removed self.torch, self.unet if/else; all torch, need to refactor unet
-    # self.MSELoss  = nn.MSELoss(reduction='mean')
-    # self.BCELoss = nn.BCEWithLogitsLoss(reduction='mean')
-
     self.MSELoss  = metrics.loss.BatchMeanMSE()
     self.BCELoss = metrics.loss.BatchMeanBSE()
     self.SSNLoss = metrics.loss.SSL_Norm()
     self.WeightedMSE = metrics.loss.WeightedMSELoss()
     self.AffinityLoss = metrics.loss.AffinityLoss(self.device,self.dim)
     self.DerivativeLoss = metrics.loss.DerivativeLoss()
-    # self.MeanAdjustedMSELoss = loss.MeanAdjustedMSELoss()
-    # self.TruncatedMSELoss = loss.TruncatedMSELoss(t=10)
 
 
 def _init_loss_history(self):
@@ -456,7 +475,7 @@ def _train_net(self, train_data, train_labels, train_links, test_data=None, test
                do_rescale=True, affinity_field=False,
                netstr=None, do_autocast=False, tyx=None, timing=False,
                tensorboard=False, sym_kernels=False,
-               symmetry_weight=1.0,
+               symmetry_weight=1.0, compile=False,
                norm_params=None, channel_axis=None):
     """ train function uses loss function core_loss in models.py
 
@@ -548,7 +567,7 @@ def _train_net(self, train_data, train_labels, train_links, test_data=None, test
             
         _lazy_labels = len(train_labels) > 0 and isinstance(train_labels[0], (str, os.PathLike))
         if _lazy_labels:
-            from ..io.imio import imread as _imread
+            from ..io import imread as _imread
             _lbl_arrays = [_imread(p) for p in train_labels]
         else:
             _lbl_arrays = train_labels
@@ -581,6 +600,51 @@ def _train_net(self, train_data, train_labels, train_links, test_data=None, test
     else:
         core_logger.info(f'>>>> ntrain = {nimg}')
     
+    # ------------------------------------------------------------------ #
+    # Optional: compile model with torch.compile (persists after training)
+    # ------------------------------------------------------------------ #
+    if compile:
+        # Point Inductor cache to a persistent directory so compiled Triton
+        # kernels survive reboots. The cache is keyed on graph hash + tensor
+        # shapes + PyTorch version + GPU model, so stale entries are safe.
+        _cache_dir = os.path.join(os.path.expanduser('~'), '.cache', 'torch', 'inductor')
+        os.makedirs(_cache_dir, exist_ok=True)
+        os.environ.setdefault('TORCHINDUCTOR_CACHE_DIR', _cache_dir)
+
+        models_logger.info(
+            '>>>> Compiling model with torch.compile. '
+            'First run compiles Triton kernels (~60s); cached to %s for reuse. '
+            'Expect 1.3-1.5x speedup once warmed up.', _cache_dir
+        )
+        self.net = torch.compile(self.net)
+
+    # ------------------------------------------------------------------ #
+    # Auto-calibrate DataParallel: only engage if it helps at this config
+    # ------------------------------------------------------------------ #
+    _unwrap_dp_after_training = False
+    if getattr(self, 'n_gpu', 1) > 1 and not isinstance(self.net, nn.DataParallel):
+        models_logger.info(
+            f'>>>> Calibrating DataParallel ({self.n_gpu} GPUs) at batch={batch_size}, tyx={tyx}...'
+        )
+        _calib_net = self.net._orig_mod if hasattr(self.net, '_orig_mod') else self.net
+        use_dp, t1, tdp = _calibrate_data_parallel(
+            _calib_net, batch_size, tyx, self.n_gpu, self.device
+        )
+        if use_dp:
+            models_logger.info(
+                f'>>>> DataParallel engaged: 1-GPU {t1:.1f}ms → {self.n_gpu}-GPU {tdp:.1f}ms per batch'
+                f' ({t1/tdp:.2f}x speedup)'
+            )
+            self.net = nn.DataParallel(self.net, device_ids=list(range(self.n_gpu)))
+            _unwrap_dp_after_training = True
+        else:
+            px = tyx[0] if tyx else 224
+            be_batch = int(round(57 / (t1 / batch_size) * self.n_gpu / (self.n_gpu - 1)))
+            models_logger.info(
+                f'>>>> DataParallel skipped: 1-GPU {t1:.1f}ms < {self.n_gpu}-GPU {tdp:.1f}ms at '
+                f'batch={batch_size}, tyx={tyx}. Break-even ≈ batch {be_batch}.'
+            )
+
     t0 = time.time()
     toc = t0
     lsum, nsum = 0, 0
@@ -685,10 +749,6 @@ def _train_net(self, train_data, train_labels, train_links, test_data=None, test
     steps_per_epoch = len(batch_sampler)
     self._steps_per_epoch = steps_per_epoch  # Store for TensorBoard global step
     loader_iter = iter(train_loader)
-
-    if test_data is not None:
-        validation_set = data.train.train_set(test_data, test_labels, test_links, **kwargs)
-        validation_loader = torch.utils.data.DataLoader(validation_set, **params)
 
     # for debugging
     current_time = datetime.datetime.now()
@@ -845,5 +905,18 @@ def _train_net(self, train_data, train_labels, train_links, test_data=None, test
             pool.close()
         for pool in _shm_pools:
             pool.unlink()
+
+    # Unwrap DataParallel so eval/save use the plain net
+    if _unwrap_dp_after_training:
+        self.net = self.net.module
+        models_logger.info('>>>> DataParallel unwrapped after training.')
+
+    # Unwrap torch.compile after training. Eval sees variable image sizes
+    # which would trigger ~60s recompilations per unique shape — not worth it
+    # for typical usage. Users who want compiled eval can re-wrap manually:
+    #   model.net = torch.compile(model.net)
+    if compile and hasattr(self.net, '_orig_mod'):
+        self.net = self.net._orig_mod
+        models_logger.info('>>>> torch.compile unwrapped after training (eval uses eager).')
 
     return file_name

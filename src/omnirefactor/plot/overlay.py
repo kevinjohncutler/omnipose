@@ -2,8 +2,7 @@ import numpy as np
 import ncolor
 from skimage import color
 
-from ..transforms.normalize import rescale
-from ..utils.color import sinebow
+from . import sinebow, rescale
 
 def channel_overlay(channels, color_indexes, colors=None, a=1, cmaps=None):
     """Overlay selected channels as colors onto the remaining channels as grayscale."""
@@ -74,7 +73,3 @@ def mask_outline_overlay(img, masks, outlines, mono=None):
     )
     return overlay
 
-def mono_mask_bd(masks, outlines, color=[1, 0, 0], a=0.25):
-    m = masks > 0
-    alpha = (m > 0) * a + outlines * (1 - a)
-    return np.stack([m * c for c in color] + [alpha], axis=-1)

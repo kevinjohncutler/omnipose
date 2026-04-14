@@ -1,6 +1,3 @@
-import builtins
-import importlib
-
 import numpy as np
 import pytest
 import torch
@@ -151,35 +148,12 @@ def test_compute_masks_affinity_calc_trace_no_resize():
     assert out[0].shape == masks.shape
 
 
-def test_get_masks_branches_hdbscan_and_border(monkeypatch):
+def test_get_masks_border_nclasses():
     masks, dP, dist, bd = _make_2d_case()
     iscell = masks > 0
     coords = np.nonzero(iscell)
     p = np.zeros((2,) + masks.shape, dtype=np.float32)
     inds = coords
-
-    class DummyHDBSCAN:
-        def __init__(self, **_):
-            self.labels_ = None
-
-        def fit(self, X):
-            self.labels_ = np.zeros(X.shape[0], dtype=np.int64)
-            return self
-
-    monkeypatch.setattr(masks_module, "HDBSCAN_ENABLED", True, raising=False)
-    monkeypatch.setattr(masks_module, "HDBSCAN", DummyHDBSCAN, raising=False)
-
-    masks_module.get_masks(
-        p,
-        bd,
-        dist,
-        iscell,
-        inds,
-        nclasses=2,
-        cluster=True,
-        hdbscan=True,
-        verbose=True,
-    )
 
     masks_module.get_masks(
         p,
@@ -193,24 +167,6 @@ def test_get_masks_branches_hdbscan_and_border(monkeypatch):
         verbose=True,
     )
 
-
-def test_get_masks_skimage_disabled(monkeypatch):
-    masks, dP, dist, bd = _make_2d_case()
-    iscell = masks > 0
-    coords = np.nonzero(iscell)
-    p = np.zeros((2,) + masks.shape, dtype=np.float32)
-
-    monkeypatch.setattr(masks_module, "SKIMAGE_ENABLED", False, raising=False)
-    masks_module.get_masks(
-        p,
-        bd,
-        dist,
-        iscell,
-        coords,
-        nclasses=2,
-        cluster=False,
-        diam_threshold=0.0,
-    )
 
 
 def test_get_masks_nclasses_one():
@@ -259,16 +215,3 @@ def test_get_masks_cp_dim3():
     assert out.shape == p.shape[1:]
 
 
-def test_hdbscan_import_missing(monkeypatch):
-    orig_import = builtins.__import__
-
-    def fake_import(name, *args, **kwargs):
-        if name == "hdbscan":
-            raise ModuleNotFoundError
-        return orig_import(name, *args, **kwargs)
-
-    monkeypatch.setattr(builtins, "__import__", fake_import)
-    mod = importlib.reload(masks_module)
-    assert mod.HDBSCAN_ENABLED is False
-    monkeypatch.setattr(builtins, "__import__", orig_import, raising=False)
-    importlib.reload(masks_module)
