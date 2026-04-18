@@ -13,7 +13,9 @@
 #
 import sys, os, re
 import subprocess
+import warnings
 from pathlib import Path
+
 # Keep the docs configuration lightweight when running test-only builds.
 MINIMAL_DOCS = os.environ.get("OMNIPOSE_DOCS_MINIMAL") == "1"
 # Ensure autodoc can see re-exported members from submodules.
@@ -36,63 +38,7 @@ def _traverse_no_warn(self, *args, **kwargs):
     return self.findall(*args, **kwargs)
 nodes.Node.traverse = _traverse_no_warn
 
-if MINIMAL_DOCS:
-    autodoc_mock_imports = []
-else:
-    # Add all the modules that can't be installed in the RTD environment
-    from dependencies import install_deps, gui_deps, distributed_deps
-    autodoc_mock_imports = install_deps + gui_deps + distributed_deps
-    autodoc_mock_imports += ["cv2", "tqdm", "skimage", "skimage.morphology", "skimage.segmentation", "skimage.registration", "scipy.special", "scipy.interpolate", "scipy.stats", "scipy.spatial", "scipy.fft", "scipy.signal", "scipy.optimize", "sklearn.neighbors", "sklearn.utils", "numba", "torch", "torch.fft", "torch.nn", "torch.nn.functional", "torch.amp", "torch.utils", "torch.utils.data",
-                             "sklearn", #this one in particular is a problem because it registers different than the package name
-                             "torchvision", # may remove from imports
-                             ]
-
-    print("Mocking imports for autodoc:", autodoc_mock_imports)
-
-# Function to strip version specifiers from package names
-def strip_versions(dep_list):
-    # Updated function to correctly process and strip version specifiers from package names
-    stripped_list = []
-    for dep in dep_list:
-        # Split the dependency string on version specifiers and take the first part (the package name)
-        dep_name = re.split(r'>=|==|<|<=|>', dep)[0]
-        stripped_list.append(dep_name)
-    return stripped_list
-
-if not MINIMAL_DOCS:
-    # Apply the corrected function to autodoc_mock_imports
-    autodoc_mock_imports = strip_versions(autodoc_mock_imports)
-    autodoc_mock_imports = [
-        dep for dep in autodoc_mock_imports
-        if dep not in {"numpy", "matplotlib"}
-    ]
-    autodoc_mock_imports += ["colour"]
-
-    # Pre-mock heavy dependencies for autodoc imports.
-    from unittest.mock import MagicMock
-    from types import ModuleType
-
-    def _mock_module(name: str) -> None:
-        parts = name.split(".")
-        for i in range(1, len(parts) + 1):
-            sub = ".".join(parts[:i])
-            if sub in sys.modules:
-                continue
-            mod = ModuleType(sub)
-            mod.__getattr__ = lambda _name: MagicMock()
-            sys.modules[sub] = mod
-            if i > 1:
-                parent = sys.modules[".".join(parts[:i - 1])]
-                setattr(parent, parts[i - 1], mod)
-
-    for dep in autodoc_mock_imports:
-        if "-" in dep:
-            continue
-        _mock_module(dep)
-
-    # Common submodules imported at module import time.
-    for dep in ("numba.core", "numba.core.errors", "scipy.ndimage", "tqdm.auto"):
-        _mock_module(dep)
+autodoc_mock_imports = []
 
 # pygments
 sys.path.append(os.path.abspath(os.path.join(conf_dir, "_pygments")))
@@ -119,7 +65,6 @@ def _strip_all_for_autodoc() -> None:
         "omnirefactor.models",
         "omnirefactor.networks",
         "omnirefactor.plot",
-        "omnirefactor.profiling",
         "omnirefactor.transforms",
         "omnirefactor.utils",
     ]
@@ -148,6 +93,10 @@ def _expose_submodule_members(pkg_name: str) -> None:
     if not hasattr(pkg, "__path__"):
         return
 
+    # First pass: expose submodule members on the package.
+    # Skip attributes whose __module__ belongs to a DIFFERENT omnirefactor
+    # subpackage — those are cross-package imports (e.g. data.eval imports
+    # io.imread) that should NOT be documented under this package.
     for info in pkgutil.iter_modules(pkg.__path__):
         if info.name.startswith("_"):
             continue
@@ -160,13 +109,75 @@ def _expose_submodule_members(pkg_name: str) -> None:
             if name.startswith("_"):
                 continue
             try:
-                setattr(pkg, name, getattr(sub, name))
+                obj = getattr(sub, name)
+                orig_mod = getattr(obj, '__module__', '') or ''
+                # Skip if it belongs to a different omnirefactor subpackage
+                if (orig_mod.startswith('omnirefactor.')
+                        and not orig_mod.startswith(pkg_name)):
+                    continue
+                setattr(pkg, name, obj)
             except Exception:
                 continue
 
+    # Second pass: rewrite __module__ ONLY for names imported in the
+    # package's own imports.py (the ocdkit gateway). This prevents
+    # transitive imports (e.g. data.eval importing io.imread) from
+    # claiming ownership of functions that belong to another package.
+    imports_name = f"{pkg_name}.imports"
+    try:
+        imports_mod = importlib.import_module(imports_name)
+    except ImportError:
+        imports_mod = None
+    # Only rewrite __module__ for names from the package's own imports.py
+    # or __init__.py — NOT for cross-package imports picked up by step 1.
+    gateway_names = set()
+    if imports_mod is not None:
+        gateway_names.update(n for n in dir(imports_mod) if not n.startswith('_'))
+    # Also check __init__.py source for direct ocdkit imports
+    # (e.g. plot/__init__.py does "from ocdkit.plot import *")
+    init_src = getattr(pkg, '__file__', '')
+    if init_src and init_src.endswith('__init__.py'):
+        try:
+            with open(init_src) as f:
+                for line in f:
+                    if line.strip().startswith('from ocdkit') and 'import' in line:
+                        if '*' in line:
+                            # Star import — all ocdkit names in dir(pkg) with ocdkit __module__
+                            for n in dir(pkg):
+                                if n.startswith('_'):
+                                    continue
+                                o = getattr(pkg, n, None)
+                                m = getattr(o, '__module__', '') or ''
+                                if m.startswith('ocdkit') or m.startswith('ncolor'):
+                                    gateway_names.add(n)
+                        else:
+                            # Named import — extract names after 'import'
+                            parts = line.split('import', 1)[1].strip().rstrip('\n').split(',')
+                            for p in parts:
+                                name = p.strip().split(' as ')[-1].strip()
+                                if name and not name.startswith('_'):
+                                    gateway_names.add(name)
+        except Exception:
+            pass
+
+    for name in gateway_names:
+        obj = getattr(pkg, name, None)
+        if obj is None:
+            continue
+        orig_mod = getattr(obj, '__module__', None)
+        if isinstance(orig_mod, str) and (orig_mod.startswith('ocdkit') or orig_mod.startswith('ncolor')):
+            try:
+                obj.__module__ = pkg_name
+            except (AttributeError, TypeError):
+                pass
+
 
 def _set_docs_all(pkg_name: str) -> None:
-    """Restrict __all__ to functions/classes defined within this package."""
+    """Set __all__ to functions/classes visible on this package.
+
+    Includes both locally-defined members AND re-exports from ocdkit,
+    so that autodoc documents the full public API.
+    """
     import importlib
     import inspect
 
@@ -176,15 +187,26 @@ def _set_docs_all(pkg_name: str) -> None:
         return
 
     allowed: list[str] = []
-    for name, obj in inspect.getmembers(pkg):
+    for name in dir(pkg):
         if name.startswith("_"):
             continue
-        if inspect.isfunction(obj) or inspect.isclass(obj):
-            mod = getattr(obj, "__module__", "")
-            # Only include objects whose __module__ is within this package,
-            # not re-exports from sibling packages.
-            if mod.startswith(pkg_name):
-                allowed.append(name)
+        try:
+            obj = getattr(pkg, name)
+        except Exception:
+            continue
+        # Skip MagicMock objects from autodoc_mock_imports
+        obj_type = type(obj).__name__
+        if 'Mock' in obj_type:
+            continue
+        if not (inspect.isfunction(obj) or inspect.isclass(obj)):
+            continue
+        mod = getattr(obj, "__module__", None)
+        if not isinstance(mod, str):
+            continue
+        # Include objects from this package only.
+        # ocdkit re-exports are handled by :imported-members: in automodule.
+        if mod.startswith(pkg_name):
+            allowed.append(name)
     if allowed:
         pkg.__all__ = sorted(set(allowed))
 
@@ -252,27 +274,11 @@ def setup(app):
                 "",
                 f".. automodule:: omnirefactor.{pkg}",
                 "   :members:",
+                "   :imported-members:",
                 "   :show-inheritance:",
                 "   :undoc-members:",
                 "",
             ]
-            funcs, classes = _collect_public_members(f"omnirefactor.{pkg}")
-            if funcs or classes:
-                pkg_lines.extend(
-                    [
-                        "Members",
-                        "-------",
-                        "",
-                    ]
-                )
-                if funcs:
-                    pkg_lines.extend(["Functions", "^^^^^^^^^", ""])
-                    pkg_lines.extend([f"- :func:`omnirefactor.{pkg}.{name}`" for name in funcs])
-                    pkg_lines.append("")
-                if classes:
-                    pkg_lines.extend(["Classes", "^^^^^^^", ""])
-                    pkg_lines.extend([f"- :class:`omnirefactor.{pkg}.{name}`" for name in classes])
-                    pkg_lines.append("")
             (api_dir / f"omnirefactor.{pkg}.rst").write_text("\n".join(pkg_lines))
 
         # Ensure package namespaces expose submodule members for autodoc.

@@ -26,17 +26,22 @@ filterwarnings = [
 ]
 
 [tool.coverage.run]
+source = ["omnirefactor"]
 omit = [
   "*/_version.py",
   "*/omnirefactor/gui/*",
   "*/omnirefactor/load/*",
-  "*/omnirefactor/plot/*",
-  "*/omnirefactor/misc/object.py",
-  "*/omnirefactor/measure/pants.py",
-  "*/omnirefactor/profiling/__init__.py",
+  "*/omnirefactor/experimental/*",
+  "*/omnirefactor/cli/loss_server.py",
+  "*/omnirefactor/cli/tensorboard_viewer.py",
 ]
-branch = false
-parallel = true
+
+[tool.coverage.paths]
+source = [
+  "src/omnirefactor",
+  "/Volumes/DataDrive/omnipose/omnirefactor/src/omnirefactor",
+  "/home/kcutler/DataDrive/omnipose/omnirefactor/src/omnirefactor",
+]
 
 [tool.coverage.report]
 show_missing = true

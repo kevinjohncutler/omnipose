@@ -1,14 +1,13 @@
+from __future__ import annotations
+from .imports import *
+
 import logging
-import time
-import numpy as np
-import torch
 from typing import Sequence
 from numba import njit
 
-import fastremap
-import ncolor
+from .fields import divergence_torch, _pad_and_stack_neighbors, _make_seam_mask
+from .njit import candidate_cleanup_idx
 
-from .imports import masks_to_affinity, boundary_to_masks
 
 @njit(cache=True)
 def _uf_find(parent, x):
@@ -53,11 +52,6 @@ def _cc_union_find(rows, cols, n_nodes):
 
 # Trigger JIT compilation at import time to avoid first-call latency
 _cc_union_find(np.array([0], dtype=np.int32), np.array([0], dtype=np.int32), 2)
-from .. import utils
-from .imports import torch_norm
-from ..gpu import torch_GPU
-from .fields import _ensure_torch, divergence_torch
-from .njit import candidate_cleanup_idx
 
 omnipose_logger = logging.getLogger(__name__)
 
@@ -96,8 +90,6 @@ def compute_affinity_gpu(clabels: torch.Tensor, steps: np.ndarray,
     Returns:
         affinity: ``(nsteps, *spatial)`` bool tensor on same device as clabels.
     """
-    from .fields import _pad_and_stack_neighbors, _make_seam_mask
-
     nsteps = len(steps)
     idx_center = nsteps // 2          # the (0, …, 0) step
     foreground = clabels > 0
@@ -221,7 +213,7 @@ def _get_affinity_torch(initial, final, flow, dist, iscell, steps, fact, inds, s
                         niter, euler_offset=None,
                         device=torch_GPU,
                         angle_cutoff=np.pi/3):
-    initial, final, flow, dist, iscell = _ensure_torch(initial, final, flow, dist, iscell, device=device)
+    initial, final, flow, dist, iscell = ensure_torch(initial, final, flow, dist, iscell, device=device)
 
     mu = final - initial
     B, D, *DIMS = mu.shape
@@ -522,109 +514,3 @@ def _despur(connect, neigh_inds, indexes, steps, non_self,
     return connect
 
 
-def split_spacetime(augmented_affinity, mask, verbose=False):  # pragma: no cover
-    """
-    Split lineage labels into frame-by-frame labels and Cell ID / spacetime labeling.
-    """
-    shape = mask.shape
-    dim = mask.ndim
-    neighbors = augmented_affinity[:dim]
-    affinity_graph = augmented_affinity[dim]
-    idx = affinity_graph.shape[0] // 2
-    coords = tuple(neighbors[:, idx])
-
-    steps, inds, idx, fact, sign = utils.kernel_setup(dim)
-    step_inds = inds[1]
-
-    npix = augmented_affinity.shape[-1]
-    px_inds = np.arange(npix)
-
-    sidx = np.nonzero(steps[:, 0] == 0)[0]
-    tidx = np.nonzero(steps[:, 0])[0]
-
-    prun_ag = affinity_graph.copy()
-    prun_ag[tidx] = 0
-
-    indexes, neigh_inds, ind_matrix = utils.get_neigh_inds(tuple(neighbors),
-                                                           tuple(coords),
-                                                           shape)
-
-    lbl = affinity_to_masks(prun_ag, neigh_inds, mask > 0, coords, verbose=verbose)
-    label_list = lbl[coords]
-
-    time_steps = np.nonzero(np.all(steps == [1, 0, 0], axis=1))[0]
-
-    edge_list = affinity_to_edges(affinity_graph,
-                                  neigh_inds,
-                                  time_steps,
-                                  px_inds)
-
-    link_inds = np.nonzero(edge_list[:, 0] != edge_list[:, 1])[0]
-    links = np.take(label_list, edge_list[link_inds])
-    sel = np.nonzero(np.logical_and(links[:, 0] != 0, links[:, 1] != 0))[0]
-    links = links[sel]
-    edge_list = edge_list[sel]
-
-    unique_pairs, link_counts = fastremap.unique(links, axis=0, return_counts=True)
-    uniq, cts = fastremap.unique(unique_pairs[:, 0], return_counts=True)
-    division_inds = np.nonzero(cts == 2)[0]
-    mothers = uniq[division_inds]
-    mothers, len(link_counts)
-
-    t_fwd = np.nonzero(steps[:, 0] == 1)[0]
-    t_bwd = np.nonzero(steps[:, 0] == -1)[0]
-
-    log_affinity_graph = affinity_graph.copy()
-
-    for mother in mothers:
-        mother_inds = np.nonzero(unique_pairs[:, 0] == mother)[0]
-        daughters = np.array([unique_pairs[k][1] for k in mother_inds])
-        daughter_counts = np.array([link_counts[k] for k in mother_inds])
-
-        if verbose:
-            print('mother {}, daughters {}, daughter counts {}'.format(mother, daughters, daughter_counts))
-
-        midx = np.nonzero(label_list == mother)[0]
-        didx = [np.nonzero(label_list == d)[0] for d in daughters]
-
-        dmin = daughter_counts.min()
-        dmax = daughter_counts.max()
-
-        if dmin / dmax > 0.1:
-            if verbose:
-                print('real')
-
-            sel = np.ix_(t_fwd, midx)
-            log_affinity_graph[sel] = 0
-
-            hits = np.isin(neigh_inds[t_bwd], midx)
-            log_affinity_graph[t_bwd] = np.where(hits, 0, log_affinity_graph[t_bwd])
-
-            for di in didx:
-                sel = np.ix_(t_bwd, di)
-                log_affinity_graph[sel] = 0
-
-                hits = np.isin(neigh_inds[t_fwd], di)
-                log_affinity_graph[t_fwd] = np.where(hits, 0, log_affinity_graph[t_fwd])
-
-        else:
-            not_real = np.nonzero(daughter_counts <= dmin)[0]
-            print('insufficient temporal connection inds:', not_real)
-            for k in not_real:
-                di = didx[k]
-                daughter = daughters[k]
-                print('info', len(midx), len(di), 'daughter', daughter)
-                sel = np.ix_(t_bwd, di)
-                hits = np.isin(neigh_inds[sel], midx)
-                log_affinity_graph[sel] = np.where(hits, 0, log_affinity_graph[sel])
-
-                sel = np.ix_(t_fwd, midx)
-                hits = np.isin(neigh_inds[sel], di)
-                log_affinity_graph[sel] = np.where(hits, 0, log_affinity_graph[sel])
-
-                print()
-
-    logs = affinity_to_masks(log_affinity_graph, neigh_inds, mask > 0,
-                             coords, verbose=verbose)
-
-    return lbl, logs

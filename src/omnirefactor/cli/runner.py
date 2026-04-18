@@ -10,6 +10,7 @@ from tqdm import tqdm
 import torch
 
 from .. import io, models, utils
+from ..gpu import seed_all, get_device
 from ..logger import TqdmToLogger
 from .parser import get_arg_parser
 
@@ -260,14 +261,12 @@ def main(argv: list[str] | None = None) -> None:
     if args.seed is not None:
         random.seed(args.seed)
         np.random.seed(args.seed)
-        from ..gpu import seed_all
         seed_all(args.seed)
         if hasattr(torch.backends, "cudnn"):
             torch.backends.cudnn.deterministic = True
             torch.backends.cudnn.benchmark = False
     if args.deterministic:
         os.environ.setdefault("CUBLAS_WORKSPACE_CONFIG", ":4096:8")
-        from ..gpu import get_device
         _, gpu_available = get_device()
         warn_only = bool(args.use_gpu and gpu_available)
         torch.use_deterministic_algorithms(True, warn_only=warn_only)

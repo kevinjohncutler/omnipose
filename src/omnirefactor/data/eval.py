@@ -1,13 +1,11 @@
+from __future__ import annotations
 from collections import defaultdict
 
 import torch
 import numpy as np
 from bioio import BioImage
 
-from .imports import normalize99
-from ..transforms.tiles import unaugment_tiles_ND, average_tiles_ND, make_tiles_ND
-from ..transforms.zoom import torch_zoom
-from ..io import imread
+from .imports import *
 
 
 
@@ -431,7 +429,7 @@ class eval_set(torch.utils.data.Dataset):
         Returns
         -------
         batch_imgs : torch.Tensor
-            Batch of images, shape (N, C, *spatial)
+            Batch of images, shape ``(N, C, *spatial)``
         batch_inds : list
             Original image indices in this batch
         batch_subs : list
@@ -517,7 +515,7 @@ class eval_set(torch.utils.data.Dataset):
         Yields
         ------
         batch_imgs : torch.Tensor
-            Batch of images, shape (N, C, *spatial)
+            Batch of images, shape ``(N, C, *spatial)``
         batch_inds : list
             Original image indices in this batch
         batch_subs : list

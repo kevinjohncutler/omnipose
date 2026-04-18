@@ -1,7 +1,4 @@
 from .imports import *
-from ..kwargs import base_kwargs
-from ..data.eval import eval_set as EvalSet
-from ..io import imread
 
 _IMAGE_EXTS = {'.tif', '.tiff', '.png', '.jpg', '.jpeg', '.bmp', '.npy', '.npz', '.czi'}
 

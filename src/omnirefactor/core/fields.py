@@ -1,12 +1,9 @@
-from functools import reduce
-from typing import List, Sequence
+from __future__ import annotations
+from .imports import *
 
-import numpy as np
-import torch
+from typing import List, Sequence
 import torch.nn.functional as F
 from scipy.special import expit
-
-from .imports import normalize_field, normalize99, divergence
 
 
 def _maybe_compile(fn):
@@ -517,68 +514,4 @@ def div_rescale(dP, mask, p=1):
     return dP
 
 
-def sigmoid(x): #  pragma: no cover
-    """The sigmoid function."""
-    return expit(x)
-
-
-# divergence is now provided by ocdkit.array (imported above) — handles both
-# numpy (D, *spatial) and torch (B, D, *spatial) via get_module dispatch.
-divergence_torch = divergence
-
-
-def _ensure_torch(*arrays, device=None, dtype=torch.float32):
-    """Convert numpy arrays or unbatched torch tensors to batched torch tensors."""
-    result = []
-    for arr in arrays:
-        if isinstance(arr, np.ndarray):
-            result.append(torch.tensor(arr, dtype=dtype, device=device).unsqueeze(0))
-        elif isinstance(arr, torch.Tensor):
-            arr = arr.to(device=device, dtype=dtype)
-            # Detect unbatched: (D, H, W) ndim=3 with D in [2,3], or (H, W) ndim=2
-            is_spatial_unbatched = (arr.ndim == 3 and arr.shape[0] in [2, 3])
-            is_scalar_unbatched = (arr.ndim == 2)
-            if is_spatial_unbatched or is_scalar_unbatched:
-                arr = arr.unsqueeze(0)
-            result.append(arr)
-        else:
-            result.append(arr)
-    return tuple(result)
-
-
-def torch_and_cpu(tensors):
-    """
-    Pair-wise logical AND using functools.reduce.
-    Faster on CPU where kernel-launch overhead is negligible.
-    """
-    return reduce(torch.logical_and, tensors)
-
-
-def torch_and_gpu(tensors):
-    """
-    Vectorized logical AND via torch.all after stacking.
-    Single kernel makes it faster on GPU.
-    """
-    return torch.all(torch.stack(tuple(tensors), dim=0), dim=0)
-
-
-def torch_and(tensors):
-    """
-    Dispatch to torch_and_cpu or torch_and_gpu depending on the
-    device of the first tensor in *tensors*.
-    """
-    dev = tensors[0].device if tensors else torch.device('cpu')
-
-    try:
-        broadcasted = torch.broadcast_tensors(*tensors)
-    except AttributeError:
-        ref_shape = tensors[0].shape
-        broadcasted = [
-            t.expand(ref_shape) if t.shape != ref_shape else t
-            for t in tensors
-        ]
-
-    if dev.type == 'cpu':
-        return torch_and_cpu(broadcasted)
-    else:
-        return torch_and_gpu(broadcasted)
+divergence_torch = divergence  # backward-compat alias

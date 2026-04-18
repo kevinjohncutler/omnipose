@@ -1,6 +1,4 @@
 from .imports import *
-from ..kwargs import split_kwargs_for
-from ..core.loss import loss as core_loss
 
 
 def _calibrate_data_parallel(net, batch_size, tyx, n_gpu, device, n_calib=5):
@@ -151,7 +149,7 @@ def train(self, train_data, train_labels, train_links=None,
         # Single fast pass: compute per-image per-channel normalization params
         # (reads each file once, discards array, keeps ~2 floats/channel/image).
         models_logger.info(f'>>>> Lazy data loading: computing norm params from {len(train_data)} files...')
-        norm_params = transforms.compute_norm_params(
+        norm_params = data.norm.compute_norm_params(
             train_data,
             channel_axis=channel_axis,
             channels=channels,
@@ -446,14 +444,11 @@ def _log_loss(self, epoch, batch, train_loss, epoch_loss=None):
 
 def _enable_tensorboard(self, log_dir):
     """Enable TensorBoard logging."""
-    try:
-        from torch.utils.tensorboard import SummaryWriter
-        self._tb_writer = SummaryWriter(log_dir)
-        core_logger.info(f'>>>> TensorBoard logging enabled at {log_dir}')
-        core_logger.info(f'>>>> To view: python -m tensorboard.main --logdir="{log_dir}"')
-        core_logger.info(f'>>>> Open http://localhost:6006 - normalized losses overlaid at top (0_Loss)')
-    except ImportError:
-        core_logger.warning('TensorBoard not available. Install with: pip install tensorboard')
+    from torch.utils.tensorboard import SummaryWriter
+    self._tb_writer = SummaryWriter(log_dir)
+    core_logger.info(f'>>>> TensorBoard logging enabled at {log_dir}')
+    core_logger.info(f'>>>> To view: python -m tensorboard.main --logdir="{log_dir}"')
+    core_logger.info(f'>>>> Open http://localhost:6006 - normalized losses overlaid at top (0_Loss)')
 
 
 def _save_loss_history(self, path):

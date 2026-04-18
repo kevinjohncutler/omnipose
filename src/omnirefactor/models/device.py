@@ -1,14 +1,11 @@
-from .imports import *
+from __future__ import annotations
+
+from ocdkit.gpu import to_device, from_device
 
 
 def _to_device(self, x):
-    if isinstance(x, torch.Tensor):
-        if self.device != x.device:
-            return x.to(self.device)
-        return x
-    return torch.tensor(x, device=self.device, dtype=torch.float32)
+    return to_device(x, self.device)
 
 
 def _from_device(self, X):
-    x = X.detach().cpu().numpy()
-    return x
+    return from_device(X)

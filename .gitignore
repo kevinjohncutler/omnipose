@@ -151,3 +151,8 @@ tests/models/
 *.nbc
 
 docs/api/*.rst
+
+# Local scratch / benchmark outputs
+tmp/
+temp_output/
+.coverage_combined/

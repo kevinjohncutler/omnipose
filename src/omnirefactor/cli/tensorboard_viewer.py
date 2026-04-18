@@ -44,10 +44,7 @@ def create_tensorboard_events(loss_history, output_dir, run_name='training'):
     str
         Path to the created run directory
     """
-    try:
-        from torch.utils.tensorboard import SummaryWriter
-    except ImportError:
-        raise ImportError('TensorBoard not available. Install with: pip install tensorboard')
+    from torch.utils.tensorboard import SummaryWriter
 
     run_dir = os.path.join(output_dir, run_name)
     os.makedirs(run_dir, exist_ok=True)

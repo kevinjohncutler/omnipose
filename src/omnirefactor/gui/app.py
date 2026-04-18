@@ -754,10 +754,7 @@ class Segmenter:
     #     return relabeled
 
     def _compute_ncolor_mask(self, mask: np.ndarray, *, expand: bool = True) -> Optional[np.ndarray]:
-        try:
-            import ncolor
-        except ImportError:
-            return None
+        import ncolor
         if mask.size == 0:
             return None
         mask_int = np.asarray(mask, dtype=np.int32)
@@ -939,10 +936,7 @@ class Segmenter:
 
     def _get_magma_lut(self) -> np.ndarray:
         if self._magma_lut is None:
-            try:
-                from matplotlib import pyplot as plt
-            except ImportError as exc:  # pragma: no cover
-                raise RuntimeError("matplotlib is required for distance colormap") from exc
+            from matplotlib import pyplot as plt
             cmap = plt.get_cmap("magma")
             lut = cmap(np.linspace(0, 1, cmap.N))[:, :4]
             self._magma_lut = lut
@@ -1047,7 +1041,7 @@ def render_index(
             placeholder,
             f"    <div id=\"app\">\n{layout_markup}\n    </div>",
         )
-    config_json = json.dumps(config).replace('</', '<\/')
+    config_json = json.dumps(config).replace('</', '<\\/')
     debug_webgl = bool(config.get("debugWebgl"))
     config_script = (
         f"<script>window.__OMNI_CONFIG__ = {config_json}; "
@@ -1870,15 +1864,7 @@ def run_server(
             ssl_cert = None
             ssl_key = None
 
-    try:
-        import uvicorn
-    except ImportError as exc:  # pragma: no cover - convenience guard
-        print(
-            "FastAPI and uvicorn are required for --server mode. "
-            "Install with 'pip install fastapi uvicorn'.",
-            file=sys.stderr,
-        )
-        raise SystemExit(1) from exc
+    import uvicorn
 
     scheme = "https" if ssl_cert and ssl_key else "http"
     presented_urls = []

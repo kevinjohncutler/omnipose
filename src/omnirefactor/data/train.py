@@ -1,3 +1,4 @@
+from __future__ import annotations
 """Training dataset with random crop/warp augmentation."""
 
 import os
@@ -7,8 +8,7 @@ import multiprocessing as mp
 import numpy as np
 import torch
 
-from ..transforms.augment import random_rotate_and_resize
-from ..core.flows import masks_to_flows_batch, batch_labels
+from .imports import *
 from .sampler import CyclingRandomBatchSampler
 from .shm import ShmPool
 
@@ -109,9 +109,7 @@ class train_set(torch.utils.data.Dataset):
         Priority: image_paths (lazy) > ShmPool (zero-copy) > in-memory.
         """
         if self.image_paths is not None:
-            from ..io import imread
-            from ..transforms.shape import apply_norm_params
-            from ..transforms.axes import move_min_dim
+            from .norm import apply_norm_params
             images, labels = [], []
             for i in inds:
                 img = imread(self.image_paths[i]).astype(np.float32)

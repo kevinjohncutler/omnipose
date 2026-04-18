@@ -41,15 +41,14 @@ def resolve_model_init_config(
     omni,
     pretrained_model_exists=None,
 ):
-    """
-    Resolve model defaults without touching the filesystem.
-    Returns dict with:
-      - model_name
-      - net_avg
-      - updates
-      - residual_on/style_on/concatenation
-      - model_indices
-      - warn_bad_path
+    """Resolve model defaults without touching the filesystem.
+
+    Returns
+    -------
+    dict
+        Keys: ``model_name``, ``net_avg``, ``updates``,
+        ``residual_on``/``style_on``/``concatenation``,
+        ``model_indices``, ``warn_bad_path``.
     """
     model_name = None
     updates = {}
