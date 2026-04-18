@@ -1,3 +1,8 @@
+"""Centralized imports for the models subpackage (Layer 4).
+
+Layer 4: top-level API — may depend on all lower layers.
+"""
+
 import datetime
 import os
 from pathlib import Path
@@ -23,9 +28,11 @@ from ..networks import assign_device, parse_model_string, UnetND
 from ..transforms import torch_zoom
 from ..transforms.filters import hysteresis_threshold
 from ..core.steps import follow_flows_batch
-from ..io import check_dir
-from ..kwargs import split_kwargs
+from ..core.loss import loss as core_loss
+from ..io import imread, check_dir
+from ..data.eval import eval_set as EvalSet
+from ..kwargs import split_kwargs, base_kwargs, split_kwargs_for
 
 from .logging import models_logger, core_logger, tqdm_out
 
-from ocdkit.result import Result
+from ..utils import Result

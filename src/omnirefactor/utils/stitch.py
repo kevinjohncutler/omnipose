@@ -1,14 +1,15 @@
 from .imports import *
 
+from ocdkit.measure import intersection_over_union
+
+
 def stitch3D(masks, stitch_threshold=0.25):
     """Stitch 2D masks into 3D volume with stitch_threshold on IOU."""
-    from .. import metrics as metrics_mod
-
     mmax = masks[0].max()
     empty = 0
 
     for i in range(len(masks) - 1):
-        iou = metrics_mod._intersection_over_union(masks[i + 1], masks[i])[1:, 1:]
+        iou = intersection_over_union(masks[i + 1], masks[i])[1:, 1:]
         if not iou.size and empty == 0:
             masks[i + 1] = masks[i + 1]
             mmax = masks[i + 1].max()

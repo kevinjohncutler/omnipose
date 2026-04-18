@@ -1,5 +1,5 @@
 # install_deps = ['numpy>=1.22.4,<=1.26.4', # will need to wait a bit for cythonized packages to catch up to numpy 2.0
-install_deps = ['ocdkit[spatial]', # shared utilities (array, gpu, io, measure, morphology, spatial)
+install_deps = ['ocdkit', # shared utilities (array, gpu, io, measure, morphology, spatial)
                 'numba>=0.61.0', # let numba control numpy version
                 'numpy', # let numba control numpy version - v2 now supported by all dependencies! July 2025
                 'scipy', 
@@ -23,9 +23,8 @@ install_deps = ['ocdkit[spatial]', # shared utilities (array, gpu, io, measure, 
                 'fastremap',
                 'cmap', 
                 'dbscan', # almost 2x faster than sklearn dbscan!
-                'pyinstrument', # profiling 
                 'imagecodecs',
-                'opt_einsum', # for faster einsum, not sure if needed long term
+                # opt_einsum removed — benchmarked at parity with matmul in ocdkit.plot.colorize
                 'opensimplex', # ND simplex noise for illumination augmentation
                 'dask',
                 ]
@@ -33,6 +32,9 @@ install_deps = ['ocdkit[spatial]', # shared utilities (array, gpu, io, measure, 
 gui_deps = [
         'imageio',
         'pywebview',
+        'fastapi',
+        'uvicorn',
+        'tensorboard',
         ]
 
 distributed_deps = [] # moved to main deps

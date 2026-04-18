@@ -51,6 +51,8 @@ for (var i = 0; i < images.length; i++) {
             image.style.maxWidth = '100%';
             image.style.maxHeight = '100%';
             image.style.position = 'relative';
+            image.style.outline = 'none';
+            image.style.border = 'none';
 
             // Calculate the initial scale of the image based on its dimensions and the dimensions of the viewport
             var initialScale =  calculateInitialScale(image);
@@ -74,40 +76,27 @@ for (var i = 0; i < images.length; i++) {
             lightbox.style.webkitBackdropFilter = 'blur(3px)';
 
 
-            // Add an event listener for double click to toggle off the light box 
-            lightbox.addEventListener("dblclick", function(event){
-                console.log("Light box toggled off");
-                document.body.removeChild(lightbox);
-            });
-
-            // Add an event listener for escape key to toggle off the light box 
-            lightbox.addEventListener("keydown", function(event){
-                if(event.key === "Escape"){
-                    console.log("Light box toggled off");
+            // Dismiss lightbox helper
+            function dismissLightbox() {
+                if (lightbox.parentNode) {
                     document.body.removeChild(lightbox);
+                    document.removeEventListener("keydown", onKeyDown);
                 }
-            });
+            }
 
-            // Add an event listener for h key to recenter the image in the light box 
-            lightbox.addEventListener("keydown", function(event){
-                if(event.key === "h"){
-                    console.log("Image recentered");
-                    image.style.left='50%'; 
-                    image.style.top='50%'; 
-                    image.style.transformOrigin='50% 50%'; 
-                    image.style.transform='scale('+initialScale+')';
+            // Escape key and H key — bound on document so focus can't break it
+            function onKeyDown(event) {
+                if (event.key === "Escape") {
+                    dismissLightbox();
+                } else if (event.key === "h") {
+                    image.style.transform = 'scale(' + initialScale + ')';
+                    image.style.imageRendering = 'auto';
                 }
-            });
+            }
+            document.addEventListener("keydown", onKeyDown);
 
-            // Add an event listener for focusout to remove keydown event listeners from light box 
-            lightbox.addEventListener("focusout", function(event){
-                console.log("Focus out");
-                lightbox.removeEventListener("keydown", arguments.callee);
-            });
-
-            // Set focus on light box to enable keydown events
-            lightbox.setAttribute('tabindex', 0);
-            lightbox.focus();
+            // Double-click to dismiss
+            lightbox.addEventListener("dblclick", dismissLightbox);
 
 
             // Add an event listener for the mouse wheel event
@@ -154,6 +143,14 @@ for (var i = 0; i < images.length; i++) {
 
                 // Set the new scale and position of the image
                 image.style.transform = 'translate(' + newX + 'px, ' + newY + 'px) scale(' + newScale + ')';
+
+                // Use nearest-neighbor interpolation when zoomed > 1x
+                // so individual pixels are visible (important for microscopy/masks)
+                if (newScale > 1) {
+                    image.style.imageRendering = 'pixelated';
+                } else {
+                    image.style.imageRendering = 'auto';
+                }
             });
 
 
@@ -208,13 +205,11 @@ for (var i = 0; i < images.length; i++) {
                 
               });
 
-              lightbox.addEventListener("click", function (event) {
+          // Click on backdrop (not on image) to dismiss
+          lightbox.addEventListener("click", function (event) {
               if (event.target === lightbox) {
-                  document.body.removeChild(lightbox);
+                  dismissLightbox();
               }
-
-
-
           });
 
           lightbox.appendChild(image);

@@ -1,3 +1,8 @@
+"""Centralized imports for the io subpackage (Layer 2).
+
+Layer 2: depends on L0 (utils) and L1 (transforms) — never core or models.
+"""
+
 import os
 import warnings
 import glob
@@ -15,16 +20,12 @@ import ncolor
 
 from ..logger import get_logger
 from .. import utils
+from ..utils import Result
+from ..transforms.imports import normalize99
 
-from ocdkit.io import *
-from ocdkit.array import normalize99
-from ocdkit.result import Result
-from ocdkit.morphology import masks_to_outlines
+from ocdkit.io import *  # canonical gateway for ocdkit.io
+from ocdkit.morphology import masks_to_outlines  # canonical gateway for ocdkit.morphology
 
-try:
-    import matplotlib.pyplot as plt
-    MATPLOTLIB = True
-except Exception:
-    MATPLOTLIB = False
+import matplotlib.pyplot as plt
 
 io_logger = get_logger('io', color='#ff7f0e')

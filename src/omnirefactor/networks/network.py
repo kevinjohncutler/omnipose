@@ -355,8 +355,6 @@ class UnetND(nn.Module):
         # T0 = self.output(T0)
         T0 = cp.checkpoint(self.output,T0) if self.checkpoint else self.output(T0) #only  small reduction, 300MB
         
-        # cellpose now uses a T1 as well, not sure why to return what is before the upscaling 
-        
         return T0, style0
 
     def save_model(self, filename):

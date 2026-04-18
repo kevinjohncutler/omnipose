@@ -1,9 +1,6 @@
-"""Aggregator imports for experimental modules.
+"""Centralized imports for the experimental subpackage (Layer 3).
 
-This file exists so that the legacy ``from .imports import *`` pattern
-in modules like ``pants.py`` continues to work. The names here mirror what
-``measure/imports.py`` previously provided to ``pants.py`` before it was
-moved into ``experimental/``.
+Layer 3: depends on L1 (transforms) and L2 (core).
 """
 
 import math
@@ -19,7 +16,6 @@ from scipy.signal import fftconvolve
 from skimage import measure
 from skimage.segmentation import find_boundaries
 
+from .. import transforms
 from ..core.diam import diameters
-from ..core.fields import divergence
-
-from ocdkit.array import rescale
+from ..transforms.imports import divergence, rescale

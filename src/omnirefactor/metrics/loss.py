@@ -1,5 +1,6 @@
+from __future__ import annotations
 from .imports import *
-from ..core.affinity import _get_affinity_torch
+from .imports import _get_affinity_torch
 
 
 
@@ -88,10 +89,11 @@ class AffinityLoss(torch.nn.Module):
             Ground-truth distance field.
         mode : str, optional
             Pixel-selection mode:
-                'foreground' (default) - use foreground derived from distance fields.
-                'all'                   - ignore distance fields; integrate over every pixel.
-                'random'                - use foreground plus a random subset of background
-                                          pixels. Fraction controlled by `random_frac`.
+
+            - ``'foreground'`` (default) — use foreground derived from distance fields.
+            - ``'all'`` — ignore distance fields; integrate over every pixel.
+            - ``'random'`` — use foreground plus a random subset of background
+              pixels. Fraction controlled by *random_frac*.
         random_frac : float, optional
             Fraction of total pixels to sample when `mode == 'random'`. Range 0-1.
         seed : int or None, optional

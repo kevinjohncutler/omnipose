@@ -9,9 +9,8 @@ import torch
 import torch.nn.functional as _F
 
 from .. import utils
-from .imports import Result, normalize99, rescale, border_indices, to_16_bit
-from ..core.diam import diameters
-from ..core.njit import most_frequent
+from .imports import Result, normalize99, rescale, border_indices, to_16_bit, diameters
+from ..utils.njit import most_frequent
 
 # scipy boundary mode → torch grid_sample padding_mode
 _SCIPY_TO_TORCH_PAD = {'constant': 'zeros', 'nearest': 'reflection', 'mirror': 'reflection'}

@@ -39,7 +39,7 @@ def get_arg_parser():
     model_args.add_argument("--pretrained_model", required=False, default=None,
                             type=none_or_str, help="model to use")
     model_args.add_argument("--nclasses", default=2, type=int,
-                            help="number of prediction classes for model (3 for Cellpose, 4 for Omnipose boundary field)")
+                            help="number of abstract prediction classes (2 = distance + flow, 3 = + boundary)")
     model_args.add_argument("--nchan", default=1, type=int,
                             help="number of channels on which model is trained")
     model_args.add_argument("--kernel_size", default=2, type=int,

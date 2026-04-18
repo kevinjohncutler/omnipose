@@ -1,31 +1,18 @@
-import time
+from __future__ import annotations
+from .imports import *
+from .imports import _hysteresis_threshold_torch
 
-import numpy as np
-import torch
-import fastremap
-from scipy.ndimage import binary_dilation, maximum_filter1d, mean, zoom
-from skimage import filters, measure
-from skimage.segmentation import find_boundaries
-from scipy.spatial import cKDTree
-
-from dbscan import DBSCAN as new_DBSCAN
-
-from .. import utils
-from ..logger import get_logger
 from .affinity import (
     _despur,
     _get_affinity_torch,
     affinity_to_boundary,
     affinity_to_boundary_gpu,
     affinity_to_masks,
-    boundary_to_masks,
 )
 from .diam import diameters, dist_to_diam
 from .fields import div_rescale
 from .flows import masks_to_flows_batch
 from .steps import steps_batch, _follow_flows_sparse
-from ..transforms.filters import hysteresis_threshold as _hysteresis_threshold_torch
-
 
 omnipose_logger = get_logger('core')
 
@@ -88,7 +75,7 @@ def compute_masks(dP, dist, affinity_graph=None, bd=None, p=None, coords=None, i
             if niter is None:
                 niter = int(diameters(iscell, dist) / 2)
 
-            from ..gpu import torch_GPU, torch_CPU
+
             _device = device if device is not None else (torch_GPU if use_gpu else torch_CPU)
 
             # Convert to torch ONCE (iscell may already be a GPU tensor from hysteresis_threshold)
@@ -111,7 +98,7 @@ def compute_masks(dP, dist, affinity_graph=None, bd=None, p=None, coords=None, i
             _mesh_coords = [torch.arange(s, device=_device) for s in mask_pad.shape]
             initial = torch.stack(torch.meshgrid(_mesh_coords, indexing='ij')).float()
 
-            # Affinity graph (torch in, _ensure_torch is near-no-op for torch inputs)
+            # Affinity graph (torch in, ensure_torch is near-no-op for torch inputs)
             steps, inds, idx, fact, sign = utils.kernel_setup(dim)
             supporting_inds = utils.get_supporting_inds(steps)
 
@@ -219,7 +206,7 @@ def compute_masks(dP, dist, affinity_graph=None, bd=None, p=None, coords=None, i
             if p is None:
                 if use_gpu and omni and suppress and not calc_trace:
                     # GPU-native sparse path: avoids full-image meshgrid + steps_batch overhead
-                    from ..gpu import torch_GPU, torch_CPU
+        
                     _device = device if device is not None else (torch_GPU if use_gpu else torch_CPU)
                     dP_t = torch.as_tensor(dP_pad, dtype=torch.float32).to(_device)
                     mask_t = torch.as_tensor(iscell_pad, dtype=torch.float32).to(_device)

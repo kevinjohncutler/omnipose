@@ -1,13 +1,8 @@
 import numpy as np
 from numba import njit
 
-@njit
-def most_frequent(neighbor_masks):
-    return np.array([np.bincount(row).argmax() for row in neighbor_masks.T])
 
-
-
-# might want to deprecate this and do all despur using the torch code 
+# might want to deprecate this and do all despur using the torch code
 @njit
 def candidate_cleanup_idx(idx, connect, neigh_inds, cardinal, ordinal, dim, boundary, internal):
     """

@@ -1,5 +1,6 @@
 from .imports import *
 from .links import load_links
+from skimage.transform import resize as skimage_resize
 
 
 # I modified this work better with the save_masks function. Complexity added for subfolder and directory flexibility,
@@ -226,7 +227,6 @@ def masks_flows_to_seg(images, masks, flows, diams, file_names, channels=None):
     
     flowi = []
     if flows[0].ndim==3:
-        from skimage.transform import resize as skimage_resize
         Ly, Lx = masks.shape[-2:]
         flowi.append(skimage_resize(flows[0], (Ly, Lx), order=0, preserve_range=True).astype(flows[0].dtype)[np.newaxis,...])
     else:
@@ -289,7 +289,7 @@ def save_masks(images, masks, flows, file_names, png=True, tif=False,
     -------------
 
     images: (list of) 2D, 3D or 4D arrays
-        images input into cellpose
+        images input into the model
 
     masks: (list of) 2D arrays, int
         masks output from omnirefactor.eval, where 0=NO masks; 1,2,...=mask labels
@@ -376,7 +376,7 @@ def save_masks(images, masks, flows, file_names, png=True, tif=False,
     
     SSNLoss = not (min(images.shape) > 3 and images.ndim >=3)
     
-    if png and MATPLOTLIB and SSNLoss and save_plot:
+    if png and SSNLoss and save_plot:
         from .. import plot
         img = images.copy()
         # if img.ndim<3:

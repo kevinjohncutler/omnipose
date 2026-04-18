@@ -7,6 +7,8 @@ from matplotlib.backend_bases import GraphicsContextBase, RendererBase
 from matplotlib.figure import Figure
 from matplotlib.backends.backend_agg import FigureCanvasAgg as FigureCanvas
 
+from ..utils import get_neigh_inds
+
 
 class GC(GraphicsContextBase):
     def __init__(self):
@@ -42,9 +44,6 @@ def plot_edges(
     Boundary pixels (including linear index 0) are handled explicitly, so every
     valid edge appears—even when its target lies on the image border.
     """
-    # ——————————————————————————————————————————— imports that take time kept local
-    from ..utils import get_neigh_inds
-
     nstep, npix = affinity_graph.shape
     coords = tuple(coords)
 

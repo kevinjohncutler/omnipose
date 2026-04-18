@@ -1,7 +1,6 @@
 from .imports import *
 
 from scipy.signal import find_peaks
-from .. import transforms
 
 
 def ncolor_contour(contour_map,contour_list,pad=1):

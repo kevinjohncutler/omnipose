@@ -1,9 +1,11 @@
+from __future__ import annotations
 from typing import Sequence
 
 from .imports import *
 
 from .affinity import masks_to_affinity, affinity_to_boundary, compute_affinity_gpu, affinity_to_boundary_gpu
 from .fields import _gradient, _iterate, _iterate_grid, _gradient_grid
+from .niter import get_niter
 
 # Cache kernel setup tensors keyed by (ndim, device_str) to avoid recreating
 # them on every call to _extend_centers_torch_grid.
@@ -252,7 +254,7 @@ def masks_to_flows(masks, affinity_graph=None, dists=None, coords=None, links=No
 
 # @torch.no_grad() 
 
-def masks_to_flows_batch(batch, links=[None], device=torch.device('cpu'),
+def masks_to_flows_batch(batch, links=None, device=torch.device('cpu'),
                          omni=True, dim=2, normalize=False,
                          affinity_field=False, initialize=False, n_iter=None,
                          verbose=False, use_grid=True):
@@ -272,6 +274,12 @@ def masks_to_flows_batch(batch, links=[None], device=torch.device('cpu'),
     # add an if statement to catch the case where all labels are empty 
     
     nsample = len(batch)
+    if links is None:
+        links = [None] * nsample
+    elif len(links) != nsample:
+        raise ValueError(
+            f"links length ({len(links)}) must match batch size ({nsample})"
+        )
     # Skip index computation for the GPU fast path — ccoords is not needed there.
     will_use_gpu = device.type != 'cpu' and omni and not affinity_field and use_grid
     final_flat, clinks, indices, final_shape, dL = concatenate_labels(
@@ -350,6 +358,14 @@ def concatenate_labels(masks: np.ndarray, links: list, nsample: int,
     # concatenate and increment both the masks and links
     # astype(int64) always creates a new array (copy=True by default), so no .copy() needed
     masks = masks.astype(np.int64)  # casting to int64 sped things up 10x
+    if len(masks) != nsample:
+        raise ValueError(
+            f"masks length ({len(masks)}) must match nsample ({nsample})"
+        )
+    if len(links) != nsample:
+        raise ValueError(
+            f"links length ({len(links)}) must match nsample ({nsample})"
+        )
     dtype = masks[0].dtype
     shape = masks[0].shape
     dL = shape[0]
@@ -360,13 +376,13 @@ def concatenate_labels(masks: np.ndarray, links: list, nsample: int,
     stride = np.prod(shape)
     length = np.prod(final_shape)
 
-    # Preallocate flattened final array
+    # Preallocate flattened final array (fully overwritten by the loop below).
     final_flat = np.empty(length, dtype=dtype)
 
     if compute_indices:
         npix = np.array([np.count_nonzero(m>0) for m in masks], dtype)
         tpix = np.cumsum(np.hstack((0, npix)))
-        indices = np.empty((tpix[-1],), dtype=np.int64)
+        indices = np.zeros((tpix[-1],), dtype=np.int64)
     else:
         indices = None
 
@@ -476,8 +492,7 @@ def masks_to_flows_torch(masks, affinity_graph, coords=None, dists=None, device=
         if n_iter is None:
             if omni:
                 if dists is not None:
-                    from .niter import get_niter
-                    # omni version requires fewer iterations 
+                    # omni version requires fewer iterations
                     n_iter = get_niter(dists) ##### omnipose.core.get_niter
             else:
                 slices = scipy.ndimage.find_objects(masks)
