@@ -26,7 +26,7 @@ from ..transforms.imports import normalize_field, normalize99, divergence
 from ..transforms.imports import hysteresis_threshold as _hysteresis_threshold_torch
 
 from ocdkit.array import torch_norm  # canonical gateway for ocdkit.array.torch_norm
-from ocdkit.spatial import masks_to_affinity, boundary_to_masks  # canonical gateway for ocdkit.spatial ops
+from ocdkit.array.spatial import masks_to_affinity, boundary_to_masks  # canonical gateway for ocdkit.array.spatial ops
 
 from ..logger import get_logger
 core_logger = get_logger('core', color='#5c9edc')

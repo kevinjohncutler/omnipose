@@ -2,13 +2,13 @@ import numpy as np
 import pytest
 
 from omnirefactor.core import affinity
-from ocdkit import spatial as contour_mod
+from ocdkit.array import spatial as contour_mod
 from omnirefactor.transforms import augment
 from omnirefactor.core import njit as njit_mod
 from omnirefactor.utils import njit as utils_njit_mod
 from omnirefactor import utils
 from omnirefactor.utils.neighbor import kernel_setup
-from ocdkit.morphology import masks_to_outlines
+from ocdkit.array.morphology import masks_to_outlines
 
 
 def test_despur_calls_candidate_cleanup_idx(monkeypatch):

@@ -1,7 +1,7 @@
 import numpy as np
 from skimage.segmentation import expand_labels
 
-from ocdkit.spatial import get_contour
+from ocdkit.array.spatial import get_contour
 from omnirefactor.core import affinity as affinity_mod
 from omnirefactor.core.affinity import (
     affinity_to_boundary,
