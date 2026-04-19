@@ -16,6 +16,8 @@ dynamic = ["version",
 
 [project.scripts]
 omnirefactor = "omnirefactor.__main__:main"
+omnirefactor-loss-server = "omnirefactor.cli.loss_server:main"
+omnirefactor-sweep-report = "omnirefactor.cli.sweep_report:main"
 
 [tool.pytest.ini_options]
 testpaths     = ["tests"]

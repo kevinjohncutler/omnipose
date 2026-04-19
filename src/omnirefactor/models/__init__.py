@@ -164,5 +164,3 @@ from ..load.object import load_submodules
 package_dir = os.path.dirname(__file__)
 package_name = __package__
 load_submodules(OmniModel, package_dir, package_name, exclude_modules={"imports", "logging", "helpers"})
-
-__all__ = ["OmniModel"]

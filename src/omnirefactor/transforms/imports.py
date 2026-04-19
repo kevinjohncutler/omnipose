@@ -13,5 +13,13 @@ from ocdkit.array import (
     safe_divide,
     border_indices,
     to_16_bit,
+    moving_average,
+    add_poisson_noise,
+    correct_illumination,
+    move_axis,
+    move_min_dim,
+    resize_image,
 )
-from ocdkit.measure import diameters, dist_to_diam, pill_decomposition
+from ocdkit.measure import diameters, dist_to_diam, pill_decomposition, curve_filter
+from ocdkit.morphology import hysteresis_threshold
+from ocdkit.gpu import torch_zoom

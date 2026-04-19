@@ -16,5 +16,4 @@ from ..core.imports import torch_norm
 from ..core.affinity import _get_affinity_torch
 from ..io import masks_to_outlines
 
-from torchvf.losses import ivp_loss
 from torchvf.numerics import interp_vf, ivp_solver
