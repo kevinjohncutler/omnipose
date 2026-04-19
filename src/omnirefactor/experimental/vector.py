@@ -1,16 +1,15 @@
+"""Experimental: vector field reconstruction from divergence via DST Poisson solver."""
+
 import numpy as np
 from scipy.fft import dstn, idstn
 
 
 def compute_vector_field_from_divergence(divergence, grid_spacing=1):
-    """
-    Compute the vector field from its divergence using DST-based Poisson solver.
-    """
+    """Compute the vector field from its divergence using DST-based Poisson solver."""
     if np.isscalar(grid_spacing):
         grid_spacing = [grid_spacing] * divergence.ndim
 
     shape = divergence.shape
-    ndim = divergence.ndim
 
     k = []
     for n, delta in zip(shape, grid_spacing):
@@ -28,6 +27,3 @@ def compute_vector_field_from_divergence(divergence, grid_spacing=1):
     vector_field = [-g for g in gradient]
 
     return np.stack(vector_field)
-
-
-__all__ = ["compute_vector_field_from_divergence"]

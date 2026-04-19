@@ -46,6 +46,8 @@ setup(
     entry_points={
         "console_scripts": [
             "omnirefactor = omnirefactor.__main__:main",
+            "omnirefactor-loss-server = omnirefactor.cli.loss_server:main",
+            "omnirefactor-sweep-report = omnirefactor.cli.sweep_report:main",
         ],
     },
     classifiers=[

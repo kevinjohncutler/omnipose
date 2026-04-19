@@ -12,7 +12,7 @@ import numpy as np
 
 from ..io import imread
 from ..transforms.shape import reshape
-from ..transforms.axes import move_min_dim
+from ..transforms.imports import move_min_dim
 
 
 def compute_norm_params(image_paths, channel_axis=0, channels=None, normalize=True, dim=2, omni=False):

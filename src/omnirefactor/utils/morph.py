@@ -1,48 +1,6 @@
 from .imports import *
 
 
-# This function takes a few milliseconds for a typical image 
-def get_edge_masks(labels,dists):
-    """Finds and returns masks that are largely cut off by the edge of the image.
-    
-    This function loops over all masks touching the image boundary and compares the 
-    maximum value of the distance field along the boundary to the top quartile of distance
-    within the mask. Regions whose edges just skim the image edge will not be classified as 
-    an "edge mask" by this criteria, whereas masks cut off in their center (where distance is high)
-    will be returned as part of this output. 
-    
-    Parameters
-    ----------
-    labels: ND array, int
-        label matrix
-        
-    dists: ND array, float
-        distance field (calculated with reflection padding of labels)
-    
-    Returns
-    --------------
-    clean_labels: ND array, int
-        label matrix of all cells qualifying as 'edge masks'
-    
-    """
-    border_mask = np.zeros(labels.shape, dtype=bool)
-    border_mask = binary_dilation(border_mask, border_value=1, iterations=1)
-    clean_labels = np.zeros_like(labels)
-    
-    for cell_ID in fastremap.unique(labels[border_mask])[1:]:
-        mask = labels==cell_ID 
-        max_dist = np.max(dists[np.logical_and(mask, border_mask)])
-        # mean_dist = np.mean(dists[mask])
-        dist_thresh = np.percentile(dists[mask],75) 
-        # sort of a way to say the skeleton isn't touching the boundary
-        # top 25%
-
-        if max_dist>=dist_thresh: # we only want to keep cells whose distance at the boundary is not too small
-            clean_labels[mask] = cell_ID
-            
-    return clean_labels
-
-
 def fill_holes_and_remove_small_masks(masks, min_size=None, max_size=None, hole_size=3, dim=2):
     """Fill holes in masks (2D/3D) and discard masks smaller than min_size (2D).
 

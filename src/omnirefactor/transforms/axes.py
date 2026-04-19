@@ -1,8 +1,8 @@
-"""Axis manipulation — re-exports from ocdkit + omnipose-specific helpers."""
+"""Axis tracking helper (local). Generic axis manipulation lives in ocdkit.array
+and is re-exported through ``transforms/imports.py``.
+"""
 
 import numpy as np
-
-from ocdkit.array import move_axis, move_min_dim
 
 
 def update_axis(m_axis, to_squeeze, ndim):

@@ -5,8 +5,8 @@ import warnings
 
 import numpy as np
 
-from .axes import move_axis, move_min_dim, update_axis
-from .imports import normalize99
+from .axes import update_axis
+from .imports import normalize99, move_axis, move_min_dim
 
 transforms_logger = logging.getLogger(__name__)
 

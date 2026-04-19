@@ -1,0 +1,786 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Loss Viewer</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/uplot@1.6.30/dist/uPlot.min.css" />
+<script src="https://cdn.jsdelivr.net/npm/uplot@1.6.30/dist/uPlot.iife.min.js"></script>
+<style>
+/* ---- theme tokens (mirrors omnirefactor GUI) -------------------------- */
+:root {
+  --accent-color: #d8a200;
+  --control-height: 36px;
+  --control-blur: 20px;
+  --sidebar-width: 280px;
+
+  color-scheme: dark;
+  --bg: #111;
+  --panel-text-color: #f4f4f4;
+  --muted: #999;
+  --control-surface: rgba(72, 72, 72, 0.55);
+  --control-input-surface: rgba(72, 72, 72, 0.18);
+  --control-input-hover-surface: rgba(112, 112, 112, 0.42);
+  --control-hover-surface: rgba(112, 112, 112, 0.7);
+  --control-border: rgba(220, 220, 220, 0.14);
+  --grid: rgba(255, 255, 255, 0.06);
+  --tick: rgba(255, 255, 255, 0.18);
+  --accent-hover: #f3c54a;
+  --selection: rgba(216, 162, 0, 0.22);
+  --live: #3fb950;
+}
+@media (prefers-color-scheme: light) {
+  :root {
+    color-scheme: light;
+    --bg: #f4f4f4;
+    --panel-text-color: #1a1a1a;
+    --muted: #555;
+    --control-surface: rgba(245, 245, 245, 0.88);
+    --control-input-surface: rgba(255, 255, 255, 0.54);
+    --control-input-hover-surface: rgba(255, 255, 255, 0.76);
+    --control-hover-surface: rgba(228, 228, 228, 0.96);
+    --control-border: rgba(0, 0, 0, 0.16);
+    --grid: rgba(0, 0, 0, 0.06);
+    --tick: rgba(0, 0, 0, 0.2);
+    --accent-hover: #c49500;
+    --selection: rgba(216, 162, 0, 0.18);
+    --live: #1a7f37;
+  }
+}
+
+* { box-sizing: border-box; }
+html, body {
+  margin: 0; height: 100%;
+  background: var(--bg); color: var(--panel-text-color);
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  font-size: 13px;
+  overflow: hidden;
+}
+
+/* ---- layout ---------------------------------------------------------- */
+#app {
+  display: grid;
+  grid-template-columns: var(--sidebar-width) 1fr;
+  grid-template-rows: 100%;
+  height: 100vh;
+}
+
+#sidebar {
+  border-right: 1px solid var(--control-border);
+  background: var(--control-surface);
+  backdrop-filter: blur(var(--control-blur));
+  -webkit-backdrop-filter: blur(var(--control-blur));
+  display: flex; flex-direction: column;
+  overflow: hidden;
+}
+#sidebar header {
+  padding: 14px 16px 8px;
+  font-weight: 600;
+  display: flex; align-items: center; justify-content: space-between;
+}
+#sidebar header .count { color: var(--muted); font-weight: 400; font-size: 11px; }
+#session-list {
+  flex: 1;
+  overflow-y: auto;
+  padding: 4px 8px 12px;
+}
+.session {
+  padding: 10px 12px;
+  margin-bottom: 4px;
+  border-radius: 8px;
+  cursor: pointer;
+  border: 1px solid transparent;
+  transition: background 80ms, border-color 80ms;
+  line-height: 1.35;
+  user-select: none;
+}
+.session:hover { background: var(--control-hover-surface); }
+.session.selected { background: var(--selection); border-color: var(--accent-color); }
+.session .name { font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.session .meta {
+  display: flex; gap: 8px; align-items: center;
+  color: var(--muted); font-size: 11px; margin-top: 2px;
+}
+.session .live-badge {
+  background: var(--live);
+  color: white;
+  font-size: 9px;
+  padding: 1px 5px;
+  border-radius: 3px;
+  font-weight: 600;
+  letter-spacing: 0.3px;
+}
+
+/* ---- main pane ------------------------------------------------------- */
+#main {
+  display: flex; flex-direction: column;
+  overflow: hidden;
+}
+#toolbar {
+  display: flex; gap: 14px; align-items: center; flex-wrap: wrap;
+  padding: 10px 16px;
+  border-bottom: 1px solid var(--control-border);
+}
+.ctl { display: flex; align-items: center; gap: 6px; }
+.ctl label { color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: 0.4px; }
+select, input[type="number"] {
+  background: var(--control-input-surface);
+  border: 1px solid var(--control-border);
+  color: var(--panel-text-color);
+  padding: 5px 8px;
+  border-radius: 5px;
+  font-size: 12px;
+  font-family: inherit;
+  height: 28px;
+}
+select:hover, input:hover { background: var(--control-input-hover-surface); }
+input[type="number"] { width: 54px; }
+input[type="checkbox"] { accent-color: var(--accent-color); }
+#status {
+  margin-left: auto;
+  color: var(--muted);
+  font-size: 11px;
+}
+
+#chart-wrap {
+  flex: 1;
+  padding: 12px 16px;
+  overflow: hidden;
+  min-height: 0;
+}
+#chart { width: 100%; height: 100%; }
+#empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  color: var(--muted);
+  font-size: 14px;
+}
+
+#legend {
+  display: flex; flex-wrap: wrap; gap: 6px 14px;
+  padding: 8px 16px 14px;
+  border-top: 1px solid var(--control-border);
+  max-height: 140px;
+  overflow-y: auto;
+  font-size: 11px;
+}
+.legend-item {
+  display: flex; align-items: center; gap: 6px;
+  cursor: pointer;
+  user-select: none;
+  padding: 2px 6px;
+  border-radius: 4px;
+}
+.legend-item:hover { background: var(--control-hover-surface); }
+.legend-item.hidden { opacity: 0.35; }
+.legend-swatch { width: 16px; height: 3px; border-radius: 1px; flex-shrink: 0; }
+.legend-label { font-weight: 500; }
+.legend-val { color: var(--muted); font-family: ui-monospace, Menlo, monospace; font-size: 10px; }
+
+/* ---- run details panel ---------------------------------------------- */
+#details {
+  padding: 10px 16px 14px;
+  border-top: 1px solid var(--control-border);
+  font-size: 11px;
+  max-height: 280px;
+  overflow-y: auto;
+}
+#details:empty { display: none; }
+.run-block { margin-bottom: 10px; }
+.run-block summary {
+  cursor: pointer;
+  font-weight: 600;
+  padding: 4px 0;
+  list-style: none;
+  display: flex; align-items: center; gap: 8px;
+}
+.run-block summary::-webkit-details-marker { display: none; }
+.run-block summary::before {
+  content: '▸'; font-size: 10px; color: var(--muted);
+  transition: transform 80ms;
+}
+.run-block[open] > summary::before { transform: rotate(90deg); }
+.run-block .sess-name {
+  color: var(--accent-color);
+  font-weight: 500;
+}
+.run-block .status {
+  font-size: 9px;
+  padding: 1px 5px;
+  border-radius: 3px;
+  text-transform: uppercase;
+  font-weight: 700;
+  letter-spacing: 0.3px;
+}
+.run-block .status.running { background: var(--live); color: white; }
+.run-block .status.completed { background: var(--control-input-surface); color: var(--muted); }
+.run-block .status.failed { background: #f85149; color: white; }
+
+.run-table {
+  display: grid;
+  grid-template-columns: minmax(120px, max-content) 1fr;
+  gap: 2px 14px;
+  margin: 4px 0 8px 18px;
+  font-family: ui-monospace, Menlo, monospace;
+  font-size: 10.5px;
+}
+.run-table .k { color: var(--muted); }
+.run-table .v { word-break: break-all; }
+.run-table .v.diff { color: var(--accent-color); font-weight: 600; }
+.run-section-label {
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+  font-size: 9.5px;
+  margin: 8px 0 2px 18px;
+  font-weight: 600;
+}
+
+/* ---- uPlot overrides ------------------------------------------------- */
+.uplot { font-family: inherit !important; color: var(--panel-text-color) !important; }
+.u-under { border-radius: 5px; }
+.u-legend { display: none; } /* we render our own */
+</style>
+</head>
+<body>
+<div id="app">
+  <aside id="sidebar">
+    <header>
+      <span>Sessions</span>
+      <span class="count" id="session-count">0</span>
+    </header>
+    <div id="session-list"></div>
+  </aside>
+
+  <main id="main">
+    <div id="toolbar">
+      <div class="ctl">
+        <label>Normalize</label>
+        <select id="norm">
+          <option value="raw">Raw</option>
+          <option value="minmax" selected>Min-Max</option>
+          <option value="log">Log</option>
+          <option value="zscore">Z-Score</option>
+        </select>
+      </div>
+      <div class="ctl">
+        <label>Smooth</label>
+        <input type="number" id="smooth" value="1" min="1" max="100">
+      </div>
+      <div class="ctl">
+        <label>X-Axis</label>
+        <select id="xaxis">
+          <option value="step">Step</option>
+          <option value="epoch" selected>Epoch</option>
+        </select>
+      </div>
+      <div class="ctl">
+        <label>Total</label>
+        <select id="total-mode">
+          <option value="scaled" selected>Scaled sum (optimizer)</option>
+          <option value="raw">Raw mean</option>
+          <option value="off">Off</option>
+        </select>
+      </div>
+      <div class="ctl">
+        <label>Live</label>
+        <input type="checkbox" id="live" checked>
+      </div>
+      <div id="status">—</div>
+    </div>
+
+    <div id="chart-wrap">
+      <div id="empty">Select a session from the sidebar.</div>
+      <div id="chart" style="display:none"></div>
+    </div>
+
+    <div id="legend"></div>
+    <div id="details"></div>
+  </main>
+</div>
+
+<script>
+/* ============================================================
+ *  State
+ * ============================================================ */
+const state = {
+  sessions: [],          // all sessions (summary metadata from /api/sessions)
+  selected: new Set(),   // set of session ids currently loaded
+  data: new Map(),       // id -> full loss JSON
+  hiddenSeries: new Set(),  // "sessionId::lossName" keys to hide
+  plot: null,
+  colors: [
+    '#d8a200', '#58a6ff', '#3fb950', '#f778ba', '#ffa657',
+    '#d2a8ff', '#79c0ff', '#ff7b72', '#a5d6ff', '#8b949e',
+  ],
+};
+
+const LIVE_THRESHOLD_SEC = 30;
+
+const el = (id) => document.getElementById(id);
+
+/* ============================================================
+ *  Session list
+ * ============================================================ */
+async function fetchSessions() {
+  const r = await fetch('/api/sessions', { cache: 'no-store' });
+  if (!r.ok) return;
+  state.sessions = await r.json();
+  renderSessionList();
+}
+
+function isLive(session) {
+  return (Date.now() / 1000 - session.mtime) < LIVE_THRESHOLD_SEC;
+}
+
+function relTime(unixSec) {
+  const diff = Date.now() / 1000 - unixSec;
+  if (diff < 60)      return `${Math.floor(diff)}s ago`;
+  if (diff < 3600)    return `${Math.floor(diff / 60)}m ago`;
+  if (diff < 86400)   return `${Math.floor(diff / 3600)}h ago`;
+  return `${Math.floor(diff / 86400)}d ago`;
+}
+
+function renderSessionList() {
+  const list = el('session-list');
+  list.innerHTML = '';
+  el('session-count').textContent = state.sessions.length;
+
+  state.sessions.forEach((s) => {
+    const node = document.createElement('div');
+    node.className = 'session' + (state.selected.has(s.id) ? ' selected' : '');
+    node.dataset.id = s.id;
+    const live = isLive(s);
+    const lastLoss = s.last_loss != null
+      ? ` · ${s.last_loss.toExponential(2)}`
+      : '';
+    node.innerHTML = `
+      <div class="name">${s.name}</div>
+      <div class="meta">
+        ${live ? '<span class="live-badge">LIVE</span>' : ''}
+        <span>epoch ${s.n_epochs}</span>
+        <span>·</span>
+        <span>${relTime(s.mtime)}</span>
+        <span>${lastLoss}</span>
+      </div>
+    `;
+    node.addEventListener('click', (ev) => toggleSession(s.id, ev.metaKey || ev.ctrlKey));
+    list.appendChild(node);
+  });
+}
+
+/* ============================================================
+ *  Selection
+ * ============================================================ */
+async function toggleSession(id, multi) {
+  if (!multi) {
+    // Single-select: clear others
+    state.selected.clear();
+    state.selected.add(id);
+  } else {
+    if (state.selected.has(id)) {
+      state.selected.delete(id);
+      state.data.delete(id);
+    } else {
+      state.selected.add(id);
+    }
+  }
+  renderSessionList();
+  await loadSelected();
+  render();
+}
+
+async function loadSelected() {
+  const promises = [...state.selected].map(async (id) => {
+    if (state.data.has(id)) return;
+    const r = await fetch(`/api/session/${id}`, { cache: 'no-store' });
+    if (r.ok) state.data.set(id, await r.json());
+  });
+  await Promise.all(promises);
+}
+
+/* ============================================================
+ *  Data transforms
+ * ============================================================ */
+function smoothArr(arr, w) {
+  if (w <= 1) return arr;
+  const out = new Array(arr.length);
+  for (let i = 0; i < arr.length; i++) {
+    let sum = 0, cnt = 0;
+    for (let j = Math.max(0, i - w + 1); j <= i; j++) {
+      if (arr[j] != null && !isNaN(arr[j])) { sum += arr[j]; cnt++; }
+    }
+    out[i] = cnt > 0 ? sum / cnt : null;
+  }
+  return out;
+}
+
+function normalize(arr, mode) {
+  const valid = arr.filter((v) => v != null && !isNaN(v));
+  if (!valid.length || mode === 'raw') return arr;
+  if (mode === 'minmax') {
+    const min = Math.min(...valid), max = Math.max(...valid);
+    const rng = max - min;
+    return rng < 1e-12 ? arr.map((v) => v == null ? null : 0.5)
+                       : arr.map((v) => v == null ? null : (v - min) / rng);
+  }
+  if (mode === 'log') {
+    const minPos = Math.min(...valid.filter((v) => v > 0)) || 1e-10;
+    return arr.map((v) => v == null ? null : Math.log10(Math.max(v, minPos)));
+  }
+  if (mode === 'zscore') {
+    const mean = valid.reduce((a, b) => a + b, 0) / valid.length;
+    const std = Math.sqrt(valid.reduce((a, b) => a + (b - mean) ** 2, 0) / valid.length) || 1;
+    return arr.map((v) => v == null ? null : (v - mean) / std);
+  }
+  return arr;
+}
+
+/* ============================================================
+ *  Scaled-total reconstruction (mirrors core/loss.py::scale_to_tenths)
+ * ============================================================ */
+function scaleToTenths(x, maxGain = 1e12) {
+  if (x == null || isNaN(x)) return null;
+  const eps = 1e-12;
+  const abs = Math.abs(x) + eps;
+  let sf = Math.pow(10, -Math.floor(Math.log10(abs)) - 1);
+  sf = Math.max(1 / maxGain, Math.min(maxGain, sf));
+  return x * sf;
+}
+
+function computeScaledTotal(rawList, lossNames) {
+  // rawList is the session's raw_losses array; lossNames is its loss_names list
+  return rawList.map((entry) => {
+    if (!entry) return null;
+    let sum = 0;
+    let any = false;
+    for (const name of lossNames) {
+      const v = entry[name];
+      if (v == null || isNaN(v)) continue;
+      sum += scaleToTenths(v);
+      any = true;
+    }
+    return any ? sum : null;
+  });
+}
+
+/* ============================================================
+ *  Chart
+ * ============================================================ */
+function buildX(data, xaxis) {
+  const epochs = data.epoch || [];
+  const batches = data.batch || [];
+  const n = (data.train_loss || []).length;
+
+  const perEpoch = {};
+  epochs.forEach((e) => { perEpoch[e] = (perEpoch[e] || 0) + 1; });
+  const spe = Math.max(...Object.values(perEpoch), 1);
+
+  const xs = new Array(n);
+  for (let i = 0; i < n; i++) {
+    const e = epochs[i] ?? 0;
+    const b = batches[i] ?? (i % spe);
+    xs[i] = xaxis === 'epoch' ? e + b / spe : e * spe + b;
+  }
+  return xs;
+}
+
+function render() {
+  if (state.selected.size === 0) {
+    el('empty').style.display = '';
+    el('chart').style.display = 'none';
+    el('legend').innerHTML = '';
+    el('status').textContent = '—';
+    if (state.plot) { state.plot.destroy(); state.plot = null; }
+    return;
+  }
+  el('empty').style.display = 'none';
+  el('chart').style.display = '';
+
+  const mode = el('norm').value;
+  const sw = parseInt(el('smooth').value) || 1;
+  const xaxis = el('xaxis').value;
+  const totalMode = el('total-mode').value;  // 'scaled' | 'raw' | 'off'
+
+  // Gather all selected sessions, use first (or merged) x-axis.
+  // For simplicity we plot each session on its own X; uPlot requires a single
+  // shared x-array, so we union x values across sessions.
+  const sessionList = [...state.selected]
+    .map((id) => state.data.get(id))
+    .filter(Boolean);
+
+  if (sessionList.length === 0) return;
+
+  // Build a unified X axis (sorted unique values from all sessions)
+  const xUnion = new Set();
+  const perSessionX = sessionList.map((d) => buildX(d, xaxis));
+  perSessionX.forEach((xs) => xs.forEach((v) => xUnion.add(v)));
+  const xs = [...xUnion].sort((a, b) => a - b);
+  const xIndex = new Map(xs.map((v, i) => [v, i]));
+
+  const data = [xs];
+  const series = [{}];
+  const legendRows = [];
+
+  // Helper: align a y-array onto the union X by looking up each sample's x
+  function align(yArr, xArr) {
+    const out = new Array(xs.length).fill(null);
+    for (let i = 0; i < yArr.length; i++) {
+      const idx = xIndex.get(xArr[i]);
+      if (idx !== undefined) out[idx] = yArr[i];
+    }
+    return out;
+  }
+
+  let colorIdx = 0;
+
+  sessionList.forEach((d, si) => {
+    const xArr = perSessionX[si];
+    const sessName = d._session?.name ?? `session${si}`;
+    const sessId = d._session?.id ?? String(si);
+    const raw = d.raw_losses || [];
+    const lossNames = d._session?.loss_names || [];
+
+    // Per-loss curves
+    lossNames.forEach((name) => {
+      const vals = raw.map((e) => e?.[name] ?? null);
+      const aligned = align(vals, xArr);
+      const normed = normalize(aligned, mode);
+      const smoothed = smoothArr(normed, sw);
+      const key = `${sessId}::${name}`;
+      const color = state.colors[colorIdx++ % state.colors.length];
+      const hidden = state.hiddenSeries.has(key);
+
+      data.push(smoothed);
+      series.push({
+        label: `${sessName}/${name}`,
+        stroke: color,
+        width: hidden ? 0 : 1.5,
+        show: !hidden,
+      });
+
+      const lastVal = vals.filter((v) => v != null).at(-1);
+      legendRows.push({
+        key, color, sessName, name,
+        value: lastVal == null ? '—' : lastVal.toExponential(2),
+      });
+    });
+
+    // Total loss
+    if (totalMode !== 'off') {
+      const totalVals = totalMode === 'scaled'
+        ? computeScaledTotal(raw, lossNames)
+        : (d.train_loss || []);
+      const totalLabel = totalMode === 'scaled' ? 'total (scaled)' : 'total (raw)';
+
+      if (totalVals.length) {
+        const aligned = align(totalVals, xArr);
+        const normed = normalize(aligned, mode);
+        const smoothed = smoothArr(normed, sw);
+        const key = `${sessId}::__total__`;
+        const color = state.colors[colorIdx++ % state.colors.length];
+        const hidden = state.hiddenSeries.has(key);
+
+        data.push(smoothed);
+        series.push({
+          label: `${sessName}/${totalLabel}`,
+          stroke: color,
+          width: hidden ? 0 : 2.2,
+          dash: [5, 3],
+          show: !hidden,
+        });
+
+        const lastVal = totalVals.filter((v) => v != null).at(-1);
+        legendRows.push({
+          key, color, sessName, name: totalLabel,
+          value: lastVal == null ? '—' : lastVal.toExponential(2),
+          bold: true,
+        });
+      }
+    }
+  });
+
+  const wrap = el('chart-wrap');
+  const opts = {
+    width: wrap.clientWidth,
+    height: wrap.clientHeight,
+    series,
+    scales: { x: { time: false } },
+    axes: [
+      { stroke: getComputedStyle(document.body).color,
+        grid: { stroke: getCSS('--grid') },
+        ticks: { stroke: getCSS('--tick') } },
+      { stroke: getComputedStyle(document.body).color,
+        grid: { stroke: getCSS('--grid') },
+        ticks: { stroke: getCSS('--tick') } },
+    ],
+    legend: { show: false },
+    cursor: { drag: { x: true, y: false }, focus: { prox: 30 } },
+  };
+
+  if (state.plot) state.plot.destroy();
+  el('chart').innerHTML = '';
+  state.plot = new uPlot(opts, data, el('chart'));
+
+  renderLegend(legendRows);
+  renderDetails(sessionList);
+  updateStatus(sessionList);
+}
+
+/* ============================================================
+ *  Run details panel — shows run.json metadata, diffs across overlaid sessions
+ * ============================================================ */
+function renderDetails(sessionList) {
+  const detailsEl = el('details');
+  detailsEl.innerHTML = '';
+
+  const runs = sessionList.map((d) => d._session?.run).filter(Boolean);
+  if (runs.length === 0) return;
+
+  // For each section, compute which keys differ across overlaid runs
+  // so we can highlight them as "diffs" (useful for sweep comparison).
+  const diffKeys = (section) => {
+    if (runs.length < 2) return new Set();
+    const keys = new Set();
+    runs.forEach((r) => {
+      const obj = r[section] || {};
+      Object.keys(obj).forEach((k) => keys.add(k));
+    });
+    const diffs = new Set();
+    for (const k of keys) {
+      const vals = runs.map((r) => JSON.stringify((r[section] || {})[k]));
+      if (new Set(vals).size > 1) diffs.add(k);
+    }
+    return diffs;
+  };
+
+  const hpDiffs = diffKeys('hyperparameters');
+  const modelDiffs = diffKeys('model');
+  const hwDiffs = diffKeys('hardware');
+
+  runs.forEach((run, idx) => {
+    const sess = sessionList[idx]._session;
+    const statusClass = `status ${run.status || 'completed'}`;
+    const sweep = run.sweep ? ` · ${run.sweep}` : '';
+    const tags = (run.tags || []).length ? ` · [${run.tags.join(', ')}]` : '';
+
+    const block = document.createElement('details');
+    block.className = 'run-block';
+    block.open = runs.length === 1;  // auto-open if single session
+
+    const duration = run.duration_s != null
+      ? `${Math.floor(run.duration_s / 60)}m${Math.floor(run.duration_s % 60)}s`
+      : '—';
+
+    block.innerHTML = `
+      <summary>
+        <span class="sess-name">${sess.name.length > 48 ? sess.name.slice(0, 48) + '…' : sess.name}</span>
+        <span class="${statusClass}">${run.status || '?'}</span>
+        <span style="color: var(--muted); font-weight: 400;">${sweep}${tags}</span>
+      </summary>
+      ${renderSection('Hyperparameters', run.hyperparameters, hpDiffs)}
+      ${renderSection('Model', run.model, modelDiffs)}
+      ${renderSection('Dataset', run.dataset, new Set())}
+      ${renderSection('Hardware', run.hardware, hwDiffs)}
+      ${renderSection('Provenance', run.provenance, new Set())}
+      ${renderSection('Summary', run.summary, new Set())}
+      ${run.notes ? `<div class="run-section-label">Notes</div>
+        <div style="margin-left: 18px; color: var(--panel-text-color);">${escapeHtml(run.notes)}</div>` : ''}
+    `;
+    detailsEl.appendChild(block);
+  });
+}
+
+function renderSection(title, obj, diffs) {
+  if (!obj || Object.keys(obj).length === 0) return '';
+  const entries = Object.entries(obj);
+  const rows = entries.map(([k, v]) => {
+    const diff = diffs.has(k) ? ' diff' : '';
+    const val = v == null ? '—' : (typeof v === 'object' ? JSON.stringify(v) : String(v));
+    return `<div class="k">${escapeHtml(k)}</div><div class="v${diff}">${escapeHtml(val)}</div>`;
+  }).join('');
+  return `
+    <div class="run-section-label">${title}</div>
+    <div class="run-table">${rows}</div>
+  `;
+}
+
+function escapeHtml(s) {
+  return String(s).replace(/[&<>"']/g,
+    (c) => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'})[c]);
+}
+
+function renderLegend(rows) {
+  const legendEl = el('legend');
+  legendEl.innerHTML = '';
+  rows.forEach((row) => {
+    const item = document.createElement('div');
+    item.className = 'legend-item' + (state.hiddenSeries.has(row.key) ? ' hidden' : '');
+    item.innerHTML = `
+      <span class="legend-swatch" style="background:${row.color}"></span>
+      <span class="legend-label"${row.bold ? ' style="font-weight:700"' : ''}>${row.sessName}/${row.name}</span>
+      <span class="legend-val">${row.value}</span>
+    `;
+    item.addEventListener('click', () => {
+      if (state.hiddenSeries.has(row.key)) state.hiddenSeries.delete(row.key);
+      else state.hiddenSeries.add(row.key);
+      render();
+    });
+    legendEl.appendChild(item);
+  });
+}
+
+function updateStatus(sessionList) {
+  const parts = sessionList.map((d) => {
+    const s = d._session;
+    return `${s.name}: epoch ${s.n_epochs}, ${s.n_batches} batches`;
+  });
+  el('status').textContent = parts.join('  ·  ');
+}
+
+function getCSS(name) {
+  return getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+}
+
+/* ============================================================
+ *  Live polling
+ * ============================================================ */
+async function pollLoop() {
+  while (true) {
+    await new Promise((r) => setTimeout(r, 1500));
+    if (!el('live').checked) continue;
+    await fetchSessions();
+    // Refresh selected sessions whose metadata indicates they're live
+    const liveIds = new Set(state.sessions.filter(isLive).map((s) => s.id));
+    const toRefresh = [...state.selected].filter((id) => liveIds.has(id));
+    if (toRefresh.length) {
+      const promises = toRefresh.map(async (id) => {
+        const r = await fetch(`/api/session/${id}`, { cache: 'no-store' });
+        if (r.ok) state.data.set(id, await r.json());
+      });
+      await Promise.all(promises);
+      render();
+    }
+  }
+}
+
+/* ============================================================
+ *  Init
+ * ============================================================ */
+['norm', 'smooth', 'xaxis', 'total-mode'].forEach((id) => {
+  el(id).addEventListener('change', render);
+});
+window.addEventListener('resize', render);
+
+fetchSessions().then(() => {
+  // Auto-select the first (most recent) session on load
+  if (state.sessions.length > 0 && state.selected.size === 0) {
+    toggleSession(state.sessions[0].id, false);
+  }
+});
+pollLoop();
+</script>
+</body>
+</html>

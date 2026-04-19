@@ -1,4 +1,7 @@
+import sys
+
 from .imports import *
+from . import run_metadata
 
 
 def _calibrate_data_parallel(net, batch_size, tyx, n_gpu, device, n_calib=5):
@@ -488,6 +491,14 @@ def _train_net(self, train_data, train_labels, train_links, test_data=None, test
             num_workers = 0
         core_logger.info(f'>>>> num_workers auto-detected: {num_workers}')
 
+    # Snapshot all resolved _train_net arguments for run.json (written later,
+    # once save_path + netstr are known).
+    _train_net_locals = {k: v for k, v in locals().items()
+                         if k not in {'self', 'train_data', 'train_labels',
+                                      'train_links', 'test_data', 'test_labels',
+                                      'test_links'}}
+    self._run_json_path = None
+
     d = datetime.datetime.now()
     self.autocast = do_autocast
     self.n_epochs = n_epochs
@@ -845,6 +856,19 @@ def _train_net(self, train_data, train_labels, train_links, test_data=None, test
                 # Set loss history path once netstr is known (user-provided or generated)
                 if self._loss_history_path is None:
                     self._loss_history_path = os.path.join(save_path, f'{netstr}_loss_history.json')
+                    self._run_json_path = run_metadata.run_json_path_for(self._loss_history_path)
+                    # Write initial run.json (status=running) now that all params are resolved
+                    run_payload = run_metadata.capture_run_metadata(
+                        self, self.net, _train_net_locals,
+                        train_data, train_labels,
+                        test_data, test_labels,
+                        save_path=save_path, netstr=netstr,
+                        name=getattr(self, '_run_name', None),
+                        sweep=getattr(self, '_run_sweep', None),
+                        tags=getattr(self, '_run_tags', None),
+                        notes=getattr(self, '_run_notes', None),
+                    )
+                    run_metadata.write_run_json(self._run_json_path, run_payload)
 
                 base = netstr+'{}'
                 if epoch==self.n_epochs-1 or epoch%save_every==0 or in_final:
@@ -879,6 +903,19 @@ def _train_net(self, train_data, train_labels, train_links, test_data=None, test
 
         if self._loss_history_path is not None:
             self._save_loss_history(self._loss_history_path)
+
+        # Finalize run.json: stamp status + duration + summary
+        if getattr(self, '_run_json_path', None) is not None:
+            exc_info = sys.exc_info()
+            status = 'failed' if exc_info[0] is not None else 'completed'
+            try:
+                run_metadata.mark_run_finished(
+                    self._run_json_path,
+                    self.loss_history if hasattr(self, 'loss_history') else {},
+                    status=status,
+                )
+            except Exception as _exc:  # noqa: BLE001 — don't mask training error
+                core_logger.warning(f'Failed to finalize run.json: {_exc}')
 
         if self._tb_writer is not None:
             self._tb_writer.close()

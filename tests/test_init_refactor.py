@@ -26,8 +26,7 @@ def test_package_init_enable_submodules():
 
 def test_load_init_exports():
     mod = importlib.import_module("omnirefactor.load")
-    exported = set(mod.__all__)
-    assert "enable_submodules" in exported
-    assert "attach_helpers" in exported
-    assert "load_submodules" in exported
-    assert "attach_function_to_object" in exported
+    assert hasattr(mod, "enable_submodules")
+    assert hasattr(mod, "attach_helpers")
+    assert hasattr(mod, "load_submodules")
+    assert hasattr(mod, "attach_function_to_object")

@@ -24,7 +24,6 @@ class eval_set(torch.utils.data.Dataset):
     def __init__(self, data, dim,
                  channel_axis=None,
                  device=torch.device('cpu'),
-                 normalize_stack=True,
                  normalize=True,
                  invert=False,
                  rescale_factor=1.0,
@@ -74,7 +73,6 @@ class eval_set(torch.utils.data.Dataset):
             self.files = False
 
         self.device = device
-        self.normalize_stack = normalize_stack
         self.normalize = normalize
         self.invert = invert
         self.rescale_factor = rescale_factor

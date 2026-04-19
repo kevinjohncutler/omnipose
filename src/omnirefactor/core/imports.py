@@ -23,7 +23,7 @@ from .. import utils
 from ..utils import get_module, Result
 from ..gpu import torch_GPU, torch_CPU, ensure_torch, torch_and
 from ..transforms.imports import normalize_field, normalize99, divergence
-from ..transforms.filters import hysteresis_threshold as _hysteresis_threshold_torch
+from ..transforms.imports import hysteresis_threshold as _hysteresis_threshold_torch
 
 from ocdkit.array import torch_norm  # canonical gateway for ocdkit.array.torch_norm
 from ocdkit.spatial import masks_to_affinity, boundary_to_masks  # canonical gateway for ocdkit.spatial ops
