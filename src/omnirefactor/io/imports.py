@@ -24,7 +24,7 @@ from ..utils import Result
 from ..transforms.imports import normalize99
 
 from ocdkit.io import *  # canonical gateway for ocdkit.io
-from ocdkit.morphology import masks_to_outlines  # canonical gateway for ocdkit.morphology
+from ocdkit.array.morphology import masks_to_outlines  # canonical gateway for ocdkit.array.morphology
 
 import matplotlib.pyplot as plt
 

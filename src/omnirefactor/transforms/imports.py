@@ -21,5 +21,5 @@ from ocdkit.array import (
     resize_image,
 )
 from ocdkit.measure import diameters, dist_to_diam, pill_decomposition, curve_filter
-from ocdkit.morphology import hysteresis_threshold
-from ocdkit.gpu import torch_zoom
+from ocdkit.array.morphology import hysteresis_threshold
+from ocdkit.utils.gpu import torch_zoom

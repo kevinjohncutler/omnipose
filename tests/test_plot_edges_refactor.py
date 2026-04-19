@@ -11,7 +11,7 @@ from matplotlib.figure import Figure
 from matplotlib.backends.backend_agg import FigureCanvasAgg as FigureCanvas
 from matplotlib.collections import LineCollection
 
-from ocdkit.spatial import kernel_setup, masks_to_affinity, get_neighbors
+from ocdkit.array.spatial import kernel_setup, masks_to_affinity, get_neighbors
 from omnirefactor.plot.edges import plot_edges
 
 

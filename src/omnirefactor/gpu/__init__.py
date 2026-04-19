@@ -1,9 +1,9 @@
-"""GPU device management — thin wrapper over ``ocdkit.gpu`` (Layer 0).
+"""GPU device management — thin wrapper over ``ocdkit.utils.gpu`` (Layer 0).
 
 Layer 0: no omnirefactor deps — only stdlib, third-party, and ocdkit.
 
 Adds the omnipose-specific ARM env-var workaround (OMP_NUM_THREADS) on
-import, then re-exports everything from ``ocdkit.gpu``.
+import, then re-exports everything from ``ocdkit.utils.gpu``.
 """
 
 import os
@@ -18,7 +18,7 @@ if 'arm' in platform.processor():
     os.environ.setdefault('OMP_NUM_THREADS', '1')
     os.environ.setdefault('PARLAY_NUM_THREADS', '1')
 
-from ocdkit.gpu import *
+from ocdkit.utils.gpu import *
 
 # networks/__init__.py calls assign_device which is get_device
 assign_device = get_device
