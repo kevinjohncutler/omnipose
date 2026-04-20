@@ -5,7 +5,7 @@ import cv2
 import tifffile
 import logging, pathlib, sys
 from pathlib import Path
-from aicsimageio import AICSImage
+from bioio import BioImage
 from csv import reader, writer
 import re
 
@@ -137,7 +137,7 @@ def imread(filename):
     elif ext=='.npz':
         return np.load(filename)['arr_0']
     elif ext=='.czi':
-        img = AICSImage(filename).data
+        img = BioImage(filename).data
         return img
     else:
         try:

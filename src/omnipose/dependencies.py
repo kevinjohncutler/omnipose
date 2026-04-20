@@ -17,10 +17,10 @@ install_deps = ['numba>=0.61.0', # let numba control numpy version
                 'torchvf',
                 'tqdm', 
                 'natsort', 
-                'aicsimageio', # should make this optional, include czi dep
+                'bioio',
                 'numexpr',
                 'torch_optimizer', # for RADAM, now supported directly in pytorch though... 
-                'tifffile', # might be dependency of aicsimageio, so not needed explicitly 
+                'tifffile',
                 'fastremap',
                 'cmap', 
                 'colour-science', # called "colour" when importing, but "colour-science" on pypi

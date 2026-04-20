@@ -11,7 +11,7 @@ from .utils import get_flip, _taper_mask_ND, unaugment_tiles_ND, average_tiles_N
 
 # import multiprocessing as mp
 # import imageio
-from aicsimageio import AICSImage
+from bioio import BioImage
 
 import multiprocessing as mp
 
@@ -75,7 +75,7 @@ class eval_set(torch.utils.data.Dataset):
         self.dim = dim
         self.channel_axis = channel_axis
         self.stack = isinstance(self.data, np.ndarray)
-        self.aics =  isinstance(self.data, AICSImage)
+        self.aics =  isinstance(self.data, BioImage)
         self.aics_args = aics_args if aics_args is not None else {}
         self.list = isinstance(self.data,list)
         if self.list:
@@ -147,9 +147,9 @@ class eval_set(torch.utils.data.Dataset):
             for i,index in enumerate(inds):
                 if self.files:
                     file = self.data[index]
-                    # img = AICSImage(file).data.squeeze().astype(float)
-                    img = AICSImage(file).get_image_data("YX", out_of_memory=True).squeeze()
-                    # print('here',img.shape, AICSImage(file).shape,  AICSImage(file).dims, AICSImage(file).get_image_data("CYX", out_of_memory=True).shape)
+                    # img = BioImage(file).data.squeeze().astype(float)
+                    img = BioImage(file).get_image_data("YX", out_of_memory=True).squeeze()
+                    # print('here',img.shape, BioImage(file).shape,  BioImage(file).dims, BioImage(file).get_image_data("CYX", out_of_memory=True).shape)
                     
                     # img = tifffile.imread()
                 else:

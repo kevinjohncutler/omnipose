@@ -400,21 +400,12 @@ class SSL_Norm_MSE(torch.nn.Module):
 
 class DerivativeLoss(torch.nn.Module):
     """
-    Gradient‑domain loss rewritten to use the BatchMean/Weighted MSE
-    infrastructure for consistent per‑sample reduction.
-
     Computes the mean‑squared error between spatial gradients of the
-    prediction `y` and ground‑truth `Y`.  Results are averaged per‑sample,
-    then across the batch via `WeightedMSELoss`, with optional pixel‑wise
-    weights `w` and a binary mask `mask` defining valid regions.
-
-    Mathematically equivalent to the original implementation:
-
-        mean( ((∇y − ∇Y)/5)² * w )[mask]
+    prediction `y` and ground‑truth `Y`, restricted to the masked region and
+    weighted element‑wise by `w`.
     """
     def __init__(self):
         super().__init__()
-        self.WMSE = WeightedMSELoss()
 
     def forward(self, y, Y, w, mask):
         # Spatial dimensions are all dims after batch and channel
@@ -425,14 +416,19 @@ class DerivativeLoss(torch.nn.Module):
         dy = torch.stack(torch.gradient(y, dim=spatial_axes)).transpose(0, 1)
         dY = torch.stack(torch.gradient(Y, dim=spatial_axes)).transpose(0, 1)
 
-        # Combine weights with mask; broadcast to gradient tensor shape
-        weight = w * mask                          # (B,1,…)
-        while weight.ndim < dy.ndim:
-            weight = weight.unsqueeze(1)           # prepend dims
-        weight = weight.expand_as(dy)              # (B,dim,C,…)
+        grad_err = torch.sum(torch.square((dy - dY) / 5.0), dim=1)
+        weight = w.expand_as(grad_err)
+        valid = mask.expand_as(grad_err).bool()
 
-        # Weighted MSE, scaled by 1/25 to match (⋅/5)² factor
-        return self.WMSE(dy, dY, weight) / 25
+        weighted_err = grad_err * weight
+        valid_counts = valid.reshape(valid.size(0), -1).sum(dim=1)
+        sample_sums = weighted_err.masked_fill(~valid, 0).reshape(weighted_err.size(0), -1).sum(dim=1)
+        sample_means = torch.where(
+            valid_counts > 0,
+            sample_sums / valid_counts.clamp_min(1).to(sample_sums.dtype),
+            torch.zeros_like(sample_sums),
+        )
+        return sample_means.mean()
     
 
 # it will probably be better just to do the gradient for the whole image....
