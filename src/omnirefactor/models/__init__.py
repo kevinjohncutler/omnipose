@@ -159,7 +159,7 @@ class OmniModel:
     # to get eval to efficiently run on an entire image set, we could pass a torch dataset
     # this dataset could either parse out images loaded from memory or from storage 
 
-from ..load.object import load_submodules
+from ..pkg import load_submodules
 
 package_dir = os.path.dirname(__file__)
 package_name = __package__
