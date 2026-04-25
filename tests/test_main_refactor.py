@@ -1,7 +1,7 @@
 import runpy
 import sys
 
-import omnirefactor.__main__ as main_mod
+import omnipose.__main__ as main_mod
 
 
 def test_wants_gui_dispatch():
@@ -39,15 +39,15 @@ def test_module_entrypoint_executes(monkeypatch):
     def fake_cli(args):
         calls.append(("cli", list(args)))
 
-    import omnirefactor.cli.runner
+    import omnipose.cli.runner
 
-    monkeypatch.setattr(omnirefactor.cli.runner, "main", fake_cli)
+    monkeypatch.setattr(omnipose.cli.runner, "main", fake_cli)
 
     old_argv = sys.argv
     try:
-        sys.modules.pop("omnirefactor.__main__", None)
+        sys.modules.pop("omnipose.__main__", None)
         sys.argv = ["-m", "--dir", "data"]
-        runpy.run_module("omnirefactor.__main__", run_name="__main__")
+        runpy.run_module("omnipose.__main__", run_name="__main__")
     finally:
         sys.argv = old_argv
 

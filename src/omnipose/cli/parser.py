@@ -3,7 +3,7 @@ from .types import none_or_str
 
 
 def get_arg_parser():
-    """Parse command line arguments for omnirefactor main function.
+    """Parse command line arguments for omnipose main function.
 
     Note: this function has to be in a separate file to allow autodoc to work for CLI.
     The autodoc_mock_imports in conf.py does not work for sphinx-argparse sometimes,

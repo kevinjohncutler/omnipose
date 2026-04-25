@@ -1,9 +1,9 @@
-"""Tests for omnirefactor.data.norm — per-image per-channel normalization."""
+"""Tests for omnipose.data.norm — per-image per-channel normalization."""
 
 import numpy as np
 import tifffile
 
-from omnirefactor.data.norm import compute_norm_params, apply_norm_params
+from omnipose.data.norm import compute_norm_params, apply_norm_params
 
 
 def _write_tiff(path, arr):

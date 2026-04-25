@@ -1,4 +1,4 @@
-"""Tests for omnirefactor.plot.edges.plot_edges.
+"""Tests for omnipose.plot.edges.plot_edges.
 
 Builds a minimal affinity graph from a small labeled mask (pattern taken from
 docs/affinity.ipynb), then verifies rendering produces LineCollection segments
@@ -12,7 +12,7 @@ from matplotlib.backends.backend_agg import FigureCanvasAgg as FigureCanvas
 from matplotlib.collections import LineCollection
 
 from ocdkit.array.spatial import kernel_setup, masks_to_affinity, get_neighbors
-from omnirefactor.plot.edges import plot_edges
+from omnipose.plot.edges import plot_edges
 
 
 def _build_affinity(mask):

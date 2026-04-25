@@ -8,11 +8,11 @@ ref_src = repo_root / "refactor" / "src"
 sys.path.insert(0, str(ref_src))
 sys.path.insert(0, str(repo_root / "src"))
 
-from omnirefactor import io as ref_io
-from omnirefactor import models as ref_models
-from omnirefactor import core as ref_core
-from omnirefactor.core import loss as ref_loss_module
-from omnirefactor import transforms as ref_transforms
+from omnipose import io as ref_io
+from omnipose import models as ref_models
+from omnipose import core as ref_core
+from omnipose.core import loss as ref_loss_module
+from omnipose import transforms as ref_transforms
 import cellpose_omni.models as base_models
 import omnipose.core as base_core
 
@@ -68,7 +68,7 @@ if __name__ == "__main__":
 
     # disable skimage noise to remove nondeterminism
     base_core.SKIMAGE_ENABLED = False
-    from omnirefactor.core import augment as ref_aug
+    from omnipose.core import augment as ref_aug
     ref_aug.SKIMAGE_ENABLED = False
 
     ref_model = ref_models.OmniModel(gpu=False, model_type="bact_phase_affinity")

@@ -4,7 +4,7 @@
 
 This folder hosts a clean, minimal re-implementation of Omnipose with two separable packages:
 
-- `omnirefactor`: the core Omnipose package (ND-first, backwards-compatible API)
+- `omnipose`: the core Omnipose package (ND-first, backwards-compatible API)
 - `omnitools`: shared utilities (plotting, file management, transforms)
 
 The goal is to preserve all current model behaviors and outputs while simplifying structure and removing unused Cellpose code paths.
@@ -30,17 +30,17 @@ Goal: keep ND-first logic intact and avoid behavior changes. This is a starting 
 
 | Current module | Target module | Notes |
 | --- | --- | --- |
-| `src/omnipose/core.py` | `refactor/src/omnirefactor/core.py` | ND-centric core + model logic; preserve function signatures |
-| `src/omnipose/data.py` | `refactor/src/omnirefactor/data.py` | Data I/O and preprocessing; confirm ND handling |
-| `src/omnipose/loss.py` | `refactor/src/omnirefactor/loss.py` | Model losses; keep outputs identical |
-| `src/omnipose/gpu.py` | `refactor/src/omnirefactor/gpu.py` | Device selection/helpers |
-| `src/omnipose/measure.py` | `refactor/src/omnirefactor/measure.py` | Metrics/measurements; ND-first |
-| `src/omnipose/stacks.py` | `refactor/src/omnirefactor/stacks.py` | Volume stack helpers |
-| `src/omnipose/cli.py` | `refactor/src/omnirefactor/cli.py` | CLI entry; keep flags/args |
-| `src/omnipose/__main__.py` | `refactor/src/omnirefactor/__main__.py` | CLI entrypoint |
-| `src/omnipose/dependencies.py` | `refactor/src/omnirefactor/dependencies.py` | Dependency checks (keep lazy imports) |
-| `src/omnipose/logger.py` | `refactor/src/omnirefactor/logger.py` | Logging setup |
-| `src/omnipose/profiling.py` | `refactor/src/omnirefactor/profiling.py` | Profiling utilities |
+| `src/omnipose/core.py` | `refactor/src/omnipose/core.py` | ND-centric core + model logic; preserve function signatures |
+| `src/omnipose/data.py` | `refactor/src/omnipose/data.py` | Data I/O and preprocessing; confirm ND handling |
+| `src/omnipose/loss.py` | `refactor/src/omnipose/loss.py` | Model losses; keep outputs identical |
+| `src/omnipose/gpu.py` | `refactor/src/omnipose/gpu.py` | Device selection/helpers |
+| `src/omnipose/measure.py` | `refactor/src/omnipose/measure.py` | Metrics/measurements; ND-first |
+| `src/omnipose/stacks.py` | `refactor/src/omnipose/stacks.py` | Volume stack helpers |
+| `src/omnipose/cli.py` | `refactor/src/omnipose/cli.py` | CLI entry; keep flags/args |
+| `src/omnipose/__main__.py` | `refactor/src/omnipose/__main__.py` | CLI entrypoint |
+| `src/omnipose/dependencies.py` | `refactor/src/omnipose/dependencies.py` | Dependency checks (keep lazy imports) |
+| `src/omnipose/logger.py` | `refactor/src/omnipose/logger.py` | Logging setup |
+| `src/omnipose/profiling.py` | `refactor/src/omnipose/profiling.py` | Profiling utilities |
 | `src/omnipose/color.py` | `refactor/src/omnitools/color.py` | Generic color utilities |
 | `src/omnipose/plot.py` | `refactor/src/omnitools/plot.py` | Plotting utils; retain 2D outline plotting |
 | `src/omnipose/utils.py` | `refactor/src/omnitools/utils.py` | Generic helpers (file mgmt, transforms) |
@@ -61,7 +61,7 @@ Goal: keep ND-first logic intact and avoid behavior changes. This is a starting 
 - `omnitools.misc`: ND grid/label helpers (subset from `misc.py`)
 
 ## Notes
-- Temporary package name: `omnirefactor` to allow co-install with existing `omnipose`.
+- Temporary package name: `omnipose` to allow co-install with existing `omnipose`.
 - Parity tests live in `refactor/tests_parity/`.
 
 ## Parity Runs

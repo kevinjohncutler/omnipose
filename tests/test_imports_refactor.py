@@ -5,7 +5,7 @@ import pkgutil
 import inspect
 from pathlib import Path
 import pytest
-import omnirefactor
+import omnipose
 import sys
 from pathlib import Path
 TESTS_DIR = Path(__file__).resolve().parent
@@ -18,11 +18,11 @@ _SKIP_GUI = os.environ.get("OMNIREF_SKIP_GUI_TESTS", "1") != "0"
 modules = [
     module_name
     for _, module_name, _ in pkgutil.walk_packages(
-        omnirefactor.__path__, omnirefactor.__name__ + "."
+        omnipose.__path__, omnipose.__name__ + "."
     )
 ]
 if _SKIP_GUI:
-    modules = [name for name in modules if not name.startswith("omnirefactor.gui")]
+    modules = [name for name in modules if not name.startswith("omnipose.gui")]
 
 
 @pytest.mark.parametrize("module_name", modules)

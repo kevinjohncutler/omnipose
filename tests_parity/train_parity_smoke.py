@@ -22,14 +22,14 @@ sys.path.insert(0, str(refactor_src))
 # original package
 sys.path.insert(0, str(repo_root / "src"))
 
-from omnirefactor import io as ref_io
-from omnirefactor import models as ref_models
+from omnipose import io as ref_io
+from omnipose import models as ref_models
 import cellpose_omni.models as base_models
 
 def _patch_random_noise():
     try:
         import omnipose.core as base_core
-        from omnirefactor.core import augment as ref_aug
+        from omnipose.core import augment as ref_aug
     except Exception:
         return
     base_core.random_noise = _deterministic_random_noise

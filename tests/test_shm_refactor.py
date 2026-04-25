@@ -1,4 +1,4 @@
-"""Tests for omnirefactor.data.shm.ShmPool.
+"""Tests for omnipose.data.shm.ShmPool.
 
 ShmPool packs arrays into one POSIX shared memory segment so PyTorch DataLoader
 workers can zero-copy attach by name. The pickle round-trip simulates what
@@ -10,7 +10,7 @@ import pickle
 import numpy as np
 import pytest
 
-from omnirefactor.data.shm import ShmPool
+from omnipose.data.shm import ShmPool
 
 
 @pytest.fixture

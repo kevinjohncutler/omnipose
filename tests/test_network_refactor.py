@@ -10,14 +10,14 @@ import torch
 
 @pytest.fixture
 def net_module():
-    pkg_name = "omnirefactor.networks"
+    pkg_name = "omnipose.networks"
     saved_pkg = sys.modules.get(pkg_name)
     saved_sub = sys.modules.get(f"{pkg_name}.network")
     if pkg_name not in sys.modules:
         pkg = types.ModuleType(pkg_name)
-        pkg.__path__ = [str(Path(__file__).resolve().parents[1] / "src" / "omnirefactor" / "networks")]
+        pkg.__path__ = [str(Path(__file__).resolve().parents[1] / "src" / "omnipose" / "networks")]
         sys.modules[pkg_name] = pkg
-    path = Path(__file__).resolve().parents[1] / "src" / "omnirefactor" / "networks" / "network.py"
+    path = Path(__file__).resolve().parents[1] / "src" / "omnipose" / "networks" / "network.py"
     spec = importlib.util.spec_from_file_location(f"{pkg_name}.network", path)
     module = importlib.util.module_from_spec(spec)
     sys.modules[spec.name] = module

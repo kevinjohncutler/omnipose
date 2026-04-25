@@ -2,8 +2,8 @@ import numpy as np
 import torch
 from scipy.ndimage import gaussian_filter
 
-from omnirefactor.transforms import augment as aug
-from omnirefactor.transforms.augment import _mode_filter_gpu, _gaussian_blur_gpu
+from omnipose.transforms import augment as aug
+from omnipose.transforms.augment import _mode_filter_gpu, _gaussian_blur_gpu
 
 
 def test_mode_filter_hits_most_frequent():

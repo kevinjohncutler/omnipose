@@ -1,6 +1,6 @@
 import numpy as np
 
-from omnirefactor.utils import morph
+from omnipose.utils import morph
 
 
 def test_fill_holes_and_remove_small_masks():

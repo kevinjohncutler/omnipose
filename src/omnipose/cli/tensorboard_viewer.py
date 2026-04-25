@@ -6,13 +6,13 @@ loss history files, even when the model is not actively being trained.
 
 Usage:
     # From command line:
-    python -m omnirefactor.cli.tensorboard_viewer /path/to/model_loss_history.json
+    python -m omnipose.cli.tensorboard_viewer /path/to/model_loss_history.json
 
     # Or with a save directory (finds all loss history files):
-    python -m omnirefactor.cli.tensorboard_viewer /path/to/save_dir --port 6007
+    python -m omnipose.cli.tensorboard_viewer /path/to/save_dir --port 6007
 
     # Programmatically:
-    from omnirefactor.cli.tensorboard_viewer import view_loss_history
+    from omnipose.cli.tensorboard_viewer import view_loss_history
     view_loss_history('/path/to/model_loss_history.json')
 """
 
@@ -203,7 +203,7 @@ def view_loss_history(path, port=6006, host='localhost', launch_browser=True,
 
     # Create output directory
     if output_dir is None:
-        output_dir = tempfile.mkdtemp(prefix='omnirefactor_tb_')
+        output_dir = tempfile.mkdtemp(prefix='omnipose_tb_')
         cleanup = not keep_files
     else:
         os.makedirs(output_dir, exist_ok=True)
@@ -257,16 +257,16 @@ def main():
         epilog='''
 Examples:
     # View a single loss history file:
-    python -m omnirefactor.cli.tensorboard_viewer model_loss_history.json
+    python -m omnipose.cli.tensorboard_viewer model_loss_history.json
 
     # View all loss histories in a directory:
-    python -m omnirefactor.cli.tensorboard_viewer /path/to/save_dir
+    python -m omnipose.cli.tensorboard_viewer /path/to/save_dir
 
     # Use a different port:
-    python -m omnirefactor.cli.tensorboard_viewer model_loss_history.json --port 6007
+    python -m omnipose.cli.tensorboard_viewer model_loss_history.json --port 6007
 
     # Save TensorBoard files instead of using temp directory:
-    python -m omnirefactor.cli.tensorboard_viewer model_loss_history.json --output-dir ./tb_logs
+    python -m omnipose.cli.tensorboard_viewer model_loss_history.json --output-dir ./tb_logs
 '''
     )
     parser.add_argument('path', help='Path to loss history JSON file or directory')

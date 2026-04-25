@@ -1,6 +1,6 @@
 """Centralized imports for the utils subpackage (Layer 0).
 
-Layer 0: no omnirefactor deps — only stdlib, third-party, and ocdkit.
+Layer 0: no omnipose deps — only stdlib, third-party, and ocdkit.
 """
 
 import numpy as np

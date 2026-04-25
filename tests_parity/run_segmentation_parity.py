@@ -9,9 +9,9 @@ import numpy as np
 REFRACTOR_SRC = Path(__file__).resolve().parents[1] / "src"
 sys.path.insert(0, str(REFRACTOR_SRC))
 
-from omnirefactor import io as cpio
-from omnirefactor import models as omnimodels
-from omnirefactor.gpu import use_gpu
+from omnipose import io as cpio
+from omnipose import models as omnimodels
+from omnipose.gpu import use_gpu
 
 
 def _prepare_overlay(img):
@@ -101,15 +101,15 @@ def _plot_comparison(image_path, img, base_mask, ref_mask, out_path):
 
 
 def _run_dataset(model, img, params):
-    from omnirefactor.data.eval import eval_set
+    from omnipose.data.eval import eval_set
     dataset = eval_set([img], dim=2, channel_axis=None, rescale=1.0, tile=False)
     masks, _ = model.eval(dataset, **params)
     return masks
 
 
 def main():
-    import omnirefactor
-    print(f"omnirefactor_module: {omnirefactor.__file__}")
+    import omnipose
+    print(f"omnipose_module: {omnipose.__file__}")
     repo_root = Path(__file__).resolve().parents[2]
     test_dir = repo_root / "docs" / "test_files"
     files = cpio.get_image_files(str(test_dir))

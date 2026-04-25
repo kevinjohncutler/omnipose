@@ -349,9 +349,9 @@ def find_nonzero_runs(a):
 
 
 def turn_overseg(maski, bdi):
-    """Boundary/contour-based over-segmentation handling (removed in omnirefactor)."""
+    """Boundary/contour-based over-segmentation handling (removed in omnipose)."""
     raise NotImplementedError(
-        "turn_overseg relies on boundary/contour utilities that were removed from omnirefactor."
+        "turn_overseg relies on boundary/contour utilities that were removed from omnipose."
     )
 
 

@@ -1,7 +1,7 @@
-"""Verify omnirefactor.gpu re-exports from ocdkit and sets ARM env vars."""
+"""Verify omnipose.gpu re-exports from ocdkit and sets ARM env vars."""
 
 import os
-import omnirefactor.gpu as gpu_mod
+import omnipose.gpu as gpu_mod
 
 
 def test_reexports_ocdkit():
@@ -11,8 +11,8 @@ def test_reexports_ocdkit():
     assert gpu_mod.torch_GPU is torch_GPU
 
 
-def test_omnirefactor_gpu_env_vars():
-    """omnirefactor.gpu sets OMP_NUM_THREADS on ARM."""
+def test_omnipose_gpu_env_vars():
+    """omnipose.gpu sets OMP_NUM_THREADS on ARM."""
     if gpu_mod.ARM:
         assert os.environ.get("OMP_NUM_THREADS") == "1"
         assert os.environ.get("PARLAY_NUM_THREADS") == "1"

@@ -1,5 +1,5 @@
 import numpy as np
-from omnirefactor import models
+from omnipose import models
 
 
 def test_inference():

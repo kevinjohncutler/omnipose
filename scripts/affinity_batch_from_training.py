@@ -1,16 +1,16 @@
 #!/usr/bin/env python
-"""Compare loop vs batched affinity inside real training batch (omnirefactor)."""
+"""Compare loop vs batched affinity inside real training batch (omnipose)."""
 from __future__ import annotations
 
 import argparse
 from pathlib import Path
 import torch
 
-from omnirefactor import core
-from omnirefactor.models import OmniModel
-from omnirefactor.utils.neighbor import kernel_setup, get_supporting_inds
-from omnirefactor.metrics.loss import BatchMeanMSE, BatchMeanBSE
-from omnirefactor import io as io_mod
+from omnipose import core
+from omnipose.models import OmniModel
+from omnipose.utils.neighbor import kernel_setup, get_supporting_inds
+from omnipose.metrics.loss import BatchMeanMSE, BatchMeanBSE
+from omnipose import io as io_mod
 from torchvf.numerics import interp_vf, ivp_solver
 
 

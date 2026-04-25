@@ -1,7 +1,7 @@
 import numpy as np
 import pytest
 
-from omnirefactor import kwargs as kw
+from omnipose import kwargs as kw
 
 
 def test_base_kwargs_exclude_and_kwargs_merge():

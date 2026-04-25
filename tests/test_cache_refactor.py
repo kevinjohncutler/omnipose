@@ -1,4 +1,4 @@
-from omnirefactor.gpu import empty_cache
+from omnipose.gpu import empty_cache
 
 
 def test_empty_cache_callable():

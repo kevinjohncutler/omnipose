@@ -1,9 +1,9 @@
 """Live training loss viewer with session browser.
 
 Usage:
-    omnirefactor loss-server /path/to/models            # scan a directory
-    omnirefactor loss-server /path/to/loss.json         # single session
-    python -m omnirefactor.cli.loss_server . --port 8080
+    omnipose loss-server /path/to/models            # scan a directory
+    omnipose loss-server /path/to/loss.json         # single session
+    python -m omnipose.cli.loss_server . --port 8080
 """
 
 import argparse

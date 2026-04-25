@@ -1,7 +1,7 @@
 import numpy as np
 import tifffile
 
-from omnirefactor import io
+from omnipose import io
 
 
 def test_imread_npy_npz_tif(tmp_path):

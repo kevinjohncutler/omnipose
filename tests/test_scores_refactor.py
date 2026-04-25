@@ -1,6 +1,6 @@
 import numpy as np
 
-from omnirefactor.metrics import scores
+from omnipose.metrics import scores
 
 
 def _paint_circle(labels, center, radius, label_id):

@@ -8,9 +8,9 @@ ref_src = repo_root / "refactor" / "src"
 sys.path.insert(0, str(ref_src))
 sys.path.insert(0, str(repo_root / "src"))
 
-from omnirefactor import io as ref_io
-from omnirefactor import core as ref_core
-from omnirefactor import transforms as ref_transforms
+from omnipose import io as ref_io
+from omnipose import core as ref_core
+from omnipose import transforms as ref_transforms
 import omnipose.core as base_core
 import cellpose_omni.transforms as base_transforms
 

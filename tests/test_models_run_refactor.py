@@ -1,7 +1,7 @@
 import numpy as np
 import torch
 
-from omnirefactor.models import run as mrun
+from omnipose.models import run as mrun
 
 
 class DummyNet:

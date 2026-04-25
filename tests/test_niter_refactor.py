@@ -1,7 +1,7 @@
 import numpy as np
 import torch
 
-from omnirefactor.core import niter as cniter
+from omnipose.core import niter as cniter
 
 
 def test_get_niter_numpy_and_torch():

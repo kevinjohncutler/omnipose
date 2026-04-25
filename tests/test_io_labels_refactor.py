@@ -1,14 +1,14 @@
 import numpy as np
 
-import omnirefactor.io.labels as labels_mod
-from omnirefactor.io import imwrite
-from omnirefactor.io.labels import (
+import omnipose.io.labels as labels_mod
+from omnipose.io import imwrite
+from omnipose.io.labels import (
     get_label_files,
     load_train_test_data,
     masks_flows_to_seg,
     save_masks,
 )
-from omnirefactor.io.links import write_links
+from omnipose.io.links import write_links
 
 
 def test_load_train_test_data_duplicates_single_image(tmp_path):

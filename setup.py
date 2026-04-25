@@ -4,17 +4,17 @@ import sys
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "src"))
 
-from omnirefactor.dependencies import install_deps, gui_deps, distributed_deps
+from omnipose.dependencies import install_deps, gui_deps, distributed_deps
 
 with open("README.md", "r") as fh:
     long_description = fh.read()
 
 setup(
-    name="omnirefactor",
-    use_scm_version=True,
+    name="omnipose",
+    version="2.0.0",
     author="Kevin Cutler",
     author_email="kevinjohncutler@outlook.com",
-    description="Omnipose refactor package",
+    description="Omnipose: cell segmentation algorithm and GUI",
     long_description=long_description,
     long_description_content_type="text/markdown",
     url="https://github.com/kevinjohncutler/omnipose",
@@ -23,7 +23,7 @@ setup(
     package_data={
         # Ship the dock/window icon (and the larger logo) so the GUI launcher
         # can find them when installed from a wheel.
-        "omnirefactor.gui": ["*.png"],
+        "omnipose.gui": ["*.png"],
     },
     include_package_data=True,
     install_requires=install_deps,
@@ -42,12 +42,12 @@ setup(
     ],
     entry_points={
         "console_scripts": [
-            "omnirefactor = omnirefactor.__main__:main",
-            "omnirefactor-loss-server = omnirefactor.cli.loss_server:main",
-            "omnirefactor-sweep-report = omnirefactor.cli.sweep_report:main",
+            "omnipose = omnipose.__main__:main",
+            "omnipose-loss-server = omnipose.cli.loss_server:main",
+            "omnipose-sweep-report = omnipose.cli.sweep_report:main",
         ],
         "ocdkit.plugins": [
-            "omnipose = omnirefactor.gui:plugin",
+            "omnipose = omnipose.gui:plugin",
         ],
     },
     classifiers=[

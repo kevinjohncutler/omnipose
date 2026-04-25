@@ -11,9 +11,9 @@ REFACTOR_SRC = REPO_ROOT / "refactor" / "src"
 sys.path.insert(0, str(BASE_SRC))
 sys.path.insert(0, str(REFACTOR_SRC))
 
-from omnirefactor import io as cpio
-from omnirefactor import models as omnimodels
-from omnirefactor.gpu import use_gpu
+from omnipose import io as cpio
+from omnipose import models as omnimodels
+from omnipose.gpu import use_gpu
 from cellpose_omni import models as base_models
 
 
@@ -49,8 +49,8 @@ def _param_table_row(params, equal, max_diff):
 
 
 def main():
-    import omnirefactor
-    print(f"omnirefactor_module: {omnirefactor.__file__}")
+    import omnipose
+    print(f"omnipose_module: {omnipose.__file__}")
     test_dir = REPO_ROOT / "docs" / "test_files"
     files = cpio.get_image_files(str(test_dir))
     image_path = files[0]

@@ -109,7 +109,7 @@ How to install Omnipose
 
    ::
 
-      git clone https://github.com/kevinjohncutler/omnirefactor.git
+      git clone https://github.com/kevinjohncutler/omnipose.git
       cd omnipose
       pip install -e .
 
@@ -120,7 +120,7 @@ How to install Omnipose
 
    .. code-block::
    
-      pip uninstall omnirefactor && pip cache remove omnirefactor
+      pip uninstall omnipose && pip cache remove omnipose
 
    to prevent version conflicts. See :ref:`project structure <project-structure>` for more details. 
 
@@ -232,7 +232,7 @@ similarly:
 
 ::
 
-   omnirefactor --train --use_gpu --dir <bacterial dataset directory> --mask_filter _masks \
+   omnipose --train --use_gpu --dir <bacterial dataset directory> --mask_filter _masks \
             --n_epochs 4000 --pretrained_model None --learning_rate 0.1 --diameter 0 \
             --batch_size 16 --RAdam --img_filter _img --nclasses 3
             
@@ -261,7 +261,7 @@ dataset was:
 
 ::
 
-   omnirefactor --use_gpu --train --dir <path> --mask_filter _masks \
+   omnipose --use_gpu --train --dir <path> --mask_filter _masks \
             --n_epochs 4000 --pretrained_model None --learning_rate 0.1 --save_every 50 \
             --save_each  --verbose --look_one_level_down --all_channels --dim 3 \
             --RAdam --batch_size 4 --diameter 0 --nclasses 3
@@ -292,14 +292,14 @@ that means Cellpose actually imports Omnipose to replace many of its
 operations with the Omnipose versions with ``omni=True``. Omnipose was
 first packaged into the Cellpose repo before I began making too many
 ND-generalizations (full rewrites) for the authors to maintain. Thus was
-birthed my ``omnirefactor`` fork, which I published to PyPi separately
+birthed my ``omnipose`` fork, which I published to PyPi separately
 from Omnipose for some time. I later decided that maintaining two
 packages for one project was overcomplicated for me and users
 (especially for installations from the repo), so the latest version of
-``omnirefactor`` now lives here. ``omnirefactor`` still gets installed
+``omnipose`` now lives here. ``omnipose`` still gets installed
 as its own subpackage when you install Omnipose. If you have issues
 migrating to the new version, make sure to
-``pip uninstall omnipose omnirefactor`` before re-installing Omnipose.
+``pip uninstall omnipose omnipose`` before re-installing Omnipose.
 The ``install.py`` script simply runs ``pip install -e .{extras}`` in
 the ``omnipose`` and ``cellpose`` directories.
 
@@ -385,7 +385,7 @@ using Omnipose for noncommercial applications.
 
 .. |Downloads| image:: https://static.pepy.tech/personalized-badge/omnipose?period=total&units=international_system&left_color=grey&right_color=green&left_text=Downloads
    :target: https://pepy.tech/project/omnipose
-.. |PyPI version| image:: https://badge.fury.io/py/omnirefactor.svg
+.. |PyPI version| image:: https://badge.fury.io/py/omnipose.svg
    :target: https://badge.fury.io/py/omnipose
 
 

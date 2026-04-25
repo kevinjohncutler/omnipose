@@ -1,10 +1,10 @@
-"""omnirefactor.plot — segmentation result visualization (Layer 3).
+"""omnipose.plot — segmentation result visualization (Layer 3).
 
 Layer 3: depends on L1 (transforms) and L2 (io).
 
 Segmentation-specific code lives in leaf modules (``display``, ``edges``,
 ``overlay``). Generic plotting primitives live in ``ocdkit.plot`` and are
-re-exported here so ``omnirefactor.plot.X`` keeps working for notebooks.
+re-exported here so ``omnipose.plot.X`` keeps working for notebooks.
 """
 
 import warnings

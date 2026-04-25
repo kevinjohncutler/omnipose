@@ -1,13 +1,13 @@
-"""Tests for omnirefactor.plot — display, overlay, and edges."""
+"""Tests for omnipose.plot — display, overlay, and edges."""
 
 import numpy as np
 import pytest
 from matplotlib.figure import Figure
 from matplotlib.backends.backend_agg import FigureCanvasAgg as FigureCanvas
 
-from omnirefactor.plot.display import image_to_rgb, outline_view
-from omnirefactor.plot.overlay import channel_overlay, mask_outline_overlay
-from omnirefactor.plot.edges import GC, custom_new_gc, plot_edges
+from omnipose.plot.display import image_to_rgb, outline_view
+from omnipose.plot.overlay import channel_overlay, mask_outline_overlay
+from omnipose.plot.edges import GC, custom_new_gc, plot_edges
 
 
 def _make_img_and_masks():

@@ -28,7 +28,7 @@ os.environ.setdefault("OMNIREFACTOR_DOCS_EXPORT_ALL", "1")
 
 # Ensure imports work regardless of working directory by anchoring to conf.py location
 conf_dir = os.path.dirname(__file__)
-sys.path.insert(0, os.path.abspath(os.path.join(conf_dir, '..', 'src', 'omnirefactor')))
+sys.path.insert(0, os.path.abspath(os.path.join(conf_dir, '..', 'src', 'omnipose')))
 sys.path.insert(0, os.path.abspath(os.path.join(conf_dir, '..', 'src')))
 sys.path.insert(0, os.path.abspath(os.path.join(conf_dir, '..')))
 
@@ -46,27 +46,27 @@ pygments_style = 'style.CustomStyle'
 pygments_dark_style = 'style.CustomStyle'
 
 def _strip_all_for_autodoc() -> None:
-    """Remove __all__ from omnirefactor packages so autodoc shows dynamic members."""
+    """Remove __all__ from omnipose packages so autodoc shows dynamic members."""
     import importlib
 
     packages = [
-        "omnirefactor",
-        "omnirefactor.cli",
-        "omnirefactor.core",
-        "omnirefactor.data",
-        "omnirefactor.dependencies",
-        "omnirefactor.gpu",
-        "omnirefactor.gui",
-        "omnirefactor.io",
-        "omnirefactor.kwargs",
-        "omnirefactor.load",
-        "omnirefactor.logger",
-        "omnirefactor.metrics",
-        "omnirefactor.models",
-        "omnirefactor.networks",
-        "omnirefactor.plot",
-        "omnirefactor.transforms",
-        "omnirefactor.utils",
+        "omnipose",
+        "omnipose.cli",
+        "omnipose.core",
+        "omnipose.data",
+        "omnipose.dependencies",
+        "omnipose.gpu",
+        "omnipose.gui",
+        "omnipose.io",
+        "omnipose.kwargs",
+        "omnipose.load",
+        "omnipose.logger",
+        "omnipose.metrics",
+        "omnipose.models",
+        "omnipose.networks",
+        "omnipose.plot",
+        "omnipose.transforms",
+        "omnipose.utils",
     ]
     for name in packages:
         try:
@@ -94,7 +94,7 @@ def _expose_submodule_members(pkg_name: str) -> None:
         return
 
     # First pass: expose submodule members on the package.
-    # Skip attributes whose __module__ belongs to a DIFFERENT omnirefactor
+    # Skip attributes whose __module__ belongs to a DIFFERENT omnipose
     # subpackage — those are cross-package imports (e.g. data.eval imports
     # io.imread) that should NOT be documented under this package.
     for info in pkgutil.iter_modules(pkg.__path__):
@@ -111,8 +111,8 @@ def _expose_submodule_members(pkg_name: str) -> None:
             try:
                 obj = getattr(sub, name)
                 orig_mod = getattr(obj, '__module__', '') or ''
-                # Skip if it belongs to a different omnirefactor subpackage
-                if (orig_mod.startswith('omnirefactor.')
+                # Skip if it belongs to a different omnipose subpackage
+                if (orig_mod.startswith('omnipose.')
                         and not orig_mod.startswith(pkg_name)):
                     continue
                 setattr(pkg, name, obj)
@@ -241,7 +241,7 @@ def setup(app):
         docs_dir = Path(__file__).resolve().parent
         api_dir = docs_dir / "api"
         api_dir.mkdir(parents=True, exist_ok=True)
-        src_root = docs_dir.parent / "src" / "omnirefactor"
+        src_root = docs_dir.parent / "src" / "omnipose"
 
         # Discover top-level packages automatically from the filesystem.
         packages = []
@@ -261,56 +261,56 @@ def setup(app):
             "",
         ]
         for pkg in packages:
-            index_lines.append(f"   omnirefactor.{pkg}")
+            index_lines.append(f"   omnipose.{pkg}")
         index_lines.append("")
         (api_dir / "index.rst").write_text("\n".join(index_lines))
 
         # Build per-package pages that expose flattened members.
         for pkg in packages:
-            title = f"omnirefactor.{pkg}"
+            title = f"omnipose.{pkg}"
             pkg_lines = [
                 title,
                 "=" * len(title),
                 "",
-                f".. automodule:: omnirefactor.{pkg}",
+                f".. automodule:: omnipose.{pkg}",
                 "   :members:",
                 "   :imported-members:",
                 "   :show-inheritance:",
                 "   :undoc-members:",
                 "",
             ]
-            (api_dir / f"omnirefactor.{pkg}.rst").write_text("\n".join(pkg_lines))
+            (api_dir / f"omnipose.{pkg}.rst").write_text("\n".join(pkg_lines))
 
         # Ensure package namespaces expose submodule members for autodoc.
         for pkg in packages:
-            _expose_submodule_members(f"omnirefactor.{pkg}")
-            _set_docs_all(f"omnirefactor.{pkg}")
+            _expose_submodule_members(f"omnipose.{pkg}")
+            _set_docs_all(f"omnipose.{pkg}")
 
         # Root module page.
-        root_title = "omnirefactor"
+        root_title = "omnipose"
         root_lines = [
             root_title,
             "=" * len(root_title),
             "",
-            ".. automodule:: omnirefactor",
+            ".. automodule:: omnipose",
             "   :members:",
             "   :show-inheritance:",
             "   :undoc-members:",
             "",
         ]
-        _set_docs_all("omnirefactor")
-        root_funcs, root_classes = _collect_public_members("omnirefactor")
+        _set_docs_all("omnipose")
+        root_funcs, root_classes = _collect_public_members("omnipose")
         if root_funcs or root_classes:
             root_lines.extend(["Members", "-------", ""])
             if root_funcs:
                 root_lines.extend(["Functions", "^^^^^^^^^", ""])
-                root_lines.extend([f"- :func:`omnirefactor.{name}`" for name in root_funcs])
+                root_lines.extend([f"- :func:`omnipose.{name}`" for name in root_funcs])
                 root_lines.append("")
             if root_classes:
                 root_lines.extend(["Classes", "^^^^^^^", ""])
-                root_lines.extend([f"- :class:`omnirefactor.{name}`" for name in root_classes])
+                root_lines.extend([f"- :class:`omnipose.{name}`" for name in root_classes])
                 root_lines.append("")
-        (api_dir / "omnirefactor.rst").write_text("\n".join(root_lines))
+        (api_dir / "omnipose.rst").write_text("\n".join(root_lines))
 
     app.connect("builder-inited", _build_api_pages)
     return None
@@ -322,7 +322,7 @@ import datetime
 current_year = datetime.datetime.now().year
 
 # Set the copyright string
-project = 'omnirefactor'
+project = 'omnipose'
 copyright = f'{current_year}, Kevin Cutler, University of Washington'
 author = 'Kevin Cutler'
 
@@ -408,7 +408,7 @@ templates_path = ['_templates']
 
 
 # Set the canonical URL for the latest version
-html_baseurl = 'https://omnirefactor.readthedocs.io/'
+html_baseurl = 'https://omnipose.readthedocs.io/'
 
 # Configure HTML context for the canonical URL
 html_context = {
@@ -438,7 +438,7 @@ exclude_patterns = [
     'readme_full.rst',
     'notes/**',
     'affinity_ordering.md',
-    'api/omnirefactor.rst', # auto-generated; linked from api/index.rst
+    'api/omnipose.rst', # auto-generated; linked from api/index.rst
     'examples/*-Copy*.ipynb',       # scratch example copies
     'examples/Untitled*.ipynb',     # untitled scratch examples
     'examples/benchmark_*.ipynb',   # benchmark notebooks
@@ -525,7 +525,7 @@ html_css_files = [
 ]
 
 
-# from omnirefactor.plot import sinebow
+# from omnipose.plot import sinebow
 # for simplicity, just copy the function here
 import numpy as np
 def sinebow(N,bg_color=[0,0,0,0], offset=0):
@@ -728,7 +728,7 @@ html_theme_options = {
     "footer_icons": [
             {
                 "name": "GitHub",
-                "url": "https://github.com/kevinjohncutler/omnirefactor",
+                "url": "https://github.com/kevinjohncutler/omnipose",
                 "html": "",
                 "class": "fa-brands fa-github",
             },

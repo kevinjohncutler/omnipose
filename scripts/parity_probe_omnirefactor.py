@@ -9,7 +9,7 @@ import numpy as np
 import torch
 import imageio.v3 as iio
 
-from omnirefactor.models import OmniModel
+from omnipose.models import OmniModel
 
 
 def tensor_hash(t: torch.Tensor) -> str:

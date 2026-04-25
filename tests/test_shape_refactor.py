@@ -1,7 +1,7 @@
 import numpy as np
 import pytest
 
-from omnirefactor.transforms import shape
+from omnipose.transforms import shape
 
 
 def test_convert_image_squeeze_and_channel_axis():

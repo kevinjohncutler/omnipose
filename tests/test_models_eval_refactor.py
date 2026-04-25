@@ -2,9 +2,9 @@ import warnings
 
 import numpy as np
 
-from omnirefactor.data import eval as eval_mod
-from omnirefactor.models import OmniModel, eval as meval
-from omnirefactor.models import run as mrun
+from omnipose.data import eval as eval_mod
+from omnipose.models import OmniModel, eval as meval
+from omnipose.models import run as mrun
 
 
 def make_model(*, dim=2, nchan=1, nclasses=3, omni=True, logits=True):

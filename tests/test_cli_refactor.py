@@ -3,7 +3,7 @@ from pathlib import Path
 import numpy as np
 import tifffile
 
-from omnirefactor.cli import runner
+from omnipose.cli import runner
 
 def _write_training_pair(directory: Path, stem: str) -> None:
     image = (np.random.rand(32, 32) * 255).astype(np.uint8)

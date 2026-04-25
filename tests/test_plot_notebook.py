@@ -10,7 +10,7 @@ import nbformat
 from nbclient import NotebookClient
 
 _COV_DIR = os.path.normpath(os.path.join(os.path.dirname(__file__), '..', '.coverage_combined'))
-_SRC_DIR = os.path.normpath(os.path.join(os.path.dirname(__file__), '..', 'src', 'omnirefactor'))
+_SRC_DIR = os.path.normpath(os.path.join(os.path.dirname(__file__), '..', 'src', 'omnipose'))
 
 
 def _make_notebook(cells):
@@ -42,7 +42,7 @@ class TestShowSegmentation:
         nb = _make_notebook([
             "import numpy as np",
             "from matplotlib.figure import Figure",
-            "from omnirefactor.plot.display import show_segmentation",
+            "from omnipose.plot.display import show_segmentation",
             (
                 "img = np.random.rand(32, 32).astype(np.float32)\n"
                 "masks = np.zeros((32, 32), dtype=np.int32)\n"
@@ -61,7 +61,7 @@ class TestShowSegmentation:
         nb = _make_notebook([
             "import numpy as np",
             "from matplotlib.figure import Figure",
-            "from omnirefactor.plot.display import show_segmentation",
+            "from omnipose.plot.display import show_segmentation",
             (
                 "img = np.random.rand(32, 32, 2).astype(np.float32)\n"
                 "masks = np.zeros((32, 32), dtype=np.int32)\n"

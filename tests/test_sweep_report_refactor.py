@@ -1,10 +1,10 @@
-"""Tests for omnirefactor.cli.sweep_report."""
+"""Tests for omnipose.cli.sweep_report."""
 
 import json
 
 import pytest
 
-from omnirefactor.cli import sweep_report as sr
+from omnipose.cli import sweep_report as sr
 
 
 def _run(name, lr, seed, final_loss, sweep='sweep_a', status='completed', tags=None):

@@ -1,6 +1,6 @@
 import numpy as np
 
-from omnirefactor.utils import neighbor
+from omnipose.utils import neighbor
 
 
 def test_precompute_valid_mask_center_and_edge():

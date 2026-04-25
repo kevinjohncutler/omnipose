@@ -1,6 +1,6 @@
 import numpy as np
 
-from omnirefactor import io
+from omnipose import io
 
 
 def test_imio_read_write_npy(tmp_path):

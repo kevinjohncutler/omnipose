@@ -4,7 +4,7 @@ import numpy as np
 import pytest
 import torch
 
-from omnirefactor.data import train as train_mod
+from omnipose.data import train as train_mod
 
 
 def _make_train_set(**kwargs):

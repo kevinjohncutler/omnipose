@@ -1,6 +1,6 @@
 import os
 
-from omnirefactor.models import helpers
+from omnipose.models import helpers
 
 
 def test_resolve_pretrained_model_from_name(monkeypatch, tmp_path):

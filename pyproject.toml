@@ -1,9 +1,9 @@
 [build-system]
-requires = ["setuptools>=61", "wheel", "setuptools_scm", "numba"]
+requires = ["setuptools>=61", "wheel", "numba"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "omnirefactor"
+name = "omnipose"
 # specify these in setup.py
 
 dynamic = ["version",
@@ -15,13 +15,13 @@ dynamic = ["version",
            "optional-dependencies"]
 
 [project.scripts]
-omnirefactor = "omnirefactor.__main__:main"
-omnirefactor-gui = "omnirefactor.gui:main"
-omnirefactor-loss-server = "omnirefactor.cli.loss_server:main"
-omnirefactor-sweep-report = "omnirefactor.cli.sweep_report:main"
+omnipose = "omnipose.__main__:main"
+omnipose-gui = "omnipose.gui:main"
+omnipose-loss-server = "omnipose.cli.loss_server:main"
+omnipose-sweep-report = "omnipose.cli.sweep_report:main"
 
 [project.entry-points."ocdkit.plugins"]
-omnipose = "omnirefactor.gui:plugin"
+omnipose = "omnipose.gui:plugin"
 
 [tool.pytest.ini_options]
 testpaths     = ["tests"]
@@ -35,20 +35,19 @@ filterwarnings = [
 ]
 
 [tool.coverage.run]
-source = ["omnirefactor"]
+source = ["omnipose"]
 omit = [
   "*/_version.py",
-  "*/omnirefactor/load/*",
-  "*/omnirefactor/experimental/*",
-  "*/omnirefactor/cli/loss_server.py",
-  "*/omnirefactor/cli/tensorboard_viewer.py",
+  "*/omnipose/experimental/*",
+  "*/omnipose/cli/loss_server.py",
+  "*/omnipose/cli/tensorboard_viewer.py",
 ]
 
 [tool.coverage.paths]
 source = [
-  "src/omnirefactor",
-  "/Volumes/DataDrive/omnipose/omnirefactor/src/omnirefactor",
-  "/home/kcutler/DataDrive/omnipose/omnirefactor/src/omnirefactor",
+  "src/omnipose",
+  "/Volumes/DataDrive/omnipose/src/omnipose",
+  "/home/kcutler/DataDrive/omnipose/src/omnipose",
 ]
 
 [tool.coverage.report]

@@ -3,7 +3,7 @@
 :sinebow13:`Inputs`
 ===================
 
-Omnipose automatically detects TIFs, PNGs, or JPEGs. Under the hood, :mod:`omnirefactor.io` uses ``tifffile``
+Omnipose automatically detects TIFs, PNGs, or JPEGs. Under the hood, :mod:`omnipose.io` uses ``tifffile``
 for loading TIFs and cv2 for PNG and JPEG. We are considering adding direct support for 
 other bioformats types such as ND2, but for now all input must be exported to the above
 image formats prior to running Omnipose. 
@@ -52,9 +52,9 @@ parameters:
     of the image which corresponds to the image channels and to the z axis. 
     For example. a 105-plane z-stack image with 2 channels of shape :py:`(1024,1024,2,105,1)` can be 
     specified with :py:`channel_axis=2` and :py:`z_axis=3`. If :py:`channel_axis=None`, 
-    omnirefactor will try to automatically determine the channel axis by choosing 
+    omnipose will try to automatically determine the channel axis by choosing 
     the dimension with the minimal size after squeezing. If :py:`z_axis=None` 
-    omnirefactor will automatically select the first non-channel axis of the image 
+    omnipose will automatically select the first non-channel axis of the image 
     to be the Z axis (ZYX ordering). These parameters can be specified using the command line 
     with :bash:`--channel_axis` or :bash:`--z_axis` or as inputs to ``model.eval`` for 
     the ``Cellpose`` or ``OmniModel`` model.

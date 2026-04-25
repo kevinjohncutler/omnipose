@@ -27,13 +27,13 @@ document.addEventListener("DOMContentLoaded", () => {
 
     segments.forEach((seg, idx) => {
       const span = document.createElement("span");
-      span.className = "omnirefactor-path-seg";
+      span.className = "omnipose-path-seg";
       span.style.color = sinebow(idx / count);
       span.textContent = seg;
       frag.appendChild(span);
 
       const dot = document.createElement("span");
-      dot.className = "omnirefactor-path-dot";
+      dot.className = "omnipose-path-dot";
       dot.textContent = ".";
       frag.appendChild(dot);
     });
@@ -61,7 +61,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
   if (debug && debugRows.length) {
     const panel = document.createElement("div");
-    panel.className = "omnirefactor-color-debug";
+    panel.className = "omnipose-color-debug";
     panel.textContent = debugRows.slice(0, 12).join("\n");
     document.body.appendChild(panel);
   }

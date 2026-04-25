@@ -5,7 +5,7 @@ from typing import List
 
 import torch
 
-from omnirefactor.core import fields
+from omnipose.core import fields
 
 
 def _sync(device):

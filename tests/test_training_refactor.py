@@ -1,7 +1,7 @@
 import os
 import numpy as np
 import torch
-from omnirefactor import models
+from omnipose import models
 
 
 def test_training(tmp_path):

@@ -1,6 +1,6 @@
 import numpy as np
 
-from omnirefactor.transforms import stacks
+from omnipose.transforms import stacks
 
 
 def test_make_unique_offsets_labels():

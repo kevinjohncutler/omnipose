@@ -2,25 +2,25 @@
 
 Usage:
     # List all runs under a directory, sorted by final loss
-    omnirefactor sweep-report /path/to/models
+    omnipose sweep-report /path/to/models
 
     # Filter by sweep/tag
-    omnirefactor sweep-report /path --sweep lr_sweep_v2
-    omnirefactor sweep-report /path --tag bact_fluor
+    omnipose sweep-report /path --sweep lr_sweep_v2
+    omnipose sweep-report /path --tag bact_fluor
 
     # Filter by arbitrary run.json field (nested via dots)
-    omnirefactor sweep-report /path \\
+    omnipose sweep-report /path \\
         --filter status=completed \\
         --filter hyperparameters.omni=true
 
     # Group by a hyperparameter and show aggregate stats
-    omnirefactor sweep-report /path --group-by hyperparameters.learning_rate
+    omnipose sweep-report /path --group-by hyperparameters.learning_rate
 
     # Top-N by a specific metric
-    omnirefactor sweep-report /path --metric summary.min_loss_raw --top 5
+    omnipose sweep-report /path --metric summary.min_loss_raw --top 5
 
     # JSON output (machine-readable)
-    omnirefactor sweep-report /path --format json
+    omnipose sweep-report /path --format json
 """
 
 from __future__ import annotations

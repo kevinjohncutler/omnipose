@@ -10,22 +10,22 @@ def _assert_lazy_init(mod):
 
 def test_package_init_enable_submodules():
     for name in [
-        "omnirefactor",
-        "omnirefactor.core",
-        "omnirefactor.transforms",
-        "omnirefactor.utils",
-        "omnirefactor.io",
-        "omnirefactor.data",
-        "omnirefactor.cli",
-        "omnirefactor.metrics",
-        "omnirefactor.plot",
+        "omnipose",
+        "omnipose.core",
+        "omnipose.transforms",
+        "omnipose.utils",
+        "omnipose.io",
+        "omnipose.data",
+        "omnipose.cli",
+        "omnipose.metrics",
+        "omnipose.plot",
     ]:
         mod = importlib.import_module(name)
         _assert_lazy_init(mod)
 
 
-def test_load_init_exports():
-    mod = importlib.import_module("omnirefactor.load")
+def test_pkg_init_exports():
+    mod = importlib.import_module("omnipose.pkg")
     assert hasattr(mod, "enable_submodules")
     assert hasattr(mod, "attach_helpers")
     assert hasattr(mod, "load_submodules")
