@@ -9038,6 +9038,12 @@ function beginBrushStroke(evt, worldPoint) {
 }
 
 canvas.addEventListener('pointerdown', (evt) => {
+  log('pointerdown pointerType=' + evt.pointerType
+    + ' button=' + evt.button + ' buttons=' + evt.buttons
+    + ' pressure=' + (typeof evt.pressure === 'number' ? evt.pressure.toFixed(3) : '?')
+    + ' isPrimary=' + evt.isPrimary
+    + ' tilt=' + (evt.tiltX || 0) + ',' + (evt.tiltY || 0)
+    + (typeof evt.touchType === 'string' ? ' touchType=' + evt.touchType : ''));
   cursorInsideCanvas = true;
   gestureState = null;
   pointerState.registerPointerDown(evt);
@@ -9055,6 +9061,13 @@ canvas.addEventListener('pointerdown', (evt) => {
   }
   const isStylus = pointerState.isStylusPointer(evt);
   if (isStylus) {
+    // Take pointer capture immediately (tldraw pattern): Windows Ink otherwise
+    // races its press-and-hold gesture recognition against the stroke and
+    // swallows moves. Apple Pencil ignores this — no harm on iPad.
+    try {
+      canvas.setPointerCapture(evt.pointerId);
+      activePointerId = evt.pointerId;
+    } catch (_) { /* ignore */ }
     if (!pointerState.options.stylus.allowSimultaneousTouchGestures) {
       if (panPointerId !== null) {
         try {

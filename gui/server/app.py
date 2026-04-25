@@ -17,6 +17,7 @@ from typing import Any, Optional, TYPE_CHECKING
 
 import webview
 from starlette.requests import Request
+from fastapi.responses import HTMLResponse, JSONResponse, Response
 
 from .assets import WEB_DIR, GUI_DIR, build_html, append_gui_log
 from .routes import DebugAPI, WEBGL_LOG_PATH, _choose_path_osascript
