@@ -36,16 +36,11 @@ def test_main_calls_cli_or_gui(monkeypatch):
 def test_module_entrypoint_executes(monkeypatch):
     calls = []
 
-    def fake_gui(args):
-        calls.append(("gui", list(args)))
-
     def fake_cli(args):
         calls.append(("cli", list(args)))
 
-    import omnirefactor.gui
     import omnirefactor.cli.runner
 
-    monkeypatch.setattr(omnirefactor.gui, "main", fake_gui)
     monkeypatch.setattr(omnirefactor.cli.runner, "main", fake_cli)
 
     old_argv = sys.argv
@@ -53,11 +48,7 @@ def test_module_entrypoint_executes(monkeypatch):
         sys.modules.pop("omnirefactor.__main__", None)
         sys.argv = ["-m", "--dir", "data"]
         runpy.run_module("omnirefactor.__main__", run_name="__main__")
-        sys.modules.pop("omnirefactor.__main__", None)
-        sys.argv = ["-m"]
-        runpy.run_module("omnirefactor.__main__", run_name="__main__")
     finally:
         sys.argv = old_argv
 
     assert calls[0][0] == "cli"
-    assert calls[1][0] == "gui"

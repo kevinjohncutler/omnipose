@@ -21,13 +21,11 @@ setup(
     packages=find_packages(where="src"),
     package_dir={"": "src"},
     package_data={
-        "omnirefactor.gui": [
-            "web/*",
-            "web/*/*",
-            "web/*/*/*",
-            "web/*/*/*/*",
-        ],
+        # Ship the dock/window icon (and the larger logo) so the GUI launcher
+        # can find them when installed from a wheel.
+        "omnirefactor.gui": ["*.png"],
     },
+    include_package_data=True,
     install_requires=install_deps,
     extras_require={
         "gui": gui_deps,
@@ -42,12 +40,14 @@ setup(
     tests_require=[
         "pytest",
     ],
-    include_package_data=True,
     entry_points={
         "console_scripts": [
             "omnirefactor = omnirefactor.__main__:main",
             "omnirefactor-loss-server = omnirefactor.cli.loss_server:main",
             "omnirefactor-sweep-report = omnirefactor.cli.sweep_report:main",
+        ],
+        "ocdkit.plugins": [
+            "omnipose = omnirefactor.gui:plugin",
         ],
     },
     classifiers=[

@@ -16,12 +16,19 @@ dynamic = ["version",
 
 [project.scripts]
 omnirefactor = "omnirefactor.__main__:main"
+omnirefactor-gui = "omnirefactor.gui:main"
 omnirefactor-loss-server = "omnirefactor.cli.loss_server:main"
 omnirefactor-sweep-report = "omnirefactor.cli.sweep_report:main"
+
+[project.entry-points."ocdkit.plugins"]
+omnipose = "omnirefactor.gui:plugin"
 
 [tool.pytest.ini_options]
 testpaths     = ["tests"]
 norecursedirs = ["trash"]
+markers = [
+  "slow: end-to-end tests that run real inference (deselect with '-m \"not slow\"')",
+]
 filterwarnings = [
   "ignore::DeprecationWarning:networkit.profiling.profiling",
   "ignore:.*torch\\.jit\\.script_method.*:DeprecationWarning",
@@ -31,7 +38,6 @@ filterwarnings = [
 source = ["omnirefactor"]
 omit = [
   "*/_version.py",
-  "*/omnirefactor/gui/*",
   "*/omnirefactor/load/*",
   "*/omnirefactor/experimental/*",
   "*/omnirefactor/cli/loss_server.py",

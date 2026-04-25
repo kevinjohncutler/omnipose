@@ -9,7 +9,7 @@ re-exported here so ``omnirefactor.plot.X`` keeps working for notebooks.
 
 import warnings
 
-from ..load import enable_submodules
+from ..pkg import enable_submodules
 from ocdkit.plot import *  # canonical gateway for plot functions
 from ..transforms.imports import normalize99, rescale
 from ..io import masks_to_outlines

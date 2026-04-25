@@ -10,7 +10,7 @@ import torch.nn.functional as _F
 
 from .. import utils
 from .imports import Result, normalize99, rescale, border_indices, to_16_bit, diameters
-from ..utils.njit import most_frequent
+
 
 # scipy boundary mode → torch grid_sample padding_mode
 _SCIPY_TO_TORCH_PAD = {'constant': 'zeros', 'nearest': 'reflection', 'mirror': 'reflection'}
@@ -240,33 +240,7 @@ def rotate(V, theta, order=1, output_shape=None, center=None):
     return V_rot
 
 
-# no reason to use njit here except for compatibility with jitted functions that call it
-# this way, the same factor is used everywhere (CPU with/without interp, GPU)
-def mode_filter(masks):
-    """
-    Super fast mode filter (compared to scipy, idk about PIL) to clean up interpolated labels.
-    """
-    pad = 1
-    masks = np.pad(masks, pad).astype(int)
-    d = masks.ndim
-    shape = masks.shape
-    coords = np.nonzero(masks)
-    steps, inds, idx, fact, sign = utils.kernel_setup(d)
-
-    subinds = np.concatenate(inds)
-    substeps = steps[subinds]
-    neighbors = utils.get_neighbors(coords, substeps, d, shape)
-
-    neighbor_masks = masks[tuple(neighbors)]
-
-    mask_filt = np.zeros_like(masks)
-    most_f = most_frequent(neighbor_masks)
-    z = most_f == 0
-    most_f[z] = masks[coords][z]
-    mask_filt[coords] = most_f
-
-    unpad = tuple([slice(pad, -pad)] * d)
-    return mask_filt[unpad]
+from .imports import mode_filter
 
 
 # Omnipose has special training settings. Loss function and augmentation.
@@ -787,8 +761,4 @@ def random_crop_warp(img, Y, tyx, v1, v2, nchan, rescale_factor, scale_range, ga
     return imgi, lbl, scale
 
 
-def do_warp(A, M_inv, tyx, offset=0, order=1, mode='constant', **kwargs):
-    """Wrapper function for affine transformations during augmentation."""
-    return affine_transform(A, M_inv, offset=offset,
-                            output_shape=tyx, order=order,
-                            mode=mode, **kwargs)
+from .imports import do_warp
