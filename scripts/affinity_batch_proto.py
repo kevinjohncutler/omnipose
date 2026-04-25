@@ -10,8 +10,8 @@ from typing import Tuple
 
 import torch
 
-from omnirefactor.core.affinity import _get_affinity_torch
-from omnirefactor.utils.neighbor import kernel_setup, get_supporting_inds
+from omnipose.core.affinity import _get_affinity_torch
+from omnipose.utils.neighbor import kernel_setup, get_supporting_inds
 from ocdkit.array import torch_norm
 from torchvf.numerics import interp_vf, ivp_solver
 

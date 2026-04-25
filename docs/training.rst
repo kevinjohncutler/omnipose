@@ -7,7 +7,7 @@ Begin a training round in a terminal using the following command template:
 
 .. code-block:: 
 
-    omnirefactor --train --use_gpu --dir <training image directory> \
+    omnipose --train --use_gpu --dir <training image directory> \
              --img_filter <img_filter> --mask_filter <mask_filter> \
              --nchan <nchan> --all_channels --channel_axis <channel_axis> \
              --pretrained_model None --diameter 0 --nclasses 2 \
@@ -20,8 +20,8 @@ Begin a training round in a terminal using the following command template:
 
 The main commands here are:
 
-:bash:`omnirefactor` 
-    calls ``__main__.py`` in ``omnirefactor``, which first loads the images in :bash:`--dir` and formats them. Then :bash:`--train` toggles on the training branch (versus evaluation). 
+:bash:`omnipose` 
+    calls ``__main__.py`` in ``omnipose``, which first loads the images in :bash:`--dir` and formats them. Then :bash:`--train` toggles on the training branch (versus evaluation). 
 :bash:`--dir` 
     points to a folder of image and label pairs. With :bash:`--look_one_level_down`, you can let :bash:`--dir` point to a folder with subfolders. This can be very useful when training on several distinct subsets of ground truth data. 
 
@@ -29,7 +29,7 @@ The main commands here are:
     should be set to :py:`0` (and is now :py:`0` by default) to disable rescaling. Anything else will rescale your images relative to a mean diameter of 30 (see :doc:`diameter`), such that :bash:`--diameter 15` will **upscale** your image by a factor of 2 along each axis and :bash:`--diameter 60` will likewise **downscale** by a factor of 2. If you need automatic diameter estimation, see `Diameter and the Size Model`_. 
 
 :bash:`--nchan`, :bash:`--nclasses` 
-    define the number of image channels and the number of prediction classes. These should always be specified for **custom** models, as the defaults are `--nchan 1` (mono-channel images) and ``--nclasses 2`` (flow and distance field predictions). If you train a model with ``--nclasses 3`` (add the boundary field) or have multichannel images these will be in the model file name. Use these when running the model, too, both in CLI and in :mod:`omnirefactor.models.OmniModel()`. 
+    define the number of image channels and the number of prediction classes. These should always be specified for **custom** models, as the defaults are `--nchan 1` (mono-channel images) and ``--nclasses 2`` (flow and distance field predictions). If you train a model with ``--nclasses 3`` (add the boundary field) or have multichannel images these will be in the model file name. Use these when running the model, too, both in CLI and in :mod:`omnipose.models.OmniModel()`. 
 
 :bash:`--all_channels` 
     tells Omnipose to use all ``nchan`` channels for segmentation. The relatively complicated :bash:`--chan` and :bash:`--chan2` settings from Cellpose are still available, but I never use them. I highly recommend preprocessing your training set to have the channels you want to use (and for evaluation, do the same preprocessing in a script/notebook). 
@@ -134,7 +134,7 @@ If your image dimensions are substantially smaller than 512 px, you can instead 
 
 :header-3:`Object density`
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^
-As a general rule, you want to train on images with densely packed objects. This is to balance the foreground class to the background class. In other words, we want Omnipose to focus on predicting good output in foreground regions rather than zero output in background regions. If your images have a lot of useless background, *crop out* just the denser regions. This can be done automatically if you can segment clusters/microcolonies of cells. You can use functions in :mod:`omnirefactor.utils` for processing a binary image into crops that you can then join into an ensemble image using a rectangle packing algorithm. Training on these images allows Omnipose to see the same number of cells but a lot faster, as it does not waste time looking at too much background. 
+As a general rule, you want to train on images with densely packed objects. This is to balance the foreground class to the background class. In other words, we want Omnipose to focus on predicting good output in foreground regions rather than zero output in background regions. If your images have a lot of useless background, *crop out* just the denser regions. This can be done automatically if you can segment clusters/microcolonies of cells. You can use functions in :mod:`omnipose.utils` for processing a binary image into crops that you can then join into an ensemble image using a rectangle packing algorithm. Training on these images allows Omnipose to see the same number of cells but a lot faster, as it does not waste time looking at too much background. 
 
 
 :header-3:`Ground truth quality`
@@ -170,38 +170,38 @@ If you choose to use a pretrained model, then this fixed median diameter is used
 
 If you choose to train from scratch, you can set the median diameter you want to use for rescaling with the :bash:`--diameter` flag, or set it to :py:`0` to disable rescaling. The ``cyto``, ``cyto2``, and ``cyto2_omni`` models were trained with a diameter of 30 pixels and the `nuclei` model was trained with a diameter of 17 pixels.
 
-If your target image set varies a lot in cell diameter (i.e., the images you want to segment vary unpredictably in size), you may also want to learn a :mod:`~omnirefactor.models.SizeModel()` that predicts the diameter from the network style vectors. Add the flag :bash:`--train_size` and this model will be trained and saved as an 
-``*.npy`` file. **Omnipose models generally do not come with a** :mod:`~omnirefactor.models.SizeModel()`, with the exception of ``cyto2_omni``.
+If your target image set varies a lot in cell diameter (i.e., the images you want to segment vary unpredictably in size), you may also want to learn a :mod:`~omnipose.models.SizeModel()` that predicts the diameter from the network style vectors. Add the flag :bash:`--train_size` and this model will be trained and saved as an 
+``*.npy`` file. **Omnipose models generally do not come with a** :mod:`~omnipose.models.SizeModel()`, with the exception of ``cyto2_omni``.
 
 
 :header-2:`Examples`
 --------------------
 
-To train on cytoplasmic images (green cyto and red nuclei) starting with a pretrained model from omnirefactor (cyto or nuclei):
+To train on cytoplasmic images (green cyto and red nuclei) starting with a pretrained model from omnipose (cyto or nuclei):
 
 ::
     
-    omnirefactor --train --dir <train_path> --pretrained_model cyto --chan 2 --chan2 1
+    omnipose --train --dir <train_path> --pretrained_model cyto --chan 2 --chan2 1
 
 You can train from scratch as well:
 
 ::
 
-    omnirefactor --train --dir <train_path> --pretrained_model None
+    omnipose --train --dir <train_path> --pretrained_model None
 
 
 You can also specify the full path to a pretrained model to use:
 
 ::
 
-    omnirefactor --dir <train_path> --pretrained_model <model_path> --save_png
+    omnipose --dir <train_path> --pretrained_model <model_path> --save_png
 
 
 To train the ``bact_phase_omni`` model from scratch using the same parameters from the Omnipose paper, download the dataset and run
 
 ::
 
-    omnirefactor --train --use_gpu --dir <bacterial_dataset_directory> --mask_filter _masks \ 
+    omnipose --train --use_gpu --dir <bacterial_dataset_directory> --mask_filter _masks \ 
              --n_epochs 4000 --pretrained_model None --learning_rate 0.1 --diameter 0 \ 
              --batch_size 16  --RAdam --nclasses 3
 

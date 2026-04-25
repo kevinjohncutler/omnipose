@@ -1,12 +1,12 @@
 import numpy as np
 import torch
 
-from omnirefactor.utils import neighbor
+from omnipose.utils import neighbor
 
 
 def test_fields_torchscript_python_paths():
     # Exercise eikonal_update_torch -> update_torch path.
-    import omnirefactor.core.fields as fields
+    import omnipose.core.fields as fields
     Tneigh = torch.tensor([[0.2, 0.3, 0.4], [0.5, 0.6, 0.7]])
     index_list = [torch.tensor([0, 1]), torch.tensor([0, 1])]
     factors = torch.tensor([0.0, 1.0])
@@ -92,7 +92,7 @@ def test_fields_torchscript_python_paths():
 
 
 def test_update_torch_nontrivial():
-    import omnirefactor.core.fields as fields
+    import omnipose.core.fields as fields
     a = torch.tensor([[0.1, 0.5], [0.4, 0.6], [0.9, 1.2]])
     f = torch.tensor(0.6)
     fsq = torch.tensor(0.36)
@@ -101,21 +101,21 @@ def test_update_torch_nontrivial():
 
 
 def test_divergence_small_dims():
-    import omnirefactor.core.fields as fields
+    import omnipose.core.fields as fields
     f = np.zeros((2, 1, 3), dtype=np.float32)
     out = fields.divergence(f)
     assert out.shape == f[0].shape
 
 
 def test_divergence_torch_small_dims():
-    import omnirefactor.core.fields as fields
+    import omnipose.core.fields as fields
     y = torch.zeros((1, 2, 1, 3))
     out = fields.divergence_torch(y)
     assert out.shape == (1, 1, 3)
 
 
 def test_divergence_torch_mps():
-    import omnirefactor.core.fields as fields
+    import omnipose.core.fields as fields
     if not (hasattr(torch.backends, "mps") and torch.backends.mps.is_available()):
         return
     y = torch.randn((1, 2, 4, 4), device="mps")

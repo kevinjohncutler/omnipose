@@ -1,6 +1,6 @@
 # Parity Tests
 
-This folder is for side-by-side tests that compare current `omnipose` behavior to the new `omnirefactor` package.
+This folder is for side-by-side tests that compare current `omnipose` behavior to the new `omnipose` package.
 
 Planned coverage:
 - Model forward pass output parity (same inputs/weights).

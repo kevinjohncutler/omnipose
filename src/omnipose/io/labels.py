@@ -292,10 +292,10 @@ def save_masks(images, masks, flows, file_names, png=True, tif=False,
         images input into the model
 
     masks: (list of) 2D arrays, int
-        masks output from omnirefactor.eval, where 0=NO masks; 1,2,...=mask labels
+        masks output from omnipose.eval, where 0=NO masks; 1,2,...=mask labels
 
     flows: (list of) list of ND arrays 
-        flows output from omnirefactor.eval
+        flows output from omnipose.eval
 
     file_names: (list of) str
         names of files of images

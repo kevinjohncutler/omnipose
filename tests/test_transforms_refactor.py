@@ -1,8 +1,8 @@
 import numpy as np
 
 from ocdkit import array as tnorm
-from omnirefactor import transforms as tbase
-from omnirefactor.transforms import tiles as ttiles
+from omnipose import transforms as tbase
+from omnipose.transforms import tiles as ttiles
 
 
 def test_rescale_exclude_dims():

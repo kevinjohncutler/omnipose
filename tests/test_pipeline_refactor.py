@@ -1,7 +1,7 @@
 import numpy as np
 from scipy.ndimage import distance_transform_edt
 
-from omnirefactor.core import masks as masks_module
+from omnipose.core import masks as masks_module
 
 
 def _make_synthetic_masks():

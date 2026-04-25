@@ -1,4 +1,4 @@
-"""Tests for omnirefactor.cli.loss_server — session scanning + HTTP endpoints."""
+"""Tests for omnipose.cli.loss_server — session scanning + HTTP endpoints."""
 
 import http.client
 import json
@@ -8,7 +8,7 @@ from pathlib import Path
 
 import pytest
 
-from omnirefactor.cli import loss_server
+from omnipose.cli import loss_server
 
 
 def _write_session(path, name, n_epochs=3, n_batches=5, loss_names=('a', 'b')):

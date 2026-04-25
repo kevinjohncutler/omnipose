@@ -2,8 +2,8 @@ import numpy as np
 import pytest
 import torch
 
-from omnirefactor.data import train as train_mod
-from omnirefactor.data import eval as eval_mod
+from omnipose.data import train as train_mod
+from omnipose.data import eval as eval_mod
 
 
 def test_train_set_getitem_with_monkeypatch(monkeypatch):

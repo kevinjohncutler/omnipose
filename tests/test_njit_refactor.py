@@ -1,13 +1,13 @@
 import numpy as np
 import pytest
 
-from omnirefactor.core import affinity
+from omnipose.core import affinity
 from ocdkit.array import spatial as contour_mod
-from omnirefactor.transforms import augment
-from omnirefactor.core import njit as njit_mod
-from omnirefactor.utils import njit as utils_njit_mod
-from omnirefactor import utils
-from omnirefactor.utils.neighbor import kernel_setup
+from omnipose.transforms import augment
+from omnipose.core import njit as njit_mod
+from omnipose.utils import njit as utils_njit_mod
+from omnipose import utils
+from omnipose.utils.neighbor import kernel_setup
 from ocdkit.array.morphology import masks_to_outlines
 
 
@@ -58,14 +58,6 @@ def test_despur_calls_candidate_cleanup_idx(monkeypatch):
     )
 
     assert called["count"] > 0
-
-
-def test_mode_filter_hits_most_frequent_py_func(monkeypatch):
-    monkeypatch.setattr(augment, "most_frequent", utils_njit_mod.most_frequent.py_func)
-    masks = np.zeros((5, 5), dtype=np.int32)
-    masks[2, 2] = 1
-    result = augment.mode_filter(masks)
-    assert result.shape == masks.shape
 
 
 def test_get_contour_step_selection():

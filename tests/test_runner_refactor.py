@@ -3,7 +3,7 @@ import types
 import numpy as np
 import pytest
 
-from omnirefactor.cli import runner
+from omnipose.cli import runner
 
 
 def test_confirm_prompt_yes(monkeypatch):

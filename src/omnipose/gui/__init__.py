@@ -1,4 +1,4 @@
-"""omnirefactor.gui — ocdkit.viewer plugin for Omnipose / omnirefactor.
+"""omnipose.gui — ocdkit.viewer plugin for Omnipose / omnipose.
 
 Hosts the ocdkit plugin shim and an in-package Segmenter wrapper. The full
 GUI machinery lives in ``ocdkit.viewer`` (sibling package); ``ocdkit_plugin.py``
@@ -7,8 +7,8 @@ contract.
 
 Public entry point:
     main(argv) — launches ``ocdkit.viewer`` with the omnipose plugin
-    auto-selected. Used by ``python -m omnirefactor`` (no args) and the
-    ``omnirefactor`` console script.
+    auto-selected. Used by ``python -m omnipose`` (no args) and the
+    ``omnipose`` console script.
 
 Old GUI flag names from the standalone gui server are accepted and translated
 into ``ocdkit.viewer.run_server`` / ``run_desktop`` calls, so existing scripts
@@ -34,7 +34,7 @@ def _omnipose_bundled_test_files_dir() -> Optional[Path]:
     This is the canonical source of sample images — the repo ships them as
     part of its notebook + GUI examples, and that's the same set the original
     ``cellpose_omni.gui`` downloaded on first run. Walks up from this file
-    looking for the directory; works whether omnirefactor is installed
+    looking for the directory; works whether omnipose is installed
     editable from its sub-repo or alongside an omnipose clone.
     """
     here = Path(__file__).resolve()
@@ -42,8 +42,8 @@ def _omnipose_bundled_test_files_dir() -> Optional[Path]:
         candidate = parent / "docs" / "test_files"
         if candidate.is_dir():
             return candidate
-        # When omnirefactor is installed from omnipose/omnirefactor, docs/
-        # lives one level above the omnirefactor checkout root.
+        # When omnipose is installed from omnipose/omnipose, docs/
+        # lives one level above the omnipose checkout root.
         candidate = parent.parent / "docs" / "test_files"
         if candidate.is_dir():
             return candidate
@@ -73,7 +73,7 @@ def _apply_default_sample_env() -> None:
     sample = _find_default_sample()
     if sample is not None:
         os.environ["OCDKIT_VIEWER_SAMPLE_IMAGE"] = str(sample)
-        print(f"[omnirefactor-gui] default sample: {sample}", flush=True)
+        print(f"[omnipose-gui] default sample: {sample}", flush=True)
 
 
 def _bundled_icon_path() -> Optional[Path]:
@@ -84,7 +84,7 @@ def _bundled_icon_path() -> Optional[Path]:
 
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        prog="omnirefactor (gui)",
+        prog="omnipose (gui)",
         description="Launch the ocdkit viewer with the Omnipose plugin pre-selected.",
         # Allow unknown flags to be ignored — keeps compatibility with any
         # forwarded CLI invocations that use legacy flags.
@@ -167,7 +167,7 @@ def main(argv: Sequence[str] | None = None) -> None:
         try:
             ACTIVE_PLUGIN.select(plugin.name)
         except KeyError:
-            print(f"[omnirefactor] could not auto-select plugin {plugin.name!r}",
+            print(f"[omnipose] could not auto-select plugin {plugin.name!r}",
                   file=sys.stderr)
 
     title = args.title or None  # empty string falls back to ocdkit default
@@ -198,7 +198,7 @@ def main(argv: Sequence[str] | None = None) -> None:
     if AppIdentity is not None:
         app_identity = AppIdentity(
             name="Omnipose",
-            gui_entry_point="omnirefactor-gui",
+            gui_entry_point="omnipose-gui",
             windows_app_id="Omnipose.Viewer.Launcher",
             linux_app_id="omnipose",
             macos_bundle_id="com.omnipose.viewer",

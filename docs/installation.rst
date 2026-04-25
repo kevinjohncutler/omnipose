@@ -13,7 +13,7 @@
 
    .. code-block::
    
-      pip uninstall omnirefactor && pip cache remove omnirefactor
+      pip uninstall omnipose && pip cache remove omnipose
 
    to prevent version conflicts. See :ref:`project structure <project-structure>` for more details. 
 
@@ -50,7 +50,7 @@ try to use them, either on the command line, in the GUI, or in a notebook.
 
 If you would like to download the models to a different directory
 and are using the command line or the GUI, 
-you will need to always set the environment variable ``CELLPOSE_LOCAL_MODELS_PATH`` before you run ``python -m omnirefactor ...``
+you will need to always set the environment variable ``CELLPOSE_LOCAL_MODELS_PATH`` before you run ``python -m omnipose ...``
 (thanks Chris Roat for implementing this!).
 
 To set the environment variable in the command line/Anaconda prompt on windows run the following command modified for your path:

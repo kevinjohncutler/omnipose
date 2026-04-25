@@ -4,14 +4,14 @@ import torch
 
 
 def test_parse_model_string_variants():
-    nets = importlib.import_module("omnirefactor.networks")
+    nets = importlib.import_module("omnipose.networks")
     assert nets.parse_model_string("unet3_residual_on_style_on_concatenation_on") == (True, True, True)
     assert nets.parse_model_string("cellpose_residual_on_style_on_concatenation_off") == (True, True, False)
     assert nets.parse_model_string("custom_model") == (True, True, False)
 
 
 def test_assign_device_cpu(monkeypatch):
-    nets = importlib.import_module("omnirefactor.networks")
+    nets = importlib.import_module("omnipose.networks")
 
     def fake_get_device(_):
         return torch.device("cpu"), False
@@ -23,7 +23,7 @@ def test_assign_device_cpu(monkeypatch):
 
 
 def test_assign_device_gpu_calls_lock(monkeypatch):
-    nets = importlib.import_module("omnirefactor.networks")
+    nets = importlib.import_module("omnipose.networks")
     called = {}
 
     def fake_get_device(_):
@@ -40,7 +40,7 @@ def test_assign_device_gpu_calls_lock(monkeypatch):
 
 
 def test_lock_cuda_precision_tf32_env(monkeypatch):
-    nets = importlib.import_module("omnirefactor.networks")
+    nets = importlib.import_module("omnipose.networks")
     monkeypatch.setattr(nets, "_ALLOW_TF32_ENV", True)
     monkeypatch.setattr(nets, "_CUDA_PRECISION_LOCKED", False)
     nets._lock_cuda_precision(torch.device("cuda"))
@@ -48,7 +48,7 @@ def test_lock_cuda_precision_tf32_env(monkeypatch):
 
 
 def test_lock_cuda_precision_cuda_branch(monkeypatch):
-    nets = importlib.import_module("omnirefactor.networks")
+    nets = importlib.import_module("omnipose.networks")
     monkeypatch.setattr(nets, "_ALLOW_TF32_ENV", False)
     monkeypatch.setattr(nets, "_CUDA_PRECISION_LOCKED", False)
     nets._lock_cuda_precision(torch.device("cuda"))
@@ -56,7 +56,7 @@ def test_lock_cuda_precision_cuda_branch(monkeypatch):
 
 
 def test_lock_cuda_precision_locked_noop(monkeypatch):
-    nets = importlib.import_module("omnirefactor.networks")
+    nets = importlib.import_module("omnipose.networks")
     monkeypatch.setattr(nets, "_CUDA_PRECISION_LOCKED", True)
     nets._lock_cuda_precision(torch.device("cuda"))
     assert nets._CUDA_PRECISION_LOCKED is True

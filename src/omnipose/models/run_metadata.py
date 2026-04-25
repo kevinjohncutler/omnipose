@@ -68,7 +68,7 @@ def capture_provenance(source_file=None):
         'git_describe': tag,
         'git_dirty': bool(dirty_raw),
         'git_remote': remote,
-        'omnirefactor_version': _package_version('omnirefactor'),
+        'omnipose_version': _package_version('omnipose'),
         'ocdkit_version': _package_version('ocdkit'),
         'argv': list(sys.argv),
         'cwd': str(Path.cwd()),

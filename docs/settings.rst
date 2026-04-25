@@ -4,13 +4,13 @@
 =====================
 
 The most important settings are described on this page. 
-See :mod:`omnirefactor.models()` for all options. 
+See :mod:`omnipose.models()` for all options. 
 
 This is a typical example of using an Omnirefactor model to segment a list of images in a notebook. 
 
 ::
 
-    from omnirefactor import models
+    from omnipose import models
     import skimage.io
     model = models.OmniModel(gpu=False, 
                             model_type='bact_phase_omni', 

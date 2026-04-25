@@ -209,21 +209,21 @@ div.cell details.below-input>summary {
   /* box-shadow: none; */
 }
 
-.omnirefactor-path-seg {
+.omnipose-path-seg {
   font-weight: 600;
 }
 
-.omnirefactor-path-dot {
+.omnipose-path-dot {
   color: #e6e6e6;
 }
 
 @media (prefers-color-scheme: light) {
-  .omnirefactor-path-dot {
+  .omnipose-path-dot {
     color: #181818;
   }
 }
 
-.omnirefactor-color-debug {
+.omnipose-color-debug {
   position: fixed;
   right: 16px;
   bottom: 16px;

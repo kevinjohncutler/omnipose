@@ -1,7 +1,7 @@
 import numpy as np
 import torch
 
-from omnirefactor.data import eval as eval_mod
+from omnipose.data import eval as eval_mod
 
 
 class DummyNet:

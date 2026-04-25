@@ -6,8 +6,8 @@ import numpy as np
 import pytest
 import torch
 
-from omnirefactor.models import OmniModel
-from omnirefactor.models import train as train_mod
+from omnipose.models import OmniModel
+from omnipose.models import train as train_mod
 
 
 class TinyNet(torch.nn.Module):

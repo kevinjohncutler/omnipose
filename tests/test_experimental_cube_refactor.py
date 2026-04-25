@@ -1,4 +1,4 @@
-from omnirefactor.experimental.cube import cubestats
+from omnipose.experimental.cube import cubestats
 
 
 def test_cubestats_basic():

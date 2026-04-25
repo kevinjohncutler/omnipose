@@ -3,27 +3,27 @@
 :sinebow19:`Command line`
 =========================
 
-Running just ``omnirefactor`` in the command line interface will launch the GUI when its dependencies are installed. I have left :doc:`training <training>` new models - done exclusively via CLI - to its own page. The rest of this page refers to evaluation on the command line. 
+Running just ``omnipose`` in the command line interface will launch the GUI when its dependencies are installed. I have left :doc:`training <training>` new models - done exclusively via CLI - to its own page. The rest of this page refers to evaluation on the command line. 
 
 The command line allows batch processing and easy integration into
 downstream analysis pipelines like SuperSegger, Morphometrics, MicrobeJ,
 CellTool, and many others (any program that takes images and labels in
 directories). See :doc:`settings` for an introduction to the
 settings. The command line interface accepts parameters from
-:mod:`omnirefactor.models` for evaluation and from
-:mod:`omnirefactor.io` for finding files and saving output.
+:mod:`omnipose.models` for evaluation and from
+:mod:`omnipose.io` for finding files and saving output.
 
 :header-2:`How to segment images using CLI`
 -------------------------------------------
 
-Run ``omnirefactor [arguments]`` and specify the arguments as follows. For
+Run ``omnipose [arguments]`` and specify the arguments as follows. For
 instance, to run on a folder with images where cytoplasm is green and
 nucleus is blue and save the output as a png (using default diameter
 30):
 
 .. code-block:: 
 
-    omnirefactor --dir <img_dir> --pretrained_model cyto --chan 2 --chan2 3 --save_png
+    omnipose --dir <img_dir> --pretrained_model cyto --chan 2 --chan2 3 --save_png
 
 
 To do the same segmentation as in
@@ -33,7 +33,7 @@ flows and outlines, run:
 
 .. code-block:: 
 
-    omnirefactor --dir <img_dir> --use_gpu --pretrained_model bact_phase_omni \ 
+    omnipose --dir <img_dir> --use_gpu --pretrained_model bact_phase_omni \ 
              --save_flows  --save_tif --in_folders 
 
 
@@ -87,7 +87,7 @@ you will need to format those parameters according to these examples).
 :header-2:`All options`
 -----------------------
 
-You can print out the full list of features with ``omnirefactor -h``. There are a lot
+You can print out the full list of features with ``omnipose -h``. There are a lot
 of them, but with Omnipose we organized them into categories. See
 :doc:`CLI <cli>` to browse a bit easier. As demonstrated above,
 ``input image arguments`` and ``output arguments`` are the most

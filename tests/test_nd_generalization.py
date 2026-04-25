@@ -14,8 +14,8 @@ class TestAffinityThreshold:
     @staticmethod
     def _make_affinity_inputs(dim, size=16):
         """Create a simple solid block that should be fully interior-connected."""
-        from omnirefactor.core.affinity import _get_affinity_torch
-        from omnirefactor.utils.neighbor import kernel_setup, get_supporting_inds
+        from omnipose.core.affinity import _get_affinity_torch
+        from omnipose.utils.neighbor import kernel_setup, get_supporting_inds
 
         shape = (size,) * dim
         # Flow field: uniform rightward flow inside a solid block (unbatched)
@@ -63,7 +63,7 @@ class TestAffinityThreshold:
     def test_threshold_uses_S_not_hardcoded(self):
         """Verify the threshold is S-2, not hardcoded 7."""
         import inspect
-        from omnirefactor.core.affinity import _get_affinity_torch
+        from omnipose.core.affinity import _get_affinity_torch
         source = inspect.getsource(_get_affinity_torch)
         # Strip comments before checking — the comment mentions the old value
         code_lines = [l.split('#')[0] for l in source.splitlines()]
@@ -82,7 +82,7 @@ class TestSimplexIllumination:
     @staticmethod
     def _generate_illum_field(dim, seed=42, size=64, fs=30.0):
         from opensimplex import OpenSimplex
-        from omnirefactor.transforms.augment import _SIMPLEX_NOISE
+        from omnipose.transforms.augment import _SIMPLEX_NOISE
         from ocdkit.array import rescale
 
         simplex = OpenSimplex(seed=seed)
@@ -120,7 +120,7 @@ class TestSimplexIllumination:
 
     def test_simplex_noise_dispatch(self):
         """_SIMPLEX_NOISE maps dim to correct method name."""
-        from omnirefactor.transforms.augment import _SIMPLEX_NOISE
+        from omnipose.transforms.augment import _SIMPLEX_NOISE
         assert _SIMPLEX_NOISE[2] == 'noise2array'
         assert _SIMPLEX_NOISE[3] == 'noise3array'
         assert _SIMPLEX_NOISE[4] == 'noise4array'
@@ -128,5 +128,5 @@ class TestSimplexIllumination:
 
     def test_fallback_to_linear_for_5d(self):
         """dim > 4 should not use simplex (not supported)."""
-        from omnirefactor.transforms.augment import _SIMPLEX_NOISE
+        from omnipose.transforms.augment import _SIMPLEX_NOISE
         assert 5 not in _SIMPLEX_NOISE

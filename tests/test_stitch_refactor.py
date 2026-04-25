@@ -1,6 +1,6 @@
 import numpy as np
 
-from omnirefactor.utils import stitch as stitch_mod
+from omnipose.utils import stitch as stitch_mod
 
 
 def _make_label(shape, loc, label):

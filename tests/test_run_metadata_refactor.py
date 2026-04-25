@@ -1,4 +1,4 @@
-"""Tests for omnirefactor.models.run_metadata — capture + write/update."""
+"""Tests for omnipose.models.run_metadata — capture + write/update."""
 
 import json
 import time
@@ -8,7 +8,7 @@ import numpy as np
 import pytest
 import torch
 
-from omnirefactor.models import run_metadata
+from omnipose.models import run_metadata
 
 
 # ---------------------------------------------------------------------------

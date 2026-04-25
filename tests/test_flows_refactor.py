@@ -1,8 +1,8 @@
 import numpy as np
 import pytest
 
-from omnirefactor.core import flows as flow_mod
-from omnirefactor.core.affinity import masks_to_affinity
+from omnipose.core import flows as flow_mod
+from omnipose.core.affinity import masks_to_affinity
 
 
 def test_labels_to_flows_branches(monkeypatch):

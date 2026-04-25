@@ -1,4 +1,4 @@
-"""GPU/CPU parity tests for core omnirefactor functions.
+"""GPU/CPU parity tests for core omnipose functions.
 
 These tests run on real hardware — no monkeypatching. They compare GPU
 outputs against CPU outputs to verify device-independent correctness.
@@ -10,9 +10,9 @@ import numpy as np
 import pytest
 import torch
 
-from omnirefactor import models
-from omnirefactor.networks import UnetND
-from omnirefactor.gpu import torch_GPU, torch_CPU
+from omnipose import models
+from omnipose.networks import UnetND
+from omnipose.gpu import torch_GPU, torch_CPU
 
 
 def _detect_gpu_device():
@@ -116,7 +116,7 @@ class TestOmniModelParity:
 @requires_gpu
 class TestMasksToFlowsParity:
     def test_2d(self):
-        from omnirefactor.core.flows import masks_to_flows
+        from omnipose.core.flows import masks_to_flows
 
         mask = _simple_mask_2d()
 
@@ -132,7 +132,7 @@ class TestMasksToFlowsParity:
         np.testing.assert_allclose(cpu_T, gpu_T, atol=1e-4)
 
     def test_batch(self):
-        from omnirefactor.core.flows import masks_to_flows_batch
+        from omnipose.core.flows import masks_to_flows_batch
 
         masks = np.stack(_simple_mask_batch(2)).astype(np.int64)
         links = [None] * len(masks)
@@ -156,7 +156,7 @@ class TestMasksToFlowsParity:
 @requires_gpu
 class TestStepsParity:
     def test_follow_flows_batch(self):
-        from omnirefactor.core.steps import follow_flows_batch
+        from omnipose.core.steps import follow_flows_batch
 
         B, D, H, W = 2, 2, 16, 16
         torch.manual_seed(42)
@@ -168,7 +168,7 @@ class TestStepsParity:
         torch.testing.assert_close(cpu_p, gpu_p.cpu(), atol=1e-3, rtol=1e-3)
 
     def test_steps_batch(self):
-        from omnirefactor.core.steps import steps_batch
+        from omnipose.core.steps import steps_batch
 
         B, D, N = 2, 2, 64
         torch.manual_seed(7)
@@ -190,8 +190,8 @@ class TestStepsParity:
 @requires_gpu
 class TestComputeMasksParity:
     def test_basic(self):
-        from omnirefactor.core.flows import masks_to_flows
-        from omnirefactor.core.masks import compute_masks
+        from omnipose.core.flows import masks_to_flows
+        from omnipose.core.masks import compute_masks
 
         mask = _simple_mask_2d()
         result = masks_to_flows(mask.copy(), use_gpu=False, device=torch_CPU, omni=True)
@@ -225,7 +225,7 @@ class TestComputeMasksParity:
 @requires_gpu
 class TestAugmentParity:
     def test_mode_filter_gpu(self):
-        from omnirefactor.transforms.augment import _mode_filter_gpu
+        from omnipose.transforms.augment import _mode_filter_gpu
 
         torch.manual_seed(0)
         labels = torch.zeros(1, 16, 16, dtype=torch.long)
@@ -239,7 +239,7 @@ class TestAugmentParity:
         torch.testing.assert_close(cpu_out.cpu(), gpu_out.cpu())
 
     def test_gaussian_blur_gpu(self):
-        from omnirefactor.transforms.augment import _gaussian_blur_gpu
+        from omnipose.transforms.augment import _gaussian_blur_gpu
 
         torch.manual_seed(0)
         # _gaussian_blur_gpu expects a single spatial array (H, W)
@@ -258,7 +258,7 @@ class TestAugmentParity:
 @requires_gpu
 class TestComputeFlowsGpu:
     def test_basic(self):
-        from omnirefactor.data.train import train_set
+        from omnipose.data.train import train_set
 
         masks = _simple_mask_batch(2)
         images = [np.random.rand(1, 32, 32).astype(np.float32) for _ in range(2)]

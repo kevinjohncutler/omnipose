@@ -22,7 +22,7 @@ def iter_modules(package, skip: Iterable[str]) -> List[str]:
 
 def main() -> int:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--package", default="omnirefactor")
+    parser.add_argument("--package", default="omnipose")
     parser.add_argument("--skip", action="append", default=[], help="substring to skip (repeatable)")
     args = parser.parse_args()
 

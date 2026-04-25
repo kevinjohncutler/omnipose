@@ -1,6 +1,6 @@
 import torch
 
-from omnirefactor.core import loss as loss_mod
+from omnipose.core import loss as loss_mod
 
 
 class _LossHarness:

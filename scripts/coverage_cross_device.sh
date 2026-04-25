@@ -1,14 +1,14 @@
 #!/usr/bin/env bash
 #
-# Run omnirefactor tests on Mac (MPS), Threadripper (CUDA), and
+# Run omnipose tests on Mac (MPS), Threadripper (CUDA), and
 # Threadripper with CUDA disabled (CPU-only), then combine coverage.
 #
 # Usage:  bash scripts/coverage_cross_device.sh
 #
 set -euo pipefail
 
-MAC_ROOT="/Volumes/DataDrive/omnipose/omnirefactor"
-REMOTE_ROOT="/home/kcutler/DataDrive/omnipose/omnirefactor"
+MAC_ROOT="/Volumes/DataDrive/omnipose/omnipose"
+REMOTE_ROOT="/home/kcutler/DataDrive/omnipose/omnipose"
 REMOTE="kcutler@threadripper.local"
 PYENV='export PATH="$HOME/.pyenv/shims:$HOME/.pyenv/bin:$PATH"'
 COV_DIR="$MAC_ROOT/.coverage_combined"
@@ -16,7 +16,7 @@ COV_DIR="$MAC_ROOT/.coverage_combined"
 rm -rf "$COV_DIR"
 mkdir -p "$COV_DIR"
 
-SRC="--source=src/omnirefactor"
+SRC="--source=src/omnipose"
 
 # Notebook tests run on Mac only (need a Jupyter kernel).
 SKIP_REMOTE="--ignore=tests/test_plot_notebook.py"

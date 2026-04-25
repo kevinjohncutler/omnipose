@@ -8,9 +8,9 @@ import pathlib
 from importlib.metadata import packages_distributions
 
 import pytest
-import omnirefactor
+import omnipose
 
-root_pkgs = [omnirefactor]
+root_pkgs = [omnipose]
 
 _STDLIB_BASE = pathlib.Path(sysconfig.get_paths()["stdlib"]).resolve()
 _DISTMAP_RAW = packages_distributions()
@@ -68,7 +68,7 @@ for root_pkg in root_pkgs:
                 root = attr.__name__.split(".", 1)[0]
                 if (
                     not is_stdlib_module(root)
-                    and root not in ("omnirefactor",)
+                    and root not in ("omnipose",)
                     and not is_ignored_root(root)
                 ):
                     root_norm = normalize(root)
@@ -109,7 +109,7 @@ for root in list(third_party):
             if normalize(dist.metadata["Name"]) in resolved:
                 break
 
-from omnirefactor.dependencies import install_deps, gui_deps
+from omnipose.dependencies import install_deps, gui_deps
 from packaging.requirements import Requirement
 
 DEPENDENCIES = install_deps + gui_deps

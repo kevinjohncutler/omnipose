@@ -1,4 +1,4 @@
-"""omnirefactor.logger — re-exported from ocdkit."""
+"""omnipose.logger — re-exported from ocdkit."""
 
 from ocdkit.logging import (
     get_logger, set_color, set_colors, silence, TqdmToLogger,
@@ -11,7 +11,7 @@ setup_logger = get_logger
 # Silence noisy third-party loggers on import.
 silence("xmlschema", "bfio", "OpenGL", "qdarktheme", "mip")
 
-# Register omnirefactor module colors.
+# Register omnipose module colors.
 set_colors({
     "core": "#5c9edc",
     "models": "#5cd97c",

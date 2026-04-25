@@ -2,14 +2,14 @@ import numpy as np
 from skimage.segmentation import expand_labels
 
 from ocdkit.array.spatial import get_contour
-from omnirefactor.core import affinity as affinity_mod
-from omnirefactor.core.affinity import (
+from omnipose.core import affinity as affinity_mod
+from omnipose.core.affinity import (
     affinity_to_boundary,
     affinity_to_masks,
     masks_to_affinity,
 )
-from omnirefactor.utils.neighbor import kernel_setup
-from omnirefactor import utils
+from omnipose.utils.neighbor import kernel_setup
+from omnipose import utils
 
 
 def _make_labels():

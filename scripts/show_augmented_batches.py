@@ -13,10 +13,10 @@ import torch
 import matplotlib.pyplot as plt
 import matplotlib.patches as patches
 
-from omnirefactor import io, core, transforms
-from omnirefactor.data.train import train_set, CyclingRandomBatchSampler
-from omnirefactor.transforms.augment import random_rotate_and_resize
-from omnirefactor.core.flows import masks_to_flows_batch, batch_labels
+from omnipose import io, core, transforms
+from omnipose.data.train import train_set, CyclingRandomBatchSampler
+from omnipose.transforms.augment import random_rotate_and_resize
+from omnipose.core.flows import masks_to_flows_batch, batch_labels
 
 
 def _save_grid(imgs: np.ndarray, out_path: Path, ncols: int = 4, cmap: str | None = None) -> None:
@@ -114,7 +114,7 @@ def main() -> None:
     parser.add_argument("--links", action="store_true")
     parser.add_argument("--affinity_field", action="store_true")
     parser.add_argument("--num_batches", default=2, type=int)
-    parser.add_argument("--out_dir", default="omnirefactor/tmp/augmented_batches", type=str)
+    parser.add_argument("--out_dir", default="omnipose/tmp/augmented_batches", type=str)
     parser.add_argument("--seed", default=0, type=int)
     parser.add_argument("--do_rescale", action="store_true")
     parser.add_argument("--diam_mean", default=30.0, type=float)

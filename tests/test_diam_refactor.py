@@ -1,6 +1,6 @@
 import numpy as np
 
-from omnirefactor.core import diam as diam_mod
+from omnipose.core import diam as diam_mod
 
 
 def test_dist_to_diam_basic():

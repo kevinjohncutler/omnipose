@@ -3,8 +3,8 @@ import pytest
 import torch
 from scipy.ndimage import distance_transform_edt
 
-from omnirefactor.core import masks as masks_module
-from omnirefactor import utils
+from omnipose.core import masks as masks_module
+from omnipose import utils
 
 
 def _make_2d_case():

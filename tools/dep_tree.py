@@ -51,7 +51,7 @@ def _print_tree(name: str, indent: str, seen: Set[str], max_depth: int) -> None:
 
 def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(description="Print dependency tree with installed versions.")
-    parser.add_argument("package", nargs="?", default="omnirefactor")
+    parser.add_argument("package", nargs="?", default="omnipose")
     parser.add_argument("--max-depth", type=int, default=20)
     args = parser.parse_args(argv)
 

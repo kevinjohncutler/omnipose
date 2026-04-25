@@ -257,8 +257,8 @@ def find_cycles(graph: Dict[str, Set[str]]) -> List[List[str]]:
 
 def main() -> int:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--package-root", type=Path, default=Path("refactor/src/omnirefactor"))
-    parser.add_argument("--package-name", type=str, default="omnirefactor")
+    parser.add_argument("--package-root", type=Path, default=Path("refactor/src/omnipose"))
+    parser.add_argument("--package-name", type=str, default="omnipose")
     args = parser.parse_args()
 
     pkg_root = args.package_root.resolve()

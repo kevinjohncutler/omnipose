@@ -1,8 +1,8 @@
 import numpy as np
 import pytest
 
-from omnirefactor.io import lists as io_lists
-from omnirefactor.plot import overlay as io_overlay
+from omnipose.io import lists as io_lists
+from omnipose.plot import overlay as io_overlay
 
 
 def test_lists_roundtrip(tmp_path):

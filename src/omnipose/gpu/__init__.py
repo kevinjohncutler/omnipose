@@ -1,6 +1,6 @@
 """GPU device management — thin wrapper over ``ocdkit.utils.gpu`` (Layer 0).
 
-Layer 0: no omnirefactor deps — only stdlib, third-party, and ocdkit.
+Layer 0: no omnipose deps — only stdlib, third-party, and ocdkit.
 
 Adds the omnipose-specific ARM env-var workaround (OMP_NUM_THREADS) on
 import, then re-exports everything from ``ocdkit.utils.gpu``.

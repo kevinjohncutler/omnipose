@@ -9,6 +9,6 @@ Workaround used:
 
 Observed outcome (kevin-tower, CUDA, batch size 5, 1 epoch):
 - Weights were identical across repeated runs within each repo.
-- Weights were identical across omnipose vs omnirefactor.
+- Weights were identical across omnipose vs omnipose.
 
 This file is intentionally not included in any Sphinx toctree.

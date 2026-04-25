@@ -23,8 +23,8 @@ import numpy as np
 import pytest
 import torch
 
-from omnirefactor.data import eval as eval_mod
-from omnirefactor.models import OmniModel, eval as meval
+from omnipose.data import eval as eval_mod
+from omnipose.models import OmniModel, eval as meval
 
 
 # ---------------------------------------------------------------------------
