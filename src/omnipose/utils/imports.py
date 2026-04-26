@@ -14,6 +14,6 @@ from scipy.ndimage import (
 
 import fastremap
 
-from ocdkit import Result
+from ocdkit.io import Result
 from ocdkit.array import get_module
 from ocdkit.array.spatial import kernel_setup, get_neighbors, get_neigh_inds
