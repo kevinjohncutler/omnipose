@@ -67,6 +67,15 @@ def compute_masks(dP, dist, affinity_graph=None, bd=None, p=None, coords=None, i
 
         if affinity_seg:
             # ═══ Torch-native affinity segmentation ═══
+            # Optional per-step profiling: set OMNIPOSE_PROFILE_RESEGMENT=1.
+            # Reveals where the resegment latency (slider lag) goes — typical
+            # breakdown: setup ~50ms, euler ~400-500ms, _get_affinity_torch
+            # ~1800-2200ms (dominant cost).
+            import os as _po
+            _profile = bool(_po.environ.get("OMNIPOSE_PROFILE_RESEGMENT"))
+            if _profile:
+                import time as _t, sys as _s
+                _T0 = _t.perf_counter()
             hole_size = 0
             pad = 1
             pad_seq = [(0,)*2] + [(pad,)*2]*dim
@@ -90,9 +99,13 @@ def compute_masks(dP, dist, affinity_graph=None, bd=None, p=None, coords=None, i
             dist_pad_t = torch.nn.functional.pad(dist_t[None, None], _pad_args).squeeze()
             flows_pad = torch.nn.functional.pad(dP_t[None], _pad_args).squeeze(0)
             dP_scaled = flows_pad / 5.0
+            if _profile:
+                _T1 = _t.perf_counter()
 
             # Euler integration (torch in, torch out)
             p_torch, _ = _follow_flows_sparse(dP_scaled, mask=mask_pad, niter=niter, device=_device)
+            if _profile:
+                _T2 = _t.perf_counter()
 
             # Torch meshgrid for initial positions
             _mesh_coords = [torch.arange(s, device=_device) for s in mask_pad.shape]
@@ -108,6 +121,14 @@ def compute_masks(dP, dist, affinity_graph=None, bd=None, p=None, coords=None, i
                 affinity_graph = _get_affinity_torch(initial, p_torch, dP_scaled, dist_pad_t,
                                                      mask_pad.float(), steps, fact, inds,
                                                      supporting_inds, niter, device=_device)
+            if _profile:
+                _T3 = _t.perf_counter()
+                print(
+                    f"[compute_masks.profile] setup={(_T1-_T0)*1000:.0f}ms "
+                    f"euler(niter={niter})={(_T2-_T1)*1000:.0f}ms "
+                    f"affinity={(_T3-_T2)*1000:.0f}ms",
+                    file=_s.stderr, flush=True,
+                )
 
             # Keep affinity on GPU as long as possible.
             # affinity_graph may be a GPU tensor (freshly computed above) or a numpy array

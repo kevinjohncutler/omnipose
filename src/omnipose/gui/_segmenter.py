@@ -81,8 +81,14 @@ class Segmenter:
 
             device, available = get_device(gpu_number=0)
             self._use_gpu = bool(available)
+            # Cache the actual torch.device so resegment can pass it to
+            # compute_masks. Without this, the affinity branch falls back to
+            # CPU (compute_masks defaults: use_gpu=False, device=None) and
+            # _get_affinity_torch becomes 100× slower than it should be.
+            self._device = device if available else None
         except Exception:
             self._use_gpu = False
+            self._device = None
 
     def _ensure_model(self, model_type: str | None = None, model_path: str | None = None) -> None:
         requested_type = model_type or "bact_phase_affinity"
@@ -205,6 +211,9 @@ class Segmenter:
             return mask_uint32
 
     def resegment(self, settings: Mapping[str, Any] | None = None, **overrides: Any) -> np.ndarray:
+        import time as _time, os as _os
+        _profile = bool(_os.environ.get("OMNIPOSE_PROFILE_RESEGMENT"))
+        _t0 = _time.perf_counter() if _profile else None
         # Snapshot fallback decision under lock so segment/resegment cannot
         # interleave their cache reads/writes (issue #1: cache race).
         required = ("dP", "dist", "bd", "mask_shape", "nclasses", "dim")
@@ -253,9 +262,16 @@ class Segmenter:
                 omni=True,
                 nclasses=cache["nclasses"],
                 dim=cache["dim"],
+                # Critical: route compute_masks through GPU. Without these
+                # the affinity branch silently falls back to CPU and
+                # _get_affinity_torch takes 2 seconds per slider tick.
+                use_gpu=self._use_gpu,
+                device=self._device,
             )
+            _t1 = _time.perf_counter() if _profile else None
             mask_uint32 = np.ascontiguousarray(mask.astype(np.uint32, copy=False))
             ncolor_mask = self._compute_ncolor_mask(mask_uint32, expand=True)
+            _t2 = _time.perf_counter() if _profile else None
             cache["mask"] = mask_uint32
             cache["ncolor_mask"] = ncolor_mask
             cache["points_payload"] = None
@@ -276,6 +292,15 @@ class Segmenter:
             if p_out is not None:
                 cache["p"] = p_out
         self._cache = cache
+        if _profile:
+            _t3 = _time.perf_counter()
+            import sys as _sys
+            print(
+                f"[resegment.profile] compute_masks={(_t1-_t0)*1000:.0f}ms "
+                f"ncolor={(_t2-_t1)*1000:.0f}ms cache={(_t3-_t2)*1000:.0f}ms "
+                f"total={(_t3-_t0)*1000:.0f}ms",
+                file=_sys.stderr, flush=True,
+            )
         return mask_uint32
 
     def get_ncolor_mask(self) -> Optional[np.ndarray]:
@@ -861,8 +886,18 @@ class Segmenter:
             raise ValueError("invalid points array")
         h, w = mask_arr.shape
         if py.shape != (h, w):
-            py = py[:h, :w]
-            px = px[:h, :w]
+            # The affinity branch in compute_masks pads by 1 on each side,
+            # so cached `p` has shape (H+2, W+2) and its values are coords
+            # in *padded* space. Center-crop to the unpadded grid AND
+            # subtract the pad offset from the trajectory values themselves —
+            # otherwise every mask pixel is read from a slot that's shifted
+            # one row/col towards top-left in padded coords, which lands on
+            # background for any pixel touching a cell's left/top edge and
+            # makes those points appear "stuck" at their initial position.
+            pad_y = max(0, (py.shape[0] - h) // 2)
+            pad_x = max(0, (py.shape[1] - w) // 2)
+            py = py[pad_y:pad_y + h, pad_x:pad_x + w] - pad_y
+            px = px[pad_y:pad_y + h, pad_x:pad_x + w] - pad_x
         ys, xs = np.nonzero(mask_arr > 0)
         if ys.size == 0:
             return "", w, h, 0

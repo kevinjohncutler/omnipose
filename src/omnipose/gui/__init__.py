@@ -103,10 +103,18 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--ssl-key", default=None)
     parser.add_argument("--https-dev", action="store_true",
                         help="Provision a temp self-signed localhost cert (server mode).")
+    parser.add_argument(
+        "--https-auto",
+        nargs="?", const=True, default=False, metavar="HOSTS",
+        help="Request a trusted cert via ocdkit.tls (server mode). Optional "
+             "comma-separated hostnames override; default uses the machine's hostname.",
+    )
     parser.add_argument("--reload", action="store_true",
                         help="Enable uvicorn auto-reload.")
     parser.add_argument("--no-reload", dest="reload", action="store_false")
-    parser.set_defaults(reload=False)
+    # Default ON, matching the ocdkit viewer CLI. Edits to plugin sources
+    # propagate without manual restarts.
+    parser.set_defaults(reload=True)
     # Desktop-specific flags (legacy spellings preserved for compat).
     parser.add_argument("--desktop-host", default=None,
                         help="(deprecated) alias for --host in desktop mode.")
@@ -173,6 +181,9 @@ def main(argv: Sequence[str] | None = None) -> None:
     title = args.title or None  # empty string falls back to ocdkit default
     icon = args.icon or (str(_bundled_icon_path()) if _bundled_icon_path() else None)
     if args.server:
+        https_auto = args.https_auto
+        if isinstance(https_auto, str):
+            https_auto = [h.strip() for h in https_auto.split(",") if h.strip()]
         run_server(
             host=args.host or "0.0.0.0",
             port=args.port or 8765,
@@ -180,6 +191,7 @@ def main(argv: Sequence[str] | None = None) -> None:
             ssl_key=args.ssl_key,
             reload=args.reload,
             https_dev=args.https_dev,
+            https_auto=https_auto,
             title=title,
         )
         return
