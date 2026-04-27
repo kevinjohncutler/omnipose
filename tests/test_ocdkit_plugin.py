@@ -34,8 +34,10 @@ def test_plugin_manifest_serializable():
     manifest = plugin.manifest()
     json.dumps(manifest)  # must not raise
     assert manifest["name"] == "omnipose"
-    assert "model" in [w["name"] for w in manifest["widgets"]]
+    # The model selector is rendered by the host from manifest["models"];
+    # the plugin no longer declares a `model` widget itself.
     assert "mask_threshold" in [w["name"] for w in manifest["widgets"]]
+    assert manifest["models"], "expected at least one built-in model"
 
 
 def test_plugin_capabilities_advertise_all_hooks():

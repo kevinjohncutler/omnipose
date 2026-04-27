@@ -45,98 +45,139 @@ def _get_segmenter():
 # Widget spec — names map 1:1 to keys consumed by Segmenter._parse_options().
 # ---------------------------------------------------------------------------
 
+# Model selection is rendered by the host (from manifest.models). The plugin
+# declares the catalog here once so both the host dropdown and load_models()
+# share the same source of truth.
+_BUILTIN_MODELS: list[str] = [
+    "bact_phase_affinity",
+    "bact_fluor_affinity",
+    "bact_phase_omni",
+    "bact_fluor_omni",
+    "cyto2_omni",
+    "plant_omni",
+    "worm_omni",
+]
+
+
 WIDGETS: list[WidgetSpec] = [
-    # --- Model -------------------------------------------------------------
+    # --- Parameters --------------------------------------------------------
     WidgetSpec(
-        name="model",
-        label="Model",
-        kind="dropdown",
-        default="bact_phase_affinity",
-        choices=[
-            "bact_phase_affinity",
-            "bact_fluor_affinity",
-            "bact_phase_omni",
-            "bact_fluor_omni",
-            "cyto2_omni",
-            "plant_omni",
-            "worm_omni",
-        ],
-        help="Pretrained Omnipose model.",
-        group="Model",
+        name="niter",
+        label="niter",
+        kind="slider",
+        default=-1, min=-1, max=400, step=1,
+        help="Flow-following iterations. -1 = auto.",
+        group="Parameters",
     ),
-    WidgetSpec(
-        name="model_path",
-        label="Custom model path",
-        kind="text",
-        default="",
-        help="Optional. Overrides 'Model' if set.",
-        group="Model",
-    ),
-    # --- Detection ---------------------------------------------------------
     WidgetSpec(
         name="mask_threshold",
-        label="Mask threshold",
+        label="mask",
         kind="slider",
-        default=-2.0, min=-6.0, max=6.0, step=0.1,
+        default=-2.0, min=-5.0, max=5.0, step=0.1,
         help="Lower → more pixels included.",
-        group="Detection",
+        group="Parameters",
     ),
     WidgetSpec(
         name="flow_threshold",
-        label="Flow threshold",
+        label="flow",
         kind="slider",
-        default=0.0, min=0.0, max=3.0, step=0.05,
+        default=0.0, min=0.0, max=5.0, step=0.1,
         help="Max flow error per cell. 0 = disabled.",
-        group="Detection",
+        group="Parameters",
+    ),
+    # --- Segmentation mode -------------------------------------------------
+    # Tri-state segmented control replacing separate cluster + affinity_seg
+    # toggles. The plugin's _coerce_settings translates this back to the
+    # underlying pair of booleans the segmenter expects.
+    WidgetSpec(
+        name="seg_mode",
+        label="Segmentation Mode",
+        kind="segmented",
+        default="affinity",
+        choices=["cluster", "affinity", "none"],
+        choice_icons={
+            "cluster": "seg-mode-icon-dbscan",
+            "affinity": "seg-mode-icon-affinity",
+            "none": "seg-mode-icon-cc",
+        },
+        help="DBSCAN cluster endpoints | affinity graph | neither (connected components only).",
+    ),
+    # --- Advanced (collapsed by default) -----------------------------------
+    # `as_header=True` makes the host render this toggle as a chevron in the
+    # group's heading row; clicking the heading flips the value and the
+    # widgets below (gated via `visible_when={"advanced": True}`) collapse
+    # or expand. No standalone toggle row is rendered.
+    WidgetSpec(
+        name="advanced",
+        label="advanced options",
+        kind="toggle",
+        default=False,
+        as_header=True,
+        help="Reveal Omnipose algorithm flags rarely changed during normal use.",
+        group="Advanced",
     ),
     WidgetSpec(
-        name="niter",
-        label="Iterations",
-        kind="number",
-        default=0, min=0, max=2000, step=1,
-        help="Flow-following iterations. 0 = auto.",
-        group="Detection",
-    ),
-    # --- Algorithm ---------------------------------------------------------
-    WidgetSpec(
-        name="cluster", label="Cluster", kind="toggle", default=True,
-        help="DBSCAN-cluster trajectory endpoints.",
-        group="Algorithm",
-    ),
-    WidgetSpec(
-        name="affinity_seg", label="Affinity segmentation", kind="toggle", default=True,
-        help="Use affinity graph (required for graph editing).",
-        group="Algorithm",
+        name="use_gpu", label="Use GPU", kind="toggle", default=True,
+        help=(
+            "Run inference and reconstruction on the GPU when available. "
+            "Disable to force CPU (much slower; only useful for debugging). "
+            "Status is reported in the Server Info panel as 'Torch GPU ✓'."
+        ),
+        group="Advanced", visible_when={"advanced": True},
     ),
     WidgetSpec(
         name="omni", label="Omni mode", kind="toggle", default=True,
-        help="Omnipose flow following (vs. classical Cellpose).",
-        group="Algorithm",
+        help=(
+            "Omnipose pipeline (on) vs. classical Cellpose (off). Affects: "
+            "iscell threshold (hysteresis vs hard threshold on the distance "
+            "field), flow normalization (div_rescale vs raw / 5), and the "
+            "mask reconstruction algorithm. NOTE: only takes full effect in "
+            "Segmentation Mode = none (connected components). In affinity "
+            "and cluster modes the reconstruction goes through the affinity "
+            "branch which is omnipose-only — only the threshold step changes."
+        ),
+        group="Advanced", visible_when={"advanced": True},
     ),
     WidgetSpec(
         name="resample", label="Resample", kind="toggle", default=True,
-        help="Resample to model's expected scale before inference.",
-        group="Algorithm",
+        help=(
+            "Resample to the model's expected scale before inference. "
+            "Inference-only — toggling here only takes effect after pressing "
+            "Segment (not on slider drag, which only re-runs reconstruction)."
+        ),
+        group="Advanced", visible_when={"advanced": True},
     ),
     WidgetSpec(
         name="tile", label="Tile", kind="toggle", default=False,
-        help="Tiled inference for large images.",
-        group="Algorithm",
+        help=(
+            "Tile the image and run inference on each tile, stitching the "
+            "outputs. Use for large images that don't fit in GPU memory. "
+            "Inference-only — re-press Segment after toggling."
+        ),
+        group="Advanced", visible_when={"advanced": True},
     ),
     WidgetSpec(
-        name="augment", label="Augment (TTA)", kind="toggle", default=False,
-        help="Test-time augmentation (4× slower).",
-        group="Algorithm",
+        name="augment", label="Augment", kind="toggle", default=False,
+        help=(
+            "Test-time augmentation: average the model's predictions over "
+            "rotations and flips of the input. Smoother flows + cleaner "
+            "masks at cell boundaries, ~4× slower per inference. "
+            "Inference-only — re-press Segment after toggling."
+        ),
+        group="Advanced", visible_when={"advanced": True},
     ),
     WidgetSpec(
         name="transparency", label="Transparency", kind="toggle", default=True,
-        help="Render flows with alpha channel.",
-        group="Algorithm",
+        help=(
+            "Render flow overlays with an alpha channel (transparent "
+            "background). Inference-only — re-press Segment after toggling."
+        ),
+        group="Advanced", visible_when={"advanced": True},
     ),
     WidgetSpec(
         name="verbose", label="Verbose", kind="toggle", default=False,
         help="Print extra diagnostics to the server log.",
-        group="Algorithm",
+        group="Advanced", visible_when={"advanced": True},
     ),
 ]
 
@@ -147,12 +188,23 @@ WIDGETS: list[WidgetSpec] = [
 
 
 def _coerce_settings(params: Mapping[str, Any]) -> dict[str, Any]:
-    """Drop empty optional fields so Segmenter sees clean defaults."""
+    """Drop empty optional fields so Segmenter sees clean defaults.
+
+    Translates the host's tri-state ``seg_mode`` into the pair of booleans
+    Segmenter actually consumes (``cluster``, ``affinity_seg``), and turns the
+    sentinel ``niter == -1`` into ``None`` (auto). Drops the host-only
+    ``advanced`` UI flag before forwarding.
+    """
     out: dict[str, Any] = dict(params)
     if not out.get("model_path"):
         out.pop("model_path", None)
-    if isinstance(out.get("niter"), (int, float)) and int(out["niter"]) <= 0:
+    if isinstance(out.get("niter"), (int, float)) and int(out["niter"]) < 0:
         out["niter"] = None
+    mode = out.pop("seg_mode", None)
+    if mode is not None:
+        out["cluster"] = (mode == "cluster")
+        out["affinity_seg"] = (mode == "affinity")
+    out.pop("advanced", None)
     return out
 
 
@@ -213,13 +265,12 @@ def _relabel_from_affinity(
 
 
 def _list_models() -> list[str]:
-    builtins = next(w.choices for w in WIDGETS if w.name == "model") or ()
     try:
         from ocdkit.viewer.model_registry import list_models
         custom = [m["name"] for m in list_models(plugin="omnipose")]
     except Exception:
         custom = []
-    return list(builtins) + custom
+    return list(_BUILTIN_MODELS) + custom
 
 
 # ---------------------------------------------------------------------------
@@ -243,4 +294,14 @@ plugin = SegmentationPlugin(
     clear_cache=_clear_cache,
     relabel_from_affinity=_relabel_from_affinity,
     load_models=_list_models,
+    # Host-managed display toggles to surface for this plugin. The host
+    # renders an OFF toggle for each key here and enables it once the
+    # corresponding extras payload arrives in a segment response.
+    display_overlays=[
+        "affinityGraph",
+        "points",
+        "vector",
+        "flowOverlay",
+        "distanceOverlay",
+    ],
 )
