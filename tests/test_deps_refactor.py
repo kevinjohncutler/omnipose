@@ -109,8 +109,24 @@ for root in list(third_party):
             if normalize(dist.metadata["Name"]) in resolved:
                 break
 
-from omnipose.dependencies import install_deps, gui_deps
 from packaging.requirements import Requirement
+
+
+def _read_requirements_file(path):
+    """Parse a pip requirements.txt — strip comments and blank lines."""
+    out = []
+    with open(path) as fh:
+        for line in fh:
+            line = line.split("#", 1)[0].strip()
+            if line:
+                out.append(line)
+    return out
+
+
+_REPO_ROOT = pathlib.Path(__file__).resolve().parents[1]
+install_deps = _read_requirements_file(_REPO_ROOT / "requirements.txt")
+# Mirror setup.py — keep these in sync if setup.py's gui_deps changes.
+gui_deps = ["imageio", "pywebview", "fastapi", "uvicorn", "tensorboard"]
 
 DEPENDENCIES = install_deps + gui_deps
 

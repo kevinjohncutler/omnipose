@@ -1,10 +1,32 @@
 from setuptools import setup, find_packages
 import os
-import sys
 
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "src"))
 
-from omnipose.dependencies import install_deps, gui_deps, distributed_deps
+def _read_requirements(path):
+    """Parse a pip requirements.txt — strip comments and blank lines."""
+    if not os.path.exists(path):
+        return []
+    out = []
+    with open(path) as fh:
+        for line in fh:
+            line = line.split("#", 1)[0].strip()
+            if line:
+                out.append(line)
+    return out
+
+
+_HERE = os.path.dirname(__file__)
+install_deps = _read_requirements(os.path.join(_HERE, "requirements.txt"))
+# Optional groups installable via ``pip install omnipose[gui]``.  Kept inline
+# rather than in separate requirements files — one file is enough.
+gui_deps = [
+    "imageio",
+    "pywebview",
+    "fastapi",
+    "uvicorn",
+    "tensorboard",
+]
+distributed_deps: list[str] = []
 
 with open("README.md", "r") as fh:
     long_description = fh.read()
