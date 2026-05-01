@@ -1,0 +1,28 @@
+ocdkit                  # shared utilities (array, gpu, io, measure, morphology, spatial)
+numba>=0.61.0           # let numba control numpy version
+numpy                   # numba controls numpy version (v2 supported across deps as of July 2025)
+scipy
+edt
+scikit-image>=0.26
+ncolor>=1.4.3
+torch>=1.10
+torchvision             # redundant from torchvf
+mgen
+matplotlib
+ipywidgets              # could factor out to a notebook dep list
+networkit
+torchvf                 # do we need this anymore?
+tqdm
+natsort
+bioio
+bioio-czi               # CZI file support plugin
+numexpr
+torch_optimizer         # for RADAM, now supported directly in pytorch
+tifffile
+fastremap
+cmap
+dbscan                  # ~2x faster than sklearn dbscan
+imagecodecs
+opensimplex             # ND simplex noise for illumination augmentation
+dask
+# opt_einsum removed — benchmarked at parity with matmul in ocdkit.plot.colorize

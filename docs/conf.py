@@ -54,7 +54,6 @@ def _strip_all_for_autodoc() -> None:
         "omnipose.cli",
         "omnipose.core",
         "omnipose.data",
-        "omnipose.dependencies",
         "omnipose.gpu",
         "omnipose.gui",
         "omnipose.io",
