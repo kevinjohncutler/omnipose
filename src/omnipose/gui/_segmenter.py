@@ -2,11 +2,7 @@
 
 All inference paths use the in-package ``omnipose`` modules
 (``omnipose.models.OmniModel``, ``omnipose.core``, ``omnipose.utils``,
-``omnipose.gpu``, ``omnipose.transforms``). The legacy ``omnipose`` and
-``cellpose_omni`` packages are no longer imported.
-
-Lifted from the original ``gui/server/segmentation.py`` and adapted to the
-omnipose API.
+``omnipose.gpu``, ``omnipose.transforms``).
 """
 
 from __future__ import annotations
@@ -18,9 +14,9 @@ import threading
 import time
 import traceback as _tb
 from pathlib import Path
-from typing import Any, Mapping, Optional, Sequence
+from typing import Optional, Sequence
 
-import numpy as np
+from .imports import *
 from imageio import v2 as imageio
 
 
@@ -686,9 +682,8 @@ class Segmenter:
         ``OmniModel.eval()`` returns a :class:`ocdkit.io.result.Result` whose
         ``flows`` attribute is a batched list; each element is itself a
         :class:`Result` with fields ``(rgb, dP, dist, p, bd, traces, affinity,
-        bounds)``. That field order matches the legacy cellpose_omni flat
-        tuple, so downstream indexed access (flows[1] = dP, flows[2] = dist,
-        flows[6] = affinity, etc.) still works once we unwrap one batch layer.
+        bounds)``. Indexed access (flows[1] = dP, flows[2] = dist,
+        flows[6] = affinity, etc.) works once we unwrap one batch layer.
 
         ``Result`` isn't a list or tuple, but it supports iteration and has a
         ``_fields`` attribute — duck-typed here so namedtuples would also work.
@@ -932,6 +927,43 @@ class Segmenter:
         cache["points_payload"] = payload
         self._cache = cache
         return payload
+
+    def build_volume_bundle(
+        self,
+        volume: Optional[np.ndarray],
+        masks: np.ndarray,
+        *,
+        links_path: Optional[str] = None,
+        **flags: Any,
+    ) -> dict[str, Any]:
+        """Build the 3D viewer bundle from a volume + label volume.
+
+        Delegates to :mod:`omnipose.gui._volume3d`, routing the flow solve
+        through this segmenter's GPU device when available.
+        """
+        from . import _volume3d as v3
+
+        flags.setdefault("use_gpu", self._use_gpu)
+        flags.setdefault("device", self._device)
+        return v3.build_bundle(volume, masks, links_path=links_path, **flags)
+
+    def build_volume_bundle_from_files(
+        self,
+        masks_path: str,
+        raw_path: Optional[str] = None,
+        links_path: Optional[str] = None,
+        **flags: Any,
+    ) -> dict[str, Any]:
+        """Read tiffs and build the 3D viewer bundle (route-layer entry point).
+
+        Auto-detects a sibling ``*_links.txt`` next to ``masks_path``. Routes the
+        flow solve through this segmenter's GPU device.
+        """
+        from . import _volume3d as v3
+
+        flags.setdefault("use_gpu", self._use_gpu)
+        flags.setdefault("device", self._device)
+        return v3.bundle_from_files(raw_path, masks_path, links_path=links_path, **flags)
 
     def clear_cache(self) -> None:
         with self._eval_lock:

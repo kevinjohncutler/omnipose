@@ -14,22 +14,18 @@ A user with both ``omnipose`` and ``ocdkit`` installed can launch the
 viewer with ``python -m ocdkit.viewer serve`` and the Omnipose pane appears
 automatically.
 
-Design note: the omnipose package itself is unmodified. The Segmenter
-*source* lives in ``_segmenter.py`` next to this plugin; it imports
-``cellpose_omni`` and ``omnipose`` only as runtime dependencies.
+Design note: the Segmenter *source* lives in ``_segmenter.py`` next to
+this plugin and imports omnipose modules only as runtime dependencies.
 """
 
 from __future__ import annotations
 
-from typing import Any, Mapping
-
-import numpy as np
-
+from .imports import *
 from ocdkit.viewer import SegmentationPlugin, WidgetSpec
 
 
 # Lazy module-level singleton — instantiating the Segmenter triggers heavy
-# imports (torch, cellpose_omni). We defer until first run() / warmup.
+# imports (torch, omnipose.models). We defer until first run() / warmup.
 _segmenter = None
 
 
@@ -128,13 +124,17 @@ WIDGETS: list[WidgetSpec] = [
     WidgetSpec(
         name="omni", label="Omni mode", kind="toggle", default=True,
         help=(
-            "Omnipose pipeline (on) vs. classical Cellpose (off). Affects: "
-            "iscell threshold (hysteresis vs hard threshold on the distance "
-            "field), flow normalization (div_rescale vs raw / 5), and the "
-            "mask reconstruction algorithm. NOTE: only takes full effect in "
-            "Segmentation Mode = none (connected components). In affinity "
-            "and cluster modes the reconstruction goes through the affinity "
-            "branch which is omnipose-only — only the threshold step changes."
+            "Omnipose pipeline (on) vs. classical Cellpose (off).\n"
+            "\n"
+            "Affects:\n"
+            "  • iscell threshold — hysteresis vs hard threshold on distance field\n"
+            "  • flow normalization — div_rescale vs raw / 5\n"
+            "  • mask reconstruction algorithm\n"
+            "\n"
+            "NOTE: only takes full effect in Segmentation Mode = none "
+            "(connected components). In affinity and cluster modes the "
+            "reconstruction goes through the affinity branch (omnipose-only) "
+            "— only the threshold step changes."
         ),
         group="Advanced", visible_when={"advanced": True},
     ),
@@ -264,6 +264,18 @@ def _relabel_from_affinity(
     return _get_segmenter().relabel_from_affinity(mask, spatial, steps)
 
 
+def _build_volume_bundle(
+    masks_path: str,
+    raw_path: str | None = None,
+    links_path: str | None = None,
+    **flags: Any,
+) -> dict[str, Any]:
+    """3D viewer bundle for a label volume (+ optional intensity) on disk."""
+    return _get_segmenter().build_volume_bundle_from_files(
+        masks_path, raw_path, links_path=links_path, **flags
+    )
+
+
 def _list_models() -> list[str]:
     try:
         from ocdkit.viewer.model_registry import list_models
@@ -280,10 +292,7 @@ def _list_models() -> list[str]:
 plugin = SegmentationPlugin(
     name="omnipose",
     version="1.0.0",
-    description=(
-        "Omnipose: distance-field + flow-based instance segmentation. "
-        "Backend: omnipose (migrated from cellpose_omni/omnipose)."
-    ),
+    description="Omnipose: distance-field + flow-based instance segmentation.",
     homepage="https://github.com/kevinjohncutler/omnipose",
     widgets=WIDGETS,
     run=_run,
@@ -293,6 +302,7 @@ plugin = SegmentationPlugin(
     get_use_gpu=_get_use_gpu,
     clear_cache=_clear_cache,
     relabel_from_affinity=_relabel_from_affinity,
+    build_volume_bundle=_build_volume_bundle,
     load_models=_list_models,
     # Host-managed display toggles to surface for this plugin. The host
     # renders an OFF toggle for each key here and enables it once the
