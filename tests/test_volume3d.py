@@ -141,9 +141,9 @@ def test_build_bundle_real_crop():
     assert np.array_equal(mask_back.astype(np.int32), m)
     assert mask_back.dtype == np.uint8  # 40 labels -> uint8
 
-    # image roundtrips
+    # image is min-max normalised to uint8 for the payload (both views re-normalise)
     img_back = v3.decode_array(b["image"])
-    assert np.array_equal(img_back, vol)
+    assert img_back.shape == vol.shape and img_back.dtype == np.uint8
 
     # flow payloads decode to right shapes
     raw = v3.decode_array(b["flow"]["raw"])

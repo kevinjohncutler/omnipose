@@ -78,6 +78,18 @@ def _to_numpy(x: Any) -> np.ndarray:
     return np.asarray(x)
 
 
+def _to_uint8(vol: np.ndarray) -> np.ndarray:
+    """Min-max normalise an intensity volume to uint8 (both viewer modes
+    re-normalise for display, so 8-bit halves the payload with no visible loss)."""
+    a = np.asarray(vol).astype(np.float32)
+    finite = np.isfinite(a)
+    lo = float(a[finite].min()) if finite.any() else 0.0
+    hi = float(a[finite].max()) if finite.any() else 1.0
+    if hi <= lo:
+        return np.zeros(a.shape, np.uint8)
+    return np.clip((a - lo) * (255.0 / (hi - lo)), 0, 255).astype(np.uint8)
+
+
 # ---------------------------------------------------------------------------
 # kernel / steps
 # ---------------------------------------------------------------------------
@@ -396,15 +408,14 @@ def build_bundle(volume: Optional[np.ndarray],
 
     if volume is not None:
         vol = np.asarray(volume)
-        bundle["image"] = encode_array(vol) if embed_volumes else {
+        bundle["image"] = encode_array(_to_uint8(vol)) if embed_volumes else {
             "deferred": True, "dtype": str(vol.dtype), "shape": list(vol.shape)}
 
     if do_flow:
         mu, dist = flow_and_dist(m, use_gpu=use_gpu, device=device)
         bundle["flow"] = {
-            "rgbSlices": encode_array(flow_rgb_slices(mu)),
-            "rgb3d": encode_array(rgb_flow_3d(mu)),
-            "raw": encode_array(mu.astype(np.float16)),
+            "rgbSlices": encode_array(flow_rgb_slices(mu)),   # 2.5D in-plane flow
+            "raw": encode_array(mu.astype(np.float16)),       # 3D quiver
         }
         bundle["distance"] = {"rgbSlices": encode_array(dist_rgb_slices(dist))}
 
