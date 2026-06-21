@@ -172,6 +172,29 @@ def test_bundle_from_files_autodetects_links():
     assert len(b["trajectories"]["edges"]) == 36  # links auto-detected
 
 
+def test_build_bundle_recon_points():
+    """do_recon runs the real flow-following recon -> populates points (sinks)."""
+    m = _synth_volume(D=6, H=24, W=24)
+    b = v3.build_bundle(None, m, do_flow=False, do_affinity=False,
+                        do_trajectories=False, do_recon=True, use_gpu=False)
+    assert "points" in b, "recon should populate points"
+    pts = v3.decode_array(b["points"])
+    assert pts.ndim == 2 and pts.shape[1] == 3            # (N, [z,y,x])
+    assert b["points"]["count"] == pts.shape[0] > 0
+    # converged points sit within the volume bounds
+    assert pts[:, 0].min() >= 0 and pts[:, 0].max() <= m.shape[0]
+    assert pts[:, 1].max() <= m.shape[1] and pts[:, 2].max() <= m.shape[2]
+
+
+def test_reconstruct_points_shapes():
+    m = _synth_volume(D=6, H=24, W=24)
+    mu, dist = v3.flow_and_dist(m, use_gpu=False)
+    recon_mask, p = v3.reconstruct_points(m, mu, dist, use_gpu=False)
+    assert recon_mask.shape == m.shape
+    assert p.shape == (3, *m.shape) and np.isfinite(p).all()
+    assert recon_mask.max() >= 1   # reconstructed at least one cell
+
+
 def test_segmenter_build_volume_bundle_delegates():
     from omnipose.gui._segmenter import Segmenter
     seg = Segmenter()

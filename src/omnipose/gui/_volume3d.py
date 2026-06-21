@@ -246,6 +246,34 @@ def dist_rgb_slices(dist: np.ndarray) -> np.ndarray:
 # points (cell sinks) from an Euler-integration field p
 # ---------------------------------------------------------------------------
 
+def reconstruct_points(masks: np.ndarray, mu: np.ndarray, dist: np.ndarray, *,
+                       use_gpu: bool = False, device: Any = None,
+                       niter: Optional[int] = None, mask_threshold: float = 0.0,
+                       flow_threshold: float = 0.0) -> tuple[np.ndarray, np.ndarray]:
+    """Run omnipose flow-following on a derived flow field to get REAL sinks.
+
+    Returns ``(recon_mask, p)`` where ``p`` ``(dim, *spatial)`` is the converged
+    (flow-followed) position of every voxel — the real trajectory endpoints,
+    as opposed to GT centroids. Uses ``affinity_seg=False`` (the 3D
+    affinity-reconstruction path has a divergence-shape bug; the flow-following
+    path is unaffected).
+    """
+    from omnipose import core
+
+    m = np.ascontiguousarray(np.asarray(masks).astype(np.int32))
+    dim = m.ndim
+    out = core.compute_masks(
+        dP=np.ascontiguousarray(np.asarray(mu, np.float32)),
+        dist=np.ascontiguousarray(np.asarray(dist, np.float32)),
+        bd=None, niter=niter, mask_threshold=mask_threshold,
+        flow_threshold=flow_threshold, affinity_seg=False, cluster=False,
+        omni=True, dim=dim, nclasses=2, use_gpu=use_gpu, device=device,
+        calc_trace=False, verbose=False)
+    recon_mask = np.asarray(out[0]).astype(np.int32)
+    p = _to_numpy(out[1]).astype(np.float32)
+    return recon_mask, p
+
+
 def points_from_p(masks: np.ndarray, p: np.ndarray) -> np.ndarray:
     """Foreground cell-sink coordinates as ``(N, 3)`` float32 ``[z, y, x]``.
 
@@ -337,6 +365,8 @@ def build_bundle(volume: Optional[np.ndarray],
                  do_flow: bool = True,
                  do_affinity: bool = True,
                  do_trajectories: bool = True,
+                 do_recon: bool = False,
+                 max_points: int = 8000,
                  embed_volumes: bool = True,
                  embed_affinity: bool = True) -> dict[str, Any]:
     """Assemble the full 3D viewer bundle from a volume + label volume.
@@ -389,6 +419,20 @@ def build_bundle(volume: Optional[np.ndarray],
 
     if do_trajectories and dim == 3:
         bundle["trajectories"] = trajectories(m, edges=edges, links_path=links_path)
+
+    if do_recon:
+        # Real omnipose flow-following: where each voxel converges (cell sinks),
+        # vs GT centroids. Populates the points overlay with real recon data.
+        if not do_flow:
+            mu, dist = flow_and_dist(m, use_gpu=use_gpu, device=device)
+        recon_mask, p = reconstruct_points(m, mu, dist, use_gpu=use_gpu, device=device)
+        coords = points_from_p(recon_mask, p)            # (N, dim) [z,y,x]
+        n = coords.shape[0]
+        if n > max_points:
+            idx = np.linspace(0, n - 1, max_points).astype(np.int64)
+            coords = coords[idx]
+        bundle["points"] = {**encode_array(coords.astype(np.float32)),
+                            "count": int(coords.shape[0]), "total": int(n)}
 
     return bundle
 
