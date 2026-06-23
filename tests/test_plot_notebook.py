@@ -5,6 +5,7 @@ so the cross-device script can combine it.
 """
 
 import os
+import importlib.util
 import pytest
 import nbformat
 from nbclient import NotebookClient
@@ -12,20 +13,26 @@ from nbclient import NotebookClient
 _COV_DIR = os.path.normpath(os.path.join(os.path.dirname(__file__), '..', '.coverage_combined'))
 _SRC_DIR = os.path.normpath(os.path.join(os.path.dirname(__file__), '..', 'src', 'omnipose'))
 
+# In-kernel coverage instrumentation is auxiliary (feeds the cross-device
+# coverage-combine workflow). Only inject it when `coverage` is importable so
+# the notebook tests still run when coverage isn't installed.
+_HAS_COVERAGE = importlib.util.find_spec("coverage") is not None
+
 
 def _make_notebook(cells):
     os.makedirs(_COV_DIR, exist_ok=True)
-    all_cells = [
-        nbformat.v4.new_code_cell(
+    all_cells = []
+    if _HAS_COVERAGE:
+        all_cells.append(nbformat.v4.new_code_cell(
             "import coverage as _cov_mod; "
             f"_cov = _cov_mod.Coverage(source=[{_SRC_DIR!r}], "
             f"data_file={_COV_DIR!r} + '/.coverage.notebook', "
             "data_suffix=True); "
             "_cov.start()"
-        ),
-    ]
+        ))
     all_cells.extend(nbformat.v4.new_code_cell(c) for c in cells)
-    all_cells.append(nbformat.v4.new_code_cell("_cov.stop(); _cov.save()"))
+    if _HAS_COVERAGE:
+        all_cells.append(nbformat.v4.new_code_cell("_cov.stop(); _cov.save()"))
     nb = nbformat.v4.new_notebook()
     nb.cells = all_cells
     return nb
