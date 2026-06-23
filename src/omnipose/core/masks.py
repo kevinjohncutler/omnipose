@@ -118,8 +118,12 @@ def compute_masks(dP, dist, affinity_graph=None, bd=None, p=None, coords=None, i
             if affinity_graph is None:
                 if verbose:
                     omnipose_logger.info('computing affinity graph (torch-native)')
-                affinity_graph = _get_affinity_torch(initial, p_torch, dP_scaled, dist_pad_t,
-                                                     mask_pad.float(), steps, fact, inds,
+                # _get_affinity_torch is batched: (B, D, *spatial) -> (S, B, *DIMS).
+                # The inference path is single-image, so add a B=1 axis here; the
+                # batch dim is stripped again by the .squeeze() below.
+                affinity_graph = _get_affinity_torch(initial[None], p_torch[None], dP_scaled[None],
+                                                     dist_pad_t[None], mask_pad.float()[None],
+                                                     steps, fact, inds,
                                                      supporting_inds, niter, device=_device)
             if _profile:
                 _T3 = _t.perf_counter()
@@ -155,7 +159,7 @@ def compute_masks(dP, dist, affinity_graph=None, bd=None, p=None, coords=None, i
                 omnipose_logger.info('despur disabled')
 
             if cluster or despur:
-                # Sparse CPU format required: networkit (cluster) or numba (despur)
+                # Sparse CPU format required: numba union-find (cluster) or numba (despur)
                 affinity_graph = affinity_graph_gpu.cpu().numpy()[(Ellipsis,) + tuple(coords)]
                 neigh_inds = ind_matrix[tuple(neighbors)]   # (nsteps, npix)
                 if despur:
@@ -510,7 +514,8 @@ def flow_error(maski, dP_net, coords=None, affinity_graph=None, use_gpu=True, de
     from ..gpu import torch_GPU, torch_CPU
     _device = device if device is not None else (torch_GPU if use_gpu else torch_CPU)
 
-    _, _, _, mu, _, _, _, _ = masks_to_flows_batch(np.array([maski]), device=_device, omni=omni)
+    _, _, _, mu, _, _, _, _ = masks_to_flows_batch(np.array([maski]), device=_device,
+                                                   omni=omni, dim=maski.ndim)
     dP_masks = mu.cpu().numpy()
 
     flow_errors = np.zeros(maski.max())
