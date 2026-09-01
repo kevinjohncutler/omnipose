@@ -18,7 +18,7 @@ classifiers = [
 dynamic = ["version"]
 
 dependencies = [
-    "ocdkit",           # shared utilities (array, gpu, io, measure, morphology, spatial)
+    "ocdkit>=0.0.8",    # shared utilities (array, gpu, io, measure, morphology, spatial); >=0.0.8 for the build_volume_bundle viewer-plugin contract
     "numba>=0.61.0",    # let numba control numpy version
     "numpy",            # numba controls numpy version (v2 supported across deps as of July 2025)
     "scipy",
