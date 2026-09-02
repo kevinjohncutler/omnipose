@@ -7,7 +7,9 @@ so the cross-device script can combine it.
 import os
 import importlib.util
 import pytest
-import nbformat
+
+nbformat = pytest.importorskip("nbformat")
+pytest.importorskip("nbclient")
 from nbclient import NotebookClient
 
 _COV_DIR = os.path.normpath(os.path.join(os.path.dirname(__file__), '..', '.coverage_combined'))

@@ -62,6 +62,10 @@ dev = [
     "pytest-cov",
     "coverage",
     "genbadge[coverage]",
+    # notebook-driven plot tests (tests/test_plot_notebook.py)
+    "nbformat",
+    "nbclient",
+    "ipykernel",
 ]
 
 [project.urls]

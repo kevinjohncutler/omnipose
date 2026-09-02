@@ -111,22 +111,13 @@ for root in list(third_party):
 
 from packaging.requirements import Requirement
 
-
-def _read_requirements_file(path):
-    """Parse a pip requirements.txt — strip comments and blank lines."""
-    out = []
-    with open(path) as fh:
-        for line in fh:
-            line = line.split("#", 1)[0].strip()
-            if line:
-                out.append(line)
-    return out
-
+import tomllib
 
 _REPO_ROOT = pathlib.Path(__file__).resolve().parents[1]
-install_deps = _read_requirements_file(_REPO_ROOT / "requirements.txt")
-# Mirror setup.py — keep these in sync if setup.py's gui_deps changes.
-gui_deps = ["imageio", "pywebview", "fastapi", "uvicorn", "tensorboard"]
+with open(_REPO_ROOT / "pyproject.toml", "rb") as fh:
+    _project = tomllib.load(fh)["project"]
+install_deps = list(_project["dependencies"])
+gui_deps = list(_project["optional-dependencies"]["gui"])
 
 DEPENDENCIES = install_deps + gui_deps
 
