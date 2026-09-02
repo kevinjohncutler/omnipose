@@ -6,6 +6,8 @@ outputs against CPU outputs to verify device-independent correctness.
 On CPU-only systems, GPU tests are skipped (not failed).
 """
 
+import os
+
 import numpy as np
 import pytest
 import torch
@@ -19,6 +21,11 @@ def _detect_gpu_device():
     if torch.cuda.is_available():
         return torch.device("cuda")
     if hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
+        # GitHub's virtualized macOS runners advertise MPS but its numerics
+        # diverge from real Apple hardware; parity there exercises the
+        # virtualized Metal stack, not our code. Skip on CI, keep locally.
+        if os.environ.get("CI"):
+            return None
         return torch.device("mps")
     return None
 

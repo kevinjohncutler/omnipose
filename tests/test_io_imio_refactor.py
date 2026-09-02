@@ -1,3 +1,5 @@
+import os
+
 import numpy as np
 
 from omnipose import io
@@ -18,7 +20,7 @@ def test_get_image_files_filters_masks(tmp_path):
     io.imwrite(str(tmp_path / "other_img.tif"), img)
 
     files = io.get_image_files(str(tmp_path), mask_filter="_masks", img_filter="")
-    names = {p.split("/")[-1] for p in files}
+    names = {os.path.basename(p) for p in files}
     assert "sample.tif" in names
     assert "sample_masks.tif" not in names
     assert "other_img.tif" in names
