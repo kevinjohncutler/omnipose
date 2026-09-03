@@ -1,5 +1,7 @@
 from .imports import *
 
+import inspect
+
 _IMAGE_EXTS = {'.tif', '.tiff', '.png', '.jpg', '.jpeg', '.bmp', '.npy', '.npz', '.czi'}
 
 
@@ -132,11 +134,22 @@ def eval(self, x, batch_size=8, channels=None, channel_axis=None,
     """
     # --- Route kwargs to downstream functions ---
     base_args = base_kwargs(locals(), exclude={"self", "x", "kwargs"})
-    mask_kwargs, *_ = split_kwargs(
-        [core.compute_masks, core.steps_batch, core._get_affinity_torch],
-        base_args, strict=False,
-    )
+    _route_targets = [core.compute_masks, core.steps_batch, core._get_affinity_torch]
+    mask_kwargs, *_ = split_kwargs(_route_targets, base_args, strict=False)
     mask_threshold   = mask_kwargs.get("mask_threshold", 0.0)
+
+    # A kwarg no route target names is silently dropped by split_kwargs, so a
+    # misspelled or renamed parameter becomes a control that does nothing
+    # (e.g. cellpose's cellprob_threshold is mask_threshold here). Warn.
+    if kwargs:
+        _accepted = {name for fn in _route_targets
+                     for name in inspect.signature(fn).parameters}
+        _unknown = sorted(set(kwargs) - _accepted)
+        if _unknown:
+            models_logger.warning(
+                f'eval() ignoring unrecognized keyword argument(s): {_unknown} '
+                '(no downstream function accepts them; note cellprob_threshold '
+                'is called mask_threshold in omnipose)')
 
     # --- Normalise x: string → list of paths ---
     if isinstance(x, str):
