@@ -380,7 +380,7 @@ pyqtgraph --collect-all skimage --collect-all torch
 Licensing
 ---------
 
-See ``LICENSE.txt`` for details. This license does not affect anyone
+See ``LICENSE`` for details. This license does not affect anyone
 using Omnipose for noncommercial applications.
 
 .. |Downloads| image:: https://static.pepy.tech/personalized-badge/omnipose?period=total&units=international_system&left_color=grey&right_color=green&left_text=Downloads
