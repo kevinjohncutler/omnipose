@@ -81,6 +81,40 @@ WIDGETS: list[WidgetSpec] = [
         help="Max flow error per cell. 0 = disabled.",
         group="Parameters",
     ),
+    WidgetSpec(
+        name="min_size",
+        label="min area",
+        kind="slider_log",
+        default=15, min=1, max=10000, step=1,
+        help=(
+            "Cell area cutoff: masks smaller than this many pixels (voxels "
+            "in 3D) are discarded. 1 keeps everything. Log scale.\n"
+            "\n"
+            "Reconstruction-only, so dragging re-runs just the mask rebuild "
+            "from the cached network output (no re-inference)."
+        ),
+        group="Parameters",
+    ),
+    WidgetSpec(
+        name="rescale_factor",
+        label="rescale",
+        kind="slider_log",
+        default=1.0, min=0.1, max=10.0, step=0.01,
+        help=(
+            "Resize the image by this factor before the network sees it: "
+            ">1 upsamples (find cells smaller than the model was trained "
+            "for), <1 downsamples (find larger cells, and run faster). "
+            "1 = native resolution. Log scale.\n"
+            "\n"
+            "With Resample on (the default) the network output is scaled "
+            "back to the input resolution, so the mask always matches the "
+            "displayed image.\n"
+            "\n"
+            "This changes the network input, so moving it re-runs inference "
+            "rather than the cheap reconstruction-only rebuild."
+        ),
+        group="Parameters",
+    ),
     # --- Segmentation mode -------------------------------------------------
     # Tri-state segmented control replacing separate cluster + affinity_seg
     # toggles. The plugin's _coerce_settings translates this back to the
@@ -141,9 +175,12 @@ WIDGETS: list[WidgetSpec] = [
     WidgetSpec(
         name="resample", label="Resample", kind="toggle", default=True,
         help=(
-            "Resample to the model's expected scale before inference. "
-            "Inference-only — toggling here only takes effect after pressing "
-            "Segment (not on slider drag, which only re-runs reconstruction)."
+            "Run the mask reconstruction at the original image resolution: "
+            "the network output is scaled back by 1/rescale before "
+            "reconstruction. Turn off to reconstruct at the rescaled "
+            "resolution (faster, coarser boundaries).\n"
+            "\n"
+            "Changes the network stage, so toggling re-runs inference."
         ),
         group="Advanced", visible_when={"advanced": True},
     ),
@@ -151,8 +188,9 @@ WIDGETS: list[WidgetSpec] = [
         name="tile", label="Tile", kind="toggle", default=False,
         help=(
             "Tile the image and run inference on each tile, stitching the "
-            "outputs. Use for large images that don't fit in GPU memory. "
-            "Inference-only — re-press Segment after toggling."
+            "outputs. Use for large images that don't fit in GPU memory.\n"
+            "\n"
+            "Changes the network stage, so toggling re-runs inference."
         ),
         group="Advanced", visible_when={"advanced": True},
     ),
@@ -161,8 +199,9 @@ WIDGETS: list[WidgetSpec] = [
         help=(
             "Test-time augmentation: average the model's predictions over "
             "rotations and flips of the input. Smoother flows + cleaner "
-            "masks at cell boundaries, ~4× slower per inference. "
-            "Inference-only — re-press Segment after toggling."
+            "masks at cell boundaries, ~4x slower per inference.\n"
+            "\n"
+            "Changes the network stage, so toggling re-runs inference."
         ),
         group="Advanced", visible_when={"advanced": True},
     ),

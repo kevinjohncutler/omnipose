@@ -26,6 +26,18 @@ def _log_unexpected(label: str) -> None:
     _tb.print_exc(file=_sys.stderr)
 
 
+def _as_label_array(x: Any) -> np.ndarray:
+    """Coerce a mask returned by the core to a numpy label array.
+
+    `compute_masks` can hand back a torch tensor (the GPU hysteresis path
+    returns `iscell` directly when no cell pixels are found), which has no
+    `.astype`. Normalizing here keeps that from crashing the viewer request.
+    """
+    if hasattr(x, "detach"):  # torch.Tensor
+        x = x.detach().cpu().numpy()
+    return np.asarray(x)
+
+
 def _is_array(x: Any) -> bool:
     """Is ``x`` a numpy array (used to disambiguate batched vs flat flows)."""
     return isinstance(x, np.ndarray)
@@ -163,10 +175,19 @@ class Segmenter:
             channels = [0, 0] if nchan > 1 else None
             # OmniModel.eval returns a Result(masks=..., flows=...) container
             # which supports tuple unpacking; the trailing *rest is empty.
+            # `resize` pins the reconstruction back to the input resolution.
+            # With resample=True eval already zooms the network output back by
+            # 1/rescale_factor, so this is a no-op; with resample=False and a
+            # rescale factor it is what keeps the returned mask the same shape
+            # as the image the viewer is displaying.
+            extra_eval_kw: dict[str, Any] = {}
+            if parsed["rescale_factor"] != 1.0 and not parsed["resample"]:
+                extra_eval_kw["resize"] = tuple(arr.shape)
             masks, flows, *rest = self._model.eval(
                 arr,
                 channels=channels,
-                rescale_factor=None,
+                rescale_factor=parsed["rescale_factor"],
+                min_size=parsed["min_size"],
                 mask_threshold=parsed["mask_threshold"],
                 flow_threshold=parsed["flow_threshold"],
                 transparency=parsed["transparency"],
@@ -178,13 +199,14 @@ class Segmenter:
                 niter=parsed["niter"],
                 augment=parsed["augment"],
                 affinity_seg=parsed["affinity_seg"],
+                **extra_eval_kw,
             )
             mask = self._select_first(masks)
             # OmniModel.eval returns masks with a leading batch dimension;
             # drop it so the mask is 2D (H, W) for downstream ncolor / affinity.
             while mask.ndim > 2 and mask.shape[0] == 1:
                 mask = mask[0]
-            mask_uint32 = np.ascontiguousarray(mask.astype(np.uint32, copy=False))
+            mask_uint32 = np.ascontiguousarray(_as_label_array(mask).astype(np.uint32, copy=False))
             flow_components = self._extract_flows(flows)
             self._cache = self._build_cache(arr, flow_components, parsed, merged_options, mask_uint32.shape)
             ncolor_mask = self._compute_ncolor_mask(mask_uint32, expand=True)
@@ -210,6 +232,7 @@ class Segmenter:
         import time as _time, os as _os
         _profile = bool(_os.environ.get("OMNIPOSE_PROFILE_RESEGMENT"))
         _t0 = _time.perf_counter() if _profile else None
+        parsed, merged_options = self._parse_options(settings, overrides)
         # Snapshot fallback decision under lock so segment/resegment cannot
         # interleave their cache reads/writes (issue #1: cache race).
         required = ("dP", "dist", "bd", "mask_shape", "nclasses", "dim")
@@ -217,16 +240,25 @@ class Segmenter:
             if self._cache is None:
                 raise RuntimeError("no cached segmentation data available")
             needs_fallback = any(key not in self._cache for key in required)
+            reason = "cache missing flows"
+            if not needs_fallback:
+                # Inference-only options (rescale factor, model, resample,
+                # tile, augment) invalidate the cached network output: a
+                # reconstruction-only rebuild would silently ignore them, so
+                # re-run the network on the cached (already normalized) image.
+                cached_key = self._cache.get("infer_key")
+                if cached_key is not None and cached_key != self._inference_key(parsed):
+                    needs_fallback = True
+                    reason = "inference options changed"
             fallback_image = self._cache.get("image") if needs_fallback else None
 
         if needs_fallback:
             if fallback_image is None:
                 raise RuntimeError("cached flows missing and no image available; cannot resegment")
             import sys as _sys
-            print("[resegment] cache missing flows; falling back to full segment", file=_sys.stderr)
+            print(f"[resegment] {reason}; falling back to full segment", file=_sys.stderr)
             return self.segment(fallback_image, settings=settings, **overrides)
 
-        parsed, merged_options = self._parse_options(settings, overrides)
         with self._eval_lock:
             cache = self._cache
             if cache is None:
@@ -251,6 +283,7 @@ class Segmenter:
                 niter=parsed["niter"],
                 mask_threshold=parsed["mask_threshold"],
                 flow_threshold=parsed["flow_threshold"],
+                min_size=parsed["min_size"],
                 resize=cache["mask_shape"],
                 rescale_factor=rescale_value,
                 cluster=parsed["cluster"],
@@ -265,7 +298,7 @@ class Segmenter:
                 device=self._device,
             )
             _t1 = _time.perf_counter() if _profile else None
-            mask_uint32 = np.ascontiguousarray(mask.astype(np.uint32, copy=False))
+            mask_uint32 = np.ascontiguousarray(_as_label_array(mask).astype(np.uint32, copy=False))
             ncolor_mask = self._compute_ncolor_mask(mask_uint32, expand=True)
             _t2 = _time.perf_counter() if _profile else None
             cache["mask"] = mask_uint32
@@ -276,6 +309,7 @@ class Segmenter:
             cache["last_mask_threshold"] = parsed["mask_threshold"]
             cache["last_flow_threshold"] = parsed["flow_threshold"]
             cache["last_niter"] = parsed["niter"]
+            cache["min_size"] = parsed["min_size"]
             cache["last_options"] = merged_options
             if parsed["affinity_seg"]:
                 cache["bounds"] = bounds
@@ -331,6 +365,24 @@ class Segmenter:
     def get_use_gpu(self) -> bool:
         return bool(self._use_gpu)
 
+    @staticmethod
+    def _inference_key(parsed: Mapping[str, Any]) -> tuple:
+        """Signature of the options that change the *network* output.
+
+        `resegment` only replays mask reconstruction from cached flows, so a
+        change to any of these makes the cache stale and a full `segment` has
+        to run instead. Everything else (mask/flow threshold, niter, min_size,
+        cluster/affinity mode) is reconstruction-only and stays interactive.
+        """
+        return (
+            parsed.get("model") or "bact_phase_affinity",
+            parsed.get("model_path") or None,
+            float(parsed.get("rescale_factor", 1.0)),
+            bool(parsed.get("resample", True)),
+            bool(parsed.get("tile", False)),
+            bool(parsed.get("augment", False)),
+        )
+
     def _parse_options(
         self,
         settings: Mapping[str, Any] | None,
@@ -385,11 +437,24 @@ class Segmenter:
                 return None
             return numeric
 
+        def _get_positive_float(name: str, default: float) -> float:
+            value = _get_float(name, default)
+            if not np.isfinite(value) or value <= 0:
+                return float(default)
+            return value
+
         parsed = {
             "model": merged.get("model"),
             "model_path": merged.get("model_path"),
             "mask_threshold": _get_float("mask_threshold", -2.0),
             "flow_threshold": _get_float("flow_threshold", 0.0),
+            # Area cutoff (pixels in 2D, voxels in 3D). Reconstruction-only,
+            # so a slider drag re-runs `resegment` and nothing else.
+            # (via _get_float: the log slider sends fractional values like 15.03)
+            "min_size": max(0, int(_get_float("min_size", 15))),
+            # Pre-inference resize: >1 upsamples, <1 downsamples the image
+            # before the network sees it. Inference-only (see _inference_key).
+            "rescale_factor": _get_positive_float("rescale_factor", 1.0),
             "cluster": _get_bool("cluster", True),
             "affinity_seg": _get_bool("affinity_seg", True),
             "transparency": _get_bool("transparency", True),
@@ -630,20 +695,28 @@ class Segmenter:
         except Exception:
             _log_unexpected("_compute_ncolor_mask: fastremap path")
             mask_for_label = mask_int
+        # n-coloring is a display nicety: `None` means "render with plain
+        # label colors". Any failure here (a stub/half-installed ncolor whose
+        # `label` attribute is missing, a broken compiled backend, a bad
+        # array) must not take the segmentation itself down with it.
         try:
-            labeled, ngroups = ncolor.label(
-                mask_for_label,
-                max_depth=20,
-                expand=expand,
-                return_n=True,
-                format_input=False,
-            )
-        except TypeError:
             try:
-                labeled = ncolor.label(mask_for_label, max_depth=20, expand=expand, format_input=False)
+                labeled, ngroups = ncolor.label(
+                    mask_for_label,
+                    max_depth=20,
+                    expand=expand,
+                    return_n=True,
+                    format_input=False,
+                )
             except TypeError:
-                labeled = ncolor.label(mask_for_label, max_depth=20, format_input=False)
-            ngroups = int(np.unique(labeled[labeled > 0]).size)
+                try:
+                    labeled = ncolor.label(mask_for_label, max_depth=20, expand=expand, format_input=False)
+                except TypeError:
+                    labeled = ncolor.label(mask_for_label, max_depth=20, format_input=False)
+                ngroups = int(np.unique(labeled[labeled > 0]).size)
+        except Exception:
+            _log_unexpected("_compute_ncolor_mask: ncolor.label")
+            return None
         try:
             max_label = int(np.max(mask_int)) if mask_int.size else 0
             report_max = min(max_label, 10)
@@ -746,7 +819,12 @@ class Segmenter:
             "last_options": dict(merged_options),
             "mask": None,
             "points_payload": None,
-            "rescale": merged_options.get("rescale"),
+            # The factor the flows in this cache were produced at. resegment
+            # feeds it back to compute_masks so the flow magnitudes stay
+            # consistent with the run that filled the cache.
+            "rescale": parsed["rescale_factor"],
+            "min_size": parsed["min_size"],
+            "infer_key": self._inference_key(parsed),
         }
         flow_overlay, dist_overlay = self._generate_overlays(flows)
         cache["flow_overlay"] = flow_overlay
