@@ -96,6 +96,11 @@ class eval_set(torch.utils.data.Dataset):
     def _analyze_shapes(self):
         """Analyze spatial shapes of all images to plan batching."""
         self._shapes = []
+        # Pre-rescale (native) spatial shape per image. `_shapes` holds the
+        # post-rescale shape used for batching; resampling the network output
+        # back needs the exact original, because int() truncation in the
+        # rescale means 1/factor does not recover it (384*0.15 -> 57 -> 380).
+        self._native_shapes = []
         self._shape_groups = defaultdict(list)
 
         n = len(self.data) if hasattr(self.data, '__len__') else 1
@@ -105,26 +110,31 @@ class eval_set(torch.utils.data.Dataset):
                                       and self.rescale_factor != 1.0) else None
         if self.list and not self.files:
             for idx in range(n):
-                shape = self.data[idx].shape[-self.dim:]
-                if rsf:
-                    shape = tuple(int(s * rsf) for s in shape)
+                native = tuple(self.data[idx].shape[-self.dim:])
+                shape = tuple(int(s * rsf) for s in native) if rsf else native
                 self._shapes.append(shape)
+                self._native_shapes.append(native)
                 self._shape_groups[shape].append(idx)
         elif self.stack:
-            base = self.data.shape[-self.dim:]
-            if rsf:
-                base = tuple(int(s * rsf) for s in base)
+            native = tuple(self.data.shape[-self.dim:])
+            base = tuple(int(s * rsf) for s in native) if rsf else native
             for idx in range(n):
                 self._shapes.append(base)
+                self._native_shapes.append(native)
                 self._shape_groups[base].append(idx)
         else:
             for idx in range(n):
-                shape = self._get_spatial_shape(idx)
+                native = self._get_spatial_shape(idx, rescale=False)
+                shape = tuple(int(s * rsf) for s in native) if rsf else native
                 self._shapes.append(shape)
+                self._native_shapes.append(native)
                 self._shape_groups[shape].append(idx)
 
-    def _get_spatial_shape(self, idx):
-        """Get the spatial shape of image at index (after rescaling)."""
+    def _get_spatial_shape(self, idx, rescale=True):
+        """Get the spatial shape of image at index (after rescaling).
+
+        Pass ``rescale=False`` for the native on-disk shape.
+        """
         if self.stack:
             img = self.data[idx]
         elif self.list:
@@ -146,8 +156,10 @@ class eval_set(torch.utils.data.Dataset):
         else:
             shape = np.array(img).shape[-self.dim:]
 
+        shape = tuple(shape)
+
         # Account for rescaling
-        if self.rescale_factor is not None and self.rescale_factor != 1.0:
+        if rescale and self.rescale_factor is not None and self.rescale_factor != 1.0:
             shape = tuple(int(s * self.rescale_factor) for s in shape)
 
         return shape

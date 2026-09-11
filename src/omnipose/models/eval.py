@@ -321,10 +321,13 @@ def eval(self, x, batch_size=8, channels=None, channel_axis=None,
     for batch, inds, subs in x.iter_batches():
         batch = batch.float()
         if normalize or invert:
-            b = batch.numpy().transpose(0, 2, 3, 1)
+            # Move channel axis to last for normalize_img(axis=-1); then move it back.
+            # ``moveaxis`` is rank-agnostic (works for 2D batches (B,C,H,W) and
+            # 3D batches (B,C,D,H,W) alike).
+            b = np.moveaxis(batch.numpy(), 1, -1)
             for i in range(b.shape[0]):
                 b[i] = transforms.normalize_img(b[i], axis=-1, invert=invert, omni=omni)
-            batch = torch.from_numpy(b.transpose(0, 3, 1, 2))
+            batch = torch.from_numpy(np.moveaxis(b, -1, 1))
 
         batch = batch.to(self.device)
 
@@ -350,7 +353,17 @@ def eval(self, x, batch_size=8, channels=None, channel_axis=None,
         del yf_batch
 
         if resample and rescale_factor not in (None, 1.0, 0):
-            yf_list = [torch_zoom(t.unsqueeze(0), 1 / rescale_factor).squeeze(0) for t in yf_list]
+            # Resize back to each image's *native* shape rather than scaling by
+            # 1/rescale_factor: the forward rescale truncates with int(), so the
+            # inverse scale lands a pixel or two short (384*0.15 -> 57 -> 380)
+            # and the returned mask would no longer match the input image.
+            _native = getattr(x, "_native_shapes", None)
+            yf_list = [
+                torch_zoom(t.unsqueeze(0), 1 / rescale_factor, dim=self.dim,
+                           size=(list(_native[inds[i]]) if _native is not None else None)
+                           ).squeeze(0)
+                for i, t in enumerate(yf_list)
+            ]
 
         # --- Batched GPU pre-processing: hysteresis threshold + Euler integration ---
         # Enabled when all images in the batch share the same spatial shape (pad/group mode)

@@ -310,7 +310,12 @@ def save_masks(images, masks, flows, file_names, png=True, tif=False,
         be similar and touch. Any color map can be applied to it (0,1,2,3,4,...).
     
     """
-    if isinstance(masks, list):
+    # Batch mode: ``file_names`` is the unambiguous signal — a single path
+    # is a string / Path, a batch is a sequence of those. ``masks`` may be
+    # a Python list, a stacked ndarray, or an ``ocdkit.io.Result``; ``flows``
+    # is typically a list of per-image Result objects from ``model.eval``.
+    # Iterating each via ``zip`` works for all three.
+    if not isinstance(file_names, (str, bytes, os.PathLike)):
         for image, mask, flow, file_name in zip(images, masks, flows, file_names):
             save_masks(image, mask, flow, file_name, png=png, tif=tif, suffix=suffix, dir_above=dir_above,
                        save_flows=save_flows, outline_col=outline_col,

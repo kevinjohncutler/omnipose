@@ -332,7 +332,12 @@ def compute_masks(dP, dist, affinity_graph=None, bd=None, p=None, coords=None, i
 
     else:
         omnipose_logger.info('No cell pixels found.')
-        ret = [iscell, np.zeros([2, 1, 1]), [], iscell, []]
+        # `iscell` is a torch tensor on the GPU hysteresis path. Callers index
+        # and cast the returned labels as numpy (mask.astype(...)), so an
+        # empty result must not leak a tensor out of this function.
+        empty = iscell.detach().cpu().numpy() if isinstance(iscell, torch.Tensor) else np.asarray(iscell)
+        empty = empty.astype(np.int32, copy=False)
+        ret = [empty, np.zeros([2, 1, 1]), [], empty, []]
 
     if debug:
         ret += [labels]
