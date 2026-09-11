@@ -1,17 +1,15 @@
 """Segmentation result visualization (mask overlays, prediction strips).
 
-Generic image display helpers (``imshow``, ``set_outline``) live in
-``ocdkit.plot.display``; this module focuses on the omnipose-specific
+Generic image display helpers (``imshow``, ``set_outline``, ``outline_view``)
+live in ``ocdkit.plot.display``; this module focuses on the omnipose-specific
 overlays for showing segmentation results alongside source images.
 """
 
 import os
 
-import numpy as np
-from skimage.segmentation import find_boundaries
-
+from .imports import *
 from .. import io, transforms
-from . import figure, imshow, colorize, normalize99, masks_to_outlines
+from . import figure, imshow, colorize, normalize99, masks_to_outlines, outline_view
 from .overlay import mask_outline_overlay
 
 
@@ -47,27 +45,6 @@ def image_to_rgb(img0, channels=None, channel_axis=-1):
         if channels[1] > 0:
             rgb[:, :, channels[1] - 1] = img[:, :, 1]
     return rgb
-
-
-def outline_view(img0, maski, boundaries=None, color=[1, 0, 0],
-                 channels=None, channel_axis=-1,
-                 mode="inner", connectivity=2, skip_formatting=False):
-    """Overlay outlines on an image."""
-    if np.max(color) <= 1 and not skip_formatting:
-        color = np.array(color) * (2**8 - 1)
-
-    if not skip_formatting:
-        img0 = image_to_rgb(img0, channels=channels, channel_axis=channel_axis)
-
-    if boundaries is None:
-        outlines = find_boundaries(maski, mode=mode, connectivity=connectivity)
-    else:
-        outlines = boundaries
-
-    out_y, out_x = np.nonzero(outlines)
-    imgout = img0.copy()
-    imgout[out_y, out_x] = color
-    return imgout
 
 
 def show_segmentation(fig, img, maski, flowi, bdi=None, channels=None, file_name=None,
@@ -109,15 +86,7 @@ def show_segmentation(fig, img, maski, flowi, bdi=None, channels=None, file_name
 
     overlay = mask_outline_overlay(img1, maski, outlines)
 
-    outli = outline_view(
-        img0,
-        maski,
-        boundaries=outlines,
-        color=np.array(outline_color) * 255,
-        channels=channels,
-        channel_axis=channel_axis,
-        skip_formatting=True,
-    )
+    outli = outline_view(img0, maski, boundaries=outlines, color=outline_color)
 
     ax = fig.get_axes()[0]
     fig = imshow(

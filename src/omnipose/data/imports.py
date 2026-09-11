@@ -3,6 +3,9 @@
 Layer 3: depends on L0 (utils, gpu), L1 (transforms), and L2 (io, core).
 """
 
+import numpy as np
+import torch
+
 from ..transforms.imports import normalize99, move_min_dim, torch_zoom
 from ..transforms.tiles import unaugment_tiles_ND, average_tiles_ND, make_tiles_ND
 from ..transforms.augment import random_rotate_and_resize

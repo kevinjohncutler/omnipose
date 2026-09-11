@@ -1,3 +1,6 @@
+"""Top-level model class (:class:`OmniModel`), plus eval/train methods
+and the pretrained-model registry."""
+
 from .imports import *
 from .helpers import resolve_pretrained_model
 

@@ -6,7 +6,6 @@ import numpy as np
 from .logging import models_logger
 from .. import io
 
-_MODEL_URL = 'https://www.cellpose.org/models'
 _MODEL_URL = 'https://raw.githubusercontent.com/kevinjohncutler/omnipose-models/main'
 _MODEL_DIR_ENV = os.environ.get("CELLPOSE_LOCAL_MODELS_PATH")
 _MODEL_DIR_DEFAULT = pathlib.Path.home().joinpath('.cellpose', 'models')

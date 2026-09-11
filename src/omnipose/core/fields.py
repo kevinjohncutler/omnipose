@@ -1,7 +1,7 @@
 from __future__ import annotations
 from .imports import *
 
-from typing import List, Sequence
+from typing import List
 import torch.nn.functional as F
 from scipy.special import expit
 

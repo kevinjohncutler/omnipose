@@ -1,6 +1,6 @@
 """Shared-memory array pool for zero-copy DataLoader workers."""
 
-import numpy as np
+from .imports import *
 from multiprocessing.shared_memory import SharedMemory
 
 

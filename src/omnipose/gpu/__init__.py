@@ -19,6 +19,3 @@ if 'arm' in platform.processor():
     os.environ.setdefault('PARLAY_NUM_THREADS', '1')
 
 from ocdkit.utils.gpu import *
-
-# networks/__init__.py calls assign_device which is get_device
-assign_device = get_device

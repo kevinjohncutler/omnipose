@@ -4,6 +4,7 @@ Layer 2: depends on L0 (utils, gpu) and L1 (transforms) — never io or models.
 """
 
 import time
+from typing import Sequence
 
 import numpy as np
 import torch
@@ -16,6 +17,7 @@ from skimage.segmentation import find_boundaries
 import ncolor
 import fastremap
 import edt
+from numba import njit
 from tqdm import trange
 from dbscan import DBSCAN as new_DBSCAN
 

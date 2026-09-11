@@ -1,4 +1,4 @@
-import numpy as np
+from .imports import *
 import ncolor
 from skimage import color
 

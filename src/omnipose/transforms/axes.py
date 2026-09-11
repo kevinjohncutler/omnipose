@@ -2,7 +2,7 @@
 and is re-exported through ``transforms/imports.py``.
 """
 
-import numpy as np
+from .imports import *
 
 
 def update_axis(m_axis, to_squeeze, ndim):

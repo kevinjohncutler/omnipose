@@ -32,10 +32,9 @@ def _omnipose_bundled_test_files_dir() -> Optional[Path]:
     """Locate the omnipose repo's bundled ``docs/test_files/`` directory.
 
     This is the canonical source of sample images — the repo ships them as
-    part of its notebook + GUI examples, and that's the same set the original
-    ``cellpose_omni.gui`` downloaded on first run. Walks up from this file
-    looking for the directory; works whether omnipose is installed
-    editable from its sub-repo or alongside an omnipose clone.
+    part of its notebook + GUI examples. Walks up from this file looking
+    for the directory; works whether omnipose is installed editable from
+    a clone or as a wheel.
     """
     here = Path(__file__).resolve()
     for parent in here.parents:

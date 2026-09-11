@@ -1,6 +1,6 @@
 import types
 
-import numpy as np
+from .imports import *
 import matplotlib as mpl
 from matplotlib.collections import LineCollection
 from matplotlib.backend_bases import GraphicsContextBase, RendererBase

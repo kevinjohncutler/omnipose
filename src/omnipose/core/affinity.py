@@ -2,8 +2,6 @@ from __future__ import annotations
 from .imports import *
 
 import logging
-from typing import Sequence
-from numba import njit
 
 from .fields import divergence_torch, _pad_and_stack_neighbors, _make_seam_mask
 from .njit import candidate_cleanup_idx

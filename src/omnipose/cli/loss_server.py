@@ -6,17 +6,14 @@ Usage:
     python -m omnipose.cli.loss_server . --port 8080
 """
 
-import argparse
-import json
-import os
-import sys
 import threading
 import time
 import webbrowser
 from hashlib import blake2b
 from http.server import HTTPServer, SimpleHTTPRequestHandler
-from pathlib import Path
 from urllib.parse import urlparse
+
+from .imports import *
 
 HTML_PATH = Path(__file__).with_name('loss_viewer.html')
 

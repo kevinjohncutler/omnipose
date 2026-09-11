@@ -242,20 +242,6 @@ class upsample(nn.Module):
                                 convup(nbase[n], nbase[n-1], nbase[-1], parent, dilation=dilation))
                 
 
-                
-    # def forward(self, style, xd, mkldnn=False): # input style, T0 is xd (the downsampled data, feature map)
-    #     x = self.up[-1](xd[-1], xd[-1], style, mkldnn=mkldnn)
-    #     for n in range(len(self.up)-2,-1,-1):
-    #         if mkldnn:
-    #             x = self.upsampling(x.to_dense()).to_mkldnn()
-    #         else:
-    #             # x = self.upsampling(x)
-    #             x = cp.checkpoint(self.upsampling,x) if self.checkpoint else self.upsampling(x) # checkpoint doesn't do much here
-                
-    #         x =  cp.checkpoint(self.up[n], x, xd[n], style, mkldnn) if self.checkpoint else self.up[n](x, xd[n], style, mkldnn=mkldnn) # ok this one saves a ton of memory,2GB 
-            
-    #     return x
-    
     def forward(self, style, xd, mkldnn=False):  # input style, T0 is xd (the downsampled data, feature map)
         x = xd[-1]  # Start with the deepest feature map
         for n in range(len(self.up)):  # Iterate through all layers
