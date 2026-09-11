@@ -168,8 +168,6 @@ def get_arg_parser():
                                help="Weight for symmetry loss term. Set 0 to disable.")
     training_args.add_argument("--affinity_field", action="store_true",
                                help="Use summed affinity instead of distance field.")
-    training_args.add_argument("--tensorboard", action="store_true",
-                               help="Enable TensorBoard logging for training visualization")
 
     # settings for CPU vs GPU
     hardware_args = parser.add_argument_group("hardware arguments")

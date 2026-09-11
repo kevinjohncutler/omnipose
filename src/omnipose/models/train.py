@@ -1,5 +1,3 @@
-import sys
-
 from .imports import *
 from . import run_metadata
 
@@ -54,7 +52,7 @@ def train(self, train_data, train_labels, train_links=None,
           learning_rate=0.2, n_epochs=500, momentum=0.9, SGD=True,
           weight_decay=0.00001, batch_size=8, num_workers=-1, nimg_per_epoch=None,
           do_rescale=True, min_train_masks=5, netstr=None, tyx=None, timing=False, do_autocast=False,
-          affinity_field=False, tensorboard=False, sym_kernels=False,
+          affinity_field=False, sym_kernels=False,
           symmetry_weight=1.0, compile=False, **kwargs):
 
     """ train network with images train_data 
@@ -316,7 +314,6 @@ def _train_step(self, x, lbl, symmetry_weight=1):
     backward_and_step(loss)
 
     train_loss = raw_loss.detach()
-    # Store raw_losses dict for TensorBoard logging (values already detached in core_loss)
     self._last_raw_losses = raw_losses
     return train_loss
 
@@ -382,12 +379,8 @@ def _init_loss_history(self):
         # Individual raw loss components (before scale_to_tenths)
         'raw_losses': [],
     }
-    self._tb_writer = None
     self._loss_history_path = None  # Set when save_path is known
     self._last_raw_losses = None  # Populated by _train_step
-    self._raw_loss_min = {}  # Min for normalization
-    self._raw_loss_max = {}  # Max for normalization
-    self._raw_loss_count = {}  # Count for warmup
 
 
 def _log_loss(self, epoch, batch, train_loss, epoch_loss=None):
@@ -411,48 +404,6 @@ def _log_loss(self, epoch, batch, train_loss, epoch_loss=None):
     else:
         self.loss_history['raw_losses'].append(None)
 
-    # TensorBoard logging if enabled
-    if self._tb_writer is not None:
-        global_step = epoch * getattr(self, '_steps_per_epoch', 1) + batch
-        self._tb_writer.add_scalar('Loss/batch', train_loss, global_step)
-        if epoch_loss is not None:
-            self._tb_writer.add_scalar('Loss/epoch', epoch_loss, global_step)
-
-        # Log min-max normalized losses (0-1 scale)
-        # Track min/max continuously and normalize
-        if raw_losses is not None:
-            for name, value in raw_losses.items():
-                val_f = float(value)
-                self._raw_loss_count[name] = self._raw_loss_count.get(name, 0) + 1
-                # Update min/max
-                if name not in self._raw_loss_min:
-                    self._raw_loss_min[name] = val_f
-                    self._raw_loss_max[name] = val_f
-                else:
-                    self._raw_loss_min[name] = min(self._raw_loss_min[name], val_f)
-                    self._raw_loss_max[name] = max(self._raw_loss_max[name], val_f)
-
-            # After warmup, start logging normalized values
-            first_loss = next(iter(raw_losses.keys()))
-            if self._raw_loss_count.get(first_loss, 0) >= 5:
-                norm_dict = {}
-                for name, value in raw_losses.items():
-                    val_f = float(value)
-                    lo = self._raw_loss_min[name]
-                    hi = self._raw_loss_max[name]
-                    rng = hi - lo
-                    norm_dict[name] = (val_f - lo) / rng if rng > 1e-12 else 0.5
-                self._tb_writer.add_scalars('0_Loss', norm_dict, global_step)
-
-
-def _enable_tensorboard(self, log_dir):
-    """Enable TensorBoard logging."""
-    from torch.utils.tensorboard import SummaryWriter
-    self._tb_writer = SummaryWriter(log_dir)
-    core_logger.info(f'>>>> TensorBoard logging enabled at {log_dir}')
-    core_logger.info(f'>>>> To view: python -m tensorboard.main --logdir="{log_dir}"')
-    core_logger.info(f'>>>> Open http://localhost:6006 - normalized losses overlaid at top (0_Loss)')
-
 
 def _save_loss_history(self, path):
     """Save loss history to JSON file."""
@@ -472,16 +423,10 @@ def _train_net(self, train_data, train_labels, train_links, test_data=None, test
                SGD=True, batch_size=8, num_workers=-1, nimg_per_epoch=None,
                do_rescale=True, affinity_field=False,
                netstr=None, do_autocast=False, tyx=None, timing=False,
-               tensorboard=False, sym_kernels=False,
+               sym_kernels=False,
                symmetry_weight=1.0, compile=False,
                norm_params=None, channel_axis=None):
-    """ train function uses loss function core_loss in models.py
-
-        Additional parameters:
-        tensorboard: bool (default False)
-            Enable TensorBoard logging. Logs will be saved to save_path/tensorboard/
-
-    """
+    """ train function uses loss function core_loss in models.py """
 
     # Resolve num_workers: -1 means "auto" (use workers when GPU is available)
     if num_workers < 0:
@@ -533,12 +478,6 @@ def _train_net(self, train_data, train_labels, train_links, test_data=None, test
     self._init_loss_history()
     self.sym_kernels = bool(sym_kernels)
     self.symmetry_weight = float(symmetry_weight)
-
-    # Enable TensorBoard if requested
-    if tensorboard and save_path is not None:
-        tb_dir = os.path.join(save_path, 'tensorboard')
-        check_dir(tb_dir)
-        self._enable_tensorboard(tb_dir)
 
     # Loss history path will be set after netstr is determined (first save)
     # to include model name in the filename
@@ -753,7 +692,6 @@ def _train_net(self, train_data, train_labels, train_links, test_data=None, test
     train_loader = torch.utils.data.DataLoader(training_set, **params)
 
     steps_per_epoch = len(batch_sampler)
-    self._steps_per_epoch = steps_per_epoch  # Store for TensorBoard global step
     loader_iter = iter(train_loader)
 
     # for debugging
@@ -842,9 +780,6 @@ def _train_net(self, train_data, train_labels, train_links, test_data=None, test
 
             # Compute and log epoch-level loss
             epoch_avg_loss = lsum / nsum if nsum > 0 else 0
-            if self._tb_writer is not None:
-                self._tb_writer.add_scalar('Loss/epoch_avg', epoch_avg_loss, epoch)
-                self._tb_writer.add_scalar('LearningRate', self.learning_rate[epoch], epoch)
 
             lsum, nsum = 0, 0
 
@@ -916,10 +851,6 @@ def _train_net(self, train_data, train_labels, train_links, test_data=None, test
                 )
             except Exception as _exc:  # noqa: BLE001 — don't mask training error
                 core_logger.warning(f'Failed to finalize run.json: {_exc}')
-
-        if self._tb_writer is not None:
-            self._tb_writer.close()
-            self._tb_writer = None
 
         # Delete DataLoader and iterator first so workers stop touching shm before we unlink.
         try:

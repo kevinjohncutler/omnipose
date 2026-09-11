@@ -1,14 +1,12 @@
 from __future__ import annotations
 
-import logging
-import os
-import sys
 import random
 
 import numpy as np
 from tqdm import tqdm
 import torch
 
+from .imports import *
 from .. import io, models, utils
 from ..gpu import seed_all, get_device
 from ..logger import TqdmToLogger
@@ -245,7 +243,6 @@ def _run_training(args) -> None:
         timing=args.timing,
         do_autocast=args.amp,
         affinity_field=args.affinity_field,
-        tensorboard=args.tensorboard,
         sym_kernels=args.sym_kernels,
         symmetry_weight=args.symmetry_weight,
     )
