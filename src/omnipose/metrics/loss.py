@@ -51,6 +51,55 @@ class WeightedMSELoss(torch.nn.Module):
 
   
         
+def nearest_interp_batched(vf, points):
+    """Correct ND nearest-neighbour sampling of a batched vector field.
+
+    Parameters
+    ----------
+    vf : torch.Tensor
+        Vector field, shape ``(B, D, *spatial)``.
+    points : torch.Tensor
+        Sample coordinates in ``ij`` order, shape ``(B, D, *spatial)``.
+
+    Returns
+    -------
+    torch.Tensor
+        ``vf`` sampled at ``round(clamp(points))``, shape ``(B, D, *spatial)``.
+
+    Notes
+    -----
+    Replaces ``torchvf.numerics ... nearest_interpolation_batched``, which used
+    ``vf.gather(-1, points)`` and therefore only indexed the LAST spatial axis:
+    every non-last flow component was sampled along that axis (a diagonal
+    smear), so in ND only 1 of D components was correct. That bug produced the
+    streaked ``lossE`` / ``lossA`` maps and distorted the affinity/Euler loss in
+    both 2D and 3D. Here we build a proper linear index over all spatial strides
+    so every component is sampled at the correct ND location.
+    """
+    B, D, *dims = vf.shape
+    idx = [torch.clamp(points[:, k], 0, dims[k] - 1).round().long() for k in range(D)]
+    strides = [1] * D
+    for k in range(D - 2, -1, -1):
+        strides[k] = strides[k + 1] * dims[k + 1]
+    lin = sum(idx[k] * strides[k] for k in range(D))              # (B, *spatial)
+    Tshape = lin.shape[1:]
+    lin_exp = lin.unsqueeze(1).expand(B, D, *Tshape).reshape(B, D, -1)
+    return torch.gather(vf.reshape(B, D, -1), -1, lin_exp).reshape(B, D, *Tshape)
+
+
+def ivp_euler_batched(vf, init, dx, n_steps):
+    """Fixed-step Euler integration of points through a nearest-sampled field.
+
+    Equivalent to the (corrected) torchvf ``ivp_solver(..., solver='euler')``
+    path: at each step sample ``vf`` at the current points and advance by
+    ``dx``. Returns the FINAL points only (shape matches ``init``).
+    """
+    points = init
+    for _ in range(n_steps):
+        points = points + dx * nearest_interp_batched(vf, points)
+    return points
+
+
 class AffinityLoss(torch.nn.Module):
 
     def __init__(self,device,dim):
@@ -127,7 +176,11 @@ class AffinityLoss(torch.nn.Module):
         coords = [torch.arange(0, l, device = self.device) for l in dims]
         mesh = torch.meshgrid(coords, indexing = "ij")
         init_shape = [B, 1] + ([1] * len(dims))
-        initial_points = torch.stack(mesh, dim = 0) # torchvf flips with mesh[::-1]
+        # ij-order identity grid: initial_points[:, k] is the coordinate along
+        # spatial axis k, matching flow[:, k] and nearest_interp_batched (which
+        # clamps component k to dims[k]). Do NOT flip to xy — that was the source
+        # of the old torchvf axis confusion.
+        initial_points = torch.stack(mesh, dim = 0)
         initial_points = initial_points.repeat(init_shape).float()
 
         coords = torch.nonzero(foreground,as_tuple=True)
@@ -149,11 +202,12 @@ class AffinityLoss(torch.nn.Module):
         flow_all = torch.cat([flow_pred, flow_gt], dim=0)
         initial_points_all = torch.cat([initial_points, initial_points], dim=0)
 
-        vf_all = interp_vf(flow_all, mode="nearest_batched")
-        final_points_all = ivp_solver(vf_all, initial_points_all,
-                                      dx=np.sqrt(self.dim)/5,
-                                      n_steps=2,
-                                      solver="euler")[-1]
+        # Corrected in-house flow-following (see nearest_interp_batched):
+        # torchvf's nearest_interpolation_batched only indexed the last spatial
+        # axis, smearing every other flow component and distorting lossA/lossE/B.
+        final_points_all = ivp_euler_batched(flow_all, initial_points_all,
+                                             dx=np.sqrt(self.dim)/5,
+                                             n_steps=2)
 
         fp_pred, fp_gt = torch.chunk(final_points_all, 2, dim=0)
 
