@@ -5,7 +5,8 @@ import pytest
 from matplotlib.figure import Figure
 from matplotlib.backends.backend_agg import FigureCanvasAgg as FigureCanvas
 
-from omnipose.plot.display import image_to_rgb, outline_view
+from omnipose.plot.display import image_to_rgb
+from omnipose.plot import outline_view
 from omnipose.plot.overlay import channel_overlay, mask_outline_overlay
 from omnipose.plot.edges import GC, custom_new_gc, plot_edges
 

@@ -337,7 +337,6 @@ def test_run_training_batches(monkeypatch):
         timing=False,
         amp=False,
         affinity_field=False,
-        tensorboard=False,
         sym_kernels=False,
         symmetry_weight=1.0,
     )

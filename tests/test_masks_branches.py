@@ -215,3 +215,42 @@ def test_get_masks_cp_dim3():
     assert out.shape == p.shape[1:]
 
 
+
+
+def test_compute_masks_empty_result_is_numpy():
+    """The 'no cell pixels' branch must not leak the torch `iscell` tensor.
+
+    On the GPU hysteresis path `iscell` is a tensor; callers cast the returned
+    labels with `.astype(...)`, so returning it directly raised
+    ``AttributeError: 'Tensor' object has no attribute 'astype'`` whenever a
+    threshold/rescale combination left no foreground.
+    """
+    import numpy as np
+    import torch
+    from omnipose.core import compute_masks
+
+    dP = np.zeros((2, 24, 24), np.float32)
+    dist = np.full((24, 24), -5.0, np.float32)  # nothing clears the threshold
+    bd = np.zeros((24, 24), np.float32)
+
+    for use_gpu, device in _empty_branch_devices():
+        out = compute_masks(dP=dP, dist=dist, bd=bd, mask_threshold=0.0,
+                            affinity_seg=True, omni=True, nclasses=3, dim=2,
+                            use_gpu=use_gpu, device=device)
+        mask = out[0]
+        assert isinstance(mask, np.ndarray), f"tensor leaked with use_gpu={use_gpu}"
+        assert int(mask.sum()) == 0
+        mask.astype(np.uint32)  # the call that used to raise
+
+
+def _empty_branch_devices():
+    """(use_gpu, device) pairs to exercise: always CPU, plus GPU when present."""
+    cases = [(False, None)]
+    try:
+        from omnipose.gpu import get_device
+        device, available = get_device(gpu_number=0)
+        if available:
+            cases.append((True, device))
+    except Exception:
+        pass
+    return cases
