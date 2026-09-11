@@ -1,5 +1,4 @@
 from __future__ import annotations
-from typing import Sequence
 
 from .imports import *
 
@@ -225,7 +224,13 @@ def masks_to_flows(masks, affinity_graph=None, dists=None, coords=None, links=No
             device = torch_GPU
         else:
             device = torch_CPU
-    
+
+    # MPS kernel-launch overhead dominates _iterate for small masks
+    # (npix < ~300k); routing through CPU is faster and avoids warm
+    # MPS state.  Doesn't apply to CUDA (cheaper launches).
+    if device.type == 'mps' and affinity_graph.shape[-1] < 300_000:
+        device = torch_CPU
+
     if masks.ndim==3 and dim==2:
         # this branch preserves original 3D approach 
         print('Sorry, this branch has not yet been updated - do not use omnipiose for this')

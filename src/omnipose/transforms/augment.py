@@ -1,15 +1,10 @@
 from __future__ import annotations
 
-import numpy as np
 import mgen
-import fastremap
 from scipy.ndimage import affine_transform, gaussian_filter
-
-import torch
 import torch.nn.functional as _F
 
-from .. import utils
-from .imports import Result, normalize99, rescale, border_indices, to_16_bit, diameters
+from .imports import *
 
 
 # scipy boundary mode → torch grid_sample padding_mode
@@ -85,23 +80,7 @@ _border_mask_cache: dict = {}
 # Cache for Gaussian blur kernels: (rounded_sigma, ndim, device_str) → kernel
 _blur_kernel_cache: dict = {}
 
-# Cached capability flags — probed once per device type on first use.
-_grid3d_cap: dict = {}   # (device_type, mode) → bool
-
-def _supports_grid3d(device, mode: str = 'bilinear') -> bool:
-    """True if device supports 3D grid_sample with the given interpolation mode."""
-    dtype = getattr(device, 'type', str(device))
-    key = (dtype, mode)
-    if key not in _grid3d_cap:
-        try:
-            dev = torch.device(dtype)
-            _F.grid_sample(torch.zeros(1, 1, 2, 2, 2, device=dev),
-                           torch.zeros(1, 2, 2, 2, 3, device=dev),
-                           mode=mode, align_corners=True)
-            _grid3d_cap[key] = True
-        except (NotImplementedError, RuntimeError):
-            _grid3d_cap[key] = False
-    return _grid3d_cap[key]
+from ocdkit.utils.gpu import supports_grid3d as _supports_grid3d
 
 
 def _build_grid_nd(M_inv, offset, s_in, tyx, device):

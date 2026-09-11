@@ -176,7 +176,7 @@ class TestSupportsGrid3d:
 
     def test_caching(self):
         """Second call should hit cache."""
-        from omnipose.transforms.augment import _grid3d_cap
+        from ocdkit.utils.gpu import _grid3d_cap
         _grid3d_cap.clear()
         _supports_grid3d(torch.device('cpu'))
         assert ('cpu', 'bilinear') in _grid3d_cap
@@ -185,13 +185,13 @@ class TestSupportsGrid3d:
 
     def test_unsupported_device_returns_false(self, monkeypatch):
         """Simulate a device that doesn't support 3D grid_sample."""
-        from omnipose.transforms import augment as aug_mod
-        orig = aug_mod._grid3d_cap
-        aug_mod._grid3d_cap = {}
-        monkeypatch.setattr(aug_mod._F, 'grid_sample',
+        from ocdkit.utils import gpu as gpu_mod
+        orig = gpu_mod._grid3d_cap
+        gpu_mod._grid3d_cap = {}
+        monkeypatch.setattr(gpu_mod._F, 'grid_sample',
                             lambda *a, **kw: (_ for _ in ()).throw(NotImplementedError))
         result = _supports_grid3d(torch.device('cpu'))
-        aug_mod._grid3d_cap = orig
+        gpu_mod._grid3d_cap = orig
         assert result is False
 
 

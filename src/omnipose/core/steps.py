@@ -1,6 +1,19 @@
 from .imports import *
 
+from ocdkit.utils.gpu import supports_grid3d
 from .fields import step_factor
+
+
+def _resolve_grid_mode(want_mode: str, device, dim: int) -> str:
+    """Fall back nearest -> bilinear when the device lacks 3D nearest support.
+
+    grid_sample on flow values is sampling a continuous field, so bilinear
+    is a benign fallback. Used for MPS in particular, where 3D nearest is
+    only supported on torch nightly (>=2.12) as of May 2026.
+    """
+    if dim == 3 and want_mode == 'nearest' and not supports_grid3d(device, mode='nearest'):
+        return 'bilinear'
+    return want_mode
 
 
 def _sample_flow_grid(dP_t, positions, sizes, dim):
@@ -69,6 +82,7 @@ def _follow_flows_sparse(flow, mask, niter, device, suppress=False, interp=True)
 
     # Match steps_batch: suppress forces nearest interpolation
     mode = 'bilinear' if (interp and not suppress) else 'nearest'
+    mode = _resolve_grid_mode(mode, device, dim)
 
     if dim == 2:
         def _grid(q): return torch.stack([q[1], q[0]], dim=-1).view(1, 1, -1, 2)
@@ -142,6 +156,7 @@ def steps_batch(p, dP, niter, omni=True, suppress=True, interp=True,
 
     interp = interp and not suppress
     mode = 'bilinear' if interp else 'nearest'
+    mode = _resolve_grid_mode(mode, dP.device, dP.ndim - 2)
 
     d = dP.shape[1]
     shape = dP.shape[2:]
