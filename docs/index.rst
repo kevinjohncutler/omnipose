@@ -3,8 +3,8 @@
 |
 
 .. include:: ../README.rst
-   :start-after: |PyPI version|
-   :end-before: Try out Omnipose online
+   :start-after: .. _intro_start:
+   :end-before: .. _intro_stop:
 
 .. _project-structure:
 

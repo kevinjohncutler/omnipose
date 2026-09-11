@@ -210,4 +210,4 @@ To train the ``bact_phase_omni`` model from scratch using the same parameters fr
 
 .. include:: ../README.rst
    :start-after: .. _3d-omnipose:
-   :end-before: To evaluate Omnipose models on 3D data
+   :end-before: .. _3d_omnipose_stop:
